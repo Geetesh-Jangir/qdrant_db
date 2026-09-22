@@ -147,7 +147,7 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
 
-    holdings_limit: int = 10
+    holdings_limit: int = 5
     sectors_limit: int = 5
     title_noul_min: float = 0.7
     about_name_min: float = 0.7

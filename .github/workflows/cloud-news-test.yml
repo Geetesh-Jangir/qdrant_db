@@ -1,0 +1,71 @@
+# Manual cloud run to see if Google News RSS still returns 503 from GitHub's network.
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   For "rss-only": none required
+#   For "full-pipeline": JEV_BASE_URL, JEV_API_KEY, QDRANT_URL
+#   Optional: QDRANT_API_KEY, JEV_MODEL
+#
+# After the run: Actions → workflow run → Artifacts → news-runs
+
+name: Cloud news test
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: What to run
+        required: true
+        default: rss-only
+        type: choice
+        options:
+          - rss-only
+          - full-pipeline
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      JEV_BASE_URL: ${{ secrets.JEV_BASE_URL }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+      JEV_MODEL: ${{ secrets.JEV_MODEL }}
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
+      QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      FRESH_START_EACH_RUN: "false"
+      FRESH_START_CLEAR_QDRANT: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache Hugging Face models
+        if: inputs.mode == 'full-pipeline'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Google RSS test only (no Jev / Qdrant)
+        if: inputs.mode == 'rss-only'
+        run: python scripts/test_google_rss.py
+
+      - name: Full news pipeline
+        if: inputs.mode == 'full-pipeline'
+        run: python -m news_pipeline
+
+      - name: Upload run logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-runs
+          path: data/news_runs/
+          if-no-files-found: warn
