@@ -1,0 +1,11 @@
+.env
+.env.example
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+data/qdrant_storage/
+data/news_runs/*.json
+data/news_runs/*.log
+data/news_scrape_cache/
+data/fund_holdings_aggregate/*.json
