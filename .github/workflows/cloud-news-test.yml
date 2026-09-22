@@ -38,6 +38,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Prepare output directory
+        run: mkdir -p data/news_runs
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -56,10 +59,14 @@ jobs:
 
       - name: Google RSS test only (no Jev / Qdrant)
         if: inputs.mode == 'rss-only'
+        working-directory: ${{ github.workspace }}
         run: python scripts/test_google_rss.py
 
       - name: Full news pipeline
         if: inputs.mode == 'full-pipeline'
+        working-directory: ${{ github.workspace }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
         run: python -m news_pipeline
 
       - name: Upload run logs
@@ -67,5 +74,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: news-runs
-          path: data/news_runs/
-          if-no-files-found: warn
+          path: |
+            data/news_runs/*.log
+            data/news_runs/*.json
+          if-no-files-found: error
