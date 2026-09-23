@@ -34,6 +34,10 @@ _INDEXES = (
     ("published_at", PayloadSchemaType.DATETIME),
     ("scraped_at", PayloadSchemaType.DATETIME),
     ("entity_names", PayloadSchemaType.KEYWORD),
+    ("industry_names", PayloadSchemaType.KEYWORD),
+    ("primary_industry", PayloadSchemaType.KEYWORD),
+    ("holding_names", PayloadSchemaType.KEYWORD),
+    ("sector_names", PayloadSchemaType.KEYWORD),
     ("source", PayloadSchemaType.KEYWORD),
     ("max_relevance", PayloadSchemaType.INTEGER),
     ("max_impact", PayloadSchemaType.INTEGER),
@@ -52,6 +56,10 @@ _LIST_FIELDS = [
     "direction",
     "event_type",
     "entity_names",
+    "industry_names",
+    "primary_industry",
+    "holding_names",
+    "sector_names",
 ]
 
 
@@ -226,6 +234,7 @@ class NewsStore:
         self,
         *,
         entity_names: list[str] | None = None,
+        industry_names: list[str] | None = None,
         published_from: str | None = None,
         published_to: str | None = None,
         scraped_from: str | None = None,
@@ -240,6 +249,7 @@ class NewsStore:
     ) -> list[dict]:
         filt = self._filter(
             entity_names=entity_names,
+            industry_names=industry_names,
             published_from=published_from,
             published_to=published_to,
             scraped_from=scraped_from,
@@ -315,6 +325,7 @@ class NewsStore:
         self,
         *,
         entity_names: list[str] | None = None,
+        industry_names: list[str] | None = None,
         published_from: str | None = None,
         published_to: str | None = None,
         scraped_from: str | None = None,
@@ -330,6 +341,8 @@ class NewsStore:
         ]
         if entity_names:
             must.append(FieldCondition(key="entity_names", match=MatchAny(any=entity_names)))
+        if industry_names:
+            must.append(FieldCondition(key="industry_names", match=MatchAny(any=industry_names)))
         if source:
             must.append(FieldCondition(key="source", match=MatchValue(value=source)))
         if direction:

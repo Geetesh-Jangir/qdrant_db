@@ -1,12 +1,14 @@
 """
 Fetch fund data for each ISIN and aggregate sectors (>3%) and holdings (>2%).
+
+Holdings include `industry` from data.portfolio.holdings[].industry (Accord sector label).
 """
 from __future__ import annotations
 
 import json
 import re
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.error import HTTPError, URLError
@@ -42,6 +44,15 @@ def clean_display_name(name: str) -> str:
     return s
 
 
+def clean_industry(name: str | None) -> str:
+    if not name:
+        return ""
+    s = clean_display_name(str(name))
+    if s.lower() in ("null", "none", "-"):
+        return ""
+    return s
+
+
 def normalize_holding(name: str) -> str:
     s = name.strip()
     s = re.sub(r"[£$‡]", "", s)
@@ -56,7 +67,6 @@ def normalize_holding(name: str) -> str:
     s = re.sub(r"\bordinary shares\b", "", s)
     s = re.sub(r"[^\w\s&/-]", "", s)
     s = re.sub(r"\s+", " ", s).strip()
-    # Cash / repo lines often differ only by date or label
     if s.startswith("treps") or s == "treps":
         return "treps"
     if "triparty repo" in s or s.startswith("triparty repo"):
@@ -134,6 +144,7 @@ def fetch_fund(isin: str) -> dict | None:
         holdings.append(
             {
                 "instrument_name": name.strip(),
+                "industry": clean_industry(item.get("industry")),
                 "percentage": round(pct_f, 4),
             }
         )
@@ -144,6 +155,20 @@ def fetch_fund(isin: str) -> dict | None:
         "sectors_above_3pct": sectors,
         "holdings_above_2pct": holdings,
     }
+
+
+def _pick_industry(counter: Counter) -> str:
+    if not counter:
+        return ""
+    return counter.most_common(1)[0][0]
+
+
+def _canonical_industry(raw: str, sector_by_key: dict[str, str]) -> str:
+    cleaned = clean_industry(raw)
+    if not cleaned:
+        return ""
+    key = normalize_sector(cleaned)
+    return sector_by_key.get(key, cleaned)
 
 
 def run():
@@ -158,7 +183,12 @@ def run():
         lambda: {"total_percentage": 0.0, "fund_count": 0, "display_name": ""}
     )
     holding_agg: dict[str, dict] = defaultdict(
-        lambda: {"total_percentage": 0.0, "fund_count": 0, "display_name": ""}
+        lambda: {
+            "total_percentage": 0.0,
+            "fund_count": 0,
+            "display_name": "",
+            "industry_votes": Counter(),
+        }
     )
 
     start = time.time()
@@ -199,8 +229,13 @@ def run():
                     entry["display_name"] = clean
                 entry["total_percentage"] += h["percentage"]
                 entry["fund_count"] += 1
+                industry = clean_industry(h.get("industry"))
+                if industry:
+                    entry["industry_votes"][industry] += 1
 
-    def finalize_agg(agg: dict[str, dict]) -> list[dict]:
+    sector_by_key = {key: value["display_name"] for key, value in sector_agg.items()}
+
+    def finalize_sectors(agg: dict[str, dict]) -> list[dict]:
         rows = []
         for _key, value in agg.items():
             rows.append(
@@ -213,8 +248,24 @@ def run():
         rows.sort(key=lambda item: (-item["total_percentage"], item["name"].lower()))
         return rows
 
-    sectors_summary = finalize_agg(sector_agg)
-    holdings_summary = finalize_agg(holding_agg)
+    def finalize_holdings(agg: dict[str, dict]) -> list[dict]:
+        rows = []
+        for _key, value in agg.items():
+            raw_industry = _pick_industry(value["industry_votes"])
+            industry = _canonical_industry(raw_industry, sector_by_key)
+            rows.append(
+                {
+                    "name": value["display_name"],
+                    "industry": industry,
+                    "total_percentage": round(value["total_percentage"], 4),
+                    "fund_count": value["fund_count"],
+                }
+            )
+        rows.sort(key=lambda item: (-item["total_percentage"], item["name"].lower()))
+        return rows
+
+    sectors_summary = finalize_sectors(sector_agg)
+    holdings_summary = finalize_holdings(holding_agg)
 
     sectors_csv = OUT_DIR / "aggregated_sectors.csv"
     with sectors_csv.open("w", encoding="utf-8") as handle:
@@ -224,17 +275,38 @@ def run():
             handle.write(f'"{name}",{row["total_percentage"]},{row["fund_count"]}\n')
 
     holdings_csv = OUT_DIR / "aggregated_holdings.csv"
-    with holdings_csv.open("w", encoding="utf-8") as handle:
-        handle.write("instrument_name,total_percentage,fund_count\n")
+    with holdings_csv.open("w", encoding="utf-8", newline="") as handle:
+        handle.write("instrument_name,industry,total_percentage,fund_count\n")
         for row in holdings_summary:
             name = row["name"].replace('"', '""')
-            handle.write(f'"{name}",{row["total_percentage"]},{row["fund_count"]}\n')
+            industry = (row["industry"] or "").replace('"', '""')
+            handle.write(
+                f'"{name}","{industry}",{row["total_percentage"]},{row["fund_count"]}\n'
+            )
+
+    holdings_map = {
+        row["name"]: {
+            "industry": row["industry"],
+            "total_percentage": row["total_percentage"],
+            "fund_count": row["fund_count"],
+        }
+        for row in holdings_summary
+    }
+    map_path = OUT_DIR / "aggregated_holdings_map.json"
+    map_path.write_text(json.dumps(holdings_map, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    errors_path = OUT_DIR / "aggregate_errors.json"
+    if errors:
+        errors_path.write_text(json.dumps(errors[:500], indent=2), encoding="utf-8")
 
     print(f"\nDone in {time.time() - start:.1f}s")
     print(f"  OK: {ok_count}  Errors: {len(errors)}")
     print(f"  Sectors: {len(sectors_summary)}  Holdings: {len(holdings_summary)}")
     print(f"  Written: {sectors_csv}")
     print(f"  Written: {holdings_csv}")
+    print(f"  Written: {map_path}")
+    if errors:
+        print(f"  Errors sample: {errors_path}")
 
 
 def _has_markers(name: str) -> bool:

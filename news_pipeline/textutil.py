@@ -125,9 +125,18 @@ def contains_phrase(text: str, phrase: str) -> bool:
     return re.search(pattern, text, flags=re.IGNORECASE) is not None
 
 
-def embedding_text(title: str, body: str, char_limit: int) -> str:
+def embedding_text(
+    title: str,
+    body: str,
+    char_limit: int,
+    *,
+    industries: list[str] | None = None,
+) -> str:
     snippet = " ".join((body or "").split())[:char_limit]
-    return f"{title.strip()}\n\n{snippet}".strip()
+    prefix = ""
+    if industries:
+        prefix = " | ".join(industries) + " | "
+    return f"{prefix}{title.strip()}\n\n{snippet}".strip()
 
 
 def truncate_words(text: str, word_limit: int) -> str:

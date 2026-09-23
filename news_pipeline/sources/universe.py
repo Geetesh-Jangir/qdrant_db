@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import logging
 import re
 from collections import defaultdict
 
@@ -96,15 +97,19 @@ def load_holdings(settings: Settings) -> list[dict]:
                 continue
             fund_count = int(float(row.get("fund_count") or 0))
             total_percentage = float(row.get("total_percentage") or 0)
+            industry = (row.get("industry") or "").strip()
             existing = grouped.get(key)
             if existing is None:
                 grouped[key] = {
                     "name": raw_name,
+                    "industry": industry,
                     "fund_count": fund_count,
                     "total_percentage": total_percentage,
                 }
                 continue
             existing["name"] = _display_name(existing["name"], raw_name, existing["fund_count"], fund_count)
+            if not existing.get("industry") and industry:
+                existing["industry"] = industry
             if fund_count > existing["fund_count"]:
                 existing["fund_count"] = fund_count
                 existing["total_percentage"] = total_percentage
@@ -143,7 +148,8 @@ def _with_holding_aliases(rows: list[dict]) -> list[dict]:
             {
                 "name": display,
                 "type": "holding",
-                "query": f"\"{row['short']}\"",
+                "industry": row.get("industry") or "",
+                "query": _holding_query(row),
                 "aliases": row["aliases"],
                 "negative_aliases": negatives,
                 "keywords": [],
@@ -185,6 +191,59 @@ def _lookalike(row: dict, other: dict, token_owners: dict[str, set[str]]) -> boo
     return False
 
 
+def _industry_search_hint(industry: str) -> str:
+    """Short phrase for Google when the company name alone is ambiguous."""
+    mapped = None
+    for key, spec in SECTOR_QUERIES.items():
+        if key.casefold() == industry.casefold():
+            mapped = spec.query
+            break
+    if mapped:
+        return mapped.split()[0] if mapped.split() else industry
+    return industry.split()[0] if industry.split() else industry
+
+
+def _needs_industry_query_hint(row: dict) -> bool:
+    short = row.get("short") or row["name"]
+    if row.get("negative_aliases"):
+        return True
+    tokens = [token for token in short.split() if token]
+    if len(tokens) <= 2 and len(short) < 22:
+        return True
+    return False
+
+
+def _holding_query(row: dict) -> str:
+    short = row.get("short") or row["name"]
+    base = f'"{short}"'
+    industry = (row.get("industry") or "").strip()
+    if industry and _needs_industry_query_hint(row):
+        hint = _industry_search_hint(industry)
+        return f"{base} {hint} India"
+    return base
+
+
+def sector_query_gaps(settings: Settings, limit: int = 20) -> list[tuple[str, int]]:
+    """Sectors in aggregate CSV that have no Google query mapping in SECTOR_QUERIES."""
+    path = settings.path(settings.sectors_csv)
+    query_keys = {name.casefold() for name in SECTOR_QUERIES}
+    gaps: list[tuple[str, int]] = []
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            name = (row.get("sector") or "").strip()
+            if not name:
+                continue
+            lowered = name.casefold()
+            if any(fragment in lowered for fragment in SECTOR_BLOCK_FRAGMENTS):
+                continue
+            if lowered in query_keys:
+                continue
+            fund_count = int(float(row.get("fund_count") or 0))
+            gaps.append((name, fund_count))
+    gaps.sort(key=lambda item: (-item[1], item[0].lower()))
+    return gaps[:limit] if limit > 0 else gaps
+
+
 def _two_word_alias(short: str) -> str:
     """Headline form such as 'SBI Life' from 'SBI Life Insurance Company'."""
     parts = [
@@ -200,10 +259,17 @@ def _two_word_alias(short: str) -> str:
     return alias
 
 
-def load_sectors(settings: Settings) -> list[dict]:
+def load_sectors(settings: Settings, holdings: list[dict] | None = None) -> list[dict]:
     path = settings.path(settings.sectors_csv)
     query_by_name = {name.casefold(): (name, spec) for name, spec in SECTOR_QUERIES.items()}
+    industry_holding_counts: dict[str, int] = defaultdict(int)
+    for row in holdings or []:
+        industry = (row.get("industry") or "").strip()
+        if industry:
+            industry_holding_counts[industry.casefold()] += 1
+    skip_threshold = settings.sector_skip_when_holdings_in_industry
     found: list[dict] = []
+    skipped: list[str] = []
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             name = (row.get("sector") or "").strip()
@@ -215,11 +281,15 @@ def load_sectors(settings: Settings) -> list[dict]:
             mapped = query_by_name.get(lowered)
             if mapped is None:
                 continue
+            if skip_threshold > 0 and industry_holding_counts.get(lowered, 0) >= skip_threshold:
+                skipped.append(name)
+                continue
             _label, spec = mapped
             found.append(
                 {
                     "name": name,
                     "type": "sector",
+                    "industry": name,
                     "query": spec.query,
                     "aliases": [],
                     "negative_aliases": [],
@@ -229,8 +299,17 @@ def load_sectors(settings: Settings) -> list[dict]:
                 }
             )
     found.sort(key=lambda item: (-item["fund_count"], item["name"].lower()))
-    return found[: settings.sectors_limit]
+    selected = found[: settings.sectors_limit]
+    if skipped:
+        logging.getLogger(__name__).info(
+            "load_sectors skipped %s sector(s) covered by top holdings: %s",
+            len(skipped),
+            ", ".join(skipped[:8]),
+        )
+    return selected
 
 
 def load_universe(settings: Settings) -> list[dict]:
-    return load_holdings(settings) + load_sectors(settings)
+    holdings = load_holdings(settings)
+    sectors = load_sectors(settings, holdings=holdings)
+    return holdings + sectors

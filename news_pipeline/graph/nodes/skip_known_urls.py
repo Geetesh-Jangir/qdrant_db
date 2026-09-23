@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from news_pipeline.graph.state import PipelineState
+from news_pipeline.run_log import get_run_logger
 from news_pipeline.services import get_store
 from news_pipeline.textutil import point_id_for_url
 
@@ -13,13 +14,29 @@ logger = logging.getLogger(__name__)
 
 def skip_known_urls(state: PipelineState) -> dict:
     hits = state.get("candidates") or []
+    run_log = get_run_logger()
+    if run_log is not None:
+        run_log.write(f"skip_known_urls started raw_hits={len(hits)}")
+
     merged = _merge_by_url(hits)
+    multi = sum(1 for row in merged if len(row.get("matches") or []) > 1)
     store = get_store()
     known = store.existing_ids([row["url"] for row in merged])
     fresh = [row for row in merged if point_id_for_url(row["url"]) not in known]
+    skipped = len(merged) - len(fresh)
+
+    if run_log is not None:
+        run_log.write(
+            f"skip_known_urls merged unique_urls={len(merged)} multi_entity_urls={multi} "
+            f"skipped_existing={skipped} remaining={len(fresh)}"
+        )
+        for row in merged:
+            if point_id_for_url(row["url"]) in known:
+                run_log.write(f"skip_known_urls skip url={row['url']} reason=already_in_qdrant")
+
     counts = dict(state.get("counts") or {})
     counts["merged_urls"] = len(merged)
-    counts["skipped_existing"] = len(merged) - len(fresh)
+    counts["skipped_existing"] = skipped
     logger.info(
         "skip_known_urls merged=%s skipped_existing=%s remaining=%s",
         len(merged),
@@ -36,6 +53,7 @@ def _merge_by_url(hits: list[dict]) -> list[dict]:
         match = {
             "name": hit["entity_name"],
             "type": hit["entity_type"],
+            "industry": hit.get("entity_industry") or "",
             "fund_count": hit["fund_count"],
             "total_percentage": hit["total_percentage"],
             "title_relevance": None,

@@ -10,6 +10,7 @@ from news_pipeline.graph.state import PipelineState
 from news_pipeline.run_log import clip_log_text, get_run_logger
 from news_pipeline.services import get_settings
 from news_pipeline.sources.google_news import fetch_entity_items
+from news_pipeline.sources.macro_news import fetch_macro_items
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +54,29 @@ def fetch_google_news(state: PipelineState) -> dict:
                     f"items_so_far={len(hits)} failures={len(fetch_failures)}"
                 )
 
+    macro_items: list[dict] = []
+    try:
+        macro_items = fetch_macro_items(settings)
+        hits.extend(macro_items)
+        if run_log is not None:
+            run_log.write(f"fetch macro_news ok items={len(macro_items)} query={settings.macro_news_query!r}")
+    except Exception as exc:
+        message = str(exc)
+        if run_log is not None:
+            run_log.write(f"fetch macro_news FAIL error={clip_log_text(message)}")
+        errors.append({"stage": "fetch_google_news", "error": message, "query": "macro_news"})
+
     if run_log is not None:
         run_log.write(
-            f"fetch_google_news finished items={len(hits)} entity_failures={len(fetch_failures)}"
+            f"fetch_google_news finished items={len(hits)} macro_items={len(macro_items)} "
+            f"entity_failures={len(fetch_failures)}"
         )
 
     errors.extend(_compact_fetch_errors(fetch_failures))
 
     counts = dict(state.get("counts") or {})
     counts["google_items"] = len(hits)
+    counts["macro_items"] = len(macro_items)
     logger.info("fetch_google_news items=%s errors=%s", len(hits), len(errors))
     return {"candidates": hits, "counts": counts, "errors": errors}
 

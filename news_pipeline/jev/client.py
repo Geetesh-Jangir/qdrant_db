@@ -117,27 +117,41 @@ def title_questions(rows: list[dict], entity: dict) -> dict:
     """One noul per title. The question key is the local article id."""
     kind = entity["type"]
     name = entity["name"]
+    industry = (entity.get("industry") or "").strip()
     questions = {}
     for row in rows:
         if kind == "holding":
+            sector_clause = (
+                f" The company is in the {industry} sector (Accord industry label)."
+                if industry
+                else ""
+            )
             instructions = (
                 f"Title: {row['title']}. "
-                f"Is this headline specifically about {name} and material enough to change the stock outlook? "
-                "False for a price recap, a technical call, a generic market wrap, or a different company."
+                f"Is this headline specifically about {name}{sector_clause} and material enough to change the stock outlook? "
+                "False for a price recap, a technical call, a generic market wrap, a different company, "
+                "or a story clearly about another industry."
             )
+            if industry:
+                true_crit = f"About {name} in {industry} and material to the outlook"
+                false_crit = (
+                    f"Wrong company, wrong industry (not {industry}), price recap, or generic wrap"
+                )
+            else:
+                true_crit = "Specifically about this name and material to the outlook"
+                false_crit = "Unrelated, a lookalike, a price recap, or a generic wrap"
         else:
             instructions = (
                 f"Title: {row['title']}. "
                 f"Is this headline about the {name} sector as a whole, or about policy that moves that sector? "
                 "False when the headline is only about one company, or when it is a price recap."
             )
+            true_crit = f"About the {name} sector or sector-moving policy"
+            false_crit = "Single-company only, unrelated sector, or price recap"
         questions[row["question_id"]] = {
             "type": "noul",
             "instructions": instructions,
-            "criteria": {
-                "true": "Specifically about this name and material to the outlook",
-                "false": "Unrelated, a lookalike, a price recap, or a generic wrap",
-            },
+            "criteria": {"true": true_crit, "false": false_crit},
         }
     return questions
 
@@ -146,33 +160,59 @@ def article_questions(matches: list[dict]) -> dict:
     questions = {}
     for index, match in enumerate(matches):
         name = match["name"]
+        industry = (match.get("industry") or "").strip()
         prefix = f"e{index}"
         if match["type"] == "holding":
+            sector_clause = (
+                f", a {industry} sector company (see state.entities[{index}].industry),"
+                if industry
+                else ""
+            )
             about = (
-                f"Is the article about {name} itself, not a different company with a similar name? "
+                f"Is the article about {name} itself{sector_clause} not a different company with a similar name "
+                f"and not primarily about another industry? "
                 "The article body is in state.article."
             )
+            if industry:
+                about_true = f"The body is about {name} in {industry}"
+                about_false = f"About another company, homonym, or wrong industry (not {industry})"
+            else:
+                about_true = "The body is about this name"
+                about_false = "The body is about something else"
+            rel_instr = (
+                f"How relevant is this article to {name} as a {industry} company? Use the scale in criteria."
+                if industry
+                else f"How relevant is this article to {name}? Use the scale in criteria."
+            )
+            impact_instr = (
+                f"How much could this article change the outlook for {name} in {industry}?"
+                if industry
+                else f"How much could this article change the outlook for {name}?"
+            )
+            sector_scope = f"the {industry} sector (this company's industry)" if industry else "the broader sector"
         else:
             about = (
                 f"Is the article about the {name} sector as a whole or about policy for that sector? "
                 "False when it is only a single-company story. The article body is in state.article."
             )
+            about_true = "The body is about this sector or sector policy"
+            about_false = "Single-company story or unrelated"
+            rel_instr = f"How relevant is this article to the {name} sector? Use the scale in criteria."
+            impact_instr = f"How much could this article change the outlook for the {name} sector?"
+            sector_scope = f"the {name} sector as a whole"
         questions[f"{prefix}_about"] = {
             "type": "noul",
             "instructions": about,
-            "criteria": {
-                "true": "The body is about this name",
-                "false": "The body is about something else",
-            },
+            "criteria": {"true": about_true, "false": about_false},
         }
         questions[f"{prefix}_relevance"] = {
             "type": "score",
-            "instructions": f"How relevant is this article to {name}? Use the scale in criteria.",
+            "instructions": rel_instr,
             "criteria": list(RELEVANCE_LEVELS),
         }
         questions[f"{prefix}_impact"] = {
             "type": "score",
-            "instructions": f"How much could this article change the outlook for {name}?",
+            "instructions": impact_instr,
             "criteria": list(IMPACT_LEVELS),
         }
         questions[f"{prefix}_direction"] = {
@@ -200,8 +240,11 @@ def article_questions(matches: list[dict]) -> dict:
             },
         }
         questions[f"{prefix}_stock"] = _scope_question(name, "this company or stock")
-        questions[f"{prefix}_sector"] = _scope_question(name, "the broader sector, not one company only")
-        questions[f"{prefix}_macro"] = _scope_question(name, "the macro backdrop such as RBI, crude, the rupee, the Fed, the budget, or flows")
+        questions[f"{prefix}_sector"] = _scope_question(name, sector_scope)
+        questions[f"{prefix}_macro"] = _scope_question(
+            name,
+            "the macro backdrop such as RBI, crude, the rupee, the Fed, the budget, or flows",
+        )
     return questions
 
 

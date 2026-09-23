@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class EntityScore(BaseModel):
     name: str
     type: Literal["holding", "sector"]
+    industry: str = ""
     title_relevance: float
     about_this_name: float
     relevance: int = Field(ge=0, le=4)
@@ -39,6 +40,10 @@ class StoredArticle(BaseModel):
     published_at: str
     scraped_at: str
     entity_names: list[str]
+    industry_names: list[str] = Field(default_factory=list)
+    primary_industry: str = ""
+    holding_names: list[str] = Field(default_factory=list)
+    sector_names: list[str] = Field(default_factory=list)
     entities: list[EntityScore]
     max_relevance: int
     max_impact: int

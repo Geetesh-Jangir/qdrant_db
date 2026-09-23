@@ -154,7 +154,10 @@ class Settings(BaseSettings):
     about_name_min: float = 0.7
     relevance_min: int = 2
     max_scrape_per_entity: int = 5
-    max_titles_per_jev_call: int = 40
+    max_scrape_per_industry: int = 12
+    max_titles_per_jev_call: int = 0
+    macro_news_enabled: bool = True
+    macro_news_query: str = "India RBI economy markets budget"
     max_items_per_query: int = 20
     title_similarity: int = 80
     recent_title_hours: int = 48

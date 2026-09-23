@@ -76,12 +76,18 @@ def inspect_qdrant(
         entity_str = ", ".join(entities[:5])
         if len(entities) > 5:
             entity_str += f" (+{len(entities) - 5} more)"
+        industries = row.get("industry_names") or []
+        industry_str = ", ".join(industries[:4])
+        holdings = row.get("holding_names") or []
+        holding_str = ", ".join(holdings[:3])
         lines.append(
             f"[{index}] title={row.get('title', '')!r} "
             f"url={row.get('url', '')} "
             f"source={row.get('source', '')} "
             f"published_at={row.get('published_at', '')} "
             f"impact={row.get('max_impact')} relevance={row.get('max_relevance')} "
+            f"primary_industry={row.get('primary_industry', '')!r} "
+            f"industries=[{industry_str}] holdings=[{holding_str}] "
             f"entities=[{entity_str}]"
         )
         if include_text:

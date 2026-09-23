@@ -75,6 +75,7 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
                 "snippet": strip_html(item["description"])[:500],
                 "entity_name": entity["name"],
                 "entity_type": entity["type"],
+                "entity_industry": entity.get("industry") or "",
                 "fund_count": entity["fund_count"],
                 "total_percentage": entity["total_percentage"],
             }

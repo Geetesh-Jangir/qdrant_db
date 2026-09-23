@@ -31,6 +31,10 @@ def clip_log_text(text: str, limit: int = 240) -> str:
     return cleaned[: limit - 3] + "..."
 
 
+def clip_log_title(title: str, limit: int = 120) -> str:
+    return clip_log_text(title or "", limit=limit)
+
+
 def finish_run_logger() -> dict[str, Any] | None:
     global _active
     with _lock:
