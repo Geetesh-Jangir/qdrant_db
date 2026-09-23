@@ -1,11 +1,8 @@
-# Manual cloud run to see if Google News RSS still returns 503 from GitHub's network.
+# Two modes:
+#   rss-only       → scripts/test_google_rss.py only (NO Jev, NO Qdrant upload)
+#   full-pipeline  → python -m news_pipeline (Jev + Qdrant Cloud upsert)
 #
-# Required repository secrets (Settings → Secrets and variables → Actions):
-#   For "rss-only": none required
-#   For "full-pipeline": JEV_BASE_URL, JEV_API_KEY, QDRANT_URL
-#   Optional: QDRANT_API_KEY, JEV_MODEL
-#
-# After the run: Actions → workflow run → Artifacts → news-runs
+# To ingest into Qdrant Cloud, use mode "full-pipeline" OR workflow "Cloud full pipeline".
 
 name: Cloud news test
 
@@ -13,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: What to run
+        description: "full-pipeline = Jev + Qdrant Cloud. rss-only = Google fetch test only."
         required: true
-        default: rss-only
+        default: full-pipeline
         type: choice
         options:
           - rss-only
@@ -35,6 +32,15 @@ jobs:
       FRESH_START_CLEAR_QDRANT: "false"
 
     steps:
+      - name: Selected mode
+        run: |
+          echo "workflow_mode=${{ inputs.mode }}"
+          if [ "${{ inputs.mode }}" = "rss-only" ]; then
+            echo "::notice::RSS-only run — Jev and Qdrant are NOT used. Pick full-pipeline to upload to Cloud."
+          else
+            echo "::notice::Full pipeline — will run Jev, embed, and Qdrant upsert (needs secrets)."
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -62,12 +68,39 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: python scripts/test_google_rss.py
 
+      - name: Validate secrets for full pipeline
+        if: inputs.mode == 'full-pipeline'
+        run: |
+          test -n "$QDRANT_URL" || { echo "Missing secret QDRANT_URL"; exit 1; }
+          test -n "$QDRANT_API_KEY" || { echo "Missing secret QDRANT_API_KEY (required for Qdrant Cloud)"; exit 1; }
+          test -n "$JEV_BASE_URL" || { echo "Missing secret JEV_BASE_URL"; exit 1; }
+          test -n "$JEV_API_KEY" || { echo "Missing secret JEV_API_KEY"; exit 1; }
+          echo "QDRANT target host: $(python -c \"from urllib.parse import urlparse; import os; print(urlparse(os.environ['QDRANT_URL']).netloc)\")"
+
       - name: Full news pipeline
         if: inputs.mode == 'full-pipeline'
         working-directory: ${{ github.workspace }}
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m news_pipeline
+
+      - name: Verify run log matches mode
+        if: always() && (inputs.mode == 'full-pipeline' || inputs.mode == 'rss-only')
+        run: |
+          set -e
+          log="$(ls -t data/news_runs/*.log 2>/dev/null | head -1)"
+          test -n "$log" || { echo "No run log under data/news_runs/"; exit 1; }
+          echo "Checking $log"
+          if [ "${{ inputs.mode }}" = "rss-only" ]; then
+            grep -q "google_rss_test started" "$log" || { echo "Expected RSS test log; got:"; head -20 "$log"; exit 1; }
+          else
+            grep -q "qdrant target" "$log" || { echo "Full pipeline should log qdrant target. Log head:"; head -30 "$log"; exit 1; }
+            grep -q "step finished name=jev_title_screen" "$log" || { echo "Full pipeline should run Jev title step. Log tail:"; tail -40 "$log"; exit 1; }
+            if grep -q "google_rss_test started" "$log"; then
+              echo "Log is from RSS test script, not python -m news_pipeline"
+              exit 1
+            fi
+          fi
 
       - name: Upload run logs
         if: always()

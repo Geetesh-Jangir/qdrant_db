@@ -84,6 +84,7 @@ def _run_test(settings, started, run_id, summary_dir, log_path, json_path) -> No
     else:
         status = "ok"
     summary = {
+        "pipeline": "rss-only",
         "run_id": run_id,
         "started_at": to_iso(started),
         "finished_at": to_iso(utc_now()),

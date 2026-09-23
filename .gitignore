@@ -7,5 +7,6 @@ venv/
 data/qdrant_storage/
 data/news_runs/*.json
 data/news_runs/*.log
+data/qdrant_inspect/
 data/news_scrape_cache/
 data/fund_holdings_aggregate/*.json

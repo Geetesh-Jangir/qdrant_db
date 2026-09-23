@@ -58,11 +58,18 @@ _LIST_FIELDS = [
 class NewsStore:
     def __init__(self, settings: Settings) -> None:
         api_key = settings.qdrant_api_key or None
-        self._client = QdrantClient(url=settings.qdrant_url, api_key=api_key, timeout=60)
+        self._client = QdrantClient(
+            url=settings.qdrant_url,
+            api_key=api_key,
+            timeout=60,
+            check_compatibility=False,
+            prefer_grpc=False,
+        )
         self._name = settings.collection_name
         self._dim = settings.embedding_dim
         self._upsert_batch = settings.upsert_batch
         self._settings = settings
+        self._url = settings.qdrant_url
 
     def ensure_collection(self) -> None:
         names = {item.name for item in self._client.get_collections().collections}
@@ -181,6 +188,39 @@ class NewsStore:
             self._client.upsert(collection_name=self._name, points=batch, wait=True)
             written += len(batch)
         return written
+
+    def points_count(self) -> int:
+        info = self._client.get_collection(collection_name=self._name)
+        return int(info.points_count or 0)
+
+    def list_collections(self) -> list[str]:
+        return [item.name for item in self._client.get_collections().collections]
+
+    def scroll_points(self, limit: int = 100, include_text: bool = False) -> list[dict]:
+        """Return up to `limit` point payloads (no relevance filter)."""
+        fields = list(_LIST_FIELDS)
+        if include_text:
+            fields.extend(["scraped_text", "entities"])
+        collected: list[dict] = []
+        offset = None
+        while len(collected) < limit:
+            batch, offset = self._client.scroll(
+                collection_name=self._name,
+                limit=min(128, limit - len(collected)),
+                offset=offset,
+                with_payload=fields,
+                with_vectors=False,
+            )
+            for point in batch:
+                payload = dict(point.payload or {})
+                payload["point_id"] = str(point.id)
+                collected.append(payload)
+            if offset is None or not batch:
+                break
+        return collected[:limit]
+
+    def target_label(self) -> str:
+        return f"{self._url} collection={self._name}"
 
     def list_articles(
         self,

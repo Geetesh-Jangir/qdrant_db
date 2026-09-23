@@ -1,0 +1,70 @@
+# Runs the complete news pipeline on GitHub: Google → Jev → scrape → embed → Qdrant Cloud.
+#
+# Required secrets: QDRANT_URL, QDRANT_API_KEY, JEV_BASE_URL, JEV_API_KEY
+# Optional: JEV_MODEL
+#
+# Does NOT run on rss-only. Use workflow "Cloud news test" for RSS-only checks.
+
+name: Cloud full pipeline
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      JEV_BASE_URL: ${{ secrets.JEV_BASE_URL }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+      JEV_MODEL: ${{ secrets.JEV_MODEL }}
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
+      QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      FRESH_START_EACH_RUN: "false"
+      FRESH_START_CLEAR_QDRANT: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare output directory
+        run: mkdir -p data/news_runs
+
+      - name: Validate secrets
+        run: |
+          test -n "$QDRANT_URL" || { echo "Missing secret QDRANT_URL"; exit 1; }
+          test -n "$QDRANT_API_KEY" || { echo "Missing secret QDRANT_API_KEY"; exit 1; }
+          test -n "$JEV_BASE_URL" || { echo "Missing secret JEV_BASE_URL"; exit 1; }
+          test -n "$JEV_API_KEY" || { echo "Missing secret JEV_API_KEY"; exit 1; }
+          echo "Will upsert to Qdrant host: $(python -c \"from urllib.parse import urlparse; import os; print(urlparse(os.environ['QDRANT_URL']).netloc)\")"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Run full pipeline (Jev + Qdrant upsert)
+        working-directory: ${{ github.workspace }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m news_pipeline
+
+      - name: Upload run logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-runs
+          path: |
+            data/news_runs/*.log
+            data/news_runs/*.json
+          if-no-files-found: error

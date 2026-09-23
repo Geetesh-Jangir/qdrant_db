@@ -8,6 +8,7 @@ from news_pipeline.embeddings.encoder import get_encoder
 from news_pipeline.graph.state import PipelineState
 from news_pipeline.run_log import get_run_logger
 from news_pipeline.models import EntityScore, StoredArticle
+from news_pipeline.qdrant_target import qdrant_summary
 from news_pipeline.services import get_settings, get_store
 from news_pipeline.scrape.workspace import remove_scrape_artifacts_many
 from news_pipeline.textutil import embedding_text
@@ -45,7 +46,21 @@ def embed_and_upsert(state: PipelineState) -> dict:
 
     if run_log is not None:
         run_log.write(f"embedding encode finished vectors={len(vectors)}")
-    written = get_store().upsert_articles(articles, vectors)
+
+    store = get_store()
+    qdrant = qdrant_summary(settings)
+    if run_log is not None:
+        run_log.write(
+            "qdrant upsert starting "
+            f"host={qdrant['url_host']} collection={qdrant['collection']} "
+            f"cloud={qdrant['cloud']} articles={len(articles)}"
+        )
+    written = store.upsert_articles(articles, vectors)
+    total_points = store.points_count()
+    if run_log is not None:
+        run_log.write(
+            f"qdrant upsert finished written={written} collection_points_count={total_points}"
+        )
     removed_files = remove_scrape_artifacts_many(settings, [article.url for article in articles])
     counts["upserted"] = written
     counts["scrape_files_removed"] = removed_files

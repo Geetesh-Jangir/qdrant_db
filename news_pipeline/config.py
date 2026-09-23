@@ -133,6 +133,7 @@ IMPACT_LEVELS: tuple[str, ...] = (
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(repo_root() / ".env"),
+        env_file_encoding="utf-8",
         extra="ignore",
     )
 
@@ -170,6 +171,7 @@ class Settings(BaseSettings):
     holdings_csv: str = "data/fund_holdings_aggregate/aggregated_holdings.csv"
     sectors_csv: str = "data/fund_holdings_aggregate/aggregated_sectors.csv"
     run_summary_dir: str = "data/news_runs"
+    qdrant_inspect_dir: str = "data/qdrant_inspect"
     scrape_workspace_dir: str = "data/news_scrape_cache"
     jev_input_cost_per_million_usd: float = 0.042
     fresh_start_each_run: bool = True
