@@ -31,14 +31,6 @@ jobs:
       - name: Prepare output directory
         run: mkdir -p data/news_runs
 
-      - name: Validate secrets
-        run: |
-          test -n "$QDRANT_URL" || { echo "Missing secret QDRANT_URL"; exit 1; }
-          test -n "$QDRANT_API_KEY" || { echo "Missing secret QDRANT_API_KEY"; exit 1; }
-          test -n "$JEV_BASE_URL" || { echo "Missing secret JEV_BASE_URL"; exit 1; }
-          test -n "$JEV_API_KEY" || { echo "Missing secret JEV_API_KEY"; exit 1; }
-          echo "Will upsert to Qdrant host: $(python -c \"from urllib.parse import urlparse; import os; print(urlparse(os.environ['QDRANT_URL']).netloc)\")"
-
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -47,6 +39,14 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+
+      - name: Validate secrets
+        run: |
+          test -n "$QDRANT_URL" || { echo "Missing secret QDRANT_URL"; exit 1; }
+          test -n "$QDRANT_API_KEY" || { echo "Missing secret QDRANT_API_KEY"; exit 1; }
+          test -n "$JEV_BASE_URL" || { echo "Missing secret JEV_BASE_URL"; exit 1; }
+          test -n "$JEV_API_KEY" || { echo "Missing secret JEV_API_KEY"; exit 1; }
+          echo "Will upsert to Qdrant host: $(python -c \"from urllib.parse import urlparse; import os; print(urlparse(os.environ['QDRANT_URL']).netloc)\")"
 
       - name: Cache Hugging Face models
         uses: actions/cache@v4
@@ -60,12 +60,16 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m news_pipeline
 
+      - name: List run outputs (debug)
+        if: always()
+        run: |
+          echo "Contents of data/news_runs:"
+          ls -la data/news_runs || true
+
       - name: Upload run logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: news-runs
-          path: |
-            data/news_runs/*.log
-            data/news_runs/*.json
-          if-no-files-found: error
+          path: data/news_runs/
+          if-no-files-found: warn

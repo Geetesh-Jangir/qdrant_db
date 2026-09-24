@@ -103,12 +103,16 @@ jobs:
             fi
           fi
 
+      - name: List run outputs (debug)
+        if: always()
+        run: |
+          echo "Contents of data/news_runs:"
+          ls -la data/news_runs || true
+
       - name: Upload run logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: news-runs
-          path: |
-            data/news_runs/*.log
-            data/news_runs/*.json
-          if-no-files-found: error
+          path: data/news_runs/
+          if-no-files-found: warn
