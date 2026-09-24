@@ -176,6 +176,71 @@ class NewsStore:
                 break
         return titles
 
+    def recent_titles_corpus(self, hours: int, limit: int) -> list[str]:
+        return [row["title"] for row in self.corpus_entries(hours, limit)]
+
+    def corpus_entries(self, hours: int, limit: int) -> list[dict]:
+        """Stored articles for story dedupe: title + canonical url. hours/limit 0 = no cap."""
+        filt: Filter | None = None
+        if hours > 0:
+            cutoff = to_iso(utc_now() - timedelta(hours=hours))
+            filt = Filter(must=[FieldCondition(key="published_at", range=DatetimeRange(gte=cutoff))])
+        entries: list[dict] = []
+        offset = None
+        while True:
+            if limit > 0 and len(entries) >= limit:
+                break
+            page = 128 if limit <= 0 else min(128, limit - len(entries))
+            batch, offset = self._client.scroll(
+                collection_name=self._name,
+                scroll_filter=filt,
+                limit=page,
+                offset=offset,
+                with_payload=["title", "url"],
+                with_vectors=False,
+            )
+            for point in batch:
+                payload = point.payload or {}
+                title = payload.get("title")
+                url = payload.get("url")
+                if title and url:
+                    entries.append({"title": title, "url": url})
+            if offset is None or not batch:
+                break
+        return entries
+
+    def retrieve_article(self, url: str) -> tuple[dict, list[float]] | None:
+        point_id = point_id_for_url(url)
+        points = self._client.retrieve(
+            collection_name=self._name,
+            ids=[point_id],
+            with_payload=True,
+            with_vectors=True,
+        )
+        if not points:
+            return None
+        point = points[0]
+        payload = dict(point.payload or {})
+        vector = list(point.vector or [])
+        if not vector:
+            return None
+        return payload, vector
+
+    def upsert_one(self, article: StoredArticle, vector: list[float]) -> None:
+        if len(vector) != self._dim:
+            raise ValueError(f"Expected {self._dim} dimensions, got {len(vector)}")
+        self._client.upsert(
+            collection_name=self._name,
+            points=[
+                PointStruct(
+                    id=point_id_for_url(article.url),
+                    vector=vector,
+                    payload=article.model_dump(),
+                )
+            ],
+            wait=True,
+        )
+
     def upsert_articles(self, articles: list[StoredArticle], vectors: list[list[float]]) -> int:
         if len(articles) != len(vectors):
             raise ValueError("Each article needs one vector")

@@ -11,6 +11,7 @@ from news_pipeline.graph.nodes.fetch_google_news import fetch_google_news
 from news_pipeline.graph.nodes.jev_articles import jev_article_scores
 from news_pipeline.graph.nodes.jev_titles import jev_title_screen
 from news_pipeline.graph.nodes.load_universe import load_universe
+from news_pipeline.graph.nodes.merge_entity_links import merge_entity_links
 from news_pipeline.graph.nodes.scrape_bodies import scrape_bodies
 from news_pipeline.graph.nodes.skip_known_urls import skip_known_urls
 from news_pipeline.graph.state import PipelineState
@@ -27,6 +28,7 @@ def build_graph():
     graph.add_node("scrape_bodies", timed_node("scrape_bodies", scrape_bodies))
     graph.add_node("jev_article_scores", timed_node("jev_article_scores", jev_article_scores))
     graph.add_node("embed_and_upsert", timed_node("embed_and_upsert", embed_and_upsert))
+    graph.add_node("merge_entity_links", timed_node("merge_entity_links", merge_entity_links))
     graph.add_node("drop_old_points", timed_node("drop_old_points", drop_old_points))
 
     graph.set_entry_point("load_universe")
@@ -37,6 +39,7 @@ def build_graph():
     graph.add_edge("jev_title_screen", "scrape_bodies")
     graph.add_edge("scrape_bodies", "jev_article_scores")
     graph.add_edge("jev_article_scores", "embed_and_upsert")
-    graph.add_edge("embed_and_upsert", "drop_old_points")
+    graph.add_edge("embed_and_upsert", "merge_entity_links")
+    graph.add_edge("merge_entity_links", "drop_old_points")
     graph.add_edge("drop_old_points", END)
     return graph.compile()

@@ -48,3 +48,4 @@ class StoredArticle(BaseModel):
     max_impact: int
     direction: str
     event_type: str
+    alias_urls: list[str] = Field(default_factory=list)

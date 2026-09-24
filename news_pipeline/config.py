@@ -166,7 +166,13 @@ class Settings(BaseSettings):
     min_body_chars: int = 400
     embed_chars: int = 1500
     body_words: int = 2000
+    # 0 = never delete by age. Ignored when news_corpus_mode is true.
     retention_days: int = 180
+    # Accumulate articles in Qdrant across runs; skip retention deletes and never wipe the collection.
+    news_corpus_mode: bool = True
+    # Global title dedupe vs existing corpus. 0 hours = all stored articles; 0 limit = no cap.
+    corpus_title_dedupe_hours: int = 0
+    corpus_title_dedupe_limit: int = 0
     news_window_hours: int = 24
     fetch_workers: int = 2
     scrape_workers: int = 4
@@ -179,8 +185,8 @@ class Settings(BaseSettings):
     qdrant_inspect_dir: str = "data/qdrant_inspect"
     scrape_workspace_dir: str = "data/news_scrape_cache"
     jev_input_cost_per_million_usd: float = 0.042
-    fresh_start_each_run: bool = True
-    fresh_start_clear_qdrant: bool = True
+    fresh_start_each_run: bool = False
+    fresh_start_clear_qdrant: bool = False
 
     def path(self, relative: str) -> Path:
         return repo_root() / relative

@@ -17,3 +17,5 @@ class PipelineState(TypedDict):
 class PipelineState(PipelineState, total=False):
     step_timings_sec: dict[str, float]
     llm_usage: dict
+    known_merges: list[dict]
+    canonical_merges: list[dict]

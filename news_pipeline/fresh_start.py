@@ -22,7 +22,7 @@ def apply_fresh_start(settings: Settings) -> dict:
     scrape_files = clear_scrape_workspace(settings)
     run_files = _clear_run_artifacts(settings)
     qdrant_reset = False
-    if settings.fresh_start_clear_qdrant:
+    if settings.fresh_start_clear_qdrant and not settings.news_corpus_mode:
         get_store().reset_collection()
         qdrant_reset = True
 

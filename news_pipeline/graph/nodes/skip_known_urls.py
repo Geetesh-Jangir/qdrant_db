@@ -1,4 +1,4 @@
-"""Merge hits that share a URL, then drop URLs already stored in Qdrant."""
+"""Merge hits that share a URL. Known URLs go to entity-merge queue instead of full re-ingest."""
 
 from __future__ import annotations
 
@@ -22,28 +22,36 @@ def skip_known_urls(state: PipelineState) -> dict:
     multi = sum(1 for row in merged if len(row.get("matches") or []) > 1)
     store = get_store()
     known = store.existing_ids([row["url"] for row in merged])
-    fresh = [row for row in merged if point_id_for_url(row["url"]) not in known]
-    skipped = len(merged) - len(fresh)
+    fresh: list[dict] = []
+    known_merges: list[dict] = []
+    for row in merged:
+        if point_id_for_url(row["url"]) in known:
+            known_merges.append(row)
+        else:
+            fresh.append(row)
 
     if run_log is not None:
         run_log.write(
             f"skip_known_urls merged unique_urls={len(merged)} multi_entity_urls={multi} "
-            f"skipped_existing={skipped} remaining={len(fresh)}"
+            f"known_url_merges={len(known_merges)} new_urls={len(fresh)}"
         )
-        for row in merged:
-            if point_id_for_url(row["url"]) in known:
-                run_log.write(f"skip_known_urls skip url={row['url']} reason=already_in_qdrant")
+        for row in known_merges:
+            names = ", ".join(m["name"] for m in row.get("matches") or [])
+            run_log.write(
+                f"skip_known_urls queue_entity_merge url={row['url']} matches=[{names}]"
+            )
 
     counts = dict(state.get("counts") or {})
     counts["merged_urls"] = len(merged)
-    counts["skipped_existing"] = skipped
+    counts["skipped_existing"] = len(known_merges)
+    counts["new_urls"] = len(fresh)
     logger.info(
-        "skip_known_urls merged=%s skipped_existing=%s remaining=%s",
+        "skip_known_urls merged=%s known_merges=%s fresh=%s",
         len(merged),
-        counts["skipped_existing"],
+        len(known_merges),
         len(fresh),
     )
-    return {"candidates": fresh, "counts": counts}
+    return {"candidates": fresh, "known_merges": known_merges, "counts": counts}
 
 
 def _merge_by_url(hits: list[dict]) -> list[dict]:

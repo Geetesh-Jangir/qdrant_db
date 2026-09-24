@@ -22,6 +22,7 @@ jobs:
       QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
       FRESH_START_EACH_RUN: "false"
       FRESH_START_CLEAR_QDRANT: "false"
+      NEWS_CORPUS_MODE: "true"
 
     steps:
       - name: Checkout

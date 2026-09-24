@@ -43,7 +43,8 @@ def main() -> None:
             "qdrant target "
             f"host={qdrant_info['url_host']} "
             f"collection={qdrant_info['collection']} "
-            f"cloud={qdrant_info['cloud']}"
+            f"cloud={qdrant_info['cloud']} "
+            f"news_corpus_mode={settings.news_corpus_mode}"
         )
     if run_log is not None and fresh_start.get("enabled"):
         run_log.write(
@@ -62,6 +63,8 @@ def main() -> None:
         "started_at": to_iso(started),
         "entities": [],
         "candidates": [],
+        "known_merges": [],
+        "canonical_merges": [],
         "counts": {},
         "errors": [],
     }

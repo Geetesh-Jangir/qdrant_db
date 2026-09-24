@@ -136,4 +136,5 @@ def _to_article(candidate: dict) -> StoredArticle:
         max_impact=max(item.impact for item in entities),
         direction=lead.direction,
         event_type=lead.event_type,
+        alias_urls=list(candidate.get("_alias_urls") or []),
     )
