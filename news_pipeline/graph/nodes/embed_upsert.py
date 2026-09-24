@@ -107,7 +107,6 @@ def _to_article(candidate: dict) -> StoredArticle:
                 affects_stock=float(match["affects_stock"]),
                 affects_sector=float(match["affects_sector"]),
                 affects_macro=float(match["affects_macro"]),
-                fund_count=int(match["fund_count"]),
             )
         )
     if not entities:

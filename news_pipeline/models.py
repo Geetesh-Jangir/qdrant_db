@@ -29,7 +29,6 @@ class EntityScore(BaseModel):
     affects_stock: float
     affects_sector: float
     affects_macro: float
-    fund_count: int
 
 
 class StoredArticle(BaseModel):
