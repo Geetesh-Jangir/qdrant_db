@@ -153,12 +153,14 @@ class Settings(BaseSettings):
     title_noul_min: float = 0.7
     about_name_min: float = 0.7
     relevance_min: int = 2
-    max_scrape_per_entity: int = 5
-    max_scrape_per_industry: int = 12
+    # 0 = no cap: scrape every title that passes title_noul_min (body Jev still gates Qdrant).
+    max_scrape_per_entity: int = 0
+    max_scrape_per_industry: int = 0
     max_titles_per_jev_call: int = 0
     macro_news_enabled: bool = True
     macro_news_query: str = "India RBI economy markets budget"
-    max_items_per_query: int = 20
+    # 0 = scan full RSS; keep every item that passes publisher/time/language/https filters.
+    max_items_per_query: int = 0
     title_similarity: int = 80
     recent_title_hours: int = 48
     min_body_chars: int = 400

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import logging
 import re
 from collections import defaultdict
 
@@ -259,17 +258,10 @@ def _two_word_alias(short: str) -> str:
     return alias
 
 
-def load_sectors(settings: Settings, holdings: list[dict] | None = None) -> list[dict]:
+def load_sectors(settings: Settings) -> list[dict]:
     path = settings.path(settings.sectors_csv)
     query_by_name = {name.casefold(): (name, spec) for name, spec in SECTOR_QUERIES.items()}
-    industry_holding_counts: dict[str, int] = defaultdict(int)
-    for row in holdings or []:
-        industry = (row.get("industry") or "").strip()
-        if industry:
-            industry_holding_counts[industry.casefold()] += 1
-    skip_threshold = settings.sector_skip_when_holdings_in_industry
     found: list[dict] = []
-    skipped: list[str] = []
     with path.open(encoding="utf-8", newline="") as handle:
         for row in csv.DictReader(handle):
             name = (row.get("sector") or "").strip()
@@ -280,9 +272,6 @@ def load_sectors(settings: Settings, holdings: list[dict] | None = None) -> list
                 continue
             mapped = query_by_name.get(lowered)
             if mapped is None:
-                continue
-            if skip_threshold > 0 and industry_holding_counts.get(lowered, 0) >= skip_threshold:
-                skipped.append(name)
                 continue
             _label, spec = mapped
             found.append(
@@ -299,17 +288,8 @@ def load_sectors(settings: Settings, holdings: list[dict] | None = None) -> list
                 }
             )
     found.sort(key=lambda item: (-item["fund_count"], item["name"].lower()))
-    selected = found[: settings.sectors_limit]
-    if skipped:
-        logging.getLogger(__name__).info(
-            "load_sectors skipped %s sector(s) covered by top holdings: %s",
-            len(skipped),
-            ", ".join(skipped[:8]),
-        )
-    return selected
+    return found[: settings.sectors_limit]
 
 
 def load_universe(settings: Settings) -> list[dict]:
-    holdings = load_holdings(settings)
-    sectors = load_sectors(settings, holdings=holdings)
-    return holdings + sectors
+    return load_holdings(settings) + load_sectors(settings)

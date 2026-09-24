@@ -127,7 +127,7 @@ def jev_title_screen(state: PipelineState) -> dict:
         rows.sort(key=lambda item: item[1], reverse=True)
         picked: list[tuple[int, float]] = []
         for index, score in rows:
-            if len(picked) >= settings.max_scrape_per_entity:
+            if settings.max_scrape_per_entity > 0 and len(picked) >= settings.max_scrape_per_entity:
                 break
             if (
                 entity.get("type") == "holding"
@@ -147,9 +147,14 @@ def jev_title_screen(state: PipelineState) -> dict:
                 industry_picks[industry_key] += 1
         if run_log is not None:
             passed = len(rows)
+            cap_label = (
+                "unlimited"
+                if settings.max_scrape_per_entity <= 0
+                else str(settings.max_scrape_per_entity)
+            )
             run_log.write(
                 f"jev_title_screen entity={entity_name} passed_noul={passed} "
-                f"selected_for_scrape={len(picked)} cap={settings.max_scrape_per_entity}"
+                f"selected_for_scrape={len(picked)} cap={cap_label}"
             )
             for index, score in picked:
                 run_log.write(
@@ -161,10 +166,11 @@ def jev_title_screen(state: PipelineState) -> dict:
                 if (index, entity_name) in allowed:
                     continue
                 if score >= settings.title_noul_min and run_log is not None:
-                    run_log.write(
-                        f"jev_title_screen drop entity={entity_name} reason=not_selected noul={score:.4f} "
-                        f"title={clip_log_title(candidates[index]['title'])}"
-                    )
+                    if settings.max_scrape_per_entity > 0 or settings.max_scrape_per_industry > 0:
+                        run_log.write(
+                            f"jev_title_screen drop entity={entity_name} reason=not_selected noul={score:.4f} "
+                            f"title={clip_log_title(candidates[index]['title'])}"
+                        )
 
     for index, candidate in enumerate(candidates):
         for match in candidate.get("matches") or []:

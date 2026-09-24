@@ -50,8 +50,9 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
         raise RuntimeError(error or "empty Google News RSS response")
     items = _parse_rss(body.encode("utf-8"))
     kept: list[dict] = []
+    cap = settings.max_items_per_query
     for item in items:
-        if len(kept) >= settings.max_items_per_query:
+        if cap > 0 and len(kept) >= cap:
             break
         title = strip_html(item["title"])
         if not item["link"] or not title or not is_english_title(title):
@@ -81,13 +82,18 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
             }
         )
     run_log = get_run_logger()
-    if run_log is not None and len(items) > 0 and len(kept) == 0:
-        run_log.write(
-            f"fetch filter entity={entity['name']} rss_items={len(items)} kept=0 "
-            "reason=publisher_or_time_or_language_filters"
-        )
-    elif run_log is not None and len(items) == 0:
-        run_log.write(f"fetch filter entity={entity['name']} rss_items=0 kept=0 reason=empty_rss_feed")
+    if run_log is not None:
+        if len(items) > 0:
+            run_log.write(
+                f"fetch filter entity={entity['name']} rss_items={len(items)} kept={len(kept)} "
+                f"max_items_per_query={'unlimited' if cap <= 0 else cap}"
+            )
+        if len(items) > 0 and len(kept) == 0:
+            run_log.write(
+                f"fetch filter entity={entity['name']} reason=publisher_or_time_or_language_filters"
+            )
+        elif len(items) == 0:
+            run_log.write(f"fetch filter entity={entity['name']} rss_items=0 kept=0 reason=empty_rss_feed")
     return kept
 
 

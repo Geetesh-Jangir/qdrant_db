@@ -64,8 +64,7 @@ These are the knobs that drop or keep items. Defaults are the values in `config.
 | Setting | Default | What it does |
 |---------|---------|----------------|
 | `holdings_limit` | 5 | How many top holdings (by `fund_count`) become search entities |
-| `sectors_limit` | 5 | How many mapped sectors become search entities after the skip rule below |
-| `sector_skip_when_holdings_in_industry` | 2 | If this many **selected holdings** share an industry that matches a sector name (case-insensitive), that sector is **not** fetched. Set `0` to never skip. Example: four bank holdings skip the Banks sector RSS |
+| `sectors_limit` | 5 | How many mapped sectors become search entities |
 
 ### Google News fetch
 
@@ -73,7 +72,7 @@ These are the knobs that drop or keep items. Defaults are the values in `config.
 |----------------|---------|----------------|
 | RSS query suffix | `when:1d` | Google “last day” window on the query string |
 | Locale | `hl=en-IN&gl=IN&ceid=IN:en` | English India edition |
-| `max_items_per_query` | 20 | Stop after this many items **kept** per entity (and per macro query) |
+| `max_items_per_query` | 0 (unlimited) | Stop after this many **kept** items per RSS query. **`0` scans the full feed** after publisher/time/language/https filters |
 | `news_window_hours` | 24 | Drop items whose publish time is older than 24 hours. Missing publish time is **kept** at fetch time |
 | Clock skew | +15 minutes | Publish time may be up to 15 minutes in the future |
 | English title | 80% Latin letters | `is_english_title`: among alphabetic characters, at least 80% must be A–Z / a–z |
@@ -92,14 +91,31 @@ These are the knobs that drop or keep items. Defaults are the values in `config.
 | Short-title exception | length &lt; 18 | Exact normalized match still counts as duplicate. Fuzzy match is **not** applied when either title is shorter than 18 characters |
 | `recent_title_hours` | 48 | Titles already in Qdrant for that entity name, published in the last 48 hours, count as prior titles |
 
+### What stays strict (Qdrant quality)
+
+These gates prevent unwanted articles in the database even when fetch and scrape are wide:
+
+| Gate | Default | Role |
+|------|---------|------|
+| Publisher allowlist + 24h + English | — | No random sites or old/foreign headlines in the funnel |
+| `title_noul_min` | 0.7 | Jev must say the **title** is about this entity and material |
+| `about_name_min` | 0.7 | Jev must say the **body** is about this name |
+| `relevance_min` | 2 | Body must be at least “about this name” on the 0–4 relevance scale |
+| Title dedupe | similarity 80 | Skip near-duplicate headlines per entity |
+| Skip URL in Qdrant | — | Do not re-store the same canonical URL |
+
+Scrape volume can be large; **only URLs with at least one entity passing body Jev are upserted**.
+
+---
+
 ### Jev title screen
 
 | Setting | Default | What it does |
 |---------|---------|----------------|
 | `title_noul_min` | 0.7 | Minimum Jev **noul** (0–1) for a title to pass for that entity |
 | `max_titles_per_jev_call` | 0 | `0` means send **all** titles for that entity in one call. A positive number keeps only the newest N |
-| `max_scrape_per_entity` | 5 | After passing noul, keep at most this many titles per entity (highest noul first) |
-| `max_scrape_per_industry` | 12 | For **holdings only**, also cap how many selected titles share the same industry across entities |
+| `max_scrape_per_entity` | 0 (unlimited) | After title Jev, scrape every title with noul ≥ `title_noul_min`. Set a positive number to cap scrapes per entity |
+| `max_scrape_per_industry` | 0 (off) | Optional cap on holding scrapes sharing one industry |
 
 ### Scrape
 
@@ -200,9 +216,8 @@ name, type=holding, industry, query, aliases, keywords=[], fund_count, total_per
 1. Read `aggregated_sectors.csv`.
 2. Drop names whose lowercase text contains a fragment in `SECTOR_BLOCK_FRAGMENTS`: mutual fund, etf, foreign security, index future, overseas, reit, invit, precious metal, others.
 3. Keep the row only if the sector name matches a key in `SECTOR_QUERIES` (case-insensitive). The Google query is the phrase in that map, **not** the raw sector label. Keywords from the map are stored on the entity (they are passed to Jev state; they are **not** used as a pre-filter anymore).
-4. Skip the sector if the number of selected holdings with the same industry (case-insensitive) is at least `sector_skip_when_holdings_in_industry`.
-5. Rank remaining sectors by `fund_count` and take `sectors_limit`.
-6. Sector `industry` is set to the sector’s own name.
+4. Rank sectors by `fund_count` and take `sectors_limit`.
+5. Sector `industry` is set to the sector’s own name.
 
 ### Logs
 
@@ -220,7 +235,7 @@ For each entity (parallel, `fetch_workers`):
 
 1. Build RSS URL: `https://news.google.com/rss/search?q={query} when:1d&hl=en-IN&gl=IN&ceid=IN:en`
 2. Parse `<item>` nodes.
-3. For each item, in order, until `max_items_per_query` kept items:
+3. For each RSS item in order (when `max_items_per_query` is **0**, scan the **entire** feed; otherwise stop after that many kept items):
    - Strip HTML from the title. Drop empty title or empty link.
    - Drop if the title is not English (80% Latin letters).
    - Parse `pubDate`. Drop if it falls outside `news_window_hours` (missing time is allowed).
@@ -331,9 +346,8 @@ The headline is inside the question. Entity context (including industry and alia
 3. A direct (non-macro) match is kept in the scored set only if its noul ≥ `title_noul_min`. The score is stored as `title_relevance`.
 4. A macro article is attached to **every** entity whose noul on that title passed the threshold, with that entity’s industry and fund stats. The original Macro match is not stored as a scored entity.
 5. Per entity, sort passing titles by noul descending.
-6. Keep at most `max_scrape_per_entity`.
-7. For holdings, also stop selecting once `max_scrape_per_industry` selections have been made for that industry key (shared across holding entities). Further passing titles are logged as `industry_cap` or `not_selected`.
-8. A URL continues only if at least one `(url, entity)` pair survived those caps.
+6. Select for scrape: every title with noul ≥ `title_noul_min` (when `max_scrape_per_entity` is **0**). Optional positive caps: `max_scrape_per_entity`, `max_scrape_per_industry`.
+7. A URL continues only if at least one `(url, entity)` pair was selected.
 
 Industry pass/fail totals are logged as `industry_stats`.
 
@@ -526,11 +540,11 @@ Typical keys, in pipeline order:
                     1. load_universe
                        top N holdings + top M sectors
                        industry on every holding
-                       skip sector RSS if holdings already cover it
                               |
                               v
                     2. fetch_google_news
-                       RSS per entity (when:1d, English, publishers)
+                       full RSS per entity (when:1d, English, publishers)
+                       no default cap on kept items (max_items_per_query=0)
                        + one macro RSS query
                               |
                               v
@@ -545,9 +559,8 @@ Typical keys, in pipeline order:
                               |
                               v
                     5. jev_title_screen
-                       one System One call per entity
-                       noul per title, industry in the question
-                       threshold + per-entity cap + per-industry cap
+                       one System One call per entity, all titles
+                       noul >= 0.7 -> scrape (no default scrape cap)
                               |
                               v
                     6. scrape_bodies
@@ -598,13 +611,12 @@ StoredArticle  (Qdrant payload)
 ### Who decides “keep this article?”
 
 ```text
-Google + publishers + 24h + English     -> candidate headline
+Google + publishers + 24h + English     -> all matching RSS items (no 20 cap)
 Qdrant URL id                           -> not already stored
 Fuzzy title                             -> not a near-duplicate for that entity
-Jev title noul >= 0.7                   -> worth opening
-Caps (5 per entity, 12 per industry)    -> scrape budget
+Jev title noul >= 0.7                   -> worth opening (all passes may scrape)
 Body >= 400 chars and dated in window   -> readable article
-Jev about >= 0.7 and relevance >= 2     -> stored against that entity
+Jev about >= 0.7 and relevance >= 2     -> stored in Qdrant (quality gate)
 ```
 
-An article can be stored against several entities at once (for example a bank holding and a different sector) when each entity passes its own title and body gates. The Banks **sector** entity is often absent from the universe when several top holdings are already banks, so bank coverage then comes from the company queries plus the macro pool, not from the Banks RSS phrase.
+An article can be stored against several entities at once when each entity passes title and body Jev. Many URLs may be scraped in a run; **Qdrant only receives articles that pass body scoring**.

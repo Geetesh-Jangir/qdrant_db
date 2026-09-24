@@ -60,7 +60,7 @@ python scripts/report_sector_query_gaps.py
 - **`sectors_limit`** (default 5) from `aggregated_sectors.csv`, only if sector name exists in **`SECTOR_QUERIES`** (`config.py`).
 - Each entity dict: `name`, `type` (`holding` \| `sector`), **`industry`**, `query`, `aliases`, `fund_count`, …
 - **Holdings**: Google query `"Short Name"`; ambiguous names get `"{name}" {hint} India` using sector hint.
-- **Sector dedup**: if **`sector_skip_when_holdings_in_industry`** (default 2) or more top holdings share the same industry as a sector row (e.g. Banks), that **sector entity is omitted** to reduce overlapping RSS.
+- **Sectors**: top `sectors_limit` rows that match `SECTOR_QUERIES`.
 
 ## LangGraph pipeline
 
@@ -85,7 +85,8 @@ State: `entities`, `candidates`, `counts`, `errors`, `llm_usage`.
 - Env: `JEV_BASE_URL`, `JEV_API_KEY`, `JEV_MODEL`.
 - **Title screen**: one call per entity with all titles; holdings use **name + industry** in instructions and criteria.
 - **Body scores**: holdings use industry in about/relevance/impact; `affects_sector` scoped to the holding’s **industry** label.
-- Thresholds: `title_noul_min`, `about_name_min`, `relevance_min`, `max_scrape_per_entity`, **`max_scrape_per_industry`**.
+- **`max_items_per_query`**: `0` = scan full RSS after publisher/time filters (no 20-item stop).
+- Thresholds: `title_noul_min`, `about_name_min`, `relevance_min` gate quality; `max_scrape_per_entity` / `max_scrape_per_industry` default **0** (unlimited scrape among title passes).
 
 ### Qdrant payload (`news_pipeline/models.py`)
 
