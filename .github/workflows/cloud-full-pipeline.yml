@@ -46,7 +46,7 @@ jobs:
           test -n "$QDRANT_API_KEY" || { echo "Missing secret QDRANT_API_KEY"; exit 1; }
           test -n "$JEV_BASE_URL" || { echo "Missing secret JEV_BASE_URL"; exit 1; }
           test -n "$JEV_API_KEY" || { echo "Missing secret JEV_API_KEY"; exit 1; }
-          echo "Will upsert to Qdrant host: $(python -c \"from urllib.parse import urlparse; import os; print(urlparse(os.environ['QDRANT_URL']).netloc)\")"
+          python -c 'from urllib.parse import urlparse; import os; print("Will upsert to Qdrant host:", urlparse(os.environ["QDRANT_URL"]).netloc)'
 
       - name: Cache Hugging Face models
         uses: actions/cache@v4

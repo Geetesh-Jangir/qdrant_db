@@ -76,7 +76,7 @@ jobs:
           test -n "$QDRANT_API_KEY" || { echo "Missing secret QDRANT_API_KEY (required for Qdrant Cloud)"; exit 1; }
           test -n "$JEV_BASE_URL" || { echo "Missing secret JEV_BASE_URL"; exit 1; }
           test -n "$JEV_API_KEY" || { echo "Missing secret JEV_API_KEY"; exit 1; }
-          echo "QDRANT target host: $(python -c \"from urllib.parse import urlparse; import os; print(urlparse(os.environ['QDRANT_URL']).netloc)\")"
+          python -c 'from urllib.parse import urlparse; import os; print("QDRANT target host:", urlparse(os.environ["QDRANT_URL"]).netloc)'
 
       - name: Full news pipeline
         if: inputs.mode == 'full-pipeline'
