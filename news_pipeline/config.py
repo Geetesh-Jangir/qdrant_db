@@ -149,8 +149,8 @@ class Settings(BaseSettings):
     embedding_dim: int = 384
     embedding_cache_dir: str = "data/embedding_models"
 
-    holdings_limit: int = 50
-    sectors_limit: int = 20
+    holdings_limit: int = 5
+    sectors_limit: int = 2
     title_noul_min: float = 0.7
     about_name_min: float = 0.7
     relevance_min: int = 2
