@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>News insight</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      line-height: 1.5;
+      color: #1a1a1a;
+      background: #f4f5f7;
+    }
+    body { max-width: 720px; margin: 0 auto; padding: 1.5rem; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.25rem; }
+    .sub { color: #555; font-size: 0.9rem; margin-bottom: 1.25rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 500; margin-top: 0.75rem; }
+    input, textarea, button {
+      width: 100%; box-sizing: border-box; font: inherit;
+      border: 1px solid #ccc; border-radius: 8px; padding: 0.55rem 0.65rem;
+    }
+    textarea { min-height: 88px; resize: vertical; }
+    button {
+      margin-top: 1rem; background: #1e4d8c; color: #fff; border: none;
+      cursor: pointer; font-weight: 600;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .answer-box {
+      margin-top: 1.5rem; background: #fff; border-radius: 10px;
+      padding: 1rem 1.1rem; border: 1px solid #e0e0e0;
+      font-size: 0.98rem; max-width: 42rem;
+    }
+    .answer-box h2 { font-size: 0.95rem; margin: 0 0 0.65rem; font-weight: 600; }
+    .answer-box h3 { font-size: 0.88rem; margin: 1rem 0 0.45rem; font-weight: 600; color: #333; }
+    .answer-box p { margin: 0 0 0.65rem; }
+    .answer-box ul { margin: 0 0 0.25rem; padding-left: 1.25rem; }
+    .answer-box li { margin-bottom: 0.45rem; }
+    .answer-box .summary-text { margin-top: 0.25rem; color: #222; }
+    .meta { font-size: 0.82rem; color: #666; margin-top: 0.5rem; }
+    .sources { margin-top: 1rem; }
+    .sources h2 { font-size: 0.95rem; margin: 0 0 0.5rem; }
+    .card {
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+      padding: 0.65rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.88rem;
+    }
+    .card a { color: #1e4d8c; text-decoration: none; font-weight: 500; }
+    .card a:hover { text-decoration: underline; }
+    .err { color: #b00020; margin-top: 1rem; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <h1>News insight</h1>
+  <p class="sub">Ask in plain English. Answers use your Qdrant news store only.</p>
+
+  <form id="form">
+    <label for="question">Your question</label>
+    <textarea id="question" name="question" placeholder="What's happening in the banking sector for the last week?" required></textarea>
+
+    <button type="submit" id="submit">Ask</button>
+  </form>
+
+  <p id="error" class="err hidden"></p>
+
+  <div id="result" class="hidden">
+    <div class="answer-box">
+      <h2>Summary insight</h2>
+      <div id="insight"></div>
+      <p class="meta" id="meta"></p>
+    </div>
+    <div class="sources">
+      <h2>Related news</h2>
+      <div id="sources"></div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById("form");
+    const submit = document.getElementById("submit");
+    const errorEl = document.getElementById("error");
+    const resultEl = document.getElementById("result");
+    const insightEl = document.getElementById("insight");
+    const metaEl = document.getElementById("meta");
+    const sourcesEl = document.getElementById("sources");
+
+    function renderInsight(container, data, fallbackText) {
+      container.innerHTML = "";
+      let bullets = Array.isArray(data.insight_bullets) ? data.insight_bullets : [];
+      let summary = (data.insight_summary || "").trim();
+
+      if (!bullets.length && !summary && fallbackText) {
+        const lines = String(fallbackText).split("\n").map((l) => l.trim()).filter(Boolean);
+        for (const line of lines) {
+          const match = line.match(/^[-*•]\s+(.*)$/);
+          if (match) bullets.push(match[1]);
+          else if (!summary) summary = line;
+          else summary += " " + line;
+        }
+      }
+
+      if (bullets.length) {
+        const h3 = document.createElement("h3");
+        h3.textContent = "Key points";
+        container.appendChild(h3);
+        const ul = document.createElement("ul");
+        for (const item of bullets) {
+          const li = document.createElement("li");
+          li.textContent = item;
+          ul.appendChild(li);
+        }
+        container.appendChild(ul);
+      }
+
+      if (summary) {
+        const h3 = document.createElement("h3");
+        h3.textContent = "Summary";
+        container.appendChild(h3);
+        const p = document.createElement("p");
+        p.className = "summary-text";
+        p.textContent = summary;
+        container.appendChild(p);
+      }
+
+      if (!bullets.length && !summary) {
+        container.textContent =
+          fallbackText || "Could not build an insight from this response. Check the query log on the server.";
+      }
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      errorEl.classList.add("hidden");
+      resultEl.classList.add("hidden");
+      submit.disabled = true;
+
+      const body = {
+        question: document.getElementById("question").value.trim(),
+      };
+
+      try {
+        const response = await fetch("/api/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || response.statusText);
+        }
+        const insightText = (data.insight || data.answer || "").trim();
+        renderInsight(insightEl, data, insightText);
+        const sourceLabel =
+          data.insight_source === "deepseek"
+            ? "Summary from DeepSeek"
+            : data.insight_source === "articles_fallback"
+              ? "Summary from retrieved articles (LLM returned no text)"
+              : data.insight_source || "Summary";
+        metaEl.textContent = sourceLabel;
+        sourcesEl.innerHTML = "";
+        for (const row of data.sources || []) {
+          const div = document.createElement("div");
+          div.className = "card";
+          const link = document.createElement("a");
+          link.href = row.url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = row.title || row.url;
+          div.appendChild(link);
+          const line = document.createElement("div");
+          const pub = row.published_at ? row.published_at.slice(0, 10) : "";
+          line.textContent = [row.source, pub].filter(Boolean).join(" · ");
+          div.appendChild(line);
+          sourcesEl.appendChild(div);
+        }
+        resultEl.classList.remove("hidden");
+      } catch (err) {
+        errorEl.textContent = err.message || String(err);
+        errorEl.classList.remove("hidden");
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+# Smoke-test news RAG: start FastAPI, POST /api/ask once, upload query log.
+# Requires Qdrant corpus from a prior pipeline run.
+#
+# Secrets: QDRANT_URL, QDRANT_API_KEY, DEEPSEEK_API_KEY
+# Optional: DEEPSEEK_MODEL, DEEPSEEK_BASE_URL, APP_TOKEN
+
+name: Cloud RAG smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      question:
+        description: "Test question for /api/ask"
+        required: false
+        default: "What is happening in the banking sector?"
+        type: string
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
+      QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+      DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
+      DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+      APP_TOKEN: ${{ secrets.APP_TOKEN }}
+      EMBEDDING_CACHE_DIR: data/embedding_models
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare directories
+        run: mkdir -p data/rag_query_logs data/embedding_models
+
+      - name: Validate secrets
+        run: |
+          test -n "$QDRANT_URL" || { echo "Missing secret QDRANT_URL"; exit 1; }
+          test -n "$QDRANT_API_KEY" || { echo "Missing secret QDRANT_API_KEY"; exit 1; }
+          test -n "$DEEPSEEK_API_KEY" || { echo "Missing secret DEEPSEEK_API_KEY"; exit 1; }
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install -r news_rag/requirements.txt
+
+      - name: Cache embedding models
+        uses: actions/cache@v4
+        with:
+          path: data/embedding_models
+          key: bge-embed-${{ runner.os }}-${{ hashFiles('requirements.txt', 'news_rag/requirements.txt') }}
+
+      - name: Warm embedding cache
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python scripts/download_embedding_model.py
+
+      - name: Start RAG server
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          uvicorn news_rag.app:app --host 127.0.0.1 --port 8080 &
+          echo $! > /tmp/rag.pid
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8080/health >/dev/null; then
+              echo "RAG server ready"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "RAG server failed to start"
+          exit 1
+
+      - name: POST /api/ask
+        env:
+          QUESTION: ${{ inputs.question }}
+          APP_TOKEN: ${{ env.APP_TOKEN }}
+        run: |
+          set -e
+          headers=(-H "Content-Type: application/json")
+          if [ -n "$APP_TOKEN" ]; then
+            headers+=(-H "X-App-Token: $APP_TOKEN")
+          fi
+          curl -sf "${headers[@]}" \
+            -d "{\"question\": \"$QUESTION\"}" \
+            http://127.0.0.1:8080/api/ask \
+            -o /tmp/ask.json
+          python -c "import json; d=json.load(open('/tmp/ask.json')); assert d.get('insight') or d.get('answer'); print('insight_source=', d.get('insight_source')); print('sources=', len(d.get('sources') or []))"
+
+      - name: Stop RAG server
+        if: always()
+        run: |
+          if [ -f /tmp/rag.pid ]; then kill "$(cat /tmp/rag.pid)" 2>/dev/null || true; fi
+
+      - name: Upload RAG query logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-query-logs
+          path: data/rag_query_logs/*.log
+          if-no-files-found: warn
+
+      - name: Upload ask response
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rag-ask-response
+          path: /tmp/ask.json
+          if-no-files-found: ignore

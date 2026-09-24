@@ -1,4 +1,4 @@
-"""Google News RSS search for the last 24 hours, English, India."""
+"""Google News RSS search (window from settings.google_news_when), English, India."""
 
 from __future__ import annotations
 
@@ -31,11 +31,19 @@ _last_rss_fetch = 0.0
 _RSS_MIN_INTERVAL_SEC = 0.4
 
 
+def _google_when_clause(settings: Settings) -> str:
+    raw = (settings.google_news_when or "1d").strip().lower()
+    if raw.startswith("when:"):
+        raw = raw[5:].strip()
+    return raw or "1d"
+
+
 def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
     now = utc_now()
+    when = _google_when_clause(settings)
     rss_url = (
         "https://news.google.com/rss/search?q="
-        + quote_plus(f"{entity['query']} when:1d")
+        + quote_plus(f"{entity['query']} when:{when}")
         + "&hl=en-IN&gl=IN&ceid=IN:en"
     )
     _wait_for_rss_slot()

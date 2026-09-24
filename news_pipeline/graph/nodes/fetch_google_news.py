@@ -26,7 +26,10 @@ def fetch_google_news(state: PipelineState) -> dict:
 
     run_log = get_run_logger()
     if run_log is not None:
-        run_log.write(f"fetch_google_news started entities={total} workers={settings.fetch_workers}")
+        run_log.write(
+            f"fetch_google_news started entities={total} workers={settings.fetch_workers} "
+            f"news_window_hours={settings.news_window_hours} google_news_when={settings.google_news_when}"
+        )
 
     with ThreadPoolExecutor(max_workers=settings.fetch_workers) as pool:
         futures = {pool.submit(fetch_entity_items, entity, settings): entity for entity in entities}

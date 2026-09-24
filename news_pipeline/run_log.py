@@ -57,7 +57,16 @@ class RunLogger:
         self.step_timings_sec: dict[str, float] = {}
         self._file_lock = threading.Lock()
         log_path.parent.mkdir(parents=True, exist_ok=True)
+        # Never truncate an existing log (e.g. duplicate run_id); pick a new path instead.
+        if log_path.exists():
+            stem = log_path.stem
+            suffix = log_path.suffix
+            counter = 1
+            while log_path.exists():
+                log_path = log_path.with_name(f"{stem}_{counter}{suffix}")
+                counter += 1
         log_path.write_text("", encoding="utf-8")
+        self.log_path = log_path
 
     def write(self, message: str) -> None:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")

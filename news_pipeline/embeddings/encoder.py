@@ -3,27 +3,23 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 
+from lib.embedding_cache import model_snapshot_exists, prepare_embedding_cache
 from news_pipeline.config import QUERY_PREFIX, Settings
 from news_pipeline.run_log import get_run_logger
 
 _encoder: "Encoder | None" = None
 
 
-def _model_cached_on_disk(model_name: str) -> bool:
-    slug = model_name.replace("/", "--")
-    cache_root = Path.home() / ".cache" / "huggingface" / "hub"
-    return (cache_root / f"models--{slug}").is_dir()
-
-
 class Encoder:
     def __init__(self, settings: Settings) -> None:
         from langchain_huggingface import HuggingFaceEmbeddings
 
+        cache = prepare_embedding_cache(settings.path(settings.embedding_cache_dir))
         self._chars = settings.embed_chars
         self._model = HuggingFaceEmbeddings(
             model_name=settings.embedding_model,
+            cache_folder=str(cache),
             model_kwargs={"device": "cpu"},
             encode_kwargs={"normalize_embeddings": True},
         )
@@ -46,7 +42,8 @@ def get_encoder(settings: Settings) -> Encoder:
     if _encoder is None:
         run_log = get_run_logger()
         model = settings.embedding_model
-        cached = _model_cached_on_disk(model)
+        cache = settings.path(settings.embedding_cache_dir)
+        cached = model_snapshot_exists(cache, model)
         if run_log is not None:
             if cached:
                 run_log.write(
@@ -55,7 +52,7 @@ def get_encoder(settings: Settings) -> Encoder:
             else:
                 run_log.write(
                     f"embedding model loading model={model} cached_on_disk=false "
-                    "note=first run downloads weights from Hugging Face (~130MB); "
+                    f"note=first run downloads weights into {cache} (~130MB once); "
                     "hub progress may only show in the terminal not this log file"
                 )
         started = time.perf_counter()

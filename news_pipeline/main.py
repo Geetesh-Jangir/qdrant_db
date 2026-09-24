@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import secrets
 from datetime import datetime, timezone
 
 from news_pipeline.fresh_start import apply_fresh_start
@@ -28,7 +29,7 @@ def main() -> None:
         raise SystemExit("Set JEV_BASE_URL and JEV_API_KEY in .env")
 
     started = utc_now()
-    run_id = started.strftime("%Y%m%dT%H%M%SZ")
+    run_id = started.strftime("%Y%m%dT%H%M%SZ") + "_" + secrets.token_hex(2)
     summary_dir = settings.path(settings.run_summary_dir)
     summary_dir.mkdir(parents=True, exist_ok=True)
 
@@ -50,7 +51,8 @@ def main() -> None:
         run_log.write(
             "fresh start "
             f"scrape_files_removed={fresh_start.get('scrape_files_removed', 0)} "
-            f"run_artifacts_removed={fresh_start.get('run_artifacts_removed', 0)} "
+            f"run_json_removed={fresh_start.get('run_json_removed', 0)} "
+            f"run_logs_preserved={fresh_start.get('run_logs_preserved', True)} "
             f"qdrant_collection_reset={fresh_start.get('qdrant_collection_reset', False)}"
         )
     elif not settings.fresh_start_each_run:

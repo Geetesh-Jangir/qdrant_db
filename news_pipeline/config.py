@@ -147,9 +147,10 @@ class Settings(BaseSettings):
 
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
+    embedding_cache_dir: str = "data/embedding_models"
 
-    holdings_limit: int = 5
-    sectors_limit: int = 5
+    holdings_limit: int = 50
+    sectors_limit: int = 20
     title_noul_min: float = 0.7
     about_name_min: float = 0.7
     relevance_min: int = 2
@@ -173,7 +174,10 @@ class Settings(BaseSettings):
     # Global title dedupe vs existing corpus. 0 hours = all stored articles; 0 limit = no cap.
     corpus_title_dedupe_hours: int = 0
     corpus_title_dedupe_limit: int = 0
-    news_window_hours: int = 24
+    # Keep articles whose publish time is within this many hours (fetch + scrape). Env: NEWS_WINDOW_HOURS.
+    news_window_hours: int = 168
+    # Google News RSS search window suffix, e.g. 1d, 7d, 1m (without "when:"). Env: GOOGLE_NEWS_WHEN.
+    google_news_when: str = "7d"
     fetch_workers: int = 2
     scrape_workers: int = 4
     upsert_batch: int = 128
@@ -187,6 +191,10 @@ class Settings(BaseSettings):
     jev_input_cost_per_million_usd: float = 0.042
     fresh_start_each_run: bool = False
     fresh_start_clear_qdrant: bool = False
+    # Fresh start never deletes .log files when true (default). Env: PRESERVE_RUN_LOGS.
+    preserve_run_logs: bool = True
+    # When fresh_start_each_run is true, delete old run JSON summaries only if true. Env: FRESH_START_CLEAR_RUN_JSON.
+    fresh_start_clear_run_json: bool = False
 
     def path(self, relative: str) -> Path:
         return repo_root() / relative
