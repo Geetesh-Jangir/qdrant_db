@@ -6,10 +6,11 @@ from pathlib import Path
 
 from lib.portfolio_scope import (
     build_portfolio_scope,
+    resolve_allisin_holdings_path,
     sector_query_for_label,
     write_manifest,
 )
-from news_pipeline.config import Settings
+from news_pipeline.config import Settings, repo_root
 from news_pipeline.sources.universe import build_holding_entities, canonical_key
 
 
@@ -22,10 +23,15 @@ def load_portfolio_universe(settings: Settings) -> tuple[list[dict], Path | None
     if not portfolio_path.is_absolute():
         portfolio_path = settings.path(portfolio_raw)
 
-    allisin_raw = getattr(settings, "allisin_sectors_holdings_json", "") or (
-        "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json"
-    )
-    allisin_path = settings.path(allisin_raw)
+    configured_allisin = settings.path(settings.allisin_sectors_holdings_json)
+    if configured_allisin.is_file():
+        allisin_path = configured_allisin
+    else:
+        allisin_path = resolve_allisin_holdings_path(
+            repo_root(),
+            full_relative=settings.allisin_sectors_holdings_json,
+            subset_relative=settings.portfolio_allisin_holdings_json,
+        )
 
     manifest_raw = getattr(settings, "portfolio_manifest_path", "") or (
         "data/fund_holdings_aggregate/portfolio_news_scope.json"

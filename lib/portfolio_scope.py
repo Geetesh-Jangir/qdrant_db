@@ -108,6 +108,25 @@ def load_allisin_doc(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def resolve_allisin_holdings_path(
+    repo_root: Path,
+    *,
+    full_relative: str,
+    subset_relative: str,
+) -> Path:
+    """Prefer full ISIN map when present; otherwise portfolio subset (CI / lightweight)."""
+    full = repo_root / full_relative
+    subset = repo_root / subset_relative
+    if full.is_file():
+        return full
+    if subset.is_file():
+        return subset
+    raise FileNotFoundError(
+        f"Holdings file missing. Expected {full} or {subset}. "
+        "Run: python scripts/build_portfolio_allisin_subset.py"
+    )
+
+
 def load_aggregated_equity_keys(
     *,
     map_path: Path,

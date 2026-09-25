@@ -83,7 +83,7 @@ Remote for this repo: `https://github.com/Geetesh-Jangir/qdrant_db`
 
 | Workflow | Trigger | What it runs |
 |----------|---------|----------------|
-| **Cloud full pipeline** | Manual (`workflow_dispatch`) | Full `python -m news_pipeline` → Qdrant Cloud |
+| **Cloud portfolio news pipeline** | Manual (`workflow_dispatch`) | Portfolio (default Mohit) `python -m news_pipeline` → Qdrant Cloud |
 | **Cloud news test** | Manual, mode **rss-only** or **full-pipeline** | RSS test script or full pipeline |
 | **Cloud RAG smoke** | Manual | Starts RAG app, one `/api/ask`, uploads RAG query log |
 
@@ -136,7 +136,7 @@ Workflow env already sets: `FRESH_START_EACH_RUN=false`, `FRESH_START_CLEAR_QDRA
 ## Suggested order on GitHub
 
 1. Add secrets above.
-2. Run **Cloud full pipeline** (or **Cloud news test** → **full-pipeline**) to fill Qdrant.
+2. Run **Cloud portfolio news pipeline** (Actions → workflow_dispatch) to fill Qdrant for the default portfolio.
 3. Run **Cloud RAG smoke** to verify read + DeepSeek (needs data in collection).
 
 RAG is not a long-running service on GitHub Actions; for a public UI host RAG on a VM/PaaS with the same env vars as local.
