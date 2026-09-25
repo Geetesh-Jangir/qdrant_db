@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 class EntityScore(BaseModel):
     name: str
-    type: Literal["holding", "sector"]
+    type: Literal["holding", "sector", "macro"]
     industry: str = ""
     title_relevance: float
     about_this_name: float
