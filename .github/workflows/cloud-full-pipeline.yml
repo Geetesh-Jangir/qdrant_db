@@ -1,11 +1,11 @@
-# Runs the complete news pipeline on GitHub: Google → Jev → scrape → embed → Qdrant Cloud.
+# Portfolio news ingest: Google → Jev → scrape → embed → Qdrant Cloud (append-only).
+# Default portfolio: investor_data/mohit/portfolio.json (holdings ≥2%%, sectors ≥3%%, equity filter).
+# Does NOT run the RAG app — use Cloud RAG smoke only for /api/ask checks.
 #
 # Required secrets: QDRANT_URL, QDRANT_API_KEY, JEV_BASE_URL, JEV_API_KEY
 # Optional: JEV_MODEL
-#
-# Does NOT run on rss-only. Use workflow "Cloud news test" for RSS-only checks.
 
-name: Cloud full pipeline
+name: Cloud portfolio news pipeline
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       JEV_BASE_URL: ${{ secrets.JEV_BASE_URL }}
       JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
@@ -23,13 +23,15 @@ jobs:
       FRESH_START_EACH_RUN: "false"
       FRESH_START_CLEAR_QDRANT: "false"
       NEWS_CORPUS_MODE: "true"
+      PORTFOLIO_JSON: investor_data/mohit/portfolio.json
+      ALLISIN_SECTORS_HOLDINGS_JSON: data/fund_holdings_aggregate/portfolio_allisin_holdings.json
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
       - name: Prepare output directory
-        run: mkdir -p data/news_runs
+        run: mkdir -p data/news_runs data/fund_holdings_aggregate
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -48,13 +50,19 @@ jobs:
           test -n "$JEV_API_KEY" || { echo "Missing secret JEV_API_KEY"; exit 1; }
           python -c 'from urllib.parse import urlparse; import os; print("Will upsert to Qdrant host:", urlparse(os.environ["QDRANT_URL"]).netloc)'
 
+      - name: Fetch portfolio fund holdings (Rupeestop API)
+        working-directory: ${{ github.workspace }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python scripts/build_portfolio_allisin_subset.py
+
       - name: Cache Hugging Face models
         uses: actions/cache@v4
         with:
           path: ~/.cache/huggingface
           key: hf-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
 
-      - name: Run full pipeline (Jev + Qdrant upsert)
+      - name: Run news pipeline (portfolio universe → Qdrant)
         working-directory: ${{ github.workspace }}
         env:
           PYTHONPATH: ${{ github.workspace }}

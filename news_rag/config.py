@@ -57,8 +57,9 @@ class Settings(BaseSettings):
     embedding_cache_dir: str = "data/embedding_models"
     rag_query_log_dir: str = "data/rag_query_logs"
 
-    portfolio_json: str = ""
+    portfolio_json: str = "investor_data/mohit/portfolio.json"
     allisin_sectors_holdings_json: str = "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json"
+    portfolio_allisin_holdings_json: str = "data/fund_holdings_aggregate/portfolio_allisin_holdings.json"
     portfolio_manifest_path: str = "data/fund_holdings_aggregate/portfolio_news_scope.json"
     portfolio_holding_min_pct: float = 2.0
     portfolio_sector_min_pct: float = 3.0

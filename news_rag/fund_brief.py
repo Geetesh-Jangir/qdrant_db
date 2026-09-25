@@ -14,6 +14,7 @@ from lib.portfolio_scope import (
     build_portfolio_scope,
     instrument_to_qdrant_names,
     qdrant_filter_names,
+    resolve_allisin_holdings_path,
 )
 from news_rag.config import Settings, get_settings
 from news_rag.insight_format import clamp_bullets, clamp_summary, parse_structured_insight
@@ -37,10 +38,18 @@ def load_scope(settings: Settings) -> PortfolioScope:
     portfolio_raw = (settings.portfolio_json or "").strip()
     if not portfolio_raw:
         raise ValueError("PORTFOLIO_JSON not configured")
-    allisin_raw = settings.allisin_sectors_holdings_json
+    configured_allisin = _resolve_path(settings, settings.allisin_sectors_holdings_json)
+    if configured_allisin.is_file():
+        allisin_path = configured_allisin
+    else:
+        allisin_path = resolve_allisin_holdings_path(
+            _repo_root(),
+            full_relative=settings.allisin_sectors_holdings_json,
+            subset_relative=settings.portfolio_allisin_holdings_json,
+        )
     return build_portfolio_scope(
         portfolio_path=_resolve_path(settings, portfolio_raw),
-        allisin_path=_resolve_path(settings, allisin_raw),
+        allisin_path=allisin_path,
         holding_min=settings.portfolio_holding_min_pct,
         sector_min=settings.portfolio_sector_min_pct,
         aggregated_holdings_map_path=_resolve_path(settings, settings.aggregated_holdings_map),
