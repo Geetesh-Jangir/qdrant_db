@@ -1,8 +1,8 @@
 # Smoke-test news RAG: start FastAPI, POST /api/ask once, upload query log.
 # Requires Qdrant corpus from a prior pipeline run.
 #
-# Secrets: QDRANT_URL, QDRANT_API_KEY, DEEPSEEK_API_KEY
-# Optional: DEEPSEEK_MODEL, DEEPSEEK_BASE_URL, APP_TOKEN
+# Secrets: QDRANT_URL, QDRANT_API_KEY, plus DEEPSEEK_API_KEY or GEMINI_API_KEY
+# Optional: RAG_LLM_PROVIDER, DEEPSEEK_*, GEMINI_*, APP_TOKEN
 
 name: Cloud RAG smoke
 
@@ -22,9 +22,12 @@ jobs:
     env:
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
       QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      RAG_LLM_PROVIDER: ${{ secrets.RAG_LLM_PROVIDER }}
       DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
       DEEPSEEK_MODEL: ${{ secrets.DEEPSEEK_MODEL }}
       DEEPSEEK_BASE_URL: ${{ secrets.DEEPSEEK_BASE_URL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_MODEL: ${{ secrets.GEMINI_MODEL }}
       APP_TOKEN: ${{ secrets.APP_TOKEN }}
       EMBEDDING_CACHE_DIR: data/embedding_models
 
@@ -39,7 +42,12 @@ jobs:
         run: |
           test -n "$QDRANT_URL" || { echo "Missing secret QDRANT_URL"; exit 1; }
           test -n "$QDRANT_API_KEY" || { echo "Missing secret QDRANT_API_KEY"; exit 1; }
-          test -n "$DEEPSEEK_API_KEY" || { echo "Missing secret DEEPSEEK_API_KEY"; exit 1; }
+          provider="${RAG_LLM_PROVIDER:-deepseek}"
+          if [ "$provider" = "gemini" ]; then
+            test -n "$GEMINI_API_KEY" || { echo "Missing secret GEMINI_API_KEY (RAG_LLM_PROVIDER=gemini)"; exit 1; }
+          else
+            test -n "$DEEPSEEK_API_KEY" || { echo "Missing secret DEEPSEEK_API_KEY"; exit 1; }
+          fi
 
       - name: Set up Python
         uses: actions/setup-python@v5

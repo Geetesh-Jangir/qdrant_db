@@ -163,7 +163,7 @@ class Settings(BaseSettings):
     # 0 = scan full RSS; keep every item that passes publisher/time/language/https filters.
     max_items_per_query: int = 0
     title_similarity: int = 80
-    recent_title_hours: int = 48
+    recent_title_hours: int = 168
     min_body_chars: int = 400
     embed_chars: int = 1500
     body_words: int = 2000
@@ -185,6 +185,15 @@ class Settings(BaseSettings):
 
     holdings_csv: str = "data/fund_holdings_aggregate/aggregated_holdings.csv"
     sectors_csv: str = "data/fund_holdings_aggregate/aggregated_sectors.csv"
+    # When set, load_universe uses portfolio holdings/sectors instead of top CSV names.
+    portfolio_json: str = ""
+    allisin_sectors_holdings_json: str = "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json"
+    portfolio_manifest_path: str = "data/fund_holdings_aggregate/portfolio_news_scope.json"
+    aggregated_holdings_map: str = "data/fund_holdings_aggregate/aggregated_holdings_map.json"
+    aggregated_holdings_csv: str = "data/fund_holdings_aggregate/aggregated_holdings.csv"
+
+    portfolio_holding_min_pct: float = 2.0
+    portfolio_sector_min_pct: float = 3.0
     run_summary_dir: str = "data/news_runs"
     qdrant_inspect_dir: str = "data/qdrant_inspect"
     scrape_workspace_dir: str = "data/news_scrape_cache"

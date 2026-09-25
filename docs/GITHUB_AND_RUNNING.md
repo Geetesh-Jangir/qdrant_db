@@ -31,6 +31,15 @@ python scripts/download_embedding_model.py
 python -m news_pipeline
 ```
 
+Portfolio-scoped ingest (holdings ≥ 2%, sectors ≥ 3% in that portfolio; append-only to Qdrant):
+
+```bash
+set PORTFOLIO_JSON=investor_data\mohit\portfolio.json
+python -m news_pipeline
+```
+
+Writes `data/fund_holdings_aggregate/portfolio_news_scope.json` for the RAG fund brief to use the same names.
+
 Logs: `data/news_runs/{run_id}.log` and `{run_id}.json` (kept across runs).
 
 Optional `.env` overrides: `NEWS_WINDOW_HOURS`, `GOOGLE_NEWS_WHEN`, `NEWS_CORPUS_MODE`, etc.
@@ -41,9 +50,19 @@ Optional `.env` overrides: `NEWS_WINDOW_HOURS`, `GOOGLE_NEWS_WHEN`, `NEWS_CORPUS
 uvicorn news_rag.app:app --host 127.0.0.1 --port 8080
 ```
 
-Open `http://127.0.0.1:8080`. Logs per question: `data/rag_query_logs/`.
+Open `http://127.0.0.1:8080`. Fund brief UI: `http://127.0.0.1:8080/fund` (requires `PORTFOLIO_JSON` in `.env`). Logs per question: `data/rag_query_logs/`.
 
 Requires corpus already in Qdrant from at least one pipeline run.
+
+**Insight LLM (`.env`):** default is DeepSeek. For Google Gemini:
+
+```env
+RAG_LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_google_ai_studio_key
+GEMINI_MODEL=gemini-3.5-flash-lite
+```
+
+Restart uvicorn after changing `.env`. `GET /health` shows `llm_provider` and `llm_model`.
 
 ---
 
@@ -97,14 +116,17 @@ Workflow env already sets: `FRESH_START_EACH_RUN=false`, `FRESH_START_CLEAR_QDRA
 |--------|--------|
 | `QDRANT_URL` | Same cluster as pipeline |
 | `QDRANT_API_KEY` | Same |
-| `DEEPSEEK_API_KEY` | DeepSeek platform key |
+| `DEEPSEEK_API_KEY` | If `RAG_LLM_PROVIDER=deepseek` (default) |
+| `GEMINI_API_KEY` | If `RAG_LLM_PROVIDER=gemini` |
 
 ### Optional for RAG
 
 | Secret | Notes |
 |--------|--------|
+| `RAG_LLM_PROVIDER` | `deepseek` (default) or `gemini` |
 | `DEEPSEEK_MODEL` | e.g. `deepseek-chat` or `deepseek-flash` |
 | `DEEPSEEK_BASE_URL` | Default `https://api.deepseek.com` |
+| `GEMINI_MODEL` | Default `gemini-3.5-flash-lite` (older `gemini-2.5-flash-lite` may 404 for new keys) |
 | `APP_TOKEN` | If set, smoke test sends `X-App-Token` header |
 
 **Do not** commit `.env`. Only store these in GitHub Secrets (and local `.env`).

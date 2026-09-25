@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fund news brief</title>
+  <style>
+    :root {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      line-height: 1.5;
+      color: #1a1a1a;
+      background: #f4f5f7;
+    }
+    body { max-width: 720px; margin: 0 auto; padding: 1.5rem; }
+    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.25rem; }
+    .sub { color: #555; font-size: 0.9rem; margin-bottom: 1.25rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 500; margin-top: 0.75rem; }
+    select, button {
+      width: 100%; box-sizing: border-box; font: inherit;
+      border: 1px solid #ccc; border-radius: 8px; padding: 0.55rem 0.65rem;
+    }
+    button {
+      margin-top: 1rem; background: #1e4d8c; color: #fff; border: none;
+      cursor: pointer; font-weight: 600;
+    }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .answer-box {
+      margin-top: 1.5rem; background: #fff; border-radius: 10px;
+      padding: 1rem 1.1rem; border: 1px solid #e0e0e0;
+      font-size: 0.98rem; max-width: 42rem;
+    }
+    .answer-box h2 { font-size: 0.95rem; margin: 0 0 0.65rem; font-weight: 600; }
+    .answer-box h3 { font-size: 0.88rem; margin: 1rem 0 0.45rem; font-weight: 600; color: #333; }
+    .answer-box p { margin: 0 0 0.65rem; }
+    .answer-box ul { margin: 0 0 0.25rem; padding-left: 1.25rem; }
+    .answer-box li { margin-bottom: 0.45rem; }
+    .meta { font-size: 0.82rem; color: #666; margin-top: 0.5rem; }
+    .quiet { font-size: 0.88rem; color: #444; margin-top: 0.75rem; }
+    .sources { margin-top: 1rem; }
+    .sources h2 { font-size: 0.95rem; margin: 0 0 0.5rem; }
+    .card {
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
+      padding: 0.65rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.88rem;
+    }
+    .card a { color: #1e4d8c; text-decoration: none; font-weight: 500; }
+    .card a:hover { text-decoration: underline; }
+    .err { color: #b00020; margin-top: 1rem; }
+    .hidden { display: none; }
+    .nav { font-size: 0.85rem; margin-bottom: 1rem; }
+    .nav a { color: #1e4d8c; }
+  </style>
+</head>
+<body>
+  <p class="nav"><a href="/">Ask a question</a></p>
+  <h1>Fund news brief</h1>
+  <p class="sub">Pick a fund from the configured portfolio. Uses stored news only (run the news pipeline separately).</p>
+
+  <form id="form">
+    <label for="fund">Fund</label>
+    <select id="fund" name="fund" required>
+      <option value="">Loading funds…</option>
+    </select>
+    <button type="submit" id="submit">Run</button>
+  </form>
+
+  <p id="error" class="err hidden"></p>
+
+  <div id="result" class="hidden">
+    <div class="answer-box">
+      <h2 id="fundTitle">This fund</h2>
+      <div id="fundInsight"></div>
+    </div>
+    <div class="answer-box">
+      <h2>Rest of the portfolio</h2>
+      <div id="portfolioInsight"></div>
+    </div>
+    <p class="quiet hidden" id="quiet"></p>
+    <p class="meta" id="meta"></p>
+    <div class="sources">
+      <h2>Sources</h2>
+      <div id="sources"></div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById("form");
+    const fundSelect = document.getElementById("fund");
+    const submit = document.getElementById("submit");
+    const errorEl = document.getElementById("error");
+    const resultEl = document.getElementById("result");
+    const fundTitle = document.getElementById("fundTitle");
+    const fundInsightEl = document.getElementById("fundInsight");
+    const portfolioInsightEl = document.getElementById("portfolioInsight");
+    const quietEl = document.getElementById("quiet");
+    const metaEl = document.getElementById("meta");
+    const sourcesEl = document.getElementById("sources");
+
+    function renderBlock(container, bullets, summary) {
+      container.innerHTML = "";
+      if (Array.isArray(bullets) && bullets.length) {
+        const h3 = document.createElement("h3");
+        h3.textContent = "Key points";
+        container.appendChild(h3);
+        const ul = document.createElement("ul");
+        for (const item of bullets) {
+          const li = document.createElement("li");
+          li.textContent = item;
+          ul.appendChild(li);
+        }
+        container.appendChild(ul);
+      }
+      if (summary) {
+        const h3 = document.createElement("h3");
+        h3.textContent = "Summary";
+        container.appendChild(h3);
+        const p = document.createElement("p");
+        p.className = "summary-text";
+        p.textContent = summary;
+        container.appendChild(p);
+      }
+      if (!bullets?.length && !summary) {
+        container.textContent = "No insight for this section.";
+      }
+    }
+
+    async function loadFunds() {
+      const response = await fetch("/api/portfolio-funds");
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.detail || response.statusText);
+      }
+      fundSelect.innerHTML = "";
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Select a fund";
+      fundSelect.appendChild(placeholder);
+      for (const row of data.funds || []) {
+        const opt = document.createElement("option");
+        opt.value = row.isin;
+        opt.textContent = row.fund_short_name + " (" + row.portfolio_weight_pct + "% of book)";
+        fundSelect.appendChild(opt);
+      }
+    }
+
+    loadFunds().catch((err) => {
+      fundSelect.innerHTML = "";
+      const opt = document.createElement("option");
+      opt.value = "";
+      opt.textContent = "Could not load funds";
+      fundSelect.appendChild(opt);
+      errorEl.textContent = err.message || String(err);
+      errorEl.classList.remove("hidden");
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      errorEl.classList.add("hidden");
+      resultEl.classList.add("hidden");
+      submit.disabled = true;
+      const isin = fundSelect.value;
+      if (!isin) {
+        errorEl.textContent = "Select a fund first.";
+        errorEl.classList.remove("hidden");
+        submit.disabled = false;
+        return;
+      }
+      try {
+        const response = await fetch("/api/fund-brief", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isin }),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.detail || response.statusText);
+        }
+        fundTitle.textContent = "This fund — " + (data.fund_short_name || "");
+        renderBlock(fundInsightEl, data.fund_bullets, data.fund_summary);
+        renderBlock(portfolioInsightEl, data.portfolio_bullets, data.portfolio_summary);
+        const quiet = data.quiet_holdings || [];
+        if (quiet.length) {
+          quietEl.textContent =
+            "No stored news matched these sizable holdings in this fund: " + quiet.join("; ") + ".";
+          quietEl.classList.remove("hidden");
+        } else {
+          quietEl.classList.add("hidden");
+        }
+        metaEl.textContent = "Window: " + (data.window || "") + ". Factual context only, not investment advice.";
+        sourcesEl.innerHTML = "";
+        for (const row of data.sources || []) {
+          const div = document.createElement("div");
+          div.className = "card";
+          const link = document.createElement("a");
+          link.href = row.url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = row.title || row.url;
+          div.appendChild(link);
+          const line = document.createElement("div");
+          const pub = row.published_at ? row.published_at.slice(0, 10) : "";
+          line.textContent = [row.source, pub].filter(Boolean).join(" · ");
+          div.appendChild(line);
+          sourcesEl.appendChild(div);
+        }
+        resultEl.classList.remove("hidden");
+      } catch (err) {
+        errorEl.textContent = err.message || String(err);
+        errorEl.classList.remove("hidden");
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,11 +1,8 @@
-"""DeepSeek — structured insight (bullets + summary) from retrieved articles."""
+"""LLM — structured insight (bullets + summary) from retrieved articles."""
 
 from __future__ import annotations
 
-import time
 from typing import TYPE_CHECKING
-
-import httpx
 
 from news_rag.config import get_settings
 from news_rag.insight_format import (
@@ -15,7 +12,7 @@ from news_rag.insight_format import (
     parse_structured_insight,
 )
 from news_rag.insights import build_structured_insight_from_articles
-from news_rag.llm_text import extract_assistant_text
+from news_rag.llm_client import call_insight_llm, llm_api_key_configured, missing_llm_key_message
 from news_rag.parse import ParsedQuery
 from news_rag.query_log import clip_log_text
 
@@ -106,8 +103,8 @@ def generate_answer(
         return empty_answer(parsed)
 
     settings = get_settings()
-    if not settings.deepseek_api_key:
-        raise RuntimeError("Set DEEPSEEK_API_KEY in .env")
+    if not llm_api_key_configured(settings):
+        raise RuntimeError(missing_llm_key_message())
 
     user_content = (
         f"Question: {parsed.question}\n"
@@ -118,62 +115,29 @@ def generate_answer(
         "Do not rewrite title= lines as bullets."
     )
 
-    url = settings.deepseek_base_url.rstrip("/") + "/chat/completions"
-    payload = {
-        "model": settings.deepseek_model,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        "max_tokens": settings.deepseek_max_tokens,
-        "temperature": 0.25,
-    }
+    llm_result = call_insight_llm(
+        system_prompt=SYSTEM_PROMPT,
+        user_content=user_content,
+        query_log=query_log,
+    )
     if query_log is not None:
+        query_log.record_llm_call(
+            provider=llm_result.provider,
+            model=llm_result.model,
+            input_tokens=llm_result.input_tokens,
+            output_tokens=llm_result.output_tokens,
+            total_tokens=llm_result.total_tokens,
+            duration_sec=llm_result.duration_sec,
+            http_status=llm_result.http_status,
+        )
         query_log.write(
-            f"deepseek request url={url} model={settings.deepseek_model} "
-            f"max_tokens={settings.deepseek_max_tokens} "
-            f"system_chars={len(SYSTEM_PROMPT)} user_chars={len(user_content)}"
+            f"llm raw_preview provider={llm_result.provider} "
+            f"text={clip_log_text(llm_result.raw_text, 500)}"
         )
 
-    started = time.perf_counter()
-    with httpx.Client(timeout=120.0) as client:
-        response = client.post(
-            url,
-            headers={
-                "Authorization": f"Bearer {settings.deepseek_api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
-        duration = time.perf_counter() - started
-        if query_log is not None and response.status_code >= 400:
-            query_log.log_error(
-                "deepseek",
-                f"http_status={response.status_code} body={response.text[:500]}",
-            )
-        response.raise_for_status()
-        data = response.json()
-
-    usage = data.get("usage") or {}
-    input_tokens = int(usage.get("prompt_tokens") or 0)
-    output_tokens = int(usage.get("completion_tokens") or 0)
-    total_tokens = usage.get("total_tokens")
-    if query_log is not None:
-        query_log.record_deepseek(
-            model=settings.deepseek_model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            total_tokens=int(total_tokens) if total_tokens is not None else None,
-            duration_sec=duration,
-            http_status=response.status_code,
-        )
-
-    raw = extract_assistant_text(data)
-    if query_log is not None:
-        query_log.write(f"deepseek raw_preview={clip_log_text(raw, 500)}")
-
+    raw = llm_result.raw_text
     bullets, summary = parse_structured_insight(raw)
-    insight_source = "deepseek"
+    insight_source = llm_result.provider
 
     if not bullets and not summary:
         bullets, summary = build_structured_insight_from_articles(parsed, articles)

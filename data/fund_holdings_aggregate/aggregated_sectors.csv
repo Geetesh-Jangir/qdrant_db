@@ -1,118 +1,311 @@
-sector,total_percentage,fund_count
-"Banks",15946.85,859
-"Pharmaceuticals & Biotechnology",6700.76,701
-"It - Software",5071.31,549
-"Finance",5044.52,679
-"Capital Markets",4842.59,375
-"Automobiles",4425.13,579
-"Auto Components",3037.94,450
-"Retailing",2944.73,442
-"Electrical Equipment",2805.64,366
-"Consumer Durables",2523.72,438
-"Industrial Products",2321.69,341
-"Petroleum Products",2297.12,401
-"Telecom - Services",2183.01,399
-"Power",2014.18,292
-"Healthcare Services",1708.22,266
-"Construction",1283.87,244
-"Chemicals & Petrochemicals",1195.21,236
-"Realty",1129.8,147
-"Insurance",945.87,179
-"Aerospace & Defense",864.75,130
-"Diversified Fmcg",753.61,137
-"Financial Technology (fintech)",699.32,140
-"Transport Services",668.5,127
-"Cement & Cement Products",647.51,119
-"Food Products",641.19,107
-"Foreign Security",596.91,8
-"Ferrous Metals",583.02,109
-"Non - Ferrous Metals",548.86,104
-"Overseas Mutual Fund",511.53,6
-"Leisure Services",490.93,76
-"Etf Units",459.86,7
-"Mutual Fund",454.57,8
-"Mutual Funds",432.62,7
-"Mutual Fund/etf",418.48,6
-"Industrial Manufacturing",414.09,80
-"Beverages",354.76,79
-"Internal - Mutual Fund Units",301.42,4
-"International - Mutual Fund Units",291.17,3
-"Agricultural, Commercial & Construction Vehicles",289.69,67
-"Transport Infrastructure",288.96,58
-"Agricultural Food & Other Products",255.71,55
-"It - Services",189.94,38
-"Textiles & Apparels",176.52,37
-"Oil",168.75,30
-"Metals & Minerals Trading",166.54,28
-"Gas",155.52,27
-"Commercial Services & Supplies",143.44,28
-"Consumable Fuels",137.12,32
-"Personal Products",120.95,27
-"Exchange Traded Funds",120.27,3
-"Precious Metals",108.17,2
-"Fertilizers & Agrochemicals",87.55,21
-"Semiconductors",86.65,6
-"Diversified Metals",81.78,19
-"Minerals & Mining",76.78,16
-"Telecom - Equipment & Accessories",34.57,8
-"Financial Services",31.48,2
-"It - Hardware",30.48,3
-"Index Futures",28.96,4
-"Interactive Media & Services",28.53,3
-"Electronic Components",25.4,1
-"Pharmaceuticals",24.33,3
-"Other Utilities",23.05,5
-"Systems Software",21.8,3
-"Technology Hardware, Storage & Peripherals",20.72,3
-"Semiconductor Materials & Equipment",17.81,2
-"Application Software",16.38,3
-"Agricultural, Commercial And Constr",15.16,4
-"Exchange Traded Fund",14.87,1
-"Units Of Real Estate Investment Trust (reits)",13.26,3
-"Entertainment",12.26,3
-"Engineering Services",11.6,2
-"Electronic Equipment & Instruments",11.14,2
-"Broadline Retail",10.17,2
-"Others",9.65,1
-"Agricultural Food And Other Product",9.48,2
-"Units Of Infrastructure Investment Trusts",9.38,2
-"Investment Banking & Brokerage",8.66,2
-"Industrial Machinery & Supplies & Components",8.47,1
-"Computers Hardware & Equipments",8.36,1
-"Health Care Equipment",7.89,2
-"Healthcare Equipment & Supplies",7.52,1
-"Transaction & Payment Processing Services",7.28,1
-"Software",7.21,2
-"Consumer Non Durables",6.99,1
-"Software Products",6.96,1
-"Biotechnology",6.87,1
-"Other Consumer Services",6.55,2
-"Diversified Banks",6.52,2
-"Hotels, Resorts & Cruise Lines",6.52,1
-"Diversified",6.5,2
-"Computer Software: Programming, Data Processing",6.32,1
-"Communications Equipment",5.96,1
-"Internet & Direct Marketing Retail",5.93,1
-"Life Sciences Tools & Services",5.78,1
-"Trading",5.63,1
-"Semiconductor Equipment",5.2,1
-"It-Hardware",5.17,1
-"Health Care Equipment & Supplies",5.08,1
-"Human Resource & Employment Services",4.97,1
-"Household Products",4.96,1
-"It Consulting & Other Services",4.21,1
-"Electrical Components & Equipment",4.12,1
-"Paper, Forest & Jute Products",3.86,1
-"In Vits",3.81,1
-"Marine Transportation",3.78,1
-"Personal Care Products",3.52,1
-"Tires & Rubber",3.5,1
-"Industrial Conglomerates",3.36,1
-"Trading Companies & Distributors",3.33,1
-"Automobile Manufacturers",3.26,1
-"Diversified Chemicals",3.21,1
-"Diversified Real Estate Activities",3.16,1
-"Property & Casualty Insurance",3.11,1
-"Packaged Foods & Meats",3.08,1
-"Life & Health Insurance",3.02,1
-"Managed Health Care",3.01,1
+sector,fund_count
+Banks,5817
+Finance,5551
+Consumer Durables,5165
+Pharmaceuticals & Biotechnology,5023
+Automobiles,4977
+It - Software,4803
+Telecom - Services,4781
+Power,4718
+Retailing,4651
+Auto Components,4587
+Capital Markets,4585
+Industrial Products,4494
+Healthcare Services,4442
+Petroleum Products,4425
+Electrical Equipment,4275
+Construction,4266
+Insurance,3892
+Transport Services,3879
+Cement & Cement Products,3835
+Ferrous Metals,3632
+Chemicals & Petrochemicals,3590
+Aerospace & Defense,3580
+Non - Ferrous Metals,3572
+Realty,3559
+Leisure Services,3142
+Beverages,3050
+Food Products,2972
+Diversified Fmcg,2748
+Financial Technology (fintech),2723
+Agricultural Food & Other Products,2715
+"Agricultural, Commercial & Construction Vehicles",2680
+Industrial Manufacturing,2656
+Transport Infrastructure,2583
+Personal Products,2250
+Oil,2192
+Fertilizers & Agrochemicals,2048
+It - Services,1948
+Textiles & Apparels,1931
+Gas,1780
+Consumable Fuels,1498
+Commercial Services & Supplies,1484
+Metals & Minerals Trading,1285
+Minerals & Mining,1156
+Diversified Metals,1036
+Entertainment,819
+Household Products,581
+Diversified,559
+Cigarettes & Tobacco Products,483
+Other Consumer Services,441
+Telecom - Equipment & Accessories,417
+Healthcare Equipment & Supplies,416
+Consumer Non Durables,354
+Pharmaceuticals,352
+Software,340
+Auto,315
+Pharmaceuticals And Biotechnology,260
+Auto Ancillaries,259
+Chemicals And Petrochemicals,243
+Cement And Cement Products,217
+Cement,192
+Construction Project,185
+"Paper, Forest & Jute Products",177
+It - Hardware,168
+Aerospace And Defense,163
+Other Utilities,159
+"Agricultural, Commercial And Constr",157
+Agricultural Food And Other Product,126
+Alternative Investment Fund,120
+Mutual Fund,119
+Units Of Real Estate Investment Trust (reits),114
+Fertilizers And Agrochemicals,112
+Transportation,108
+Industrial Capital Goods,106
+Chemicals,97
+Media & Entertainment,91
+Units Of Infrastructure Investment Trusts,90
+Minerals/mining,81
+Minerals And Mining,75
+Miscellaneous,74
+Power.,68
+Textiles And Apparels,67
+Financial Services,62
+Foreign Security,60
+Gas.,60
+Pesticides,59
+Technology,55
+Media,52
+Metals And Minerals Trading,51
+Commercial Services And Supplies,48
+Engineering Services,46
+Mutual Funds,46
+Fertilisers,44
+Overseas Mutual Fund,44
+Semiconductors,44
+Basic Materials,43
+Consumer Cyclical,43
+Energy,42
+Mutual Fund/etf,42
+Communication Services,41
+Industrials,41
+Healthcare,40
+Utilities,40
+Consumer Defensive,38
+Interactive Media & Services,37
+Petroleum Products.,36
+Semiconductor Materials & Equipment,36
+Systems Software,36
+Communications Equipment,35
+Textile Products,32
+Textiles - Cotton,32
+Etf Units,30
+Real Estate,30
+Application Software,29
+Index Options,28
+Internal - Mutual Fund Units,28
+Apparel Retail,27
+Health Care Equipment,27
+Broadline Retail,26
+Stock Future,26
+"Technology Hardware, Storage & Peripherals",26
+"Hotels, Resorts & Cruise Lines",24
+Index Futures,24
+Movies & Entertainment,24
+Transaction & Payment Processing Services,23
+Packaged Foods & Meats,22
+Trading,22
+Building Products,21
+It Consulting & Other Services,21
+Health Care Technology,20
+Unclassified,20
+Cigarettes And Tobacco Products,19
+Automobile Manufacturers,18
+Biotechnology,18
+Exchange Traded Funds,18
+International - Mutual Fund Units,18
+Internet & Direct Marketing Retail,18
+Restaurants,18
+Soft Drinks & Non-Alcoholic Beverages,17
+Electrical Components & Equipment,16
+Electronic Components,16
+Index Futures/options,16
+Industrial Conglomerates,16
+Industrial Machinery & Supplies & Components,16
+Life Sciences Tools & Services,16
+Wireless Telecommunication Services,16
+Automotive Retail,15
+Diversified Support Services,15
+Media And Entertainment,15
+Services,15
+Trading Companies & Distributors,15
+Electronic Equipment & Instruments,14
+"Hotels, Resorts And Other Recreational Activities",14
+Investment Banking & Brokerage,14
+Passenger Ground Transportation,14
+Specialty Chemicals,14
+Household Appliances,13
+Software & Services,13
+Diversified Chemicals,12
+Healthcare Equipment And Supplies,12
+Hotels,12
+Semiconductor Equipment,12
+Soft Drinks,12
+Software Products,12
+Sov,12
+Construction & Engineering,10
+Diversified Banks,10
+Electric Utilities,10
+In Vits,10
+Industrial Gases,10
+Printing & Publication,10
+Research & Consulting Services,10
+Cable & Satellite,9
+Financial Exchanges & Data,9
+Health Care Distributors,9
+Human Resource & Employment Services,9
+Life & Health Insurance,9
+Managed Health Care,9
+Personal Care Products,9
+Precious Metals,9
+Automotive Parts & Equipment,8
+Data Processing & Outsourced Services,8
+Distillers & Vintners,8
+Diversified Financial Services,8
+Footwear,8
+Oil.,8
+Other Construction Materials,8
+Property & Casualty Insurance,8
+Diversified Real Estate Activities,7
+Marine Transportation,7
+Semiconductors & Semiconductor,7
+Agricultural Commercial & Construction Vehicles,6
+"Agricultural, Commercial And Construction Vehicles",6
+Computer Hardware,6
+Computers - Software & Consulting,6
+Computers Hardware & Equipments,6
+Construction Machinery & Heavy,6
+Exchange Traded Fund,6
+Exploration & Production,6
+Film & Tv,6
+Health Care Equipment & Supplies,6
+Hypermarkets & Super Centers,6
+Information Services,6
+It Enabled Services,6
+It-Hardware,6
+It-Software,6
+Oilfield Services & Equipment,6
+Railroads,6
+Road & Rail,6
+Security & Alarm Services,6
+Semiconductor Mfg,6
+Technology Hardware And Equipment,6
+Telecom - Equipment And Accessories,6
+Tires & Rubber,6
+Consumer Staples Merchandise Retail,5
+Integrated Telecommunication Services,5
+Interactive Home Entertainment,5
+Oil & Gas Exploration & Production,5
+Others,5
+Cargo Ground Transportation,4
+Catalog/specialty Distribution ##,4
+Computer Software: Prepackaged Software ##,4
+"Computer Software: Programming, Data Processing ##",4
+Crisil A1+,4
+Electronic Manufacturing Services,4
+Fitch A1+,4
+Gold,4
+Integrated Oil & Gas,4
+Internet Services & Infrastructure,4
+Metals & Mining,4
+Other Services,4
+Other Specialty Retail,4
+Rail Transportation,4
+1 Days,3
+Advertising,3
+Air Freight & Logistics,3
+"Apparel, Accessories And Luxury Goods",3
+Brewers,3
+Broadcasting,3
+Casinos & Gaming,3
+Construction Machinery & Heavy Transportation,3
+Food Retail,3
+Gas Utilities,3
+Health Care Supplies,3
+Home Improvement Retail,3
+Independent Power Producers & Energy Traders,3
+Multi-Sector Holdings,3
+Oil & Gas Equipment & Services,3
+Passenger Airlines,3
+Retail Reits,3
+Software And Services,3
+Steel,3
+Tobacco,3
+Agricultural & Farm Machinery,2
+Agricultural Products & Services,2
+Alternative Carriers,2
+Asset Management & Custody Banks,2
+Commodity Chemicals,2
+Computer & Electronics Retail,2
+Construction Materials,2
+Consumer Electronics,2
+Consumer Finance,2
+Copper,2
+Data Center Reits,2
+Distributors,2
+Drug Retail,2
+Environmental & Facilities Services,2
+Fertilizers & Agricultural Chemicals,2
+Food Distributors,2
+Health Care Facilities,2
+Health Care Reits,2
+Health Care Services,2
+Heavy Electrical Equipment,2
+Homebuilding,2
+Homefurnishing Retail,2
+Hotel & Resort Reits,2
+Industrial Reits,2
+Insurance Brokers,2
+Leisure Products,2
+"Metal, Glass & Plastic Containers",2
+Multi-Family Residential Reits,2
+Multi-Utilities,2
+Office Reits,2
+Oil & Gas Refining & Marketing,2
+Oil & Gas Storage & Transportation,2
+Other Specialized Reits,2
+Paper & Plastic Packaging Products & Materials,2
+Publishing,2
+Real Estate Services,2
+Regional Banks,2
+Reinsurance,2
+Self Storage Reits,2
+Silver,2
+Single-Family Residential Reits,2
+Technology Distributors,2
+Telecom Tower Reits,2
+Timber Reits,2
+Unrated,2
+Water Utilities,2
+Aluminum,1
+Automobiles & Components,1
+Capital Goods,1
+Coal & Consumable Fuels,1
+Construction Machinery & Heavy Transport Eq,1
+Diversified Metals & Mining,1
+Education Services,1
+Home Appliances,1
+Other Bank,1
+Real Estate Development,1
+Real Estate Operating Companies,1
+Technology Hardware & Equipment,1
