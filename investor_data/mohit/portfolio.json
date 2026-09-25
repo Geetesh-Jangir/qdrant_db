@@ -1,0 +1,176 @@
+{
+    "success": true,
+    "status": 200,
+    "message": "Portfolio holdings",
+    "data": {
+        "summary": {
+            "total": {
+                "invested": 59997,
+                "current_value": 63644.78,
+                "xirr": 12.54,
+                "total_return": {
+                    "amount": 3647.78,
+                    "percentage": 6.08
+                }
+            },
+            "rupeestop": {
+                "invested": 59997,
+                "current_value": 63644.78,
+                "xirr": 12.54,
+                "total_return": {
+                    "amount": 3647.78,
+                    "percentage": 6.08
+                }
+            },
+            "other": {
+                "invested": 0,
+                "current_value": 0,
+                "xirr": null,
+                "total_return": {
+                    "amount": 0,
+                    "percentage": null
+                }
+            }
+        },
+        "holdings": [
+            {
+                "fund_name": "WHITEOAK CAPITAL MID CAP FUND REGULAR PLAN - GROWTH",
+                "fund_short_name": "WhiteOak Mid Cap Fund",
+                "isin": "INF03VN01563",
+                "amc_name": "WHITEOAK CAPITAL MUTUAL FUND",
+                "amc_code": "Y",
+                "category": "mid cap",
+                "asset_type": "equity",
+                "plan": "Regular",
+                "mode": "sip",
+                "invested_amount": 11999.4,
+                "current_value": 12784.86,
+                "units": 591.18,
+                "xirr": 13.52,
+                "absolute_return": {
+                    "amount": 785.46,
+                    "percentage": 6.55
+                },
+                "today_change": {
+                    "amount": 0,
+                    "percentage": 0
+                },
+                "current_nav": 21.626,
+                "investing_since": "2025-10-10",
+                "folio_number": "1001169092",
+                "folio_scheme": "1001169092#101G",
+                "scheme_code": "101G",
+                "broker": "rupeestop",
+                "nav_date": "2026-09-24"
+            },
+            {
+                "fund_name": "KOTAK INDIA EQ CONTRA FUND - GROWTH",
+                "fund_short_name": "Kotak Contra Fund",
+                "isin": "INF174K01245",
+                "amc_name": "KOTAK MAHINDRA MUTUAL FUND",
+                "amc_code": "K",
+                "category": "value",
+                "asset_type": "equity",
+                "plan": "Regular",
+                "mode": "sip",
+                "invested_amount": 11999.4,
+                "current_value": 11800.03,
+                "units": 78.892,
+                "xirr": -3.35,
+                "absolute_return": {
+                    "amount": -199.37,
+                    "percentage": -1.66
+                },
+                "today_change": {
+                    "amount": 0,
+                    "percentage": 0
+                },
+                "current_nav": 149.572,
+                "investing_since": "2025-10-10",
+                "folio_number": "17653017",
+                "folio_scheme": "17653017#124",
+                "scheme_code": "124",
+                "broker": "rupeestop",
+                "nav_date": "2026-09-24"
+            },
+            {
+                "fund_name": "INVESCO INDIA LARGE & MID CAP FUND - GROWTH",
+                "fund_short_name": "Invesco Large & Mid Cap Fund",
+                "isin": "INF205K01247",
+                "amc_name": "INVESCO MUTUAL FUND",
+                "amc_code": "120",
+                "category": "large & mid cap",
+                "asset_type": "equity",
+                "plan": "Regular",
+                "mode": "both",
+                "invested_amount": 23998.8,
+                "current_value": 25641.9,
+                "units": 235.398,
+                "xirr": 14.15,
+                "absolute_return": {
+                    "amount": 1643.1,
+                    "percentage": 6.85
+                },
+                "today_change": {
+                    "amount": 0,
+                    "percentage": 0
+                },
+                "current_nav": 108.93,
+                "investing_since": "2025-10-10",
+                "folio_number": "31037175901",
+                "folio_scheme": "31037175901#GFGP",
+                "scheme_code": "GFGP",
+                "broker": "rupeestop",
+                "nav_date": "2026-09-24"
+            },
+            {
+                "fund_name": "QUANT SMALL CAP FUND REGULAR PLAN - GROWTH",
+                "fund_short_name": "Quant Small Cap Fund",
+                "isin": "INF966L01AA0",
+                "amc_name": "QUANT MUTUAL FUND",
+                "amc_code": "166",
+                "category": "small cap",
+                "asset_type": "equity",
+                "plan": "Regular",
+                "mode": "both",
+                "invested_amount": 11999.4,
+                "current_value": 13417.99,
+                "units": 46.295,
+                "xirr": 24.83,
+                "absolute_return": {
+                    "amount": 1418.59,
+                    "percentage": 11.82
+                },
+                "today_change": {
+                    "amount": 0,
+                    "percentage": 0
+                },
+                "current_nav": 289.8368,
+                "investing_since": "2025-10-10",
+                "folio_number": "510100638092",
+                "folio_scheme": "510100638092#IBGP",
+                "scheme_code": "IBGP",
+                "broker": "rupeestop",
+                "nav_date": "2026-09-24"
+            }
+        ],
+        "meta": {
+            "client_ref_no": "CRN-tlml4Ha1xs6U6UfFZizH8953",
+            "as_of_date": "2026-09-25",
+            "end_date": "2026-09-25",
+            "as_of_date_source": "default_today_ist",
+            "holding_count": 4,
+            "rupeestop_holding_count": 4,
+            "other_holding_count": 0,
+            "active_holding_count": 4,
+            "source": "transaction_replay",
+            "computed_at": "2026-09-25T06:29:26.625Z",
+            "transaction_count": 48,
+            "systematic_plan_count": 4,
+            "today_prior_nav_date": "2026-09-24",
+            "xirr_engine": "computeGracefulPortfolioXirrResult",
+            "auth": "none"
+        }
+    },
+    "timestamp": "2026-09-25T06:29:26.625Z"
+}

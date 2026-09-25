@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _ROOT = Path(__file__).resolve().parents[1]
@@ -25,10 +26,21 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = "news_articles"
 
+    # Insight LLM: set RAG_LLM_PROVIDER=gemini or deepseek (default deepseek).
+    rag_llm_provider: str = "deepseek"
+
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-flash"
-    deepseek_max_tokens: int = 2000
+
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
+
+    llm_max_tokens: int = Field(
+        default=2000,
+        validation_alias=AliasChoices("LLM_MAX_TOKENS", "DEEPSEEK_MAX_TOKENS"),
+    )
 
     app_token: str = ""
     entity_cache_hours: float = 4.0
@@ -44,6 +56,14 @@ class Settings(BaseSettings):
     embedding_model: str = EMBEDDING_MODEL
     embedding_cache_dir: str = "data/embedding_models"
     rag_query_log_dir: str = "data/rag_query_logs"
+
+    portfolio_json: str = ""
+    allisin_sectors_holdings_json: str = "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json"
+    portfolio_manifest_path: str = "data/fund_holdings_aggregate/portfolio_news_scope.json"
+    portfolio_holding_min_pct: float = 2.0
+    portfolio_sector_min_pct: float = 3.0
+    aggregated_holdings_map: str = "data/fund_holdings_aggregate/aggregated_holdings_map.json"
+    aggregated_holdings_csv: str = "data/fund_holdings_aggregate/aggregated_holdings.csv"
 
     def embedding_cache_path(self) -> Path:
         path = _ROOT / self.embedding_cache_dir

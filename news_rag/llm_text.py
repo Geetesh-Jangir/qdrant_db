@@ -26,6 +26,20 @@ def extract_assistant_text(data: dict[str, Any]) -> str:
     return ""
 
 
+def extract_gemini_text(data: dict[str, Any]) -> str:
+    candidates = data.get("candidates") or []
+    if not candidates:
+        return ""
+    content = candidates[0].get("content") or {}
+    parts = content.get("parts") or []
+    chunks: list[str] = []
+    for part in parts:
+        text = part.get("text")
+        if text and str(text).strip():
+            chunks.append(str(text).strip())
+    return "\n".join(chunks)
+
+
 def _plain_answer_from_reasoning(text: str) -> str:
     """If only reasoning was returned, use the last non-empty lines as the user-facing answer."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]

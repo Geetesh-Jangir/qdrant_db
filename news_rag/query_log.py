@@ -1,4 +1,4 @@
-"""One log file per /api/ask query: filters, Qdrant hits, DeepSeek token usage."""
+"""One log file per /api/ask query: filters, Qdrant hits, insight LLM token usage."""
 
 from __future__ import annotations
 
@@ -33,9 +33,10 @@ class QueryLogger:
         self.query_id = query_id
         self.log_path = log_path
         self.started_at = time.perf_counter()
-        self.deepseek_calls = 0
-        self.deepseek_input_tokens = 0
-        self.deepseek_output_tokens = 0
+        self.llm_provider = ""
+        self.llm_calls = 0
+        self.llm_input_tokens = 0
+        self.llm_output_tokens = 0
         self._file_lock = threading.Lock()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         if log_path.exists():
@@ -125,9 +126,10 @@ class QueryLogger:
                 )
             )
 
-    def record_deepseek(
+    def record_llm_call(
         self,
         *,
+        provider: str,
         model: str,
         input_tokens: int,
         output_tokens: int,
@@ -135,18 +137,25 @@ class QueryLogger:
         duration_sec: float,
         http_status: int,
     ) -> None:
-        self.deepseek_calls += 1
-        self.deepseek_input_tokens += max(0, input_tokens)
-        self.deepseek_output_tokens += max(0, output_tokens)
+        if provider and not self.llm_provider:
+            self.llm_provider = provider
+        self.llm_calls += 1
+        self.llm_input_tokens += max(0, input_tokens)
+        self.llm_output_tokens += max(0, output_tokens)
         total_bit = f" total_tokens={total_tokens}" if total_tokens is not None else ""
         self.write(
-            "deepseek call "
-            f"call_index={self.deepseek_calls} model={model} http_status={http_status} "
+            f"llm call provider={provider} "
+            f"call_index={self.llm_calls} model={model} http_status={http_status} "
             f"input_tokens={input_tokens} output_tokens={output_tokens}{total_bit} "
             f"duration_sec={round(duration_sec, 3)} "
-            f"cumulative_input_tokens={self.deepseek_input_tokens} "
-            f"cumulative_output_tokens={self.deepseek_output_tokens}"
+            f"cumulative_input_tokens={self.llm_input_tokens} "
+            f"cumulative_output_tokens={self.llm_output_tokens}"
         )
+
+    def record_deepseek(self, **kwargs: Any) -> None:
+        """Backward-compatible alias for record_llm_call."""
+        provider = str(kwargs.pop("provider", "deepseek"))
+        self.record_llm_call(provider=provider, **kwargs)
 
     def log_error(self, stage: str, message: str) -> None:
         self.write(f"error stage={stage} message={clip_log_text(message, 500)}")
@@ -160,21 +169,27 @@ class QueryLogger:
     ) -> dict[str, Any]:
         total_seconds = round(time.perf_counter() - self.started_at, 3)
         source_bit = f" insight_source={insight_source}" if insight_source else ""
+        provider_bit = f" llm_provider={self.llm_provider}" if self.llm_provider else ""
         self.write(
             "query finished "
-            f"outcome={outcome} articles_returned={article_count}{source_bit} "
-            f"deepseek_calls={self.deepseek_calls} "
-            f"deepseek_input_tokens={self.deepseek_input_tokens} "
-            f"deepseek_output_tokens={self.deepseek_output_tokens} "
+            f"outcome={outcome} articles_returned={article_count}{source_bit}{provider_bit} "
+            f"llm_calls={self.llm_calls} "
+            f"llm_input_tokens={self.llm_input_tokens} "
+            f"llm_output_tokens={self.llm_output_tokens} "
             f"total_seconds={total_seconds}"
         )
         return {
             "query_id": self.query_id,
             "log_file": str(self.log_path),
-            "deepseek_calls": self.deepseek_calls,
-            "deepseek_input_tokens": self.deepseek_input_tokens,
-            "deepseek_output_tokens": self.deepseek_output_tokens,
+            "llm_provider": self.llm_provider,
+            "llm_calls": self.llm_calls,
+            "llm_input_tokens": self.llm_input_tokens,
+            "llm_output_tokens": self.llm_output_tokens,
             "total_seconds": total_seconds,
+            # Deprecated aliases (same values as llm_* above).
+            "deepseek_calls": self.llm_calls,
+            "deepseek_input_tokens": self.llm_input_tokens,
+            "deepseek_output_tokens": self.llm_output_tokens,
         }
 
 

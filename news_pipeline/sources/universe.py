@@ -291,5 +291,15 @@ def load_sectors(settings: Settings) -> list[dict]:
     return found[: settings.sectors_limit]
 
 
+def build_holding_entities(rows: list[dict]) -> list[dict]:
+    """Build holding entity dicts for the pipeline from name/industry/count rows."""
+    return _with_holding_aliases(rows)
+
+
 def load_universe(settings: Settings) -> list[dict]:
+    if (getattr(settings, "portfolio_json", None) or "").strip():
+        from news_pipeline.sources.portfolio_universe import load_portfolio_universe
+
+        entities, _manifest = load_portfolio_universe(settings)
+        return entities
     return load_holdings(settings) + load_sectors(settings)

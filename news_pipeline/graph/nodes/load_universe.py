@@ -14,13 +14,22 @@ logger = logging.getLogger(__name__)
 
 def load_universe(state: PipelineState) -> dict:
     settings = get_settings()
+    portfolio_mode = bool((settings.portfolio_json or "").strip())
     entities = read_universe(settings)
     run_log = get_run_logger()
     counts = dict(state.get("counts") or {})
     counts["entities"] = len(entities)
+    if portfolio_mode:
+        counts["portfolio_universe"] = True
     holdings = sum(1 for entity in entities if entity["type"] == "holding")
     sectors = len(entities) - holdings
     if run_log is not None:
+        if portfolio_mode:
+            run_log.write(
+                f"load_universe mode=portfolio_json path={settings.portfolio_json} "
+                f"manifest={settings.portfolio_manifest_path} "
+                f"equity_aggregate={settings.aggregated_holdings_map}"
+            )
         run_log.write(
             f"load_universe finished holdings={holdings} sectors={sectors} total={len(entities)}"
         )

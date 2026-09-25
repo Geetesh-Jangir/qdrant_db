@@ -152,9 +152,11 @@
         const sourceLabel =
           data.insight_source === "deepseek"
             ? "Summary from DeepSeek"
-            : data.insight_source === "articles_fallback"
-              ? "Summary from retrieved articles (LLM returned no text)"
-              : data.insight_source || "Summary";
+            : data.insight_source === "gemini"
+              ? "Summary from Gemini"
+              : data.insight_source === "articles_fallback"
+                ? "Summary from retrieved articles (LLM returned no text)"
+                : data.insight_source || "Summary";
         metaEl.textContent = sourceLabel;
         sourcesEl.innerHTML = "";
         for (const row of data.sources || []) {
