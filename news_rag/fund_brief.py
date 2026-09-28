@@ -291,21 +291,36 @@ def _pack_article(row: dict, settings: Settings, *, vector_score: float) -> dict
 
 
 def fund_search_query(scope: PortfolioScope, isin: str, name_map: dict[str, str]) -> str:
-    holdings = sorted(
+    holdings_raw = sorted(
         scope.holdings_for_isin(isin),
         key=lambda holding: holding.by_fund.get(isin, 0),
         reverse=True,
-    )[:8]
+    )
+    # Ensure diverse holdings selection across distinct industries
+    seen_industries: set[str] = set()
+    diverse_holdings = []
+    other_holdings = []
+    for h in holdings_raw:
+        ind = (h.industry or "").strip().casefold()
+        if ind and ind not in seen_industries:
+            seen_industries.add(ind)
+            diverse_holdings.append(h)
+        else:
+            other_holdings.append(h)
+
+    selected_holdings = (diverse_holdings + other_holdings)[:10]
+
     sectors = sorted(
         scope.sectors_for_isin(isin),
         key=lambda sector: sector.by_fund.get(isin, 0),
         reverse=True,
-    )[:5]
-    names = [name_map.get(holding.instrument_name, holding.instrument_name) for holding in holdings]
+    )[:6]
+    names = [name_map.get(holding.instrument_name, holding.instrument_name) for holding in selected_holdings]
     names.extend(sector.canonical_name for sector in sectors)
     if not names:
         return "material company and sector news"
-    return ", ".join(names) + ". Material company and sector news."
+    return ", ".join(names) + ". Material company, sector, and industry developments."
+
 
 
 def retrieve_fund_articles(
@@ -602,8 +617,33 @@ def build_events(
             }
         )
 
-    events.sort(key=lambda item: (item["rupees"], item["max_impact"], item["vector_score"]), reverse=True)
-    return events[:limit]
+    # DIVERSE EVENT SELECTION:
+    # 1. Sort all candidate events by impact, exposure rupees, and vector score.
+    # 2. Pick the BEST event per unique entity (label) first so that one company/sector does not crowd out others.
+    # 3. Then fill any remaining capacity up to `limit` with distinct event titles.
+    events.sort(key=lambda item: (item["max_impact"], item["rupees"], item["vector_score"]), reverse=True)
+
+    unique_events: list[dict] = []
+    seen_labels: set[str] = set()
+    for ev in events:
+        lbl = ev["label"].casefold()
+        if lbl not in seen_labels:
+            seen_labels.add(lbl)
+            unique_events.append(ev)
+            if len(unique_events) >= limit:
+                break
+
+    if len(unique_events) < limit:
+        seen_titles = {e.get("title", "").strip().casefold() for e in unique_events}
+        for ev in events:
+            t = ev.get("title", "").strip().casefold()
+            if t not in seen_titles:
+                seen_titles.add(t)
+                unique_events.append(ev)
+                if len(unique_events) >= limit:
+                    break
+
+    return unique_events
 
 
 def jev_filter_events(events: list[dict], *, query_log: QueryLogger | None = None) -> list[dict]:
@@ -662,40 +702,39 @@ What happened -> Why it matters -> How it affects the company's business -> What
 GUIDELINES FOR WRITING:
 1. MEANINGFUL INSIGHTS (NOT JUST DRY FACTS):
    - Ensure every insight delivers practical meaning. Do not just state that an event happened or repeat a number; explain *why it matters* for the company's profitability, competitive strength, or industry position.
-2. ACRONYM & SHORT-FORM EXPANSIONS:
-   - On first mention of ANY financial, regulatory, or technical acronym/abbreviation, ALWAYS provide its full name in parentheses.
-   - Examples: **SEBI (Securities and Exchange Board of India)**, **RBI (Reserve Bank of India)**, **FPIs (Foreign Portfolio Investors)**, **IPOs (Initial Public Offerings)**, **NIM (Net Interest Margin)**, **NPA (Non-Performing Asset)**, **EBITDA (Earnings Before Interest, Taxes, Depreciation, and Amortization)**, **GST (Goods and Services Tax)**, **CAGR (Compound Annual Growth Rate)**, **EV (Electric Vehicle)**, **Capex (Capital Expenditure)**, **AUM (Assets Under Management)**, **NAV (Net Asset Value)**.
-3. SIMPLE LANGUAGE:
+2. DIVERSITY & ONE BULLET PER ENTITY:
+   - Exactly ONE bullet point per distinct company or sector. Do NOT write multiple bullets about the same company or sector (e.g., maximum 1 bullet for HDFC Bank, 1 for Automobile sector, 1 for Tata Motors, 1 for Reliance, etc.).
+   - Ensure broad, diverse coverage across different sectors in the portfolio (e.g., Automobile, IT, Energy, Healthcare, FMCG, Banking) rather than concentrating all bullets on a single sector.
+3. ACRONYM & SHORT-FORM EXPANSIONS:
+   - On first mention of ANY financial, regulatory, or technical acronym/abbreviation, provide its full name in parentheses (e.g. SEBI (Securities and Exchange Board of India), RBI (Reserve Bank of India), FPIs (Foreign Portfolio Investors), IPOs (Initial Public Offerings), NIM (Net Interest Margin), NPA (Non-Performing Asset), GST (Goods and Services Tax), EV (Electric Vehicle)).
+4. STRICT MINIMAL HIGHLIGHTING (DO NOT OVER-HIGHLIGHT):
+   - Highlight ONLY 1 or 2 most critical anchor terms per bullet (e.g. the primary company name or a key metric like **₹5,000 crore** or **+15%**).
+   - Keep the summary to at most 3 or 4 total bold highlights across the entire paragraph.
+   - DO NOT bold common words, verbs, adjectives, regulatory bodies, acronym expansions, or general business terms (e.g., do NOT bold "approved", "growth", "demand", "framework", "investments", "market", "policy").
+5. SIMPLE LANGUAGE:
    - Use plain everyday conversational English. Avoid dry financial jargon.
    - Replace complex terms with simple meanings (e.g. instead of "compressing NIMs", say "putting pressure on lending profits"; instead of "input-cost inflation", say "materials becoming more expensive"; instead of "margin expansion", say "making more profit on each sale"; instead of "regulatory headwinds", say "tougher government rules").
-4. HIGHLIGHT IMPACTFUL & IMPORTANT WORDS:
-   - Use markdown bold (**word**) to highlight:
-     * Company and sector names (e.g. **HDFC Bank**, **Tata Motors**, **Auto sector**)
-     * Key government / regulatory bodies and policies (e.g. **RBI (Reserve Bank of India)**, **SEBI (Securities and Exchange Board of India)**, **EV (Electric Vehicle) subsidy policy**)
-     * Major numbers and financial amounts (e.g. **₹5,000 crore order**, **+15% profit jump**)
-     * Key commodities / drivers (e.g. **Crude oil prices**, **Steel costs**)
-     * Main business effects and stock direction (e.g. **higher profit margins**, **risk of slowing loan growth**)
-   - Do NOT bold entire sentences. Bold only the critical anchor words.
-5. CAUSAL CONNECTION & REJECT TRIVIA:
+6. CAUSAL CONNECTION & REJECT TRIVIA:
    - Connect the event to the business mechanism and investor impact.
    - Reject temporary/operational noise (such as "banks open on Sunday" or holiday notices).
-6. NO BUY/SELL ADVICE:
+7. NO BUY/SELL ADVICE:
    - Provide factual context and business implications only.
 
 Write exactly this structure (plain text):
 
 BULLETS:
 - Between 5 and 8 bullet lines (no fewer than 5 if enough distinct events exist). Each line starts with "- ".
+- Exactly ONE bullet per distinct company or sector (cross-portfolio diversity across Auto, IT, Energy, FMCG, Banking, etc.).
 - Each bullet is ONE clear, easy-to-read sentence connecting a concrete event from the excerpts to why it matters for this fund holding or sector (include portfolio weight/rupee exposure if provided).
-- Ensure each bullet provides meaningful business context, acronym full forms in parentheses on first mention, and **bold** highlights.
+- Use **bold** sparingly for only 1–2 most critical anchor terms (e.g. company name or major metric). Include acronym full forms in parentheses without bolding them.
 
 SUMMARY:
 One cohesive storytelling paragraph of about 90–120 words (4–6 sentences).
 Tell the story of what is happening across the portfolio:
 - Start with the big picture (the major national, regulatory, or economic theme).
-- Explain how key companies in the fund are affected (the causal business mechanism and what it means for growth or risk).
+- Explain how key companies across different sectors in the fund are affected (the causal business mechanism and what it means for growth or risk).
 - Conclude with what this means for the investor's book.
-Write in a smooth narrative flow delivering real meaning (no bullet characters, no buy/sell advice). Use **bold** highlights for key terms and include acronym full forms.
+Write in a smooth narrative flow delivering real meaning with only 3–4 selective **bold** highlights. No bullet characters. No buy/sell advice.
 """
 
 

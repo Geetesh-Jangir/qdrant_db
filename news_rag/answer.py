@@ -26,14 +26,15 @@ You receive a user question and numbered article excerpts. Use ONLY facts from t
 GUIDELINES:
 1. MEANINGFUL INSIGHTS & STORYTELLING:
    - Every insight must carry clear meaning and context: explain What happened -> Why it matters -> How it affects the business or industry -> What it means for the investor.
-   - Do not merely repeat dry headlines or isolated numbers. Explain the practical real-world consequence (e.g., how higher input costs squeeze profit margins, or how a new policy expands the addressable market).
+   - Do not merely repeat dry headlines or isolated numbers. Explain the practical real-world consequence.
 2. ACRONYM & SHORT-FORM EXPANSIONS:
-   - On first mention of ANY financial, regulatory, or technical acronym or abbreviation, ALWAYS provide its full name in parentheses.
-   - Examples: **SEBI (Securities and Exchange Board of India)**, **RBI (Reserve Bank of India)**, **FPIs (Foreign Portfolio Investors)**, **IPOs (Initial Public Offerings)**, **NIM (Net Interest Margin)**, **NPA (Non-Performing Asset)**, **EBITDA (Earnings Before Interest, Taxes, Depreciation, and Amortization)**, **GST (Goods and Services Tax)**, **CAGR (Compound Annual Growth Rate)**, **EV (Electric Vehicle)**, **Capex (Capital Expenditure)**.
-3. SIMPLE LANGUAGE:
+   - On first mention of ANY financial, regulatory, or technical acronym/abbreviation, provide its full name in parentheses (e.g. SEBI (Securities and Exchange Board of India), RBI (Reserve Bank of India), FPIs (Foreign Portfolio Investors), IPOs (Initial Public Offerings), NIM (Net Interest Margin), NPA (Non-Performing Asset), GST (Goods and Services Tax)).
+3. STRICT MINIMAL HIGHLIGHTING (DO NOT OVER-HIGHLIGHT):
+   - Highlight ONLY 1 or 2 most critical anchor terms per bullet (e.g. primary company name or a key metric like **₹5,000 Cr** or **+12%**).
+   - Keep the summary to at most 2 or 3 total bold highlights.
+   - DO NOT bold common verbs, adjectives, regulatory bodies, acronym expansions, or general business words (e.g., do NOT bold "approved", "growth", "demand", "investments", "framework", "markets").
+4. SIMPLE LANGUAGE:
    - Avoid complex financial jargon without explaining it in everyday words. Focus on causal logic and simple analogies.
-4. HIGHLIGHT IMPACTFUL WORDS:
-   - Use markdown bold (**word**) for company names, key policies/regulators (e.g. **RBI**, **SEBI**), major numbers (e.g. **₹5,000 Cr**, **+12%**), and main business/stock drivers (e.g. **higher profit margins**, **crude oil spike**). Do not bold whole sentences.
 5. REJECT TRIVIA:
    - Focus on meaningful business/economic impact rather than temporary routine operational announcements.
 
@@ -41,11 +42,12 @@ Write your reply in exactly this structure (plain text):
 
 BULLETS:
 - Exactly 2 or 3 bullet lines (no more). Each line starts with "- ".
+- Exactly ONE bullet per distinct company, sector, or theme (no duplicate bullets for the same entity).
 - Each bullet is ONE sentence: a concrete fact from the excerpt (who did what, key numbers) PLUS a brief simple explanation of why it matters for the company or sector.
-- Use **bold** highlights for important names, numbers, and drivers. Include acronym full forms in parentheses on first mention.
+- Use **bold** sparingly for only the 1-2 most critical anchor terms (e.g. company name or key metric).
 
 SUMMARY:
-One short, engaging storytelling paragraph of about 45–65 words (2–4 sentences). Connect the dots between what happened and how it affects the company's business or industry in plain prose. Ensure the summary delivers clear meaning and context. No bullet characters. No buy/sell advice. No URLs. Use **bold** highlights for key terms.
+One short, engaging storytelling paragraph of about 45–65 words (2–4 sentences). Connect the dots between what happened and how it affects the company's business or industry in plain prose. Ensure the summary delivers clear meaning and context with only 2–3 selective **bold** highlights. No bullet characters. No buy/sell advice. No URLs.
 """
 
 
