@@ -62,12 +62,20 @@ def parse_structured_insight(raw: str) -> tuple[list[str], str]:
     return bullets, summary.strip()
 
 
+def trim_chars_at_word(text: str, max_chars: int) -> str:
+    text = " ".join(str(text).split())
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut.rstrip(".,;-")
+
+
 def clamp_bullets(bullets: list[str], *, max_count: int, max_chars: int) -> list[str]:
     trimmed: list[str] = []
     for item in bullets:
-        text = " ".join(str(item).split())
-        if len(text) > max_chars:
-            text = text[: max_chars - 3].rstrip() + "..."
+        text = trim_chars_at_word(item, max_chars)
         if text:
             trimmed.append(text)
         if len(trimmed) >= max_count:
@@ -79,7 +87,7 @@ def clamp_summary(text: str, *, max_words: int) -> str:
     words = " ".join((text or "").split()).split()
     if len(words) <= max_words:
         return " ".join(words)
-    return " ".join(words[:max_words]).rstrip(".,;") + "..."
+    return " ".join(words[:max_words]).rstrip(".,;")
 
 
 def format_insight_display(bullets: list[str], summary: str) -> str:

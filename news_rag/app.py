@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from news_rag.answer import empty_answer, generate_answer
 from news_rag.config import get_settings
 from news_rag.llm_client import llm_api_key_configured, llm_model, llm_provider, missing_llm_key_message
-from news_rag.query_log import new_query_logger
+from news_rag.query_log import new_fund_brief_logger, new_query_logger
 from news_rag.fund_brief import generate_fund_brief, list_portfolio_funds
 from news_rag.retrieve import retrieve_for_question
 
@@ -108,16 +108,45 @@ def fund_brief(
         raise HTTPException(status_code=500, detail="QDRANT_URL not configured")
     if not (settings.portfolio_json or "").strip():
         raise HTTPException(status_code=400, detail="PORTFOLIO_JSON not configured")
-    if not llm_api_key_configured(settings):
-        raise HTTPException(status_code=500, detail=missing_llm_key_message())
+    isin = body.isin.strip()
+    query_log = new_fund_brief_logger()
+    query_log.log_request({"isin": isin})
+    article_count = 0
     try:
-        return generate_fund_brief(body.isin.strip(), settings=settings)
+        result = generate_fund_brief(isin, settings=settings, query_log=query_log)
+        article_count = len(result.get("sources") or [])
+        insight_source = str(result.get("insight_source") or "")
+        if insight_source == "no_articles":
+            query_log.log_insight_output(
+                insight_source="no_articles",
+                char_count=len(result.get("insight_summary") or result.get("insight") or ""),
+                preview=str(result.get("insight_summary") or result.get("insight") or ""),
+            )
+        outcome = "no_articles" if insight_source == "no_articles" else "ok"
+        meta = query_log.finish(
+            outcome=outcome,
+            article_count=article_count,
+            insight_source=insight_source,
+        )
+        _attach_llm_meta(result, meta)
+        return result
     except ValueError as exc:
+        query_log.log_error("validation", str(exc))
+        query_log.finish(outcome="error", article_count=article_count)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
+        query_log.log_error("runtime", str(exc))
+        query_log.finish(outcome="error", article_count=article_count)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"LLM request failed: {exc}") from exc
+        provider = llm_provider(settings)
+        query_log.log_error("llm", str(exc))
+        query_log.finish(outcome="llm_error", article_count=article_count)
+        raise HTTPException(status_code=502, detail=f"{provider} request failed: {exc}") from exc
+    except Exception as exc:
+        query_log.log_error("unhandled", str(exc))
+        query_log.finish(outcome="error", article_count=article_count)
+        raise
 
 
 @app.get("/health")

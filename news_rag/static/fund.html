@@ -30,10 +30,9 @@
       font-size: 0.98rem; max-width: 42rem;
     }
     .answer-box h2 { font-size: 0.95rem; margin: 0 0 0.65rem; font-weight: 600; }
-    .answer-box h3 { font-size: 0.88rem; margin: 1rem 0 0.45rem; font-weight: 600; color: #333; }
-    .answer-box p { margin: 0 0 0.65rem; }
-    .answer-box ul { margin: 0 0 0.25rem; padding-left: 1.25rem; }
+    .answer-box ul { margin: 0 0 0.85rem; padding-left: 1.25rem; }
     .answer-box li { margin-bottom: 0.45rem; }
+    .answer-box .summary { margin: 0; color: #222; }
     .meta { font-size: 0.82rem; color: #666; margin-top: 0.5rem; }
     .quiet { font-size: 0.88rem; color: #444; margin-top: 0.75rem; }
     .sources { margin-top: 1rem; }
@@ -67,16 +66,13 @@
 
   <div id="result" class="hidden">
     <div class="answer-box">
-      <h2 id="fundTitle">This fund</h2>
-      <div id="fundInsight"></div>
-    </div>
-    <div class="answer-box">
-      <h2>Rest of the portfolio</h2>
-      <div id="portfolioInsight"></div>
+      <h2 id="fundTitle">Brief</h2>
+      <ul id="bullets"></ul>
+      <p class="summary" id="summary"></p>
     </div>
     <p class="quiet hidden" id="quiet"></p>
     <p class="meta" id="meta"></p>
-    <div class="sources">
+    <div class="sources hidden" id="sourcesWrap">
       <h2>Sources</h2>
       <div id="sources"></div>
     </div>
@@ -89,37 +85,54 @@
     const errorEl = document.getElementById("error");
     const resultEl = document.getElementById("result");
     const fundTitle = document.getElementById("fundTitle");
-    const fundInsightEl = document.getElementById("fundInsight");
-    const portfolioInsightEl = document.getElementById("portfolioInsight");
+    const bulletsEl = document.getElementById("bullets");
+    const summaryEl = document.getElementById("summary");
     const quietEl = document.getElementById("quiet");
     const metaEl = document.getElementById("meta");
+    const sourcesWrap = document.getElementById("sourcesWrap");
     const sourcesEl = document.getElementById("sources");
 
-    function renderBlock(container, bullets, summary) {
+    function renderBullets(container, bullets, emptyText) {
       container.innerHTML = "";
-      if (Array.isArray(bullets) && bullets.length) {
-        const h3 = document.createElement("h3");
-        h3.textContent = "Key points";
-        container.appendChild(h3);
-        const ul = document.createElement("ul");
-        for (const item of bullets) {
-          const li = document.createElement("li");
-          li.textContent = item;
-          ul.appendChild(li);
+      const rows = bullets || [];
+      if (!rows.length) {
+        const li = document.createElement("li");
+        li.textContent = emptyText || "No matching news.";
+        container.appendChild(li);
+        return;
+      }
+      for (const line of rows) {
+        const li = document.createElement("li");
+        li.textContent = line;
+        container.appendChild(li);
+      }
+    }
+
+    function renderSources(sources) {
+      sourcesEl.innerHTML = "";
+      const rows = sources || [];
+      if (!rows.length) {
+        sourcesWrap.classList.add("hidden");
+        return;
+      }
+      sourcesWrap.classList.remove("hidden");
+      for (const row of rows) {
+        const card = document.createElement("div");
+        card.className = "card";
+        const link = document.createElement("a");
+        link.href = row.url || "#";
+        link.target = "_blank";
+        link.rel = "noopener";
+        link.textContent = row.title || row.url || "Source";
+        card.appendChild(link);
+        if (row.source || row.published_at) {
+          const meta = document.createElement("div");
+          meta.style.fontSize = "0.82rem";
+          meta.style.color = "#666";
+          meta.textContent = [row.source, row.published_at].filter(Boolean).join(" · ");
+          card.appendChild(meta);
         }
-        container.appendChild(ul);
-      }
-      if (summary) {
-        const h3 = document.createElement("h3");
-        h3.textContent = "Summary";
-        container.appendChild(h3);
-        const p = document.createElement("p");
-        p.className = "summary-text";
-        p.textContent = summary;
-        container.appendChild(p);
-      }
-      if (!bullets?.length && !summary) {
-        container.textContent = "No insight for this section.";
+        sourcesEl.appendChild(card);
       }
     }
 
@@ -174,9 +187,21 @@
         if (!response.ok) {
           throw new Error(data.detail || response.statusText);
         }
-        fundTitle.textContent = "This fund — " + (data.fund_short_name || "");
-        renderBlock(fundInsightEl, data.fund_bullets, data.fund_summary);
-        renderBlock(portfolioInsightEl, data.portfolio_bullets, data.portfolio_summary);
+        fundTitle.textContent = "Brief — " + (data.fund_short_name || "");
+        const bullets = data.insight_bullets || [];
+        const summary = (data.insight_summary || data.insight || "").trim();
+        const emptyNote =
+          data.insight_source === "no_articles"
+            ? summary || "No matching news in this window."
+            : "No bullets returned.";
+        renderBullets(bulletsEl, bullets, emptyNote);
+        summaryEl.textContent =
+          bullets.length && summary && data.insight_source !== "no_articles"
+            ? summary
+            : data.insight_source === "no_articles"
+              ? ""
+              : summary;
+        renderSources(data.sources);
         const quiet = data.quiet_holdings || [];
         if (quiet.length) {
           quietEl.textContent =
@@ -186,22 +211,6 @@
           quietEl.classList.add("hidden");
         }
         metaEl.textContent = "Window: " + (data.window || "") + ". Factual context only, not investment advice.";
-        sourcesEl.innerHTML = "";
-        for (const row of data.sources || []) {
-          const div = document.createElement("div");
-          div.className = "card";
-          const link = document.createElement("a");
-          link.href = row.url;
-          link.target = "_blank";
-          link.rel = "noopener";
-          link.textContent = row.title || row.url;
-          div.appendChild(link);
-          const line = document.createElement("div");
-          const pub = row.published_at ? row.published_at.slice(0, 10) : "";
-          line.textContent = [row.source, pub].filter(Boolean).join(" · ");
-          div.appendChild(line);
-          sourcesEl.appendChild(div);
-        }
         resultEl.classList.remove("hidden");
       } catch (err) {
         errorEl.textContent = err.message || String(err);

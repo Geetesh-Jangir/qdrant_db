@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import re
+import time
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from news_rag.query_log import QueryLogger
 
 from lib.portfolio_scope import (
     HOLDING_MIN_PCT,
@@ -16,11 +21,31 @@ from lib.portfolio_scope import (
     qdrant_filter_names,
     resolve_allisin_holdings_path,
 )
+from news_pipeline.config import Settings as PipelineSettings
+from news_pipeline.jev.client import JevClient, JevError, read_noul
 from news_rag.config import Settings, get_settings
-from news_rag.insight_format import clamp_bullets, clamp_summary, parse_structured_insight
+from news_rag.embed import embed_query
+from news_rag.insight_format import (
+    clamp_bullets,
+    clamp_summary,
+    format_insight_display,
+    parse_structured_insight,
+    trim_chars_at_word,
+)
 from news_rag.llm_client import call_insight_llm, llm_api_key_configured, missing_llm_key_message
+from news_rag.query_log import clip_log_text
 from news_rag.parse import parse_time_window, to_iso, utc_now
-from news_rag.qdrant_reader import QdrantReader, build_filter
+from news_rag.qdrant_reader import (
+    QdrantReader,
+    build_filter,
+    describe_filters_for_log,
+    filter_spec,
+)
+
+FACT_TYPES = frozenset({"results", "order", "deal", "regulatory", "operations", "macro"})
+FUND_BRIEF_MAX_BULLETS = 8
+FUND_BRIEF_BULLET_MAX_CHARS = 480
+FUND_BRIEF_SUMMARY_MAX_WORDS = 100
 
 
 def _repo_root() -> Path:
@@ -73,10 +98,7 @@ def list_portfolio_funds(settings: Settings) -> list[dict[str, Any]]:
 
 
 def _trim_snippet(text: str, limit: int) -> str:
-    cleaned = " ".join((text or "").split())
-    if len(cleaned) <= limit:
-        return cleaned
-    return cleaned[: limit - 3] + "..."
+    return trim_chars_at_word(text, limit)
 
 
 def _normalize_title(title: str) -> str:
@@ -134,11 +156,53 @@ def _article_entities(row: dict) -> set[str]:
     return names
 
 
+def _pack_article(row: dict, settings: Settings, *, vector_score: float) -> dict | None:
+    if row.get("event_type") == "price_recap":
+        return None
+    url = str(row.get("url") or "")
+    if not url:
+        return None
+    return {
+        "url": url,
+        "title": row.get("title"),
+        "source": row.get("source"),
+        "published_at": row.get("published_at"),
+        "entity_names": row.get("entity_names") or [],
+        "primary_industry": row.get("primary_industry") or "",
+        "max_impact": int(row.get("max_impact") or 0),
+        "max_relevance": int(row.get("max_relevance") or 0),
+        "direction": row.get("direction") or "",
+        "event_type": row.get("event_type") or "",
+        "snippet": _trim_snippet(str(row.get("scraped_text") or row.get("snippet") or ""), settings.snippet_chars),
+        "_vector_score": vector_score,
+    }
+
+
+def fund_search_query(scope: PortfolioScope, isin: str, name_map: dict[str, str]) -> str:
+    holdings = sorted(
+        scope.holdings_for_isin(isin),
+        key=lambda holding: holding.by_fund.get(isin, 0),
+        reverse=True,
+    )[:8]
+    sectors = sorted(
+        scope.sectors_for_isin(isin),
+        key=lambda sector: sector.by_fund.get(isin, 0),
+        reverse=True,
+    )[:5]
+    names = [name_map.get(holding.instrument_name, holding.instrument_name) for holding in holdings]
+    names.extend(sector.canonical_name for sector in sectors)
+    if not names:
+        return "material company and sector news"
+    return ", ".join(names) + ". Material company and sector news."
+
+
 def retrieve_fund_articles(
     settings: Settings,
     filter_names: list[str],
     *,
+    query_text: str,
     window_days: int | None = None,
+    query_log: QueryLogger | None = None,
 ) -> tuple[str, list[dict]]:
     days = window_days if window_days is not None else settings.default_window_days
     published_from, published_to, window_label = parse_time_window(
@@ -147,87 +211,162 @@ def retrieve_fund_articles(
         date_to=to_iso(utc_now()),
         default_days=days,
     )
-    filt = build_filter(
-        entity_names=filter_names or None,
-        published_from=published_from,
-        published_to=published_to,
-        min_relevance=settings.min_relevance,
-    )
+    filter_kwargs = {
+        "entity_names": filter_names or None,
+        "published_from": published_from,
+        "published_to": published_to,
+        "min_relevance": settings.min_relevance,
+    }
+    filt = build_filter(**filter_kwargs)
+    post_filter_meta = {
+        "retrieve_vector_limit": settings.retrieve_vector_limit,
+        "retrieve_impact_limit": settings.retrieve_impact_limit,
+        "collection": settings.qdrant_collection,
+    }
+    if query_log is not None:
+        query_log.write(
+            "fund_retrieval "
+            + f"window_label={json.dumps(window_label)} "
+            + f"query_text={clip_log_text(query_text, 500)} "
+            + f"filter_name_count={len(filter_names)}"
+        )
+        spec = filter_spec(**filter_kwargs)
+        query_log.log_filters(spec, post_filters=post_filter_meta)
+        query_log.log_filters_applied(
+            describe_filters_for_log(
+                spec,
+                collection=settings.qdrant_collection,
+                post_filters=post_filter_meta,
+            )
+        )
     reader = QdrantReader()
-    rows = reader.scroll_filtered(filt, limit=120)
+    vector_rows: list[dict] = []
+    if query_text.strip() and filter_names:
+        t_embed = time.perf_counter()
+        vector = embed_query(query_text)
+        if query_log is not None:
+            query_log.log_step("embed_query", time.perf_counter() - t_embed, vector_dim=len(vector))
+        t_vec = time.perf_counter()
+        vector_rows = reader.query_vector(vector, filt, settings.retrieve_vector_limit)
+        if query_log is not None:
+            query_log.log_step(
+                "qdrant_query_vector",
+                time.perf_counter() - t_vec,
+                hits=len(vector_rows),
+                limit=settings.retrieve_vector_limit,
+            )
+            query_log.log_articles_block("qdrant_vector", vector_rows)
+    elif query_log is not None:
+        query_log.write("qdrant_query_vector skipped=true reason=empty_query_or_filter_names")
+    t_scroll = time.perf_counter()
+    impact_rows = reader.scroll_filtered(filt, settings.retrieve_impact_limit)
+    if query_log is not None:
+        query_log.log_step(
+            "qdrant_scroll_filtered",
+            time.perf_counter() - t_scroll,
+            hits=len(impact_rows),
+            limit=settings.retrieve_impact_limit,
+        )
+        query_log.log_articles_block("qdrant_scroll", impact_rows)
+
     by_url: dict[str, dict] = {}
-    for row in rows:
-        if row.get("event_type") == "price_recap":
+    for row in vector_rows:
+        packed = _pack_article(row, settings, vector_score=float(row.get("score") or 0.0))
+        if packed is None:
             continue
-        url = str(row.get("url") or "")
-        if not url:
+        by_url[packed["url"]] = packed
+    for row in impact_rows:
+        packed = _pack_article(row, settings, vector_score=0.0)
+        if packed is None:
             continue
-        by_url[url] = {
-            "url": url,
-            "title": row.get("title"),
-            "source": row.get("source"),
-            "published_at": row.get("published_at"),
-            "entity_names": row.get("entity_names") or [],
-            "primary_industry": row.get("primary_industry") or "",
-            "max_impact": int(row.get("max_impact") or 0),
-            "max_relevance": int(row.get("max_relevance") or 0),
-            "direction": row.get("direction") or "",
-            "event_type": row.get("event_type") or "",
-            "snippet": _trim_snippet(str(row.get("scraped_text") or ""), settings.snippet_chars),
-        }
+        existing = by_url.get(packed["url"])
+        if existing is None:
+            by_url[packed["url"]] = packed
+            continue
+        existing["max_impact"] = max(existing["max_impact"], packed["max_impact"])
+        if not existing.get("snippet"):
+            existing["snippet"] = packed["snippet"]
+    if query_log is not None:
+        query_log.write(f"merge unique_urls={len(by_url)}")
     articles = list(by_url.values())
     articles.sort(
-        key=lambda item: (item["max_impact"], item.get("published_at") or ""),
+        key=lambda item: (item["max_impact"], item.get("_vector_score") or 0, item.get("published_at") or ""),
         reverse=True,
     )
+    if query_log is not None:
+        query_log.log_articles_block("fund_merged", articles, snippet_limit=settings.snippet_chars)
     return window_label, articles
 
 
-def _weight_for_article(
-    article: dict,
-    *,
-    isin: str,
-    scope: PortfolioScope,
-    name_map: dict[str, str],
-    fund_only: bool,
-) -> float:
-    article_ents = _article_entities(article)
-    weight = 0.0
-    for holding in scope.holdings:
-        qname = name_map.get(holding.instrument_name, holding.instrument_name)
-        if qname.lower() not in article_ents and holding.industry.lower() not in article_ents:
-            continue
-        fund_pct = holding.by_fund.get(isin)
-        if fund_only:
-            if fund_pct is None:
-                continue
-            weight = max(weight, fund_pct * (1 + 0.2 * article.get("max_impact", 0)))
-        else:
-            other_pct = 0.0
-            for other_isin, pct in holding.by_fund.items():
-                if other_isin == isin:
-                    continue
-                other_pct = max(other_pct, pct)
-            if other_pct:
-                weight = max(weight, other_pct * (1 + 0.2 * article.get("max_impact", 0)))
+def _fund_by_isin(scope: PortfolioScope, isin: str):
+    for fund in scope.funds:
+        if fund.isin == isin:
+            return fund
+    return None
 
-    for sector in scope.sectors:
-        if sector.canonical_name.lower() not in article_ents:
+
+def _exposure_for_holding(
+    scope: PortfolioScope,
+    isin: str,
+    holding,
+    *,
+    fund_only: bool,
+) -> tuple[float, float, str] | None:
+    if fund_only:
+        pct = holding.by_fund.get(isin)
+        fund = _fund_by_isin(scope, isin)
+        if pct is None or fund is None:
+            return None
+        return pct, fund.current_value * pct / 100.0, fund.fund_short_name
+
+    best_pct = 0.0
+    rupees = 0.0
+    labels: list[str] = []
+    for fund in scope.funds:
+        if fund.isin == isin:
             continue
-        fund_pct = sector.by_fund.get(isin)
-        if fund_only:
-            if fund_pct is None:
-                continue
-            weight = max(weight, fund_pct * (1 + 0.15 * article.get("max_impact", 0)))
-        else:
-            other_pct = 0.0
-            for other_isin, pct in sector.by_fund.items():
-                if other_isin == isin:
-                    continue
-                other_pct = max(other_pct, pct)
-            if other_pct:
-                weight = max(weight, other_pct * (1 + 0.15 * article.get("max_impact", 0)))
-    return weight
+        pct = holding.by_fund.get(fund.isin)
+        if pct is None:
+            continue
+        rupees += fund.current_value * pct / 100.0
+        labels.append(f"{fund.fund_short_name} {pct:.1f}%")
+        if pct > best_pct:
+            best_pct = pct
+    if not labels:
+        return None
+    return best_pct, rupees, ", ".join(labels)
+
+
+def _exposure_for_sector(
+    scope: PortfolioScope,
+    isin: str,
+    sector,
+    *,
+    fund_only: bool,
+) -> tuple[float, float, str] | None:
+    if fund_only:
+        pct = sector.by_fund.get(isin)
+        fund = _fund_by_isin(scope, isin)
+        if pct is None or fund is None:
+            return None
+        return pct, fund.current_value * pct / 100.0, fund.fund_short_name
+
+    best_pct = 0.0
+    rupees = 0.0
+    labels: list[str] = []
+    for fund in scope.funds:
+        if fund.isin == isin:
+            continue
+        pct = sector.by_fund.get(fund.isin)
+        if pct is None:
+            continue
+        rupees += fund.current_value * pct / 100.0
+        labels.append(f"{fund.fund_short_name} {pct:.1f}%")
+        if pct > best_pct:
+            best_pct = pct
+    if not labels:
+        return None
+    return best_pct, rupees, ", ".join(labels)
 
 
 def _quiet_holdings(
@@ -253,248 +392,426 @@ def _quiet_holdings(
     return quiet[:8]
 
 
-def _format_context_block(clusters: list[list[dict]], limit: int) -> str:
-    blocks: list[str] = []
-    count = 0
-    for cluster in clusters:
-        lead = cluster[0]
-        count += 1
-        extra = ""
-        if len(cluster) > 1:
-            extra = f" (also reported by {len(cluster) - 1} similar story/stories)"
-        blocks.append(
-            f"[{count}] title={lead.get('title')!r}{extra}\n"
-            f"    source={lead.get('source')} published={lead.get('published_at')}\n"
-            f"    direction={lead.get('direction')} event={lead.get('event_type')} "
-            f"impact={lead.get('max_impact')} entities={lead.get('entity_names')}\n"
-            f"    text={lead.get('snippet')!r}"
-        )
-        if count >= limit:
-            break
-    return "\n\n".join(blocks)
+def _cluster_entities(cluster: list[dict]) -> set[str]:
+    names: set[str] = set()
+    for row in cluster:
+        names |= _article_entities(row)
+    return names
 
 
-def _build_exposure_lines(
+def _lead_article(cluster: list[dict]) -> dict:
+    return max(
+        cluster,
+        key=lambda row: (int(row.get("max_impact") or 0), float(row.get("_vector_score") or 0)),
+    )
+
+
+def build_events(
+    articles: list[dict],
+    *,
     scope: PortfolioScope,
     isin: str,
     name_map: dict[str, str],
-    *,
     fund_only: bool,
-) -> str:
-    lines: list[str] = []
-    fund = next((f for f in scope.funds if f.isin == isin), None)
-    fund_label = fund.fund_short_name if fund else isin
-    for holding in scope.holdings:
-        qname = name_map.get(holding.instrument_name, holding.instrument_name)
-        if fund_only:
-            pct = holding.by_fund.get(isin)
-            if pct is None:
+    limit: int,
+) -> list[dict]:
+    clusters = cluster_articles(articles)
+    events: list[dict] = []
+    for cluster in clusters:
+        ents = _cluster_entities(cluster)
+        lead = _lead_article(cluster)
+        matched_industries: set[str] = set()
+        attachments: list[dict] = []
+
+        for holding in scope.holdings:
+            qname = name_map.get(holding.instrument_name, holding.instrument_name)
+            if qname.lower() not in ents:
                 continue
-            lines.append(f"- {qname}: {pct:.2f}% of {fund_label}")
-        else:
-            parts = []
-            for other in scope.funds:
-                if other.isin == isin:
-                    continue
-                pct = holding.by_fund.get(other.isin)
-                if pct is not None:
-                    parts.append(f"{other.fund_short_name} {pct:.2f}%")
-            if parts:
-                lines.append(f"- {qname}: also held in " + ", ".join(parts))
-    for sector in scope.sectors:
-        if fund_only:
-            pct = sector.by_fund.get(isin)
-            if pct is None:
+            exposure = _exposure_for_holding(scope, isin, holding, fund_only=fund_only)
+            if exposure is None:
                 continue
-            lines.append(f"- Sector {sector.canonical_name}: {pct:.2f}% of {fund_label}")
-        else:
-            parts = []
-            for other in scope.funds:
-                if other.isin == isin:
-                    continue
-                pct = sector.by_fund.get(other.isin)
-                if pct is not None:
-                    parts.append(f"{other.fund_short_name} {pct:.2f}%")
-            if parts:
-                lines.append(f"- Sector {sector.canonical_name}: " + ", ".join(parts))
-    return "\n".join(lines[:40])
+            pct, rupees, where = exposure
+            if holding.industry:
+                matched_industries.add(holding.industry.lower())
+            attachments.append(
+                {
+                    "label": qname,
+                    "kind_name": "holding",
+                    "weight_pct": round(pct, 2),
+                    "rupees": round(rupees, 2),
+                    "where": where,
+                }
+            )
+
+        for sector in scope.sectors:
+            if sector.canonical_name.lower() not in ents:
+                continue
+            if sector.canonical_name.lower() in matched_industries:
+                continue
+            exposure = _exposure_for_sector(scope, isin, sector, fund_only=fund_only)
+            if exposure is None:
+                continue
+            pct, rupees, where = exposure
+            attachments.append(
+                {
+                    "label": sector.canonical_name,
+                    "kind_name": "sector",
+                    "weight_pct": round(pct, 2),
+                    "rupees": round(rupees, 2),
+                    "where": where,
+                }
+            )
+
+        if not attachments:
+            continue
+        attachments.sort(key=lambda item: item["rupees"], reverse=True)
+        top = attachments[0]
+        directions = {str(row.get("direction") or "") for row in cluster}
+        signed = {name for name in directions if name in ("positive", "negative")}
+        event_type = str(lead.get("event_type") or "")
+        events.append(
+            {
+                "label": top["label"],
+                "match_type": top["kind_name"],
+                "weight_pct": top["weight_pct"],
+                "rupees": top["rupees"],
+                "where": top["where"],
+                "direction": str(lead.get("direction") or ""),
+                "mixed": len(signed) > 1,
+                "event_type": event_type,
+                "kind": "fact" if event_type in FACT_TYPES else "opinion",
+                "max_impact": int(lead.get("max_impact") or 0),
+                "vector_score": float(lead.get("_vector_score") or 0),
+                "title": lead.get("title") or "",
+                "snippet": lead.get("snippet") or "",
+                "url": lead.get("url") or "",
+                "source": lead.get("source") or "",
+                "published_at": lead.get("published_at") or "",
+            }
+        )
+
+    events.sort(key=lambda item: (item["rupees"], item["max_impact"], item["vector_score"]), reverse=True)
+    return events[:limit]
 
 
-SYSTEM_PROMPT = """You help Indian mutual fund investors understand recent news in plain, simple English.
+def jev_filter_events(events: list[dict], *, query_log: QueryLogger | None = None) -> list[dict]:
+    if not events:
+        return events
+    pipeline = PipelineSettings()
+    if not (pipeline.jev_base_url or "").strip() or not (pipeline.jev_api_key or "").strip():
+        if query_log is not None:
+            query_log.write("jev_filter skipped=true reason=not_configured")
+        return events
+    questions: dict[str, dict] = {}
+    for index, event in enumerate(events):
+        label = event["label"]
+        questions[f"e{index}"] = {
+            "type": "noul",
+            "instructions": (
+                f"Title: {event['title']}. Excerpt: {event['snippet'][:500]}. "
+                f"Is this story specifically about {label} and material to that holding or sector? "
+                "False for a different company, a price recap, or a passing mention."
+            ),
+            "criteria": {
+                "true": f"About {label} and material",
+                "false": "Unrelated, wrong company, or not material",
+            },
+        }
+    try:
+        t_jev = time.perf_counter()
+        with JevClient(pipeline) as client:
+            answers = client.evaluate({"events": len(events)}, questions, stage="fund_event_check")
+    except (JevError, OSError, ValueError) as exc:
+        if query_log is not None:
+            query_log.write(f"jev_filter skipped=true reason=error message={exc!s}"[:500])
+        return events
+    kept = []
+    for index, event in enumerate(events):
+        answer = answers.get(f"e{index}")
+        if answer is None or read_noul(answer) >= 0.5:
+            kept.append(event)
+    if query_log is not None:
+        query_log.log_step(
+            "jev_filter",
+            time.perf_counter() - t_jev,
+            input_events=len(events),
+            kept_events=len(kept),
+        )
+    return kept
 
-You receive exposure weights and numbered news excerpts. Use ONLY facts from those excerpts.
+
+FUND_BRIEF_PROMPT = """You write a fund news brief for an Indian mutual fund investor.
+
+You receive ranked news events for the selected fund and for the rest of the portfolio.
+Use ONLY facts from the excerpts. Mention holdings or sectors when the event data ties to them
+(weight_pct and rupees show how much of the investor's money is exposed).
 
 Write exactly this structure (plain text):
 
-THIS_FUND_BULLETS:
-- 2 or 3 bullets. Each starts with "- ". One sentence each. Name the holding or sector, its weight in THIS fund, and one concrete fact from the excerpt. No buy/sell advice.
+BULLETS:
+- Between 5 and 8 bullet lines (no fewer than 5 if enough distinct events exist). Each line starts with "- ".
+- Each bullet is ONE sentence: a concrete fact from an excerpt plus brief context on why it matters
+  for this fund or the wider portfolio (use weight/rupee figures when provided).
+- Prioritize higher rupee exposure and material facts over opinion.
+- No buy/sell advice. No URLs. Do not copy headlines alone.
 
-THIS_FUND_SUMMARY:
-One short paragraph (about 40-55 words) about what matters for THIS fund only.
-
-REST_PORTFOLIO_BULLETS:
-- 2 or 3 bullets about the OTHER funds in the book (not the selected fund). Mention which other fund is exposed and one fact from the excerpts.
-
-REST_PORTFOLIO_SUMMARY:
-One short paragraph (about 40-55 words) about the rest of the portfolio.
-
-Rules:
-- Do not invent companies, numbers, or events.
-- If excerpts are thin, say news was limited; do not guess.
-- Do not copy headlines without adding a fact from the text= field.
-- No URLs in the prose.
+SUMMARY:
+One paragraph of about 80–100 words (roughly 4–6 sentences). Tie the bullets together for the
+selected fund and the rest of the book. Plain prose, no bullet characters. No buy/sell advice.
 """
 
 
-def _section_text(raw: str, label: str) -> str:
-    pattern = re.compile(
-        rf"(?mi)^{re.escape(label)}:\s*\n(.*?)(?=^(?:THIS_FUND_BULLETS|THIS_FUND_SUMMARY|REST_PORTFOLIO_BULLETS|REST_PORTFOLIO_SUMMARY):|\Z)",
-        re.MULTILINE | re.DOTALL,
+def _format_event_block(event: dict, *, section: str) -> str:
+    direction = "mixed" if event.get("mixed") else event.get("direction") or ""
+    return (
+        f"[{section}] label={event.get('label')} match={event.get('match_type')} "
+        f"weight_pct={event.get('weight_pct')} rupees={event.get('rupees')} "
+        f"where={event.get('where')} direction={direction} event_type={event.get('event_type')}\n"
+        f"title={event.get('title')}\n"
+        f"excerpt={event.get('snippet')}"
     )
-    match = pattern.search(raw or "")
-    return match.group(1).strip() if match else ""
 
 
-def _bullets_from_block(block: str) -> list[str]:
+def _sources_from_events(events: list[dict]) -> list[dict]:
+    seen: set[str] = set()
+    rows: list[dict] = []
+    for event in events:
+        url = str(event.get("url") or "").strip()
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        rows.append(
+            {
+                "title": event.get("title"),
+                "url": url,
+                "source": event.get("source"),
+                "published_at": event.get("published_at"),
+            }
+        )
+    return rows
+
+
+def _fallback_bullets_from_events(events: list[dict], *, max_count: int) -> list[str]:
     bullets: list[str] = []
-    for line in block.splitlines():
-        cleaned = line.strip()
-        if cleaned.startswith("- "):
-            bullets.append(cleaned[2:].strip())
+    for event in events:
+        label = str(event.get("label") or "").strip()
+        title = str(event.get("title") or "").strip()
+        snippet = _trim_snippet(str(event.get("snippet") or ""), 160)
+        weight = event.get("weight_pct")
+        where = str(event.get("where") or "").strip()
+        bit = title
+        if snippet and snippet.lower() not in title.lower():
+            bit = f"{title} — {snippet}"
+        if label:
+            exposure = f" ({label}"
+            if weight is not None:
+                exposure += f", {weight}% in {where}" if where else f", {weight}%"
+            exposure += ")"
+            bit = bit.rstrip(".") + exposure + "."
+        if bit:
+            bullets.append(bit)
+        if len(bullets) >= max_count:
+            break
     return bullets
 
 
-def _parse_dual_insight(raw: str) -> dict[str, Any]:
-    fund_bullets_body = _section_text(raw, "THIS_FUND_BULLETS")
-    fund_summary_body = _section_text(raw, "THIS_FUND_SUMMARY")
-    port_bullets_body = _section_text(raw, "REST_PORTFOLIO_BULLETS")
-    port_summary_body = _section_text(raw, "REST_PORTFOLIO_SUMMARY")
-
-    fund_bullets = _bullets_from_block(fund_bullets_body)
-    port_bullets = _bullets_from_block(port_bullets_body)
-    if not fund_bullets and fund_bullets_body:
-        fund_bullets, fund_summary_body = parse_structured_insight(
-            f"BULLETS:\n{fund_bullets_body}\nSUMMARY:\n{fund_summary_body}"
+def _fallback_summary(fund_name: str, window: str, bullets: list[str]) -> str:
+    if not bullets:
+        return (
+            f"No material news matched {fund_name} and the rest of the portfolio in {window}."
         )
-    if not port_bullets and port_bullets_body:
-        port_bullets, port_summary_body = parse_structured_insight(
-            f"BULLETS:\n{port_bullets_body}\nSUMMARY:\n{port_summary_body}"
-        )
-
-    return {
-        "fund_bullets": fund_bullets,
-        "fund_summary": " ".join(fund_summary_body.split()),
-        "portfolio_bullets": port_bullets,
-        "portfolio_summary": " ".join(port_summary_body.split()),
-    }
-
-
-def generate_fund_brief(isin: str, settings: Settings | None = None) -> dict[str, Any]:
-    settings = settings or get_settings()
-    scope = load_scope(settings)
-    allowed_isins = {f.isin for f in scope.funds}
-    if isin not in allowed_isins:
-        raise ValueError(f"ISIN {isin} is not in the configured portfolio")
-
-    fund = next(f for f in scope.funds if f.isin == isin)
-    name_map = instrument_to_qdrant_names(scope)
-    filter_names = qdrant_filter_names(scope)
-    window_label, articles = retrieve_fund_articles(settings, filter_names)
-
-    quiet = _quiet_holdings(scope, isin, articles, name_map)
-
-    if not articles:
-        msg = (
-            f"No matching news was found in the last {settings.default_window_days} days "
-            f"for holdings and sectors at or above {HOLDING_MIN_PCT:g}% / {SECTOR_MIN_PCT:g}%."
-        )
-        return {
-            "fund_short_name": fund.fund_short_name,
-            "isin": isin,
-            "window": window_label,
-            "fund_bullets": [],
-            "fund_summary": msg,
-            "portfolio_bullets": [],
-            "portfolio_summary": msg,
-            "quiet_holdings": quiet,
-            "sources": [],
-            "insight_source": "no_articles",
-        }
-
-    ranked = sorted(
-        articles,
-        key=lambda row: _weight_for_article(
-            row, isin=isin, scope=scope, name_map=name_map, fund_only=True
-        ),
-        reverse=True,
+    lead = bullets[0].rstrip(".")
+    return (
+        f"Over {window}, stored news mostly affects {fund_name} and your other funds through "
+        f"the themes above. {lead}. "
+        f"Together these items highlight where your largest weights saw headlines; "
+        f"this is factual context only, not investment advice."
     )
-    clusters = cluster_articles(ranked)
-    top_clusters = sorted(
-        clusters,
-        key=lambda cluster: _weight_for_article(
-            cluster[0], isin=isin, scope=scope, name_map=name_map, fund_only=True
-        ),
-        reverse=True,
-    )[: settings.retrieve_max_articles]
 
-    sources: list[dict] = []
-    seen_urls: set[str] = set()
-    for cluster in top_clusters:
-        for row in cluster:
-            url = str(row.get("url") or "")
-            if not url or url in seen_urls:
-                continue
-            seen_urls.add(url)
-            sources.append(
-                {
-                    "url": url,
-                    "title": row.get("title"),
-                    "source": row.get("source"),
-                    "published_at": row.get("published_at"),
-                }
-            )
+
+def compose_fund_insight(
+    *,
+    fund_short_name: str,
+    window_label: str,
+    fund_events: list[dict],
+    portfolio_events: list[dict],
+    settings: Settings,
+    query_log: QueryLogger | None = None,
+) -> tuple[list[str], str, str, list[dict]]:
+    """Returns bullets, summary, insight_source, sources."""
+    all_events = fund_events + portfolio_events
+    sources = _sources_from_events(all_events)
+    if not all_events:
+        return [], "", "no_articles", sources
 
     if not llm_api_key_configured(settings):
         raise RuntimeError(missing_llm_key_message())
 
+    fund_blocks = [_format_event_block(event, section="this_fund") for event in fund_events]
+    portfolio_blocks = [_format_event_block(event, section="other_funds") for event in portfolio_events]
     user_content = (
-        f"Selected fund: {fund.fund_short_name} (ISIN {isin})\n"
+        f"Selected fund: {fund_short_name}\n"
         f"Time window: {window_label}\n\n"
-        f"THIS FUND exposure (holdings >= {settings.portfolio_holding_min_pct:g}%%, "
-        f"sectors >= {settings.portfolio_sector_min_pct:g}%%):\n"
-        f"{_build_exposure_lines(scope, isin, name_map, fund_only=True)}\n\n"
-        f"REST OF PORTFOLIO exposure (other funds only):\n"
-        f"{_build_exposure_lines(scope, isin, name_map, fund_only=False)}\n\n"
-        f"News excerpts:\n{_format_context_block(top_clusters, settings.retrieve_max_articles)}\n"
+        f"This fund events ({len(fund_blocks)}):\n"
+        + ("\n\n".join(fund_blocks) if fund_blocks else "(none)\n")
+        + f"\n\nOther funds in portfolio ({len(portfolio_blocks)}):\n"
+        + ("\n\n".join(portfolio_blocks) if portfolio_blocks else "(none)\n")
     )
 
-    llm_result = call_insight_llm(system_prompt=SYSTEM_PROMPT, user_content=user_content)
-    parsed = _parse_dual_insight(llm_result.raw_text)
-    settings_ref = settings
-    fund_bullets = clamp_bullets(
-        parsed["fund_bullets"],
-        max_count=settings_ref.insight_max_bullets,
-        max_chars=settings_ref.insight_bullet_max_chars,
+    result = call_insight_llm(
+        system_prompt=FUND_BRIEF_PROMPT,
+        user_content=user_content,
+        query_log=query_log,
     )
-    port_bullets = clamp_bullets(
-        parsed["portfolio_bullets"],
-        max_count=settings_ref.insight_max_bullets,
-        max_chars=settings_ref.insight_bullet_max_chars,
-    )
-    fund_summary = clamp_summary(parsed["fund_summary"], max_words=settings_ref.insight_summary_max_words)
-    port_summary = clamp_summary(parsed["portfolio_summary"], max_words=settings_ref.insight_summary_max_words)
+    if query_log is not None:
+        query_log.record_llm_call(
+            provider=result.provider,
+            model=result.model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            total_tokens=result.total_tokens,
+            duration_sec=result.duration_sec,
+            http_status=result.http_status,
+        )
+        query_log.write(f"llm raw_preview text={clip_log_text(result.raw_text, 500)}")
 
+    bullets, summary = parse_structured_insight(result.raw_text)
+    insight_source = result.provider
+
+    if not bullets and not summary:
+        bullets = _fallback_bullets_from_events(all_events, max_count=FUND_BRIEF_MAX_BULLETS)
+        summary = _fallback_summary(fund_short_name, window_label, bullets)
+        insight_source = "events_fallback"
+        if query_log is not None:
+            query_log.write("insight llm_empty=true reason=empty_llm_content")
+    elif not summary and bullets:
+        summary = _fallback_summary(fund_short_name, window_label, bullets)
+
+    bullets = clamp_bullets(
+        bullets,
+        max_count=FUND_BRIEF_MAX_BULLETS,
+        max_chars=FUND_BRIEF_BULLET_MAX_CHARS,
+    )
+    summary = clamp_summary(summary, max_words=FUND_BRIEF_SUMMARY_MAX_WORDS)
+
+    if query_log is not None:
+        display = format_insight_display(bullets, summary)
+        query_log.log_insight_output(
+            insight_source=insight_source,
+            char_count=len(display),
+            preview=display,
+        )
+        query_log.write(f"insight_bullets_count={len(bullets)} summary_words={len(summary.split())}")
+
+    return bullets, summary, insight_source, sources
+
+
+def _empty_brief(fund, isin: str, window_label: str, quiet: list[str]) -> dict[str, Any]:
+    msg = (
+        f"No matching news was found in the last 7 days "
+        f"for holdings and sectors at or above {HOLDING_MIN_PCT:g}% / {SECTOR_MIN_PCT:g}%."
+    )
     return {
         "fund_short_name": fund.fund_short_name,
         "isin": isin,
         "window": window_label,
-        "fund_bullets": fund_bullets,
-        "fund_summary": fund_summary,
-        "portfolio_bullets": port_bullets,
-        "portfolio_summary": port_summary,
+        "insight_bullets": [],
+        "insight_summary": msg,
+        "insight": msg,
+        "sources": [],
         "quiet_holdings": quiet,
-        "sources": sources[:12],
-        "insight_source": "llm",
-        "llm_provider": llm_result.provider,
-        "llm_model": llm_result.model,
+        "insight_source": "no_articles",
+    }
+
+
+def generate_fund_brief(
+    isin: str,
+    settings: Settings | None = None,
+    *,
+    query_log: QueryLogger | None = None,
+) -> dict[str, Any]:
+    settings = settings or get_settings()
+    scope = load_scope(settings)
+    allowed_isins = {fund.isin for fund in scope.funds}
+    if isin not in allowed_isins:
+        raise ValueError(f"ISIN {isin} is not in the configured portfolio")
+
+    fund = next(item for item in scope.funds if item.isin == isin)
+    name_map = instrument_to_qdrant_names(scope)
+    filter_names = qdrant_filter_names(scope)
+    query_text = fund_search_query(scope, isin, name_map)
+    if query_log is not None:
+        query_log.write(
+            f"fund_context isin={isin} fund_short_name={json.dumps(fund.fund_short_name)} "
+            f"filter_name_count={len(filter_names)}"
+        )
+    window_label, articles = retrieve_fund_articles(
+        settings,
+        filter_names,
+        query_text=query_text,
+        query_log=query_log,
+    )
+    quiet = _quiet_holdings(scope, isin, articles, name_map)
+    if query_log is not None:
+        query_log.write(f"quiet_holdings count={len(quiet)} names={json.dumps(quiet[:20], ensure_ascii=False)}")
+    if not articles:
+        return _empty_brief(fund, isin, window_label, quiet)
+
+    limit = settings.retrieve_max_articles
+    fund_events = build_events(
+        articles,
+        scope=scope,
+        isin=isin,
+        name_map=name_map,
+        fund_only=True,
+        limit=limit,
+    )
+    portfolio_events = build_events(
+        articles,
+        scope=scope,
+        isin=isin,
+        name_map=name_map,
+        fund_only=False,
+        limit=limit,
+    )
+    if query_log is not None:
+        query_log.write(
+            f"events_built fund_events={len(fund_events)} portfolio_events={len(portfolio_events)} limit={limit}"
+        )
+    combined = fund_events + portfolio_events
+    kept = jev_filter_events(combined, query_log=query_log)
+    kept_ids = {id(event) for event in kept}
+    fund_events = [event for event in fund_events if id(event) in kept_ids]
+    portfolio_events = [event for event in portfolio_events if id(event) in kept_ids]
+    if query_log is not None:
+        query_log.write(
+            f"events_after_jev fund_events={len(fund_events)} portfolio_events={len(portfolio_events)}"
+        )
+    if not fund_events and not portfolio_events:
+        return _empty_brief(
+            fund,
+            isin,
+            window_label,
+            quiet,
+        )
+
+    bullets, summary, insight_source, sources = compose_fund_insight(
+        fund_short_name=fund.fund_short_name,
+        window_label=window_label,
+        fund_events=fund_events,
+        portfolio_events=portfolio_events,
+        settings=settings,
+        query_log=query_log,
+    )
+    display = format_insight_display(bullets, summary)
+    return {
+        "fund_short_name": fund.fund_short_name,
+        "isin": isin,
+        "window": window_label,
+        "insight_bullets": bullets,
+        "insight_summary": summary,
+        "insight": display,
+        "sources": sources,
+        "quiet_holdings": quiet,
+        "insight_source": insight_source,
     }
