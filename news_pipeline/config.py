@@ -115,18 +115,18 @@ EVENT_OPTIONS: tuple[str, ...] = (
 )
 
 RELEVANCE_LEVELS: tuple[str, ...] = (
-    "Unrelated to this name",
-    "Name is only mentioned in passing",
-    "About this name but not material to the outlook",
-    "Material to this name today",
-    "Major event for this name such as results, a ban, a large order, or a regulatory action",
+    "Unrelated or routine operational noise (e.g. weekend branch opening, holidays, minor customer notices)",
+    "Name is only mentioned in passing with no business significance",
+    "About this name or sector but low/temporary impact on earnings and outlook",
+    "Material to this company or sector (meaningful operational, contract, regulatory, or financial development)",
+    "Major event such as earnings surprise, regulatory sanction/approval, transformative order, or plant shutdown",
 )
 
 IMPACT_LEVELS: tuple[str, ...] = (
-    "No impact on the outlook",
-    "Color only, such as a small price move with no new fact",
-    "Could move this name today",
-    "Likely to move this name",
+    "No material impact (temporary/routine operational news like Sunday branch opening or holiday schedule)",
+    "Color only, such as minor price movement or routine management comments with no new material fact",
+    "High impact: Meaningful state/national policy, earnings, major order, or regulatory shift that could move the stock outlook",
+    "Very high impact: Transformative event likely to materially change earnings, valuation, risk, or business trajectory",
 )
 
 

@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Mutual Fund Search & Holdings Explorer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #1a56db;
+      --primary-hover: #1347b7;
+      --primary-subtle: #eff6ff;
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --text-subtle: #94a3b8;
+      --success-bg: #ecfdf5;
+      --success-text: #065f46;
+      --badge-bg: #f1f5f9;
+      --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+      --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+      --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+      --radius: 12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 2rem 1.5rem;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .nav {
+      display: flex;
+      gap: 1.25rem;
+      font-size: 0.9rem;
+      margin-bottom: 2rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      transition: color 0.15s;
+    }
+    .nav a:hover { color: var(--primary); }
+    .nav a.active {
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .header {
+      margin-bottom: 2rem;
+    }
+    .header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+    .header p {
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+      font-size: 0.95rem;
+    }
+
+    /* Search & Autocomplete Box */
+    .search-section {
+      position: relative;
+      margin-bottom: 2rem;
+    }
+    .search-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .search-icon {
+      position: absolute;
+      left: 1rem;
+      color: var(--text-subtle);
+      pointer-events: none;
+      width: 20px;
+      height: 20px;
+    }
+    .search-input {
+      width: 100%;
+      padding: 0.95rem 1rem 0.95rem 2.75rem;
+      font-size: 1rem;
+      font-family: inherit;
+      border: 2px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      color: var(--text);
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      box-shadow: var(--shadow-sm);
+    }
+    .search-input:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(26, 86, 219, 0.15);
+    }
+    .clear-btn {
+      position: absolute;
+      right: 0.85rem;
+      background: none;
+      border: none;
+      color: var(--text-subtle);
+      cursor: pointer;
+      padding: 0.25rem;
+      border-radius: 50%;
+      display: none;
+    }
+    .clear-btn:hover { color: var(--text); }
+
+    /* Autocomplete dropdown recommendations */
+    .recommendations-box {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      right: 0;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      max-height: 380px;
+      overflow-y: auto;
+      z-index: 50;
+      display: none;
+    }
+    .rec-item {
+      padding: 0.75rem 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      border-bottom: 1px solid #f1f5f9;
+      transition: background 0.15s;
+    }
+    .rec-item:last-child { border-bottom: none; }
+    .rec-item:hover, .rec-item.active {
+      background: var(--primary-subtle);
+    }
+    .rec-item-main {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .rec-name {
+      font-weight: 600;
+      font-size: 0.95rem;
+      color: var(--text);
+    }
+    .rec-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 0.5rem;
+    }
+    .rec-isin {
+      font-family: monospace;
+      font-weight: 600;
+      color: var(--primary);
+      background: #eef2ff;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 0.78rem;
+    }
+    .rec-match {
+      color: var(--primary);
+      font-weight: 700;
+    }
+
+    /* Fund Detail View */
+    .fund-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+      display: none;
+      animation: fadeIn 0.25s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .fund-header {
+      padding: 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(to bottom, #ffffff, #fafafa);
+    }
+    .fund-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .fund-name {
+      font-size: 1.35rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .fund-badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 0.2rem 0.65rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      background: var(--badge-bg);
+      color: var(--text-muted);
+    }
+    .badge-isin {
+      font-family: monospace;
+      font-weight: 700;
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+    .badge-plan {
+      background: #dbeafe;
+      color: #1e40af;
+      font-weight: 600;
+    }
+    .badge-option {
+      background: #dcfce7;
+      color: #166534;
+      font-weight: 600;
+    }
+    .badge-category {
+      background: #fef3c7;
+      color: #92400e;
+      text-transform: capitalize;
+    }
+    .badge-equity {
+      background: var(--success-bg);
+      color: var(--success-text);
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .rec-tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+    .rec-tag-plan { background: #dbeafe; color: #1e40af; }
+    .rec-tag-opt { background: #dcfce7; color: #166534; }
+
+    .btn-brief {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.6rem 1.1rem;
+      background: var(--primary);
+      color: #ffffff;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-decoration: none;
+      border: none;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn-brief:hover {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+    }
+
+    .fund-content {
+      padding: 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr 1.25fr;
+      gap: 1.75rem;
+    }
+
+    @media (max-width: 768px) {
+      .fund-content { grid-template-columns: 1fr; }
+    }
+
+    .section-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .section-subtitle {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-weight: normal;
+    }
+
+    /* Sector bars */
+    .sector-container {
+      max-height: 420px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      background: #ffffff;
+    }
+    .sector-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+    .sector-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+    .sector-info {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+    }
+    .sector-name { font-weight: 500; color: var(--text); }
+    .sector-pct { font-weight: 600; color: var(--primary); }
+    .sector-bar-bg {
+      height: 6px;
+      background: #f1f5f9;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .sector-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #3b82f6, #1d4ed8);
+      border-radius: 3px;
+    }
+
+    /* Holdings Table */
+    .table-container {
+      max-height: 420px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .sector-container::-webkit-scrollbar,
+    .table-container::-webkit-scrollbar,
+    .recommendations-box::-webkit-scrollbar {
+      width: 6px;
+    }
+    .sector-container::-webkit-scrollbar-track,
+    .table-container::-webkit-scrollbar-track,
+    .recommendations-box::-webkit-scrollbar-track {
+      background: #f8fafc;
+    }
+    .sector-container::-webkit-scrollbar-thumb,
+    .table-container::-webkit-scrollbar-thumb,
+    .recommendations-box::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 3px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+      text-align: left;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      padding: 0.6rem 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid #f1f5f9;
+      color: var(--text);
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f8fafc; }
+    .td-holding { font-weight: 500; }
+    .td-industry { color: var(--text-muted); font-size: 0.8rem; }
+    .td-pct { text-align: right; font-weight: 600; color: #047857; }
+
+    .loading-state, .empty-state {
+      text-align: center;
+      padding: 2.5rem 1rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav class="nav">
+      <a href="/">Ask Question</a>
+      <a href="/fund">Fund News Brief</a>
+      <a href="/fund-search" class="active">Fund Search & Explorer</a>
+    </nav>
+
+    <header class="header">
+      <h1>Mutual Fund Search</h1>
+      <p>Search over 18,000 mutual funds by fund name or ISIN with live autocomplete recommendations.</p>
+    </header>
+
+    <section class="search-section">
+      <div class="search-wrapper">
+        <svg class="search-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+        </svg>
+        <input
+          type="text"
+          id="searchInput"
+          class="search-input"
+          placeholder="Type a fund name (e.g. 'HDFC Small Cap', 'SBI Nifty') or ISIN (e.g. 'INF174...')"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="clearBtn" class="clear-btn" title="Clear">✕</button>
+      </div>
+
+      <div id="recommendations" class="recommendations-box"></div>
+    </section>
+
+    <!-- Fund Detail Card -->
+    <main id="fundCard" class="fund-card">
+      <div class="fund-header">
+        <div class="fund-title-row">
+          <div>
+            <h2 id="fundName" class="fund-name"></h2>
+            <div class="fund-badges">
+              <span id="fundPlan" class="badge badge-plan"></span>
+              <span id="fundOption" class="badge badge-option"></span>
+              <span id="fundIsin" class="badge badge-isin"></span>
+              <span id="fundCategory" class="badge badge-category"></span>
+              <span id="fundSchemeType" class="badge badge-equity"></span>
+              <span id="fundAsOn" class="badge"></span>
+            </div>
+          </div>
+          <div>
+            <button id="btnBrief" class="btn-brief">
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+              </svg>
+              View Fund News Brief
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="fund-content">
+        <!-- Sectors -->
+        <div>
+          <div class="section-title">
+            <span>Sector Allocations</span>
+            <span id="sectorCount" class="section-subtitle"></span>
+          </div>
+          <div class="sector-container">
+            <div id="sectorList" class="sector-list"></div>
+          </div>
+        </div>
+
+        <!-- Holdings -->
+        <div>
+          <div class="section-title">
+            <span>Portfolio Holdings</span>
+            <span id="holdingCount" class="section-subtitle"></span>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Holding</th>
+                  <th>Industry</th>
+                  <th style="text-align: right;">Weight</th>
+                </tr>
+              </thead>
+              <tbody id="holdingsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const searchInput = document.getElementById("searchInput");
+    const clearBtn = document.getElementById("clearBtn");
+    const recommendationsBox = document.getElementById("recommendations");
+    const fundCard = document.getElementById("fundCard");
+
+    const fundNameEl = document.getElementById("fundName");
+    const fundPlanEl = document.getElementById("fundPlan");
+    const fundOptionEl = document.getElementById("fundOption");
+    const fundIsinEl = document.getElementById("fundIsin");
+    const fundCategoryEl = document.getElementById("fundCategory");
+    const fundSchemeTypeEl = document.getElementById("fundSchemeType");
+    const fundAsOnEl = document.getElementById("fundAsOn");
+    const sectorListEl = document.getElementById("sectorList");
+    const sectorCountEl = document.getElementById("sectorCount");
+    const holdingsBodyEl = document.getElementById("holdingsBody");
+    const holdingCountEl = document.getElementById("holdingCount");
+    const btnBriefEl = document.getElementById("btnBrief");
+
+    let activeIndex = -1;
+    let currentRecommendations = [];
+    let debounceTimer = null;
+    let currentIsin = "";
+
+    function highlightMatch(text, query) {
+      if (!query || !text) return text || "";
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escaped})`, 'gi');
+      return text.replace(regex, '<span class="rec-match">$1</span>');
+    }
+
+    async function fetchRecommendations(query) {
+      if (!query.trim()) {
+        recommendationsBox.style.display = "none";
+        return;
+      }
+      try {
+        const res = await fetch(`/api/funds/search?q=${encodeURIComponent(query)}&limit=12`);
+        if (!res.ok) return;
+        const data = await res.json();
+        currentRecommendations = data.funds || [];
+        renderRecommendations(currentRecommendations, query);
+      } catch (err) {
+        console.error("Failed to fetch recommendations", err);
+      }
+    }
+
+    function renderRecommendations(items, query) {
+      if (!items.length) {
+        recommendationsBox.innerHTML = '<div class="rec-item" style="color:#64748b; cursor:default;">No matching funds found</div>';
+        recommendationsBox.style.display = "block";
+        return;
+      }
+
+      recommendationsBox.innerHTML = "";
+      items.forEach((item, index) => {
+        const div = document.createElement("div");
+        div.className = "rec-item" + (index === activeIndex ? " active" : "");
+        div.dataset.index = index;
+
+        const highlightedName = highlightMatch(item.fund_short_name, query);
+        const highlightedIsin = highlightMatch(item.isin, query);
+        const plan = item.plan || "Regular";
+        const option = item.option || "Growth";
+        const metaBits = [
+          item.category ? item.category : "",
+          item.scheme_type ? item.scheme_type : ""
+        ].filter(Boolean).join(" • ");
+
+        div.innerHTML = `
+          <div class="rec-item-main">
+            <span class="rec-name">${highlightedName}</span>
+            <div class="rec-meta">
+              <span class="rec-tag rec-tag-plan">${plan} Plan</span>
+              <span class="rec-tag rec-tag-opt">${option}</span>
+              ${metaBits ? `<span>• ${metaBits}</span>` : ""}
+            </div>
+          </div>
+          <span class="rec-isin">${highlightedIsin}</span>
+        `;
+
+        div.addEventListener("click", () => selectFund(item.isin));
+        recommendationsBox.appendChild(div);
+      });
+
+      recommendationsBox.style.display = "block";
+    }
+
+    async function selectFund(isin) {
+      recommendationsBox.style.display = "none";
+      currentIsin = isin;
+      try {
+        const res = await fetch(`/api/funds/${encodeURIComponent(isin)}`);
+        if (!res.ok) throw new Error("Fund detail not found");
+        const data = await res.json();
+        const fund = data.fund;
+        displayFundDetail(fund);
+      } catch (err) {
+        alert("Could not load fund details: " + err.message);
+      }
+    }
+
+    function displayFundDetail(fund) {
+      fundNameEl.textContent = fund.fund_short_name || fund.fund_name || fund.isin;
+      fundPlanEl.textContent = (fund.plan || "Regular") + " Plan";
+      fundOptionEl.textContent = fund.option || "Growth";
+      fundIsinEl.textContent = fund.isin;
+      fundCategoryEl.textContent = fund.category || "General";
+      fundSchemeTypeEl.textContent = fund.scheme_type || "Equity";
+      fundAsOnEl.textContent = fund.as_on ? "As on " + fund.as_on : "";
+
+      searchInput.value = fund.fund_short_name || fund.isin;
+      clearBtn.style.display = "block";
+
+      // Render Sectors
+      const sectors = fund.sectors || {};
+      const sectorEntries = Object.entries(sectors).sort((a, b) => b[1] - a[1]);
+      sectorCountEl.textContent = sectorEntries.length + " sectors";
+      sectorListEl.innerHTML = "";
+
+      const maxPct = sectorEntries.length ? sectorEntries[0][1] : 100;
+      sectorEntries.forEach(([name, pct]) => {
+        const pctNum = parseFloat(pct) || 0;
+        const widthPct = Math.min(100, Math.max(3, (pctNum / maxPct) * 100));
+
+        const item = document.createElement("div");
+        item.className = "sector-item";
+        item.innerHTML = `
+          <div class="sector-info">
+            <span class="sector-name">${name}</span>
+            <span class="sector-pct">${pctNum.toFixed(2)}%</span>
+          </div>
+          <div class="sector-bar-bg">
+            <div class="sector-bar-fill" style="width: ${widthPct}%;"></div>
+          </div>
+        `;
+        sectorListEl.appendChild(item);
+      });
+
+      // Render Holdings
+      const holdings = fund.holdings || {};
+      const holdingEntries = Object.entries(holdings)
+        .map(([name, data]) => ({ name, ...data }))
+        .sort((a, b) => (parseFloat(b.percentage) || 0) - (parseFloat(a.percentage) || 0));
+
+      holdingCountEl.textContent = holdingEntries.length + " instruments";
+      holdingsBodyEl.innerHTML = "";
+
+      holdingEntries.forEach((h) => {
+        const tr = document.createElement("tr");
+        const pctNum = parseFloat(h.percentage) || 0;
+        tr.innerHTML = `
+          <td class="td-holding">${h.name}</td>
+          <td class="td-industry">${h.industry || "—"}</td>
+          <td class="td-pct">${pctNum.toFixed(2)}%</td>
+        `;
+        holdingsBodyEl.appendChild(tr);
+      });
+
+      fundCard.style.display = "block";
+    }
+
+    btnBriefEl.addEventListener("click", () => {
+      if (currentIsin) {
+        window.location.href = `/fund?isin=${encodeURIComponent(currentIsin)}`;
+      }
+    });
+
+    searchInput.addEventListener("input", (e) => {
+      const q = e.target.value;
+      clearBtn.style.display = q ? "block" : "none";
+      clearTimeout(debounceTimer);
+      activeIndex = -1;
+      debounceTimer = setTimeout(() => fetchRecommendations(q), 150);
+    });
+
+    clearBtn.addEventListener("click", () => {
+      searchInput.value = "";
+      clearBtn.style.display = "none";
+      recommendationsBox.style.display = "none";
+      fundCard.style.display = "none";
+      searchInput.focus();
+    });
+
+    // Keyboard navigation
+    searchInput.addEventListener("keydown", (e) => {
+      const items = recommendationsBox.querySelectorAll(".rec-item");
+      if (!items.length || recommendationsBox.style.display === "none") return;
+
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        activeIndex = (activeIndex + 1) % items.length;
+        updateActiveRec(items);
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        activeIndex = (activeIndex - 1 + items.length) % items.length;
+        updateActiveRec(items);
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (activeIndex >= 0 && activeIndex < currentRecommendations.length) {
+          selectFund(currentRecommendations[activeIndex].isin);
+        } else if (currentRecommendations.length > 0) {
+          selectFund(currentRecommendations[0].isin);
+        }
+      } else if (e.key === "Escape") {
+        recommendationsBox.style.display = "none";
+      }
+    });
+
+    function updateActiveRec(items) {
+      items.forEach((item, idx) => {
+        item.classList.toggle("active", idx === activeIndex);
+        if (idx === activeIndex) {
+          item.scrollIntoView({ block: "nearest" });
+        }
+      });
+    }
+
+    // Close recommendations on click outside
+    document.addEventListener("click", (e) => {
+      if (!searchInput.contains(e.target) && !recommendationsBox.contains(e.target)) {
+        recommendationsBox.style.display = "none";
+      }
+    });
+
+    // Auto-check URL query param: e.g. ?isin=...
+    const urlParams = new URLSearchParams(window.location.search);
+    const initialIsin = urlParams.get("isin");
+    if (initialIsin) {
+      selectFund(initialIsin);
+    }
+  </script>
+</body>
+</html>

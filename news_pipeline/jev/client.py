@@ -128,26 +128,26 @@ def title_questions(rows: list[dict], entity: dict) -> dict:
             )
             instructions = (
                 f"Title: {row['title']}. "
-                f"Is this headline specifically about {name}{sector_clause} and material enough to change the stock outlook? "
-                "False for a price recap, a technical call, a generic market wrap, a different company, "
-                "or a story clearly about another industry."
+                f"Is this headline specifically about {name}{sector_clause} and indicates a material development that could impact the company's business, earnings, valuation, or stock outlook? "
+                "False for temporary or routine operational noise (e.g. banks open on Sunday, holiday schedules, branch timings, minor local events, routine customer notices), "
+                "price recaps, technical calls, generic market wraps, or a different company."
             )
             if industry:
-                true_crit = f"About {name} in {industry} and material to the outlook"
+                true_crit = f"About {name} in {industry} and material to business/financial outlook"
                 false_crit = (
-                    f"Wrong company, wrong industry (not {industry}), price recap, or generic wrap"
+                    f"Routine operational/holiday noise, wrong company, wrong industry (not {industry}), price recap, or generic wrap"
                 )
             else:
-                true_crit = "Specifically about this name and material to the outlook"
-                false_crit = "Unrelated, a lookalike, a price recap, or a generic wrap"
+                true_crit = "Specifically about this name and material to business/financial outlook"
+                false_crit = "Routine operational noise, unrelated, a lookalike, a price recap, or a generic wrap"
         else:
             instructions = (
                 f"Title: {row['title']}. "
-                f"Is this headline about the {name} sector as a whole, or about policy that moves that sector? "
-                "False when the headline is only about one company, or when it is a price recap."
+                f"Is this headline about the {name} sector as a whole, or about state/national policy/regulations moving that sector? "
+                "False for temporary operational updates, single-company only stories with no sector impact, or price recaps."
             )
-            true_crit = f"About the {name} sector or sector-moving policy"
-            false_crit = "Single-company only, unrelated sector, or price recap"
+            true_crit = f"About the {name} sector or sector-moving policy/developments"
+            false_crit = "Routine/temporary noise, single-company only, unrelated sector, or price recap"
         questions[row["question_id"]] = {
             "type": "noul",
             "instructions": instructions,
@@ -169,36 +169,35 @@ def article_questions(matches: list[dict]) -> dict:
                 else ""
             )
             about = (
-                f"Is the article about {name} itself{sector_clause} not a different company with a similar name "
-                f"and not primarily about another industry? "
+                f"Is the article specifically about {name} itself{sector_clause} and does it describe a material corporate, financial, regulatory, or operational event (not routine operational trivia like Sunday openings, branch timings, or passing mentions)? "
                 "The article body is in state.article."
             )
             if industry:
-                about_true = f"The body is about {name} in {industry}"
-                about_false = f"About another company, homonym, or wrong industry (not {industry})"
+                about_true = f"The body is about material developments for {name} in {industry}"
+                about_false = f"Routine operational trivia, about another company, homonym, or wrong industry (not {industry})"
             else:
-                about_true = "The body is about this name"
-                about_false = "The body is about something else"
+                about_true = "The body is about material developments for this name"
+                about_false = "Routine operational trivia, or about something else"
             rel_instr = (
-                f"How relevant is this article to {name} as a {industry} company? Use the scale in criteria."
+                f"How relevant is this article to {name}'s core business and financial outlook as a {industry} company? Use the scale in criteria."
                 if industry
-                else f"How relevant is this article to {name}? Use the scale in criteria."
+                else f"How relevant is this article to {name}'s core business and financial outlook? Use the scale in criteria."
             )
             impact_instr = (
-                f"How much could this article change the outlook for {name} in {industry}?"
+                f"How much could this article materially change the business, earnings, or valuation outlook for {name} in {industry} (rejecting temporary operational noise)? Use the scale in criteria."
                 if industry
-                else f"How much could this article change the outlook for {name}?"
+                else f"How much could this article materially change the business, earnings, or valuation outlook for {name}? Use the scale in criteria."
             )
             sector_scope = f"the {industry} sector (this company's industry)" if industry else "the broader sector"
         else:
             about = (
-                f"Is the article about the {name} sector as a whole or about policy for that sector? "
-                "False when it is only a single-company story. The article body is in state.article."
+                f"Is the article about the {name} sector as a whole or about state/national policy affecting that sector? "
+                "False when it is routine operational noise or only a single-company story. The article body is in state.article."
             )
-            about_true = "The body is about this sector or sector policy"
-            about_false = "Single-company story or unrelated"
+            about_true = "The body is about material sector trends or sector policy"
+            about_false = "Routine operational noise, single-company story, or unrelated"
             rel_instr = f"How relevant is this article to the {name} sector? Use the scale in criteria."
-            impact_instr = f"How much could this article change the outlook for the {name} sector?"
+            impact_instr = f"How much could this article materially change the outlook for the {name} sector? Use the scale in criteria."
             sector_scope = f"the {name} sector as a whole"
         questions[f"{prefix}_about"] = {
             "type": "noul",

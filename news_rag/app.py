@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from news_rag.answer import empty_answer, generate_answer
 from news_rag.config import get_settings
+from news_rag.fund_search import get_fund_index
 from news_rag.llm_client import llm_api_key_configured, llm_model, llm_provider, missing_llm_key_message
 from news_rag.query_log import new_fund_brief_logger, new_query_logger
 from news_rag.fund_brief import generate_fund_brief, list_portfolio_funds
@@ -76,6 +77,41 @@ def fund_page() -> FileResponse:
     if not page.is_file():
         raise HTTPException(status_code=404, detail="fund.html missing")
     return FileResponse(page)
+
+
+@app.get("/fund-search")
+def fund_search_page() -> FileResponse:
+    page = _STATIC / "fund_search.html"
+    if not page.is_file():
+        raise HTTPException(status_code=404, detail="fund_search.html missing")
+    return FileResponse(page)
+
+
+@app.get("/api/funds/search")
+def search_funds(
+    q: str = "",
+    limit: int = 15,
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    index = get_fund_index()
+    results = index.search(q, limit=max(1, min(limit, 100)))
+    return {"query": q, "count": len(results), "funds": results}
+
+
+@app.get("/api/funds/{isin}")
+def get_fund_detail(
+    isin: str,
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    index = get_fund_index()
+    detail = index.get_fund_detail(isin)
+    if detail is None:
+        raise HTTPException(status_code=404, detail=f"Fund with ISIN '{isin}' not found")
+    return {"fund": detail}
 
 
 @app.get("/api/portfolio-funds")

@@ -509,12 +509,12 @@ def jev_filter_events(events: list[dict], *, query_log: QueryLogger | None = Non
             "type": "noul",
             "instructions": (
                 f"Title: {event['title']}. Excerpt: {event['snippet'][:500]}. "
-                f"Is this story specifically about {label} and material to that holding or sector? "
-                "False for a different company, a price recap, or a passing mention."
+                f"Is this story specifically about {label} and does it describe a meaningful, material event (earnings, contracts, regulatory/policy action, capex, structural change) that could affect the company's business or stock outlook? "
+                "False for routine operational noise (e.g. banks open on Sunday, holiday timings, branch notices, minor customer service updates), price recaps, or passing mentions."
             ),
             "criteria": {
-                "true": f"About {label} and material",
-                "false": "Unrelated, wrong company, or not material",
+                "true": f"About {label} and materially impactful to business/financial outlook",
+                "false": "Routine/temporary operational noise, unrelated, wrong company, or not material",
             },
         }
     try:
@@ -540,24 +540,45 @@ def jev_filter_events(events: list[dict], *, query_log: QueryLogger | None = Non
     return kept
 
 
-FUND_BRIEF_PROMPT = """You write a fund news brief for an Indian mutual fund investor.
+FUND_BRIEF_PROMPT = """You are a high-impact financial news and storytelling agent for an Indian mutual fund investor.
 
-You receive ranked news events for the selected fund and for the rest of the portfolio.
-Use ONLY facts from the excerpts. Mention holdings or sectors when the event data ties to them
-(weight_pct and rupees show how much of the investor's money is exposed).
+Your job is NOT to summarize every piece of news. Your job is to identify only news that can have a meaningful, material impact on the companies in this portfolio, and explain it in VERY SIMPLE, ENGAGING, STORYTELLING LANGUAGE that anyone (even a 15-year-old) can easily understand.
+
+The output must explain:
+What happened -> Why it matters -> How it affects the company's business -> Why the investor should care.
+
+GUIDELINES FOR WRITING:
+1. SIMPLE LANGUAGE:
+   - Use plain everyday conversational English. Avoid dry financial jargon.
+   - Replace complex terms with simple meanings (e.g. instead of "compressing NIMs", say "putting pressure on lending profits"; instead of "input-cost inflation", say "materials becoming more expensive"; instead of "margin expansion", say "making more profit on each sale"; instead of "regulatory headwinds", say "tougher government rules").
+2. HIGHLIGHT IMPACTFUL & IMPORTANT WORDS:
+   - Use markdown bold (**word**) to highlight:
+     * Company and sector names (e.g. **HDFC Bank**, **Tata Motors**, **Auto sector**)
+     * Key government / regulatory bodies and policies (e.g. **RBI**, **SEBI**, **EV subsidy policy**)
+     * Major numbers and financial amounts (e.g. **₹5,000 crore order**, **+15% profit jump**)
+     * Key commodities / drivers (e.g. **Crude oil prices**, **Steel costs**)
+     * Main business effects and stock direction (e.g. **higher profit margins**, **risk of slowing loan growth**)
+   - Do NOT bold entire sentences. Bold only the critical anchor words.
+3. CAUSAL CONNECTION:
+   - Connect the event to the business mechanism and investor impact.
+   - Reject temporary/operational noise (such as "banks open on Sunday" or holiday notices).
+4. NO BUY/SELL ADVICE:
+   - Provide factual context and business implications only.
 
 Write exactly this structure (plain text):
 
 BULLETS:
 - Between 5 and 8 bullet lines (no fewer than 5 if enough distinct events exist). Each line starts with "- ".
-- Each bullet is ONE sentence: a concrete fact from an excerpt plus brief context on why it matters
-  for this fund or the wider portfolio (use weight/rupee figures when provided).
-- Prioritize higher rupee exposure and material facts over opinion.
-- No buy/sell advice. No URLs. Do not copy headlines alone.
+- Each bullet is ONE clear, easy-to-read sentence connecting a concrete event from the excerpts to why it matters for this fund holding or sector (include portfolio weight/rupee exposure if provided).
+- Use **bold** highlights for key companies, numbers, and drivers.
 
 SUMMARY:
-One paragraph of about 80–100 words (roughly 4–6 sentences). Tie the bullets together for the
-selected fund and the rest of the book. Plain prose, no bullet characters. No buy/sell advice.
+One cohesive storytelling paragraph of about 90–120 words (4–6 sentences).
+Tell the story of what is happening across the portfolio:
+- Start with the big picture (the major national, regulatory, or economic theme).
+- Explain how key companies in the fund are affected (the causal business mechanism).
+- Conclude with what this means for the investor's book.
+Write in a smooth narrative flow (no bullet characters, no buy/sell advice). Use **bold** highlights for key terms.
 """
 
 
