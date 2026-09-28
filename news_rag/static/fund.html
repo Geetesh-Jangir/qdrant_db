@@ -32,7 +32,8 @@
     .answer-box h2 { font-size: 0.95rem; margin: 0 0 0.65rem; font-weight: 600; }
     .answer-box ul { margin: 0 0 0.85rem; padding-left: 1.25rem; }
     .answer-box li { margin-bottom: 0.45rem; }
-    .answer-box .summary { margin: 0; color: #222; }
+    .answer-box .summary { margin: 0; color: #222; line-height: 1.6; }
+    .hl { font-weight: 700; color: #0d386f; background: #eef4fc; padding: 1px 4px; border-radius: 4px; }
     .meta { font-size: 0.82rem; color: #666; margin-top: 0.5rem; }
     .quiet { font-size: 0.88rem; color: #444; margin-top: 0.75rem; }
     .sources { margin-top: 1rem; }
@@ -46,11 +47,16 @@
     .err { color: #b00020; margin-top: 1rem; }
     .hidden { display: none; }
     .nav { font-size: 0.85rem; margin-bottom: 1rem; }
-    .nav a { color: #1e4d8c; }
+    .nav a { color: #1e4d8c; text-decoration: none; margin-right: 0.75rem; }
+    .nav a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
-  <p class="nav"><a href="/">Ask a question</a></p>
+  <p class="nav">
+    <a href="/">Ask a question</a> · 
+    <a href="/fund">Fund news brief</a> · 
+    <a href="/fund-search">Fund search & explorer</a>
+  </p>
   <h1>Fund news brief</h1>
   <p class="sub">Pick a fund from the configured portfolio. Uses stored news only (run the news pipeline separately).</p>
 
@@ -92,18 +98,27 @@
     const sourcesWrap = document.getElementById("sourcesWrap");
     const sourcesEl = document.getElementById("sources");
 
+    function formatHighlights(text) {
+      if (!text) return "";
+      const escaped = String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return escaped.replace(/\*\*(.+?)\*\*/g, '<strong class="hl">$1</strong>');
+    }
+
     function renderBullets(container, bullets, emptyText) {
       container.innerHTML = "";
       const rows = bullets || [];
       if (!rows.length) {
         const li = document.createElement("li");
-        li.textContent = emptyText || "No matching news.";
+        li.innerHTML = formatHighlights(emptyText || "No matching news.");
         container.appendChild(li);
         return;
       }
       for (const line of rows) {
         const li = document.createElement("li");
-        li.textContent = line;
+        li.innerHTML = formatHighlights(line);
         container.appendChild(li);
       }
     }
@@ -195,12 +210,13 @@
             ? summary || "No matching news in this window."
             : "No bullets returned.";
         renderBullets(bulletsEl, bullets, emptyNote);
-        summaryEl.textContent =
+        const rawSummary =
           bullets.length && summary && data.insight_source !== "no_articles"
             ? summary
             : data.insight_source === "no_articles"
               ? ""
               : summary;
+        summaryEl.innerHTML = formatHighlights(rawSummary);
         renderSources(data.sources);
         const quiet = data.quiet_holdings || [];
         if (quiet.length) {

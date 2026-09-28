@@ -35,7 +35,8 @@
     .answer-box p { margin: 0 0 0.65rem; }
     .answer-box ul { margin: 0 0 0.25rem; padding-left: 1.25rem; }
     .answer-box li { margin-bottom: 0.45rem; }
-    .answer-box .summary-text { margin-top: 0.25rem; color: #222; }
+    .answer-box .summary-text { margin-top: 0.25rem; color: #222; line-height: 1.6; }
+    .hl { font-weight: 700; color: #0d386f; background: #eef4fc; padding: 1px 4px; border-radius: 4px; }
     .meta { font-size: 0.82rem; color: #666; margin-top: 0.5rem; }
     .sources { margin-top: 1rem; }
     .sources h2 { font-size: 0.95rem; margin: 0 0 0.5rem; }
@@ -47,9 +48,17 @@
     .card a:hover { text-decoration: underline; }
     .err { color: #b00020; margin-top: 1rem; }
     .hidden { display: none; }
+    .nav { font-size: 0.85rem; margin-bottom: 1rem; }
+    .nav a { color: #1e4d8c; text-decoration: none; margin-right: 0.75rem; }
+    .nav a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
+  <p class="nav">
+    <a href="/">Ask a question</a> · 
+    <a href="/fund">Fund news brief</a> · 
+    <a href="/fund-search">Fund search & explorer</a>
+  </p>
   <h1>News insight</h1>
   <p class="sub">Ask in plain English. Answers use your Qdrant news store only.</p>
 
@@ -83,6 +92,15 @@
     const metaEl = document.getElementById("meta");
     const sourcesEl = document.getElementById("sources");
 
+    function formatHighlights(text) {
+      if (!text) return "";
+      const escaped = String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      return escaped.replace(/\*\*(.+?)\*\*/g, '<strong class="hl">$1</strong>');
+    }
+
     function renderInsight(container, data, fallbackText) {
       container.innerHTML = "";
       let bullets = Array.isArray(data.insight_bullets) ? data.insight_bullets : [];
@@ -105,7 +123,7 @@
         const ul = document.createElement("ul");
         for (const item of bullets) {
           const li = document.createElement("li");
-          li.textContent = item;
+          li.innerHTML = formatHighlights(item);
           ul.appendChild(li);
         }
         container.appendChild(ul);
@@ -117,13 +135,14 @@
         container.appendChild(h3);
         const p = document.createElement("p");
         p.className = "summary-text";
-        p.textContent = summary;
+        p.innerHTML = formatHighlights(summary);
         container.appendChild(p);
       }
 
       if (!bullets.length && !summary) {
-        container.textContent =
-          fallbackText || "Could not build an insight from this response. Check the query log on the server.";
+        container.innerHTML = formatHighlights(
+          fallbackText || "Could not build an insight from this response. Check the query log on the server."
+        );
       }
     }
 
