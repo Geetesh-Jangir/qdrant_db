@@ -139,8 +139,18 @@ def embedding_text(
     return f"{prefix}{title.strip()}\n\n{snippet}".strip()
 
 
-def truncate_words(text: str, word_limit: int) -> str:
+def truncate_words(
+    text: str,
+    word_limit: int,
+    head_words: int = 1400,
+    tail_words: int = 600,
+) -> str:
+    """Smart word truncation: sends head + tail paragraphs where forward guidance sits."""
     words = (text or "").split()
     if len(words) <= word_limit:
         return " ".join(words)
+    if head_words + tail_words <= word_limit and len(words) > (head_words + tail_words):
+        head = words[:head_words]
+        tail = words[-tail_words:]
+        return " ".join(head) + "\n\n[...]\n\n" + " ".join(tail)
     return " ".join(words[:word_limit])

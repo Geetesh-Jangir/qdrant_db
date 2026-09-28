@@ -187,11 +187,17 @@ def _score_new_entities(
                     f"about={result['about_this_name']:.4f}"
                 )
             continue
-        if result["relevance"] < settings.relevance_min:
+        is_material_event = result["event_type"] in {"results", "order", "deal", "regulatory"}
+        passes_gate = (
+            result["relevance"] >= settings.relevance_min
+            or result["impact"] >= 2
+            or (result["relevance"] == 1 and is_material_event)
+        )
+        if not passes_gate:
             if run_log is not None:
                 run_log.write(
-                    f"merge_entity_links drop entity={match['name']} reason=relevance "
-                    f"relevance={result['relevance']}"
+                    f"merge_entity_links drop entity={match['name']} reason=low_relevance_and_impact "
+                    f"relevance={result['relevance']} impact={result['impact']} event={result['event_type']}"
                 )
             continue
         title_rel = float(match.get("title_relevance") or 1.0)

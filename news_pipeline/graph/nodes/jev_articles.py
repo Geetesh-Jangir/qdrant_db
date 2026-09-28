@@ -97,12 +97,19 @@ def jev_article_scores(state: PipelineState) -> dict:
                             f"min={settings.about_name_min}"
                         )
                     continue
-                if result["relevance"] < settings.relevance_min:
+                is_material_event = result["event_type"] in {"results", "order", "deal", "regulatory"}
+                passes_gate = (
+                    result["relevance"] >= settings.relevance_min
+                    or result["impact"] >= 2
+                    or (result["relevance"] == 1 and is_material_event)
+                )
+                if not passes_gate:
                     if run_log is not None:
                         run_log.write(
                             f"jev_article_scores drop entity={match['name']} url={candidate['url']} "
-                            f"reason=relevance relevance={result['relevance']} "
-                            f"min={settings.relevance_min}"
+                            f"reason=low_relevance_and_impact relevance={result['relevance']} "
+                            f"impact={result['impact']} event={result['event_type']} "
+                            f"min_rel={settings.relevance_min}"
                         )
                     continue
                 scored.append({**match, **result, "industry": match.get("industry") or ""})
