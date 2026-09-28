@@ -213,8 +213,20 @@ def _needs_industry_query_hint(row: dict) -> bool:
 
 
 def _holding_query(row: dict) -> str:
+    # Ticker and brand aliases in search query expansion
+    # (Uncomment the OR clause below to expand recall across tickers and brand aliases in Google News)
     short = row.get("short") or row["name"]
+    aliases = row.get("aliases") or []
+    
+    # --- ALIAS SEARCH EXPANSION (COMMENTED FOR EASY FUTURE TOGGLE) ---
+    # if aliases:
+    #     terms = [f'"{short}"'] + [f'"{a}"' for a in aliases[:2] if a.lower() != short.lower()]
+    #     base = " OR ".join(terms)
+    # else:
+    #     base = f'"{short}"'
     base = f'"{short}"'
+    # -----------------------------------------------------------------
+
     industry = (row.get("industry") or "").strip()
     if industry and _needs_industry_query_hint(row):
         hint = _industry_search_hint(industry)

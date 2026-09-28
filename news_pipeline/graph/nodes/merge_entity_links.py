@@ -180,6 +180,7 @@ def _score_new_entities(
     scored: list[EntityScore] = []
     for index, match in enumerate(new_matches):
         result = score_match(answers, index)
+        
         if result["about_this_name"] < settings.about_name_min:
             if run_log is not None:
                 run_log.write(
@@ -187,6 +188,7 @@ def _score_new_entities(
                     f"about={result['about_this_name']:.4f}"
                 )
             continue
+
         is_material_event = result["event_type"] in {"results", "order", "deal", "regulatory"}
         passes_gate = (
             result["relevance"] >= settings.relevance_min
@@ -200,6 +202,7 @@ def _score_new_entities(
                     f"relevance={result['relevance']} impact={result['impact']} event={result['event_type']}"
                 )
             continue
+
         title_rel = float(match.get("title_relevance") or 1.0)
         scored.append(
             EntityScore(

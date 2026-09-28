@@ -94,6 +94,7 @@ def jev_title_screen(state: PipelineState) -> dict:
             score = relevance.get((index, match["name"]))
             if score is None or score < settings.title_noul_min:
                 continue
+
             scored_matches.setdefault(index, []).append({**match, "title_relevance": round(score, 4)})
             by_entity.setdefault(match["name"], []).append((index, score))
 
@@ -107,6 +108,7 @@ def jev_title_screen(state: PipelineState) -> dict:
                 score = relevance.get((index, entity_name))
                 if score is None or score < settings.title_noul_min:
                     continue
+
                 scored_matches.setdefault(index, []).append(
                     {
                         "name": entity_name,
@@ -127,20 +129,16 @@ def jev_title_screen(state: PipelineState) -> dict:
         rows.sort(key=lambda item: item[1], reverse=True)
         picked: list[tuple[int, float]] = []
         for index, score in rows:
-            if settings.max_scrape_per_entity > 0 and len(picked) >= settings.max_scrape_per_entity:
-                break
-            if (
-                entity.get("type") == "holding"
-                and settings.max_scrape_per_industry > 0
-                and industry_picks[industry_key] >= settings.max_scrape_per_industry
-            ):
-                if run_log is not None:
-                    run_log.write(
-                        f"jev_title_screen drop entity={entity_name} reason=industry_cap "
-                        f"industry={entity.get('industry') or ''} noul={score:.4f} "
-                        f"title={clip_log_title(candidates[index]['title'])}"
-                    )
-                continue
+            # --- SCRAPE CAPPING (COMMENTED FOR FULL CORPUS SCRAPING) ---
+            # if settings.max_scrape_per_entity > 0 and len(picked) >= settings.max_scrape_per_entity:
+            #     break
+            # if (
+            #     entity.get("type") == "holding"
+            #     and settings.max_scrape_per_industry > 0
+            #     and industry_picks[industry_key] >= settings.max_scrape_per_industry
+            # ):
+            #     continue
+            # -----------------------------------------------------------
             picked.append((index, score))
             allowed.add((index, entity_name))
             if entity.get("type") == "holding":

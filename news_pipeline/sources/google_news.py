@@ -58,10 +58,12 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
         raise RuntimeError(error or "empty Google News RSS response")
     items = _parse_rss(body.encode("utf-8"))
     kept: list[dict] = []
-    cap = settings.max_items_per_query
+    # --- RSS LIMIT CAPPING (COMMENTED OUT TO STORE MAXIMUM NEWS) ---
+    # cap = settings.max_items_per_query
+    # --------------------------------------------------------------
     for item in items:
-        if cap > 0 and len(kept) >= cap:
-            break
+        # if cap > 0 and len(kept) >= cap:
+        #     break
         title = strip_html(item["title"])
         if not item["link"] or not title or not is_english_title(title):
             continue
@@ -70,8 +72,14 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
             continue
         resolved = _resolve_publisher_url(item["link"])
         source = _match_publisher(item["source_url"], item["source_name"], resolved)
+        
+        # --- STRICT PUBLISHER WHITELIST (COMMENTED TO ACCEPT ALL VALID SOURCES) ---
+        # if source is None:
+        #     continue
         if source is None:
-            continue
+            source = host_of(resolved) or item.get("source_name") or "news"
+        # --------------------------------------------------------------------------
+
         url = canonical_url(resolved)
         if not url.startswith("https://"):
             continue

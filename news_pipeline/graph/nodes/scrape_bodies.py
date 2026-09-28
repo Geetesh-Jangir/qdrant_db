@@ -66,13 +66,24 @@ def scrape_bodies(state: PipelineState) -> dict:
                 )
             continue
         text = (record.get("text") or "").strip()
+        
+        # --- SNIPPET FALLBACK (ENSURES PAYWALLED / BLOCKED ARTICLES ARE RETAINED) ---
         if len(text) < settings.min_body_chars:
-            if run_log is not None:
-                run_log.write(
-                    f"scrape drop url={candidate['url']} reason=short_body "
-                    f"chars={len(text)} min={settings.min_body_chars}"
-                )
-            continue
+            snippet = (candidate.get("snippet") or "").strip()
+            if snippet:
+                text = f"{candidate.get('title') or ''}. {snippet}"
+            else:
+                text = candidate.get("title") or ""
+        
+        # Original drop condition commented out for huge corpus collection:
+        # if len(text) < settings.min_body_chars:
+        #     if run_log is not None:
+        #         run_log.write(
+        #             f"scrape drop url={candidate['url']} reason=short_body "
+        #             f"chars={len(text)} min={settings.min_body_chars}"
+        #         )
+        #     continue
+        # ----------------------------------------------------------------------------
         published = parse_time(candidate.get("published_at"))
         if published is None:
             published = parse_time(record.get("date"))
