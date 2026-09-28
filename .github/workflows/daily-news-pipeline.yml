@@ -1,0 +1,76 @@
+name: Daily News Ingestion Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      holdings_limit:
+        description: "Number of top holdings to process (leave empty to use config default)"
+        required: false
+        default: ""
+      sectors_limit:
+        description: "Number of top sectors to process (leave empty to use config default)"
+        required: false
+        default: ""
+  schedule:
+    # Runs at 06:00 UTC (11:30 AM IST) daily
+    - cron: "0 6 * * *"
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      JEV_BASE_URL: ${{ secrets.JEV_BASE_URL }}
+      JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+      JEV_MODEL: ${{ secrets.JEV_MODEL }}
+      QDRANT_URL: ${{ secrets.QDRANT_URL }}
+      QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+      FRESH_START_EACH_RUN: "false"
+      FRESH_START_CLEAR_QDRANT: "false"
+      NEWS_CORPUS_MODE: "true"
+      HOLDINGS_LIMIT: ${{ inputs.holdings_limit }}
+      SECTORS_LIMIT: ${{ inputs.sectors_limit }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare runtime directories
+        run: mkdir -p data/news_runs data/fund_holdings_aggregate
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: Validate secrets
+        run: |
+          test -n "$QDRANT_URL" || { echo "Missing GitHub Secret: QDRANT_URL"; exit 1; }
+          test -n "$QDRANT_API_KEY" || { echo "Missing GitHub Secret: QDRANT_API_KEY"; exit 1; }
+          test -n "$JEV_BASE_URL" || { echo "Missing GitHub Secret: JEV_BASE_URL"; exit 1; }
+          test -n "$JEV_API_KEY" || { echo "Missing GitHub Secret: JEV_API_KEY"; exit 1; }
+          python -c 'from urllib.parse import urlparse; import os; print("Connected to Qdrant cluster:", urlparse(os.environ["QDRANT_URL"]).netloc)'
+
+      - name: Run News Ingestion Pipeline
+        working-directory: ${{ github.workspace }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m news_pipeline
+
+      - name: Upload Run Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-pipeline-runs
+          path: data/news_runs/
+          if-no-files-found: warn
