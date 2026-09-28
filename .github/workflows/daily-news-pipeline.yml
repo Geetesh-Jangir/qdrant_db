@@ -4,11 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       holdings_limit:
-        description: "Number of top holdings to process (leave empty to use config default)"
+        description: "Number of top holdings (leave empty for default, 0 for all)"
         required: false
         default: ""
       sectors_limit:
-        description: "Number of top sectors to process (leave empty to use config default)"
+        description: "Number of top sectors (leave empty for default, 0 for all)"
+        required: false
+        default: ""
+      news_window_hours:
+        description: "News age window in hours (default 168 for 7 days)"
+        required: false
+        default: "168"
+      google_news_when:
+        description: "Google News time filter suffix (e.g. 1d, 7d, 1m)"
+        required: false
+        default: "7d"
+      portfolio_json:
+        description: "Optional investor portfolio file (e.g. investor_data/mohit/portfolio.json)"
         required: false
         default: ""
   schedule:
@@ -18,11 +30,11 @@ on:
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       JEV_BASE_URL: ${{ secrets.JEV_BASE_URL }}
       JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
-      JEV_MODEL: ${{ secrets.JEV_MODEL }}
+      JEV_MODEL: ${{ secrets.JEV_MODEL || 'jev-latest' }}
       QDRANT_URL: ${{ secrets.QDRANT_URL }}
       QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
       FRESH_START_EACH_RUN: "false"
@@ -30,13 +42,16 @@ jobs:
       NEWS_CORPUS_MODE: "true"
       HOLDINGS_LIMIT: ${{ inputs.holdings_limit }}
       SECTORS_LIMIT: ${{ inputs.sectors_limit }}
+      NEWS_WINDOW_HOURS: ${{ inputs.news_window_hours || '168' }}
+      GOOGLE_NEWS_WHEN: ${{ inputs.google_news_when || '7d' }}
+      PORTFOLIO_JSON: ${{ inputs.portfolio_json }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Prepare runtime directories
-        run: mkdir -p data/news_runs data/fund_holdings_aggregate
+        run: mkdir -p data/news_runs data/fund_holdings_aggregate data/embedding_models
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
@@ -66,6 +81,12 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m news_pipeline
+
+      - name: List run outputs (debug)
+        if: always()
+        run: |
+          echo "Contents of data/news_runs:"
+          ls -la data/news_runs || true
 
       - name: Upload Run Logs
         if: always()

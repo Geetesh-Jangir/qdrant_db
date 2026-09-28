@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -218,6 +219,23 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _clean_empty_env_strings(cls, values: object) -> object:
+        if isinstance(values, dict):
+            cleaned = {}
+            for k, v in values.items():
+                if isinstance(v, str) and v.strip() == "":
+                    # Allow specific string fields to remain empty if needed, but omit others so defaults apply
+                    if k in {"qdrant_api_key", "jev_base_url", "jev_api_key", "portfolio_json"}:
+                        cleaned[k] = ""
+                    else:
+                        continue
+                else:
+                    cleaned[k] = v
+            return cleaned
+        return values
 
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: str = ""
