@@ -20,12 +20,20 @@ def clip_log_text(text: str, limit: int = 240) -> str:
     return cleaned[: limit - 3] + "..."
 
 
-def new_query_logger() -> QueryLogger:
+def new_query_logger(*, kind: str = "ask") -> QueryLogger:
     settings = get_settings()
     log_dir = settings.rag_query_log_path()
     query_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + secrets.token_hex(3)
-    path = log_dir / f"{query_id}.log"
-    return QueryLogger(query_id=query_id, log_path=path)
+    prefix = f"{kind}_" if kind and kind != "ask" else ""
+    path = log_dir / f"{prefix}{query_id}.log"
+    logger = QueryLogger(query_id=query_id, log_path=path)
+    if kind and kind != "ask":
+        logger.write(f"kind={kind}")
+    return logger
+
+
+def new_fund_brief_logger() -> QueryLogger:
+    return new_query_logger(kind="fund_brief")
 
 
 class QueryLogger:
