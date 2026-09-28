@@ -87,6 +87,34 @@ SECTOR_BLOCK_FRAGMENTS: tuple[str, ...] = (
     "others",
 )
 
+# Sector bellwethers (market leaders and dominant players) for sector read-throughs
+SECTOR_BELLWETHERS: dict[str, str] = {
+    "Banks": "HDFC Bank, State Bank of India (SBI), ICICI Bank, Axis Bank, Kotak Mahindra Bank",
+    "Finance": "Bajaj Finance, Jio Financial, Shriram Finance, Chola Investment",
+    "It - Software": "TCS, Infosys, HCL Tech, Wipro, Tech Mahindra",
+    "Automobiles": "Tata Motors, Maruti Suzuki, Mahindra & Mahindra (M&M), Bajaj Auto, Hero MotoCorp",
+    "Auto Components": "Samvardhana Motherson, Bosch, Bharat Forge, Sona BLW",
+    "Pharmaceuticals & Biotechnology": "Sun Pharma, Dr. Reddy's, Cipla, Divi's Lab, Lupin",
+    "Petroleum Products": "Reliance Industries (RIL), ONGC, Indian Oil (IOC), BPCL, HPCL",
+    "Telecom - Services": "Bharti Airtel, Reliance Jio, Vodafone Idea",
+    "Power": "NTPC, Power Grid, Tata Power, Adani Power",
+    "Construction": "Larsen & Toubro (L&T), NCC, IRB Infrastructure",
+    "Realty": "DLF, Macrotech (Lodha), Godrej Properties, Oberoi Realty",
+    "Cement & Cement Products": "UltraTech Cement, Ambuja Cements, ACC, Shree Cement",
+    "Ferrous Metals": "Tata Steel, JSW Steel, Jindal Steel & Power, SAIL",
+    "Non - Ferrous Metals": "Hindalco, Vedanta, Hindustan Zinc, National Aluminium (NALCO)",
+    "Chemicals & Petrochemicals": "SRF, PI Industries, Aarti Industries, Gujarat Fluorochemicals",
+    "Capital Markets": "BSE, NSE, MCX, CDSL, Angel One",
+    "Insurance": "LIC, HDFC Life, SBI Life, ICICI Prudential Life, ICICI Lombard",
+    "Retailing": "Trent, Avenue Supermarts (DMart), Titan Company",
+    "Consumer Durables": "Havells, Voltas, Dixon Technologies, Whirlpool",
+    "Diversified Fmcg": "Hindustan Unilever (HUL), ITC, Nestle India, Britannia, Godrej Consumer",
+    "Food Products": "Nestle India, Britannia, Varun Beverages, Bikaji, Hatsun Agro",
+    "Aerospace & Defense": "Hindustan Aeronautics (HAL), Bharat Electronics (BEL), Mazagon Dock, Cochin Shipyard",
+    "Transport Services": "InterGlobe Aviation (IndiGo), Container Corporation (CONCOR), Delhivery",
+    "Healthcare Services": "Apollo Hospitals, Max Healthcare, Fortis Healthcare, Medanta",
+}
+
 # Headlines shorten these names. Key is the canonical name key from universe.canonical_key.
 EXTRA_ALIASES: dict[str, tuple[str, ...]] = {
     "state bank of india": ("SBI",),
@@ -151,7 +179,7 @@ class Settings(BaseSettings):
 
     holdings_limit: int = 5
     sectors_limit: int = 2
-    title_noul_min: float = 0.7
+    title_noul_min: float = 0.5
     about_name_min: float = 0.7
     relevance_min: int = 2
     # 0 = no cap: scrape every title that passes title_noul_min (body Jev still gates Qdrant).
