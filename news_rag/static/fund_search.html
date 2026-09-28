@@ -459,13 +459,66 @@
               <span id="fundAsOn" class="badge"></span>
             </div>
           </div>
-          <div>
-            <button id="btnBrief" class="btn-brief">
+          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 0.4rem;">
+            <button id="btnGetInsight" class="btn-brief">
               <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
               </svg>
-              View Fund News Brief
+              Generate AI News Brief
             </button>
+            <a id="btnStandalone" href="#" target="_blank" style="font-size: 0.78rem; color: #2563eb; text-decoration: none;">
+              Open standalone page ↗
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live AI News Brief Section -->
+      <div id="insightSection" style="display: none; padding: 1.5rem; background: #ffffff; border-bottom: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <h3 style="font-size: 1.1rem; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 0.5rem;">
+            💡 AI Fund News Brief
+          </h3>
+          <span id="insightMeta" style="font-size: 0.8rem; color: #64748b;"></span>
+        </div>
+
+        <div id="insightLoading" style="display: none; text-align: center; padding: 2rem 1rem;">
+          <div style="display: inline-block; width: 28px; height: 28px; border: 3px solid #e2e8f0; border-top-color: #1d4ed8; border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+          <p style="margin-top: 0.75rem; font-size: 0.9rem; color: #475569; font-weight: 500;">
+            Scanning verified news for portfolio holdings & sectors...
+          </p>
+        </div>
+
+        <div id="insightError" class="err" style="display: none; margin-bottom: 1rem;"></div>
+
+        <div id="insightContent" style="display: none;">
+          <!-- Key Points -->
+          <div id="insightBulletsWrap" style="margin-bottom: 1.25rem;">
+            <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: #475569; margin-bottom: 0.5rem; font-weight: 700;">
+              Key Takeaways
+            </h4>
+            <ul id="insightBulletsList" style="margin: 0; padding-left: 1.35rem; color: #1e293b; line-height: 1.65;"></ul>
+          </div>
+
+          <!-- Summary Narrative -->
+          <div id="insightSummaryWrap" style="background: #f8fafc; border-left: 4px solid #2563eb; padding: 1rem 1.15rem; border-radius: 0 8px 8px 0; margin-bottom: 1.25rem;">
+            <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: #1e40af; margin-bottom: 0.35rem; font-weight: 700;">
+              Executive Narrative
+            </h4>
+            <p id="insightSummaryText" class="summary-text" style="font-size: 0.95rem; color: #1e293b; line-height: 1.7; margin: 0;"></p>
+          </div>
+
+          <!-- Quiet Holdings -->
+          <div id="quietHoldingsWrap" style="font-size: 0.8rem; color: #64748b; margin-bottom: 1.25rem; display: none;">
+            <span>ℹ️ <strong>Quiet Holdings (no major news in period):</strong> <span id="quietHoldingsList"></span></span>
+          </div>
+
+          <!-- Source Articles -->
+          <div id="insightSourcesWrap" style="margin-top: 1.25rem;">
+            <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: #475569; margin-bottom: 0.65rem; font-weight: 700;">
+              📰 Verified News Sources
+            </h4>
+            <div id="insightSourcesList" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0.65rem;"></div>
           </div>
         </div>
       </div>
@@ -505,6 +558,24 @@
     </main>
   </div>
 
+  <style>
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    .hl {
+      font-weight: 600; color: #1e40af; background: #eff6ff;
+      padding: 2px 5px; border-radius: 4px; border: 1px solid #dbeafe;
+    }
+    .source-card {
+      background: #ffffff; border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.65rem 0.75rem; font-size: 0.82rem; transition: border-color 0.15s;
+    }
+    .source-card:hover { border-color: #cbd5e1; }
+    .source-card a { color: #2563eb; text-decoration: none; font-weight: 600; display: block; margin-bottom: 0.25rem; }
+    .source-card a:hover { text-decoration: underline; }
+    .source-card-meta { color: #64748b; font-size: 0.75rem; }
+  </style>
+
   <script>
     const searchInput = document.getElementById("searchInput");
     const clearBtn = document.getElementById("clearBtn");
@@ -522,12 +593,37 @@
     const sectorCountEl = document.getElementById("sectorCount");
     const holdingsBodyEl = document.getElementById("holdingsBody");
     const holdingCountEl = document.getElementById("holdingCount");
-    const btnBriefEl = document.getElementById("btnBrief");
+    
+    const btnGetInsight = document.getElementById("btnGetInsight");
+    const btnStandalone = document.getElementById("btnStandalone");
+    const insightSection = document.getElementById("insightSection");
+    const insightLoading = document.getElementById("insightLoading");
+    const insightError = document.getElementById("insightError");
+    const insightContent = document.getElementById("insightContent");
+    const insightMeta = document.getElementById("insightMeta");
+    const insightBulletsWrap = document.getElementById("insightBulletsWrap");
+    const insightBulletsList = document.getElementById("insightBulletsList");
+    const insightSummaryWrap = document.getElementById("insightSummaryWrap");
+    const insightSummaryText = document.getElementById("insightSummaryText");
+    const quietHoldingsWrap = document.getElementById("quietHoldingsWrap");
+    const quietHoldingsList = document.getElementById("quietHoldingsList");
+    const insightSourcesList = document.getElementById("insightSourcesList");
 
     let activeIndex = -1;
     let currentRecommendations = [];
     let debounceTimer = null;
     let currentIsin = "";
+
+    function formatMarkdown(text) {
+      if (!text) return "";
+      let formatted = String(text)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+      formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="hl">$1</strong>');
+      formatted = formatted.replace(/(^|[^*])\*(.+?)\*(?!\*)/g, '$1<em>$2</em>');
+      return formatted;
+    }
 
     function highlightMatch(text, query) {
       if (!query || !text) return text || "";
@@ -596,6 +692,18 @@
     async function selectFund(isin) {
       recommendationsBox.style.display = "none";
       currentIsin = isin;
+      // Reset insights section
+      insightSection.style.display = "none";
+      insightContent.style.display = "none";
+      insightError.style.display = "none";
+      btnGetInsight.disabled = false;
+      btnGetInsight.innerHTML = `
+        <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+        </svg>
+        Generate AI News Brief
+      `;
+
       try {
         const res = await fetch(`/api/funds/${encodeURIComponent(isin)}`);
         if (!res.ok) throw new Error("Fund detail not found");
@@ -615,6 +723,8 @@
       fundCategoryEl.textContent = fund.category || "General";
       fundSchemeTypeEl.textContent = fund.scheme_type || "Equity";
       fundAsOnEl.textContent = fund.as_on ? "As on " + fund.as_on : "";
+
+      btnStandalone.href = `/fund?isin=${encodeURIComponent(fund.isin)}`;
 
       searchInput.value = fund.fund_short_name || fund.isin;
       clearBtn.style.display = "block";
@@ -667,11 +777,109 @@
       fundCard.style.display = "block";
     }
 
-    btnBriefEl.addEventListener("click", () => {
-      if (currentIsin) {
-        window.location.href = `/fund?isin=${encodeURIComponent(currentIsin)}`;
+    async function loadFundInsight() {
+      if (!currentIsin) return;
+      insightSection.style.display = "block";
+      insightLoading.style.display = "block";
+      insightError.style.display = "none";
+      insightContent.style.display = "none";
+      btnGetInsight.disabled = true;
+      btnGetInsight.textContent = "Synthesizing Brief...";
+
+      try {
+        const res = await fetch("/api/fund-brief", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ isin: currentIsin }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Failed to generate brief");
+        }
+
+        renderBriefData(data);
+      } catch (err) {
+        insightError.textContent = err.message || String(err);
+        insightError.style.display = "block";
+      } finally {
+        insightLoading.style.display = "none";
+        btnGetInsight.disabled = false;
+        btnGetInsight.innerHTML = `
+          <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+          Refresh News Brief
+        `;
       }
-    });
+    }
+
+    function renderBriefData(data) {
+      const bullets = Array.isArray(data.insight_bullets) ? data.insight_bullets : [];
+      const summary = (data.insight_summary || "").trim();
+      const sources = Array.isArray(data.sources) ? data.sources : [];
+      const quiet = Array.isArray(data.quiet_holdings) ? data.quiet_holdings : [];
+
+      insightMeta.textContent = `${data.insight_source ? "Generated via " + data.insight_source : "Verified News"} · ${sources.length} matching events`;
+
+      // Bullets
+      if (bullets.length > 0) {
+        insightBulletsList.innerHTML = "";
+        bullets.forEach((b) => {
+          const li = document.createElement("li");
+          li.style.marginBottom = "0.45rem";
+          li.innerHTML = formatMarkdown(b);
+          insightBulletsList.appendChild(li);
+        });
+        insightBulletsWrap.style.display = "block";
+      } else {
+        insightBulletsWrap.style.display = "none";
+      }
+
+      // Summary
+      if (summary) {
+        insightSummaryText.innerHTML = formatMarkdown(summary);
+        insightSummaryWrap.style.display = "block";
+      } else {
+        insightSummaryWrap.style.display = "none";
+      }
+
+      // Quiet holdings
+      if (quiet.length > 0) {
+        quietHoldingsList.textContent = quiet.join(", ");
+        quietHoldingsWrap.style.display = "block";
+      } else {
+        quietHoldingsWrap.style.display = "none";
+      }
+
+      // Sources
+      if (sources.length > 0) {
+        insightSourcesList.innerHTML = "";
+        sources.forEach((s) => {
+          const card = document.createElement("div");
+          card.className = "source-card";
+          const link = document.createElement("a");
+          link.href = s.url || "#";
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = s.title || s.url;
+          card.appendChild(link);
+
+          const meta = document.createElement("div");
+          meta.className = "source-card-meta";
+          const pub = s.published_at ? s.published_at.slice(0, 10) : "";
+          meta.textContent = [s.source, pub].filter(Boolean).join(" · ");
+          card.appendChild(meta);
+          insightSourcesList.appendChild(card);
+        });
+        document.getElementById("insightSourcesWrap").style.display = "block";
+      } else {
+        document.getElementById("insightSourcesWrap").style.display = "none";
+      }
+
+      insightContent.style.display = "block";
+    }
+
+    btnGetInsight.addEventListener("click", loadFundInsight);
 
     searchInput.addEventListener("input", (e) => {
       const q = e.target.value;
@@ -686,6 +894,7 @@
       clearBtn.style.display = "none";
       recommendationsBox.style.display = "none";
       fundCard.style.display = "none";
+      insightSection.style.display = "none";
       searchInput.focus();
     });
 

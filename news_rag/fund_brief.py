@@ -83,6 +83,118 @@ def load_scope(settings: Settings) -> PortfolioScope:
     )
 
 
+def load_scope_for_fund(isin: str, settings: Settings) -> PortfolioScope:
+    """Load scope dynamically for any fund in the mutual fund index."""
+    from news_rag.fund_search import get_fund_index
+    from lib.portfolio_scope import (
+        FundRef,
+        ScopedHolding,
+        ScopedSector,
+        _holding_equity_allowed,
+        is_blocked_sector,
+        load_aggregated_equity_keys,
+        sector_query_for_label,
+    )
+    
+    index = get_fund_index()
+    entry = index.get_fund_detail(isin)
+    
+    if not isinstance(entry, dict) or entry.get("error"):
+        if (settings.portfolio_json or "").strip():
+            try:
+                scope = load_scope(settings)
+                if any(f.isin == isin for f in scope.funds):
+                    return scope
+            except Exception:
+                pass
+        raise ValueError(f"ISIN '{isin}' not found in fund database")
+
+    fund_name = entry.get("fund_short_name") or entry.get("fund_name") or isin
+    fund_ref = FundRef(isin=isin, fund_short_name=fund_name, current_value=1.0)
+
+    equity_aggregate_keys = None
+    try:
+        equity_aggregate_keys = load_aggregated_equity_keys(
+            map_path=_resolve_path(settings, settings.aggregated_holdings_map),
+            csv_path=_resolve_path(settings, settings.aggregated_holdings_csv),
+        )
+    except Exception:
+        pass
+
+    holding_map: dict[str, ScopedHolding] = {}
+    sector_map: dict[str, ScopedSector] = {}
+    skipped_sectors: set[str] = set()
+
+    raw_holdings = entry.get("holdings") or {}
+    if isinstance(raw_holdings, dict):
+        for name, info in raw_holdings.items():
+            if not isinstance(info, dict):
+                continue
+            try:
+                pct = float(info.get("percentage") or 0)
+            except (TypeError, ValueError):
+                continue
+            if pct < settings.portfolio_holding_min_pct:
+                continue
+            instrument = str(name).strip()
+            if equity_aggregate_keys is not None:
+                skip_reason = _holding_equity_allowed(info, instrument, equity_aggregate_keys)
+                if skip_reason:
+                    continue
+            industry = str(info.get("industry") or "").strip()
+            key = instrument.casefold()
+            holding_map[key] = ScopedHolding(
+                instrument_name=instrument,
+                industry=industry,
+                percentage=pct,
+                by_fund={isin: pct},
+            )
+
+    raw_sectors = entry.get("sectors") or {}
+    if isinstance(raw_sectors, dict):
+        for sector_name, weight in raw_sectors.items():
+            label = str(sector_name).strip()
+            if not label or is_blocked_sector(label):
+                continue
+            try:
+                pct = float(weight or 0)
+            except (TypeError, ValueError):
+                continue
+            if pct < settings.portfolio_sector_min_pct:
+                continue
+            mapped = sector_query_for_label(label)
+            if mapped is None:
+                skipped_sectors.add(label)
+                continue
+            canonical, _ = mapped
+            key = canonical.casefold()
+            sector_map[key] = ScopedSector(
+                sector_label=label,
+                canonical_name=canonical,
+                percentage=pct,
+                by_fund={isin: pct},
+            )
+
+    holdings = sorted(holding_map.values(), key=lambda h: (-h.percentage, h.instrument_name.lower()))
+    sectors = sorted(sector_map.values(), key=lambda s: (-s.percentage, s.canonical_name.lower()))
+
+    entity_names: set[str] = set()
+    for h in holdings:
+        entity_names.add(h.instrument_name)
+    for s in sectors:
+        entity_names.add(s.canonical_name)
+
+    return PortfolioScope(
+        funds=[fund_ref],
+        holdings=holdings,
+        sectors=sectors,
+        skipped_sectors=sorted(skipped_sectors),
+        skipped_holdings_non_equity=[],
+        skipped_holdings_not_in_aggregate=[],
+        entity_names_for_news=sorted(entity_names),
+    )
+
+
 def list_portfolio_funds(settings: Settings) -> list[dict[str, Any]]:
     scope = load_scope(settings)
     total = sum(f.current_value for f in scope.funds) or 1.0
@@ -752,12 +864,8 @@ def generate_fund_brief(
     query_log: QueryLogger | None = None,
 ) -> dict[str, Any]:
     settings = settings or get_settings()
-    scope = load_scope(settings)
-    allowed_isins = {fund.isin for fund in scope.funds}
-    if isin not in allowed_isins:
-        raise ValueError(f"ISIN {isin} is not in the configured portfolio")
-
-    fund = next(item for item in scope.funds if item.isin == isin)
+    scope = load_scope_for_fund(isin, settings)
+    fund = scope.funds[0]
     name_map = instrument_to_qdrant_names(scope)
     filter_names = qdrant_filter_names(scope)
     query_text = fund_search_query(scope, isin, name_map)

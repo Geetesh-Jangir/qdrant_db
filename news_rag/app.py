@@ -142,8 +142,6 @@ def fund_brief(
     settings = get_settings()
     if not settings.qdrant_url:
         raise HTTPException(status_code=500, detail="QDRANT_URL not configured")
-    if not (settings.portfolio_json or "").strip():
-        raise HTTPException(status_code=400, detail="PORTFOLIO_JSON not configured")
     isin = body.isin.strip()
     query_log = new_fund_brief_logger()
     query_log.log_request({"isin": isin})
