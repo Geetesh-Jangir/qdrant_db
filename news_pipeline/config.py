@@ -213,9 +213,9 @@ class Settings(BaseSettings):
 
     holdings_csv: str = "data/fund_holdings_aggregate/aggregated_holdings.csv"
     sectors_csv: str = "data/fund_holdings_aggregate/aggregated_sectors.csv"
-    # When non-empty, load_universe uses portfolio holdings/sectors instead of top CSV names.
-    # Set PORTFOLIO_JSON= in .env to use the default market-wide CSV universe instead.
-    portfolio_json: str = "investor_data/mohit/portfolio.json"
+    # When empty (default), load_universe loads top holdings (holdings_limit) and top sectors (sectors_limit).
+    # To load a specific investor portfolio universe instead, set PORTFOLIO_JSON in .env (e.g. investor_data/mohit/portfolio.json).
+    portfolio_json: str = ""
     allisin_sectors_holdings_json: str = "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json"
     portfolio_allisin_holdings_json: str = "data/fund_holdings_aggregate/portfolio_allisin_holdings.json"
     portfolio_manifest_path: str = "data/fund_holdings_aggregate/portfolio_news_scope.json"
