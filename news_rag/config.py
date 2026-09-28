@@ -26,8 +26,8 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = "news_articles"
 
-    # Insight LLM: set RAG_LLM_PROVIDER=gemini or deepseek (default deepseek).
-    rag_llm_provider: str = "deepseek"
+    # Insight LLM: set RAG_LLM_PROVIDER=gemini or deepseek (default gemini).
+    rag_llm_provider: str = "gemini"
 
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -77,11 +77,5 @@ class Settings(BaseSettings):
         return path
 
 
-_settings: Settings | None = None
-
-
 def get_settings() -> Settings:
-    global _settings
-    if _settings is None:
-        _settings = Settings()
-    return _settings
+    return Settings()

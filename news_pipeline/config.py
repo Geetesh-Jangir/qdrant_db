@@ -128,6 +128,60 @@ EXTRA_ALIASES: dict[str, tuple[str, ...]] = {
     "power grid corporation of india": ("Power Grid",),
 }
 
+HIGH_IMPACT_MACRO_KEYWORDS: tuple[str, ...] = (
+    # Commodities
+    "crude oil",
+    "brent crude",
+    "natural gas",
+    "coal",
+    "gold",
+    "silver",
+    "copper",
+    "iron ore",
+    "steel",
+
+    # Currency
+    "usd/inr",
+    "rupee depreciation",
+    "rupee appreciation",
+
+    # Interest rates / monetary policy
+    "rbi",
+    "repo rate",
+    "interest rate",
+    "rate cut",
+    "rate hike",
+    "federal reserve",
+    "fed",
+
+    # Inflation / economy
+    "inflation",
+    "cpi",
+    "gdp",
+    "pmi",
+
+    # Bonds
+    "10-year g-sec",
+    "bond yield",
+    "us treasury yield",
+
+    # Government / trade
+    "tariff",
+    "trade war",
+    "fiscal deficit",
+
+    # Geopolitics / supply shocks
+    "sanctions",
+    "supply disruption",
+)
+
+MACRO_QUERY_CLUSTERS: tuple[str, ...] = (
+    "India crude oil brent natural gas coal steel gold copper commodity prices",
+    "USD INR rupee depreciation appreciation 10-year g-sec bond yield US treasury",
+    "RBI repo rate cut rate hike interest rates inflation CPI GDP PMI federal reserve",
+    "India tariffs trade war fiscal deficit sanctions supply disruption economy",
+)
+
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 DIRECTION_OPTIONS: tuple[str, ...] = ("positive", "negative", "neutral", "unclear")
