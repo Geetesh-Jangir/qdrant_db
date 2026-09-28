@@ -3,82 +3,121 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>News insight</title>
+  <title>News Insight & Intelligence</title>
   <style>
     :root {
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-      line-height: 1.5;
-      color: #1a1a1a;
-      background: #f4f5f7;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.6;
+      color: #1e293b;
+      background: #f8fafc;
     }
-    body { max-width: 720px; margin: 0 auto; padding: 1.5rem; }
-    h1 { font-size: 1.35rem; font-weight: 600; margin: 0 0 0.25rem; }
-    .sub { color: #555; font-size: 0.9rem; margin-bottom: 1.25rem; }
-    label { display: block; font-size: 0.85rem; font-weight: 500; margin-top: 0.75rem; }
-    input, textarea, button {
-      width: 100%; box-sizing: border-box; font: inherit;
-      border: 1px solid #ccc; border-radius: 8px; padding: 0.55rem 0.65rem;
+    body { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .nav {
+      display: flex; gap: 1rem; font-size: 0.9rem; margin-bottom: 1.5rem;
+      padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0;
     }
-    textarea { min-height: 88px; resize: vertical; }
-    button {
-      margin-top: 1rem; background: #1e4d8c; color: #fff; border: none;
-      cursor: pointer; font-weight: 600;
-    }
-    button:disabled { opacity: 0.6; cursor: wait; }
-    .answer-box {
-      margin-top: 1.5rem; background: #fff; border-radius: 10px;
-      padding: 1rem 1.1rem; border: 1px solid #e0e0e0;
-      font-size: 0.98rem; max-width: 42rem;
-    }
-    .answer-box h2 { font-size: 0.95rem; margin: 0 0 0.65rem; font-weight: 600; }
-    .answer-box h3 { font-size: 0.88rem; margin: 1rem 0 0.45rem; font-weight: 600; color: #333; }
-    .answer-box p { margin: 0 0 0.65rem; }
-    .answer-box ul { margin: 0 0 0.25rem; padding-left: 1.25rem; }
-    .answer-box li { margin-bottom: 0.45rem; }
-    .answer-box .summary-text { margin-top: 0.25rem; color: #222; line-height: 1.6; }
-    .hl { font-weight: 700; color: #0d386f; background: #eef4fc; padding: 1px 4px; border-radius: 4px; }
-    .meta { font-size: 0.82rem; color: #666; margin-top: 0.5rem; }
-    .sources { margin-top: 1rem; }
-    .sources h2 { font-size: 0.95rem; margin: 0 0 0.5rem; }
-    .card {
-      background: #fff; border: 1px solid #e0e0e0; border-radius: 8px;
-      padding: 0.65rem 0.75rem; margin-bottom: 0.5rem; font-size: 0.88rem;
-    }
-    .card a { color: #1e4d8c; text-decoration: none; font-weight: 500; }
-    .card a:hover { text-decoration: underline; }
-    .err { color: #b00020; margin-top: 1rem; }
-    .hidden { display: none; }
-    .nav { font-size: 0.85rem; margin-bottom: 1rem; }
-    .nav a { color: #1e4d8c; text-decoration: none; margin-right: 0.75rem; }
+    .nav a { color: #2563eb; text-decoration: none; font-weight: 500; }
     .nav a:hover { text-decoration: underline; }
+    h1 { font-size: 1.6rem; font-weight: 700; color: #0f172a; margin: 0 0 0.35rem; }
+    .sub { color: #64748b; font-size: 0.95rem; margin-bottom: 1.5rem; }
+    
+    .search-card {
+      background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;
+      padding: 1.25rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    label { display: block; font-size: 0.88rem; font-weight: 600; color: #334155; margin-bottom: 0.5rem; }
+    textarea {
+      width: 100%; box-sizing: border-box; font: inherit; font-size: 0.95rem;
+      border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.75rem 0.85rem;
+      min-height: 96px; resize: vertical; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    textarea:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37,99,235,0.12); }
+    
+    button {
+      margin-top: 1rem; background: #1d4ed8; color: #ffffff; border: none;
+      border-radius: 8px; padding: 0.7rem 1.25rem; font-size: 0.95rem;
+      font-weight: 600; cursor: pointer; transition: background 0.15s, transform 0.05s;
+    }
+    button:hover { background: #1e40af; }
+    button:active { transform: scale(0.99); }
+    button:disabled { opacity: 0.6; cursor: wait; }
+
+    .answer-box {
+      margin-top: 1.75rem; background: #ffffff; border-radius: 12px;
+      padding: 1.5rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.04);
+    }
+    .answer-box h2 {
+      font-size: 1.15rem; margin: 0 0 1rem; font-weight: 700; color: #0f172a;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .answer-box h3 {
+      font-size: 0.95rem; margin: 1.25rem 0 0.5rem; font-weight: 700;
+      color: #334155; text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .answer-box p { margin: 0 0 0.75rem; color: #334155; line-height: 1.65; }
+    .answer-box ul { margin: 0 0 1rem; padding-left: 1.4rem; }
+    .answer-box li { margin-bottom: 0.65rem; color: #334155; line-height: 1.6; }
+    
+    .summary-section {
+      background: #f8fafc; border-left: 4px solid #2563eb;
+      padding: 1rem 1.15rem; border-radius: 0 8px 8px 0; margin-top: 1rem;
+    }
+    .summary-text { font-size: 0.96rem; color: #1e293b; line-height: 1.7; margin: 0 !important; }
+    
+    .hl {
+      font-weight: 600; color: #1e40af; background: #eff6ff;
+      padding: 2px 6px; border-radius: 4px; border: 1px solid #dbeafe;
+    }
+    
+    .meta {
+      font-size: 0.8rem; color: #64748b; margin-top: 1rem;
+      padding-top: 0.75rem; border-top: 1px solid #f1f5f9;
+    }
+    
+    .sources { margin-top: 1.75rem; }
+    .sources h2 { font-size: 1.05rem; margin: 0 0 0.75rem; color: #0f172a; font-weight: 700; }
+    .card {
+      background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;
+      padding: 0.85rem 1rem; margin-bottom: 0.65rem; font-size: 0.9rem;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .card:hover { border-color: #cbd5e1; box-shadow: 0 2px 4px rgba(0,0,0,0.03); }
+    .card a { color: #2563eb; text-decoration: none; font-weight: 600; }
+    .card a:hover { text-decoration: underline; }
+    .card-meta { font-size: 0.8rem; color: #64748b; margin-top: 0.25rem; }
+    
+    .err { color: #dc2626; background: #fef2f2; border: 1px solid #fecaca; padding: 0.75rem 1rem; border-radius: 8px; margin-top: 1rem; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
-  <p class="nav">
-    <a href="/">Ask a question</a> · 
-    <a href="/fund">Fund news brief</a> · 
-    <a href="/fund-search">Fund search & explorer</a>
-  </p>
-  <h1>News insight</h1>
-  <p class="sub">Ask in plain English. Answers use your Qdrant news store only.</p>
+  <div class="nav">
+    <a href="/">Ask a Question</a>
+    <a href="/fund">Fund News Brief</a>
+    <a href="/fund-search">Fund Search & Explorer</a>
+  </div>
 
-  <form id="form">
-    <label for="question">Your question</label>
-    <textarea id="question" name="question" placeholder="What's happening in the banking sector for the last week?" required></textarea>
+  <h1>News Insight</h1>
+  <p class="sub">Ask questions about Indian stocks, sectors, and macroeconomic developments. Answers are synthesized from your verified news store.</p>
 
-    <button type="submit" id="submit">Ask</button>
-  </form>
+  <div class="search-card">
+    <form id="form">
+      <label for="question">Your Question</label>
+      <textarea id="question" name="question" placeholder="e.g. What's happening in the automobile sector over the last week?" required></textarea>
+      <button type="submit" id="submit">Get Insight</button>
+    </form>
+  </div>
 
   <p id="error" class="err hidden"></p>
 
   <div id="result" class="hidden">
     <div class="answer-box">
-      <h2>Summary insight</h2>
+      <h2>💡 Summary Insight</h2>
       <div id="insight"></div>
       <p class="meta" id="meta"></p>
     </div>
     <div class="sources">
-      <h2>Related news</h2>
+      <h2>📰 Related Source Articles</h2>
       <div id="sources"></div>
     </div>
   </div>
@@ -92,13 +131,17 @@
     const metaEl = document.getElementById("meta");
     const sourcesEl = document.getElementById("sources");
 
-    function formatHighlights(text) {
+    function formatMarkdown(text) {
       if (!text) return "";
-      const escaped = String(text)
+      let formatted = String(text)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
-      return escaped.replace(/\*\*(.+?)\*\*/g, '<strong class="hl">$1</strong>');
+      // Bold highlights
+      formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="hl">$1</strong>');
+      // Italics
+      formatted = formatted.replace(/(^|[^*])\*(.+?)\*(?!\*)/g, '$1<em>$2</em>');
+      return formatted;
     }
 
     function renderInsight(container, data, fallbackText) {
@@ -118,30 +161,34 @@
 
       if (bullets.length) {
         const h3 = document.createElement("h3");
-        h3.textContent = "Key points";
+        h3.textContent = "Key Takeaways";
         container.appendChild(h3);
         const ul = document.createElement("ul");
         for (const item of bullets) {
           const li = document.createElement("li");
-          li.innerHTML = formatHighlights(item);
+          li.innerHTML = formatMarkdown(item);
           ul.appendChild(li);
         }
         container.appendChild(ul);
       }
 
       if (summary) {
+        const section = document.createElement("div");
+        section.className = "summary-section";
         const h3 = document.createElement("h3");
-        h3.textContent = "Summary";
-        container.appendChild(h3);
+        h3.textContent = "Executive Narrative";
+        h3.style.margin = "0 0 0.35rem";
+        section.appendChild(h3);
         const p = document.createElement("p");
         p.className = "summary-text";
-        p.innerHTML = formatHighlights(summary);
-        container.appendChild(p);
+        p.innerHTML = formatMarkdown(summary);
+        section.appendChild(p);
+        container.appendChild(section);
       }
 
       if (!bullets.length && !summary) {
-        container.innerHTML = formatHighlights(
-          fallbackText || "Could not build an insight from this response. Check the query log on the server."
+        container.innerHTML = formatMarkdown(
+          fallbackText || "Could not build an insight from this response. Check server query log."
         );
       }
     }
@@ -151,6 +198,7 @@
       errorEl.classList.add("hidden");
       resultEl.classList.add("hidden");
       submit.disabled = true;
+      submit.textContent = "Synthesizing Insight...";
 
       const body = {
         question: document.getElementById("question").value.trim(),
@@ -168,15 +216,17 @@
         }
         const insightText = (data.insight || data.answer || "").trim();
         renderInsight(insightEl, data, insightText);
+        
         const sourceLabel =
           data.insight_source === "deepseek"
-            ? "Summary from DeepSeek"
+            ? "Synthesized by DeepSeek"
             : data.insight_source === "gemini"
-              ? "Summary from Gemini"
+              ? "Synthesized by Gemini"
               : data.insight_source === "articles_fallback"
-                ? "Summary from retrieved articles (LLM returned no text)"
+                ? "Synthesized from retrieved articles (fallback)"
                 : data.insight_source || "Summary";
-        metaEl.textContent = sourceLabel;
+        metaEl.textContent = `${sourceLabel} · Evaluated across ${data.sources ? data.sources.length : 0} news sources`;
+
         sourcesEl.innerHTML = "";
         for (const row of data.sources || []) {
           const div = document.createElement("div");
@@ -188,6 +238,7 @@
           link.textContent = row.title || row.url;
           div.appendChild(link);
           const line = document.createElement("div");
+          line.className = "card-meta";
           const pub = row.published_at ? row.published_at.slice(0, 10) : "";
           line.textContent = [row.source, pub].filter(Boolean).join(" · ");
           div.appendChild(line);
@@ -199,6 +250,7 @@
         errorEl.classList.remove("hidden");
       } finally {
         submit.disabled = false;
+        submit.textContent = "Get Insight";
       }
     });
   </script>

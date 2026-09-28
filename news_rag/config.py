@@ -49,9 +49,9 @@ class Settings(BaseSettings):
     retrieve_impact_limit: int = 15
     retrieve_max_articles: int = 8
     snippet_chars: int = 1500
-    insight_max_bullets: int = 3
-    insight_bullet_max_chars: int = 220
-    insight_summary_max_words: int = 55
+    insight_max_bullets: int = 5
+    insight_bullet_max_chars: int = 600
+    insight_summary_max_words: int = 300
     min_relevance: int = 2
     embedding_model: str = EMBEDDING_MODEL
     embedding_cache_dir: str = "data/embedding_models"
