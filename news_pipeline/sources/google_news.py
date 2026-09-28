@@ -58,12 +58,13 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
         raise RuntimeError(error or "empty Google News RSS response")
     items = _parse_rss(body.encode("utf-8"))
     kept: list[dict] = []
+    cap = getattr(settings, "max_items_per_query", 0)
     # --- RSS LIMIT CAPPING (COMMENTED OUT TO STORE MAXIMUM NEWS) ---
-    # cap = settings.max_items_per_query
+    # for item in items:
+    #     if cap > 0 and len(kept) >= cap:
+    #         break
     # --------------------------------------------------------------
     for item in items:
-        # if cap > 0 and len(kept) >= cap:
-        #     break
         title = strip_html(item["title"])
         if not item["link"] or not title or not is_english_title(title):
             continue
@@ -132,7 +133,10 @@ def _wait_for_rss_slot() -> None:
 
 
 def _parse_rss(content: bytes) -> list[dict]:
-    root = ET.fromstring(content)
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError:
+        return []
     nodes = root.findall("./channel/item")
     if not nodes:
         nodes = [node for node in root.iter() if node.tag.endswith("item")]
