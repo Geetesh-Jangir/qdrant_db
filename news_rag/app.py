@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from historical_data.nav_service import get_fund_nav_history
 from news_rag.answer import empty_answer, generate_answer
 from news_rag.config import get_settings
 from news_rag.fund_search import get_fund_index
@@ -112,6 +113,24 @@ def get_fund_detail(
     if detail is None:
         raise HTTPException(status_code=404, detail=f"Fund with ISIN '{isin}' not found")
     return {"fund": detail}
+
+
+@app.get("/api/nav/{isin}/history")
+def get_nav_history(
+    isin: str,
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    try:
+        data = get_fund_nav_history(isin)
+        if not data.get("success"):
+            raise HTTPException(status_code=404, detail=data.get("error") or "NAV history not found")
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch NAV history: {exc!s}") from exc
 
 
 @app.get("/api/portfolio-funds")

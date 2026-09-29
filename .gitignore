@@ -12,3 +12,4 @@ data/qdrant_inspect/
 data/news_scrape_cache/
 data/embedding_models/
 data/fund_holdings_aggregate/*.json
+data/nav_cache/
