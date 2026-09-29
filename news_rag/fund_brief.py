@@ -396,28 +396,42 @@ def retrieve_fund_articles(
         )
         query_log.log_articles_block("qdrant_scroll", impact_rows)
 
+    # Calculate Reciprocal Rank Fusion (RRF) scores
+    k = 60.0
+    rrf_scores: dict[str, float] = {}
     by_url: dict[str, dict] = {}
-    for row in vector_rows:
+
+    for rank, row in enumerate(vector_rows):
         packed = _pack_article(row, settings, vector_score=float(row.get("score") or 0.0))
         if packed is None:
             continue
-        by_url[packed["url"]] = packed
-    for row in impact_rows:
+        url = packed["url"]
+        rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
+        by_url[url] = packed
+
+    for rank, row in enumerate(impact_rows):
         packed = _pack_article(row, settings, vector_score=0.0)
         if packed is None:
             continue
-        existing = by_url.get(packed["url"])
+        url = packed["url"]
+        rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
+        existing = by_url.get(url)
         if existing is None:
-            by_url[packed["url"]] = packed
+            by_url[url] = packed
             continue
         existing["max_impact"] = max(existing["max_impact"], packed["max_impact"])
         if not existing.get("snippet"):
             existing["snippet"] = packed["snippet"]
+
     if query_log is not None:
-        query_log.write(f"merge unique_urls={len(by_url)}")
+        query_log.write(f"merge unique_urls={len(by_url)} rrf_candidates={len(rrf_scores)}")
+
     articles = list(by_url.values())
+    for item in articles:
+        item["_rrf_score"] = rrf_scores.get(item["url"], 0.0) + (0.01 * item["max_impact"])
+
     articles.sort(
-        key=lambda item: (item["max_impact"], item.get("_vector_score") or 0, item.get("published_at") or ""),
+        key=lambda item: (item.get("_rrf_score") or 0.0, item["max_impact"], item.get("published_at") or ""),
         reverse=True,
     )
     if query_log is not None:
@@ -618,10 +632,18 @@ def build_events(
         )
 
     # DIVERSE EVENT SELECTION:
-    # 1. Sort all candidate events by impact, exposure rupees, and vector score.
+    # 1. Sort all candidate events by portfolio-weighted impact, exposure rupees, and vector score.
     # 2. Pick the BEST event per unique entity (label) first so that one company/sector does not crowd out others.
     # 3. Then fill any remaining capacity up to `limit` with distinct event titles.
-    events.sort(key=lambda item: (item["max_impact"], item["rupees"], item["vector_score"]), reverse=True)
+    events.sort(
+        key=lambda item: (
+            float(item.get("weight_pct") or 0.0) * (int(item.get("max_impact") or 0) + 1),
+            int(item.get("max_impact") or 0),
+            float(item.get("rupees") or 0.0),
+            float(item.get("vector_score") or 0.0),
+        ),
+        reverse=True,
+    )
 
     unique_events: list[dict] = []
     seen_labels: set[str] = set()

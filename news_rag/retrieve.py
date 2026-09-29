@@ -8,7 +8,13 @@ from typing import TYPE_CHECKING
 from news_rag.config import get_settings
 from news_rag.embed import embed_query
 from news_rag.entity_index import corpus_entity_names
-from news_rag.parse import ParsedQuery, extract_stock_hint, parse_time_window, resolve_entities
+from news_rag.parse import (
+    ParsedQuery,
+    classify_query_intent,
+    extract_stock_hint,
+    parse_time_window,
+    resolve_entities,
+)
 from news_rag.qdrant_reader import (
     QdrantReader,
     build_filter,
@@ -58,6 +64,8 @@ def retrieve_for_question(
     names, note = resolve_entities(hint, corpus)
     entity_filter = names if names else None
 
+    intent = classify_query_intent(question, hint, names)
+
     parsed = ParsedQuery(
         question=question.strip(),
         published_from=published_from,
@@ -66,6 +74,7 @@ def retrieve_for_question(
         stock_hint=hint,
         entity_resolved=names,
         entity_match_note=note,
+        intent=intent,
     )
     if query_log is not None:
         query_log.log_parsed(parsed)
@@ -82,6 +91,7 @@ def retrieve_for_question(
     filt = build_filter(**filter_kwargs)
     allow_recap = _wants_price_recap(question)
     post_filter_meta = {
+        "intent": intent,
         "exclude_event_type_price_recap": not allow_recap,
         "retrieve_vector_limit": settings.retrieve_vector_limit,
         "retrieve_impact_limit": settings.retrieve_impact_limit,
@@ -127,60 +137,78 @@ def retrieve_for_question(
         )
         query_log.log_articles_block("qdrant_scroll", impact_rows)
 
+    # Calculate Reciprocal Rank Fusion (RRF) scores
+    k = 60.0
+    rrf_scores: dict[str, float] = {}
     by_url: dict[str, dict] = {}
-    for row in vector_rows:
+
+    for rank, row in enumerate(vector_rows):
         url = row.get("url") or ""
         if not url:
             continue
+        rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
         by_url[url] = {**row, "_vector_score": row.get("score", 0.0)}
 
-    for row in impact_rows:
+    for rank, row in enumerate(impact_rows):
         url = row.get("url") or ""
         if not url:
             continue
+        rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
         if url not in by_url:
             by_url[url] = {**row, "_vector_score": 0.0}
         else:
-            by_url[url].update({k: v for k, v in row.items() if k not in by_url[url] or not by_url[url].get(k)})
+            by_url[url].update({k_v: v_v for k_v, v_v in row.items() if k_v not in by_url[url] or not by_url[url].get(k_v)})
 
     if query_log is not None:
-        query_log.write(f"merge unique_urls={len(by_url)}")
+        query_log.write(f"merge unique_urls={len(by_url)} rrf_candidates={len(rrf_scores)}")
 
     ranked: list[dict] = []
     skipped_recap = 0
-    for row in by_url.values():
+    entity_set = {name.lower() for name in names}
+
+    for url, row in by_url.items():
         if not allow_recap and row.get("event_type") == "price_recap":
             skipped_recap += 1
             continue
-        snippet = _trim_snippet(row.get("scraped_text") or "", settings.snippet_chars)
+
+        raw_text = str(row.get("scraped_text") or row.get("snippet") or "")
+        snippet = _trim_snippet(raw_text, settings.snippet_chars)
+        
+        # Entity match bonus
+        article_entities = {str(n).lower() for n in (row.get("entity_names") or [])}
+        title_lower = str(row.get("title") or "").lower()
+        exact_entity_match = bool(entity_set & article_entities) or any(n in title_lower for n in entity_set)
+        
+        impact = int(row.get("max_impact") or 0)
+        base_rrf = rrf_scores.get(url, 0.0)
+        
+        # Combined score with entity boost and business impact weight
+        combined_score = base_rrf + (0.05 if exact_entity_match else 0.0) + (0.01 * impact)
+
         ranked.append(
             {
-                "url": row.get("url"),
+                "url": url,
                 "title": row.get("title"),
                 "source": row.get("source"),
                 "published_at": row.get("published_at"),
                 "entity_names": row.get("entity_names") or [],
                 "primary_industry": row.get("primary_industry") or "",
-                "max_impact": int(row.get("max_impact") or 0),
+                "max_impact": impact,
                 "max_relevance": int(row.get("max_relevance") or 0),
                 "direction": row.get("direction") or "",
                 "event_type": row.get("event_type") or "",
                 "snippet": snippet,
                 "_vector_score": float(row.get("_vector_score") or 0.0),
+                "_rrf_score": combined_score,
+                "_exact_match": exact_entity_match,
             }
         )
 
-    entity_set = {name.lower() for name in names}
-
-    def _entity_match_rank(item: dict) -> int:
-        if not entity_set:
-            return 0
-        article_entities = {str(n).lower() for n in (item.get("entity_names") or [])}
-        return 1 if entity_set & article_entities else 0
-
+    # Sort candidates by combined RRF score, impact, vector score, and recency
     ranked.sort(
         key=lambda item: (
-            _entity_match_rank(item),
+            1 if item["_exact_match"] else 0,
+            item["_rrf_score"],
             item["max_impact"],
             item["_vector_score"],
             item.get("published_at") or "",
@@ -193,3 +221,4 @@ def retrieve_for_question(
             query_log.write(f"post_filter skipped_price_recap={skipped_recap}")
         query_log.log_articles_block("ranked_for_llm", final, snippet_limit=settings.snippet_chars)
     return parsed, final
+
