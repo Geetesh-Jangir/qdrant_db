@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 _LINE_NO = re.compile(r"^Line\s*\d+\s*:\s*", re.I)
+_BULLET_LABEL = re.compile(r"^(?:Bullet|Point)\s*\d+\s*(?:\([^)]*\))?\s*:\s*", re.I)
 _WORD_COUNT = re.compile(r"\s*~?\d+\s*\.?\s*$")
 _QUOTED_BULLET = re.compile(r'^["\'](.+?)["\']\s*$')
 
@@ -13,6 +14,7 @@ def clean_insight_line(line: str) -> str:
     text = line.strip()
     text = _LINE_NO.sub("", text)
     text = re.sub(r"^[-*•]\s+", "", text)
+    text = _BULLET_LABEL.sub("", text)
     m = _QUOTED_BULLET.match(text)
     if m:
         text = m.group(1)
