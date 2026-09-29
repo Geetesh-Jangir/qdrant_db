@@ -907,7 +907,7 @@ def compose_fund_insight(
 
 def _empty_brief(fund, isin: str, window_label: str, quiet: list[str]) -> dict[str, Any]:
     msg = (
-        f"No matching news was found in the last 7 days "
+        f"No matching news was found for {window_label} "
         f"for holdings and sectors at or above {HOLDING_MIN_PCT:g}% / {SECTOR_MIN_PCT:g}%."
     )
     return {
