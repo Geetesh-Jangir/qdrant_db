@@ -22,7 +22,8 @@ def load_universe(state: PipelineState) -> dict:
     if portfolio_mode:
         counts["portfolio_universe"] = True
     holdings = sum(1 for entity in entities if entity["type"] == "holding")
-    sectors = len(entities) - holdings
+    sectors = sum(1 for entity in entities if entity["type"] == "sector")
+    macros = sum(1 for entity in entities if entity["type"] == "macro")
     if run_log is not None:
         if portfolio_mode:
             run_log.write(
@@ -31,7 +32,7 @@ def load_universe(state: PipelineState) -> dict:
                 f"equity_aggregate={settings.aggregated_holdings_map}"
             )
         run_log.write(
-            f"load_universe finished holdings={holdings} sectors={sectors} total={len(entities)}"
+            f"load_universe finished holdings={holdings} sectors={sectors} macros={macros} total={len(entities)}"
         )
         for entity in entities:
             run_log.write(

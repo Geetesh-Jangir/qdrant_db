@@ -149,6 +149,19 @@ def title_questions(rows: list[dict], entity: dict) -> dict:
                 "Routine operational or holiday noise, price recap, technical call, market wrap or roundup, "
                 f"opinion piece, a different company (including other companies of the same group), or a company outside {industry}."
             )
+        elif kind == "macro":
+            instructions = (
+                f"Headline: {title}\n\n"
+                f"Task: Decide whether this headline is relevant to the macroeconomic topic '{name}' (Macro / Commodity / Currency / Economic indicator) and reports a meaningful trend, price move, data release, or policy development.\n\n"
+                "TRUE if: the headline reports price movements, supply/demand data, policy actions, central bank decisions, currency trends, trade/tariff actions, or economic news related to this topic.\n\n"
+                "FALSE if: completely unrelated news, generic clickbait, or a different topic."
+            )
+            true_crit = (
+                f"Relevant to {name}, reporting prices, data, policy, or meaningful economic/market developments."
+            )
+            false_crit = (
+                f"Unrelated to {name}, routine noise, or a different topic."
+            )
         else:
             instructions = (
                 f"Headline: {title}\n\n"
@@ -278,6 +291,79 @@ def article_questions(matches: list[dict]) -> dict:
             macro_instr = (
                 f"{preamble}\n\n"
                 f"Does the article itself report or substantively discuss a macro development: RBI action, interest rates, inflation, crude or commodity prices, the rupee, Fed or global policy, Union Budget or GST changes, FII/DII flows, national economic data, that could affect the broad market or multiple sectors, including {name}'s? True only if the macro development is a substantive part of the article, not a one-line backdrop such as 'amid a weak rupee'. False if the article is only about {name} or {industry} and macro appears as passing context."
+            )
+
+        elif match["type"] == "macro":
+            about_instr = (
+                f"{preamble}\n\n"
+                f"Decide whether this article is genuinely about the macroeconomic topic '{name}' (Macro / Commodity / Currency / Economic indicator) AND reports a meaningful development for it.\n\n"
+                "TRUE if the article discusses prices, market trends, policy, central bank actions, supply/demand, currency moves, trade, or economic data for this topic."
+            )
+            about_criteria = {
+                "true": f"Article is about {name} and discusses meaningful economic/market developments or trends.",
+                "false": f"Article is not about {name}, or is routine noise.",
+            }
+
+            rel_instr = (
+                f"{preamble}\n\n"
+                f"How relevant is this article to {name}? (0 = Not about this topic, 1 = Passing mention, 2 = General commentary or routine price update, 3 = Material news/trend, 4 = Major defining event or structural shift)."
+            )
+            rel_criteria = [
+                f"0: Not about {name}",
+                f"1: Passing mention or background",
+                f"2: General commentary or routine daily price movement",
+                f"3: Meaningful policy, supply/demand, or price trend for {name}",
+                f"4: Transformative shock, major crisis, historic high/low, or major policy reform for {name}",
+            ]
+
+            impact_instr = (
+                f"{preamble}\n\n"
+                f"What is the magnitude of impact reported in this article for {name} or the broader Indian economy? (0 = None, 1 = Minor, 2 = High impact, 3 = Very high / historic impact)."
+            )
+            impact_criteria = [
+                "0: No material impact: routine or temporary noise",
+                "1: Minor: commentary or small daily fluctuation",
+                "2: High impact: notable policy change or major price/economic trend",
+                "3: Very high / transformative: major economic shift, crisis, or structural policy overhaul",
+            ]
+
+            dir_instr = (
+                f"{preamble}\n\n"
+                f"What is the overall direction / sentiment of this development for {name} and the Indian economy? (positive, negative, neutral, unclear)."
+            )
+            dir_criteria = {
+                "positive": f"Positive or constructive development for {name} / markets",
+                "negative": f"Adverse, inflationary, or restrictive development for {name} / markets",
+                "neutral": "Balanced or stable outlook with no clear directional lean",
+                "unclear": "Ambiguous effect",
+            }
+
+            event_instr = (
+                f"{preamble}\n\n"
+                f"Classify the primary event type for this macro development (usually 'macro', 'regulatory', or 'opinion')."
+            )
+
+            stock_instr = (
+                f"{preamble}\n\n"
+                f"Does this macro development directly impact broader Indian equity markets or major listed stocks? True if it has clear market-wide equity implications."
+            )
+            stock_criteria = {
+                "true": "Clear bearing on Indian equities / stocks",
+                "false": "No direct bearing on equities",
+            }
+
+            sector_instr = (
+                f"{preamble}\n\n"
+                f"Does this macro development affect specific Indian industry sectors (e.g. Banks, Auto, Energy, Metals)? True if it has cross-sector read-throughs."
+            )
+            sector_criteria = {
+                "true": "Plausible impact across one or more industry sectors",
+                "false": "No direct sector impact",
+            }
+
+            macro_instr = (
+                f"{preamble}\n\n"
+                f"Is this article primarily a macroeconomic / commodity / policy development? (Answer true for {name})."
             )
 
         else:

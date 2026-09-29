@@ -51,8 +51,6 @@ def jev_title_screen(state: PipelineState) -> dict:
 
     with client:
         for name, entity in entities.items():
-            if entity.get("type") == "macro":
-                continue
             entity_rows, macro_only = _titles_for_entity(name, candidates, macro_rows)
             entity_rows.sort(
                 key=lambda row: candidates[row["index"]].get("published_at") or "",

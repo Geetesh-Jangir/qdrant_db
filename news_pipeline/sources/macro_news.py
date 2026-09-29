@@ -59,5 +59,6 @@ def fetch_macro_items(settings: Settings) -> list[dict]:
 
 
 def is_macro_match(match: dict) -> bool:
-    return match.get("type") == "macro" or match.get("name") == MACRO_ENTITY_NAME
+    name = str(match.get("name") or "")
+    return match.get("type") == "macro" or name == MACRO_ENTITY_NAME or name.startswith("Macro")
 

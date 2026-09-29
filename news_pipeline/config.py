@@ -183,6 +183,19 @@ MACRO_QUERY_CLUSTERS: tuple[str, ...] = (
     "India tariffs trade war fiscal deficit sanctions supply disruption economy",
 )
 
+MACRO_ENTITIES: tuple[dict[str, str], ...] = (
+    {"name": "Macro - Gold", "query": "Gold price India MCX bullion"},
+    {"name": "Macro - Silver", "query": "Silver price India MCX bullion"},
+    {"name": "Macro - Crude Oil", "query": "Crude oil Brent prices India fuel"},
+    {"name": "Macro - Natural Gas", "query": "Natural gas prices India PNG CNG"},
+    {"name": "Macro - Rupee / USD", "query": "USD INR Rupee exchange rate currency"},
+    {"name": "Macro - Bond Yields", "query": "India 10-year benchmark bond yield G-sec"},
+    {"name": "Macro - RBI Repo Rate", "query": "RBI repo rate monetary policy committee MPC"},
+    {"name": "Macro - Inflation (CPI)", "query": "India CPI retail inflation food prices"},
+    {"name": "Macro - GDP & Economy", "query": "India GDP growth economic outlook"},
+    {"name": "Macro - Tariffs & Trade", "query": "India trade deficit export import tariffs"},
+)
+
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
 
 DIRECTION_OPTIONS: tuple[str, ...] = ("positive", "negative", "neutral", "unclear")

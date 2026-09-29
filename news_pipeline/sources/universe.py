@@ -8,6 +8,7 @@ from collections import defaultdict
 
 from news_pipeline.config import (
     EXTRA_ALIASES,
+    MACRO_ENTITIES,
     SECTOR_BLOCK_FRAGMENTS,
     SECTOR_QUERIES,
     Settings,
@@ -303,15 +304,32 @@ def load_sectors(settings: Settings) -> list[dict]:
     return found[: settings.sectors_limit]
 
 
-def build_holding_entities(rows: list[dict]) -> list[dict]:
-    """Build holding entity dicts for the pipeline from name/industry/count rows."""
-    return _with_holding_aliases(rows)
+def load_macro_entities(settings: Settings) -> list[dict]:
+    if not getattr(settings, "macro_news_enabled", True):
+        return []
+    entities = []
+    for item in MACRO_ENTITIES:
+        entities.append(
+            {
+                "name": item["name"],
+                "type": "macro",
+                "industry": "Macro",
+                "query": item["query"],
+                "aliases": [],
+                "negative_aliases": [],
+                "keywords": [],
+                "fund_count": 0,
+                "total_percentage": 0.0,
+            }
+        )
+    return entities
 
 
 def load_universe(settings: Settings) -> list[dict]:
+    macro_items = load_macro_entities(settings)
     if (getattr(settings, "portfolio_json", None) or "").strip():
         from news_pipeline.sources.portfolio_universe import load_portfolio_universe
 
         entities, _manifest = load_portfolio_universe(settings)
-        return entities
-    return load_holdings(settings) + load_sectors(settings)
+        return entities + macro_items
+    return load_holdings(settings) + load_sectors(settings) + macro_items
