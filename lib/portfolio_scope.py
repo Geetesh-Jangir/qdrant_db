@@ -340,9 +340,39 @@ def load_manifest(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _clean_holding_tokens(name: str) -> str:
+    from news_pipeline.sources.universe import canonical_key
+    k = canonical_key(name)
+    company_stops = {"co", "company", "group", "corporation", "corp", "inc", "ltd", "limited", "of", "india"}
+    tokens = [w for w in k.split() if w not in company_stops]
+    return " ".join(tokens)
+
+
+def match_holding_to_corpus_entity(inst_name: str, corpus_names: set[str]) -> str:
+    from news_pipeline.sources.universe import canonical_key
+    k = canonical_key(inst_name)
+    canonical_corpus = {canonical_key(c): c for c in corpus_names}
+    if k in canonical_corpus:
+        return canonical_corpus[k]
+    clean_k = _clean_holding_tokens(inst_name)
+    if clean_k:
+        for c in corpus_names:
+            clean_ck = _clean_holding_tokens(c)
+            if clean_k == clean_ck:
+                return c
+    return inst_name
+
+
 def instrument_to_qdrant_names(scope: PortfolioScope) -> dict[str, str]:
-    """Map fund-file instrument names to pipeline entity display names."""
+    """Map fund-file instrument names to active Qdrant corpus entity names."""
     from news_pipeline.sources.universe import build_holding_entities, canonical_key
+
+    corpus_names: set[str] = set()
+    try:
+        from news_rag.entity_index import corpus_entity_names
+        corpus_names = corpus_entity_names()
+    except Exception:
+        pass
 
     rows = [
         {
@@ -359,16 +389,23 @@ def instrument_to_qdrant_names(scope: PortfolioScope) -> dict[str, str]:
         for alias in entity.get("aliases") or []:
             by_key[canonical_key(alias)] = entity["name"]
         by_key[canonical_key(entity["name"])] = entity["name"]
+
     out: dict[str, str] = {}
     for h in scope.holdings:
+        if corpus_names:
+            matched = match_holding_to_corpus_entity(h.instrument_name, corpus_names)
+            if matched != h.instrument_name:
+                out[h.instrument_name] = matched
+                continue
         key = canonical_key(h.instrument_name)
         out[h.instrument_name] = by_key.get(key, h.instrument_name)
     return out
 
 
 def qdrant_filter_names(scope: PortfolioScope) -> list[str]:
-    """Entity labels as stored on Qdrant points (holdings + sectors)."""
+    """Entity labels as stored on Qdrant points (holdings + sectors + relevant macro)."""
     names = set(instrument_to_qdrant_names(scope).values())
     for s in scope.sectors:
         names.add(s.canonical_name)
     return sorted(names)
+

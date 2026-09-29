@@ -42,10 +42,12 @@ from news_rag.qdrant_reader import (
     filter_spec,
 )
 
+from news_pipeline.sources.universe import canonical_key
+
 FACT_TYPES = frozenset({"results", "order", "deal", "regulatory", "operations", "macro"})
-FUND_BRIEF_MAX_BULLETS = 8
-FUND_BRIEF_BULLET_MAX_CHARS = 480
-FUND_BRIEF_SUMMARY_MAX_WORDS = 100
+FUND_BRIEF_MAX_BULLETS = 20
+FUND_BRIEF_BULLET_MAX_CHARS = 650
+FUND_BRIEF_SUMMARY_MAX_WORDS = 220
 
 
 def _repo_root() -> Path:
@@ -239,13 +241,13 @@ def cluster_articles(articles: list[dict]) -> list[list[dict]]:
         used.add(index)
         title_a = _normalize_title(str(article.get("title") or ""))
         day_a = _day_key(str(article.get("published_at") or ""))
-        ents_a = {str(n).lower() for n in (article.get("entity_names") or [])}
+        ents_a = _article_entities(article)
         for other_index, other in enumerate(articles):
             if other_index in used:
                 continue
             if _day_key(str(other.get("published_at") or "")) != day_a:
                 continue
-            ents_b = {str(n).lower() for n in (other.get("entity_names") or [])}
+            ents_b = _article_entities(other)
             if ents_a and ents_b and not (ents_a & ents_b):
                 continue
             title_b = _normalize_title(str(other.get("title") or ""))
@@ -261,10 +263,18 @@ def _article_entities(row: dict) -> set[str]:
     for key in ("entity_names", "holding_names"):
         for name in row.get(key) or []:
             if name:
-                names.add(str(name).lower())
+                s = str(name).strip()
+                names.add(s.lower())
+                k = canonical_key(s)
+                if k:
+                    names.add(k)
     industry = row.get("primary_industry")
     if industry:
-        names.add(str(industry).lower())
+        s = str(industry).strip()
+        names.add(s.lower())
+        k = canonical_key(s)
+        if k:
+            names.add(k)
     return names
 
 
@@ -319,8 +329,7 @@ def fund_search_query(scope: PortfolioScope, isin: str, name_map: dict[str, str]
     names.extend(sector.canonical_name for sector in sectors)
     if not names:
         return "material company and sector news"
-    return ", ".join(names) + ". Material company, sector, and industry developments."
-
+    return ", ".join(names) + ". Material company, sector, and macroeconomic developments."
 
 
 def retrieve_fund_articles(
@@ -338,9 +347,10 @@ def retrieve_fund_articles(
     Multi-Query Multi-Stream Retrieval for Funds:
     1. Targeted individual holding queries for top fund holdings.
     2. Targeted individual sector queries for top fund sectors.
-    3. Portfolio-wide broad query.
-    4. Adaptive window expansion (7d -> 14d -> 30d) if fewer than 6 articles found.
-    5. Reciprocal Rank Fusion (RRF) deduplication and portfolio-weighted ranking.
+    3. Targeted Macro queries (RBI rate, inflation, GDP, oil, currency, bond yields).
+    4. Portfolio-wide broad query.
+    5. Adaptive window expansion (7d -> 14d -> 30d) if fewer than 8 articles found.
+    6. Reciprocal Rank Fusion (RRF) deduplication and portfolio-weighted ranking.
     """
     initial_days = window_days if window_days is not None else settings.default_window_days
     candidate_windows = [initial_days]
@@ -355,6 +365,15 @@ def retrieve_fund_articles(
     by_url: dict[str, dict] = {}
     rrf_scores: dict[str, float] = {}
 
+    macro_entities_pool = [
+        "Macro - RBI Repo Rate",
+        "Macro - GDP & Economy",
+        "Macro - Inflation (CPI)",
+        "Macro - Crude Oil",
+        "Macro - Rupee / USD",
+        "Macro - Bond Yields",
+    ]
+
     for days in candidate_windows:
         published_from, published_to, window_label = parse_time_window(
             "",
@@ -365,7 +384,7 @@ def retrieve_fund_articles(
         final_window_label = window_label
 
         # ----------------------------------------------------
-        # Stream 1: Targeted Top Holdings Streams (Top 10)
+        # Stream 1: Targeted Top Holdings Streams (Top 12)
         # ----------------------------------------------------
         top_holdings = []
         if scope is not None and isin:
@@ -373,11 +392,11 @@ def retrieve_fund_articles(
                 scope.holdings_for_isin(isin),
                 key=lambda h: h.by_fund.get(isin, 0.0),
                 reverse=True,
-            )[:10]
+            )[:12]
 
         for h in top_holdings:
             disp_name = (name_map or {}).get(h.instrument_name, h.instrument_name)
-            h_entity_filter = [disp_name, h.instrument_name]
+            h_entity_filter = list({disp_name, h.instrument_name})
             h_filt = build_filter(
                 entity_names=h_entity_filter,
                 published_from=published_from,
@@ -413,7 +432,7 @@ def retrieve_fund_articles(
                     by_url[url]["max_impact"] = max(by_url[url]["max_impact"], packed["max_impact"])
 
         # ----------------------------------------------------
-        # Stream 2: Targeted Sector Streams (Top 4)
+        # Stream 2: Targeted Sector Streams (Top 5)
         # ----------------------------------------------------
         top_sectors = []
         if scope is not None and isin:
@@ -421,7 +440,7 @@ def retrieve_fund_articles(
                 scope.sectors_for_isin(isin),
                 key=lambda s: s.by_fund.get(isin, 0.0),
                 reverse=True,
-            )[:4]
+            )[:5]
 
         for sec in top_sectors:
             s_filt = build_filter(
@@ -459,7 +478,29 @@ def retrieve_fund_articles(
                     by_url[url]["max_impact"] = max(by_url[url]["max_impact"], packed["max_impact"])
 
         # ----------------------------------------------------
-        # Stream 3: Overall Portfolio Broad Query
+        # Stream 3: Targeted Macro Streams
+        # ----------------------------------------------------
+        for macro_name in macro_entities_pool:
+            m_filt = build_filter(
+                entity_names=[macro_name],
+                published_from=published_from,
+                published_to=published_to,
+                min_relevance=settings.min_relevance,
+            )
+            m_hits = reader.scroll_filtered(m_filt, 3)
+            for rank, row in enumerate(m_hits):
+                packed = _pack_article(row, settings, vector_score=0.0)
+                if not packed:
+                    continue
+                url = packed["url"]
+                rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.1 / (k + rank + 1))
+                if url not in by_url:
+                    by_url[url] = packed
+                else:
+                    by_url[url]["max_impact"] = max(by_url[url]["max_impact"], packed["max_impact"])
+
+        # ----------------------------------------------------
+        # Stream 4: Overall Portfolio Broad Query
         # ----------------------------------------------------
         filter_kwargs = {
             "entity_names": filter_names or None,
@@ -495,8 +536,8 @@ def retrieve_fund_articles(
             else:
                 by_url[url]["max_impact"] = max(by_url[url]["max_impact"], packed["max_impact"])
 
-        # If we found at least 6 distinct articles, the window is sufficient!
-        if len(by_url) >= 6:
+        # If we found at least 8 distinct articles, the window is sufficient!
+        if len(by_url) >= 8:
             break
 
     if query_log is not None:
@@ -592,15 +633,23 @@ def _quiet_holdings(
     articles: list[dict],
     name_map: dict[str, str],
 ) -> list[str]:
-    covered = _article_entities({"entity_names": []})
+    covered: set[str] = set()
     for row in articles:
         covered |= _article_entities(row)
     quiet: list[str] = []
     for holding in scope.holdings_for_isin(isin):
         qname = name_map.get(holding.instrument_name, holding.instrument_name)
-        if qname.lower() in covered:
+        raw_k = canonical_key(holding.instrument_name)
+        qname_k = canonical_key(qname)
+        if (
+            holding.instrument_name.lower() in covered
+            or qname.lower() in covered
+            or raw_k in covered
+            or qname_k in covered
+        ):
             continue
         quiet.append(f"{holding.instrument_name} ({holding.by_fund[isin]:.1f}% of this fund)")
+
     def _quiet_sort_key(line: str) -> float:
         match = re.search(r"\(([\d.]+)%", line)
         return float(match.group(1)) if match else 0.0
@@ -634,15 +683,25 @@ def build_events(
 ) -> list[dict]:
     clusters = cluster_articles(articles)
     events: list[dict] = []
+    fund = _fund_by_isin(scope, isin) or scope.funds[0]
+
     for cluster in clusters:
         ents = _cluster_entities(cluster)
         lead = _lead_article(cluster)
         matched_industries: set[str] = set()
         attachments: list[dict] = []
 
+        # 1. Match Holdings
         for holding in scope.holdings:
             qname = name_map.get(holding.instrument_name, holding.instrument_name)
-            if qname.lower() not in ents:
+            raw_k = canonical_key(holding.instrument_name)
+            qname_k = canonical_key(qname)
+            if (
+                qname.lower() not in ents
+                and holding.instrument_name.lower() not in ents
+                and raw_k not in ents
+                and qname_k not in ents
+            ):
                 continue
             exposure = _exposure_for_holding(scope, isin, holding, fund_only=fund_only)
             if exposure is None:
@@ -650,6 +709,7 @@ def build_events(
             pct, rupees, where = exposure
             if holding.industry:
                 matched_industries.add(holding.industry.lower())
+                matched_industries.add(canonical_key(holding.industry))
             attachments.append(
                 {
                     "label": qname,
@@ -660,10 +720,15 @@ def build_events(
                 }
             )
 
+        # 2. Match Sectors
         for sector in scope.sectors:
-            if sector.canonical_name.lower() not in ents:
+            sec_k = canonical_key(sector.canonical_name)
+            if (
+                sector.canonical_name.lower() not in ents
+                and sec_k not in ents
+            ):
                 continue
-            if sector.canonical_name.lower() in matched_industries:
+            if sector.canonical_name.lower() in matched_industries or sec_k in matched_industries:
                 continue
             exposure = _exposure_for_sector(scope, isin, sector, fund_only=fund_only)
             if exposure is None:
@@ -678,6 +743,22 @@ def build_events(
                     "where": where,
                 }
             )
+
+        # 3. Match Macro Indicators
+        if not attachments:
+            lead_ents = lead.get("entity_names") or []
+            macro_hit = next((e for e in lead_ents if str(e).startswith("Macro -")), None)
+            if macro_hit or any("macro" in e.lower() for e in ents):
+                macro_label = macro_hit or "Macro Economy"
+                attachments.append(
+                    {
+                        "label": macro_label,
+                        "kind_name": "macro",
+                        "weight_pct": None,
+                        "rupees": round(fund.current_value, 2),
+                        "where": fund.fund_short_name,
+                    }
+                )
 
         if not attachments:
             continue
@@ -708,12 +789,12 @@ def build_events(
         )
 
     # DIVERSE EVENT SELECTION:
-    # 1. Sort all candidate events by portfolio-weighted impact, exposure rupees, and vector score.
-    # 2. Pick the BEST event per unique entity (label) first so that one company/sector does not crowd out others.
+    # 1. Sort candidate events by portfolio-weighted impact, exposure rupees, and vector score.
+    # 2. Pick the BEST event per unique entity (label) first so every company/sector/macro gets distinct representation.
     # 3. Then fill any remaining capacity up to `limit` with distinct event titles.
     events.sort(
         key=lambda item: (
-            float(item.get("weight_pct") or 0.0) * (int(item.get("max_impact") or 0) + 1),
+            (float(item.get("weight_pct") or 5.0)) * (int(item.get("max_impact") or 0) + 1),
             int(item.get("max_impact") or 0),
             float(item.get("rupees") or 0.0),
             float(item.get("vector_score") or 0.0),
@@ -759,12 +840,12 @@ def jev_filter_events(events: list[dict], *, query_log: QueryLogger | None = Non
             "type": "noul",
             "instructions": (
                 f"Title: {event['title']}. Excerpt: {event['snippet'][:500]}. "
-                f"Is this story specifically about {label} and does it describe a meaningful, material event (earnings, contracts, regulatory/policy action, capex, structural change) that could affect the company's business or stock outlook? "
-                "False for routine operational noise (e.g. banks open on Sunday, holiday timings, branch notices, minor customer service updates), price recaps, or passing mentions."
+                f"Is this story specifically about {label} or its broader economic/industry impact, and does it describe a meaningful, material event (earnings, contracts, regulatory/policy action, capex, structural change, macroeconomic shift) that could affect business or market outlook? "
+                "False for routine operational noise (e.g. branch notices, routine bank holiday schedules, minor customer service updates), generic price recaps with no corporate trigger, or passing mentions."
             ),
             "criteria": {
-                "true": f"About {label} and materially impactful to business/financial outlook",
-                "false": "Routine/temporary operational noise, unrelated, wrong company, or not material",
+                "true": f"About {label} and materially impactful to business/financial/macroeconomic outlook",
+                "false": "Routine/temporary operational noise, unrelated, wrong entity, or not material",
             },
         }
     try:
@@ -790,49 +871,40 @@ def jev_filter_events(events: list[dict], *, query_log: QueryLogger | None = Non
     return kept
 
 
-FUND_BRIEF_PROMPT = """You are a high-impact financial news and storytelling agent for an Indian mutual fund investor.
+FUND_BRIEF_PROMPT = """You are an elite financial intelligence and storytelling analyst for Indian mutual fund investors.
 
-Your job is NOT to summarize every piece of news. Your job is to identify only news that can have a meaningful, material impact on the companies in this portfolio, and explain it in VERY SIMPLE, ENGAGING, MEANINGFUL STORYTELLING LANGUAGE that anyone (even a 15-year-old) can easily understand.
+Your objective is to provide a rich, deeply meaningful, highly filtered, interconnected analysis of the material developments affecting this fund's top holdings, key sectors, and macroeconomic backdrop over the recent period.
 
-The output must deliver clear meaning and context:
-What happened -> Why it matters -> How it affects the company's business -> What it means for the investor's fund.
+CRITICAL INSTRUCTIONS & GUIDELINES:
 
-GUIDELINES FOR WRITING:
-1. MEANINGFUL INSIGHTS (NOT JUST DRY FACTS):
-   - Ensure every insight delivers practical meaning. Do not just state that an event happened or repeat a number; explain *why it matters* for the company's profitability, competitive strength, or industry position.
-2. DIVERSITY & ONE BULLET PER ENTITY:
-   - Exactly ONE bullet point per distinct company or sector. Do NOT write multiple bullets about the same company or sector (e.g., maximum 1 bullet for HDFC Bank, 1 for Automobile sector, 1 for Tata Motors, 1 for Reliance, etc.).
-   - Ensure broad, diverse coverage across different sectors in the portfolio (e.g., Automobile, IT, Energy, Healthcare, FMCG, Banking) rather than concentrating all bullets on a single sector.
-3. ACRONYM & SHORT-FORM EXPANSIONS:
-   - On first mention of ANY financial, regulatory, or technical acronym/abbreviation, provide its full name in parentheses (e.g. SEBI (Securities and Exchange Board of India), RBI (Reserve Bank of India), FPIs (Foreign Portfolio Investors), IPOs (Initial Public Offerings), NIM (Net Interest Margin), NPA (Non-Performing Asset), GST (Goods and Services Tax), EV (Electric Vehicle)).
-4. STRICT MINIMAL HIGHLIGHTING (DO NOT OVER-HIGHLIGHT):
-   - Highlight ONLY 1 or 2 most critical anchor terms per bullet (e.g. the primary company name or a key metric like **₹5,000 crore** or **+15%**).
-   - Keep the summary to at most 3 or 4 total bold highlights across the entire paragraph.
-   - DO NOT bold common words, verbs, adjectives, regulatory bodies, acronym expansions, or general business terms (e.g., do NOT bold "approved", "growth", "demand", "framework", "investments", "market", "policy").
-5. SIMPLE LANGUAGE:
-   - Use plain everyday conversational English. Avoid dry financial jargon.
-   - Replace complex terms with simple meanings (e.g. instead of "compressing NIMs", say "putting pressure on lending profits"; instead of "input-cost inflation", say "materials becoming more expensive"; instead of "margin expansion", say "making more profit on each sale"; instead of "regulatory headwinds", say "tougher government rules").
-6. CAUSAL CONNECTION & REJECT TRIVIA:
-   - Connect the event to the business mechanism and investor impact.
-   - Reject temporary/operational noise (such as "banks open on Sunday" or holiday notices).
-7. NO BUY/SELL ADVICE:
-   - Provide factual context and business implications only.
+1. KEY TAKEAWAYS (BULLET POINTS):
+   - Output ONE bullet point for each verified, impactful business, sector, or macroeconomic event.
+   - DO NOT artificially restrict the number of bullets. Include all distinct, verified material events across holdings, sectors, and macro factors.
+   - IN-DEPTH EXPLANATIONS FOR BIG EVENTS: When explaining a major event (e.g., quarterly earnings, CEO/leadership transitions, regulatory actions, major contracts, bond issuances, large M&A/capex, legal verdicts), explain the COMPLETE mechanism in that bullet:
+     * What happened -> Why it happened -> Operational/financial transmission -> Impact on company's growth/margins/competitive position -> Significance for fund investors.
+   - INTERCONNECTIVITY: Highlight causal links between points (e.g., how RBI rate/liquidity actions transmit into banking credit growth and specific bank earnings, or how global crude oil prices impact refining/automotive/chemicals margins).
+   - STRICT QUALITY FILTRATION:
+     * REJECT routine operational noise (e.g., bank holiday announcements, branch timings, routine notices, generic price fluctuation recaps with no corporate development).
+     * ONLY include news with tangible business, strategic, or regulatory impact.
+   - ELEGANT BOLDING & CLEAN FORMATTING:
+     * Use **bold** sparingly for only 1–2 key anchor terms per bullet (e.g. the company name or a key metric like **+18%** or **₹10,000 crore**).
+     * On first mention of any acronym, write the full name in parentheses (e.g. RBI (Reserve Bank of India), SEBI (Securities and Exchange Board of India), TRAI (Telecom Regulatory Authority of India), NIM (Net Interest Margin), NBFC (Non-Banking Financial Company)).
 
-Write exactly this structure (plain text):
+2. EXECUTIVE NARRATIVE (STORYTELLING PARAGRAPH):
+   - Write a cohesive storytelling narrative of about 120–180 words.
+   - TIE IN THE FUND'S 7-DAY NAV PERFORMANCE: Contextualize the fund's recent 7-day NAV movement (provided in the prompt, e.g., if NAV moved by +1.5% or -3.0%) with the underlying market themes, macroeconomic forces, and sector heavyweight developments.
+   - Explain how macroeconomic backdrop and sector dynamics transmit into the fund's portfolio holdings and what it means strategically for the investor.
+   - Use plain, engaging, conversational language that makes complex financial dynamics crystal clear without dumbing down the insights.
+   - Use only 3–4 selective **bold** highlights across the paragraph. No buy/sell recommendations.
+
+OUTPUT FORMAT (PLAIN TEXT):
 
 BULLETS:
-- Between 5 and 8 bullet lines (no fewer than 5 if enough distinct events exist). Each line starts with "- ".
-- Exactly ONE bullet per distinct company or sector (cross-portfolio diversity across Auto, IT, Energy, FMCG, Banking, etc.).
-- Each bullet is ONE clear, easy-to-read sentence connecting a concrete event from the excerpts to why it matters for this fund holding or sector (include portfolio weight/rupee exposure if provided).
-- Use **bold** sparingly for only 1–2 most critical anchor terms (e.g. company name or major metric). Include acronym full forms in parentheses without bolding them.
+- [Clear bullet line connecting the holding/sector/macro event, its deep causal explanation, and portfolio relevance]
+- [Next bullet line...]
 
 SUMMARY:
-One cohesive storytelling paragraph of about 90–120 words (4–6 sentences).
-Tell the story of what is happening across the portfolio:
-- Start with the big picture (the major national, regulatory, or economic theme).
-- Explain how key companies across different sectors in the fund are affected (the causal business mechanism and what it means for growth or risk).
-- Conclude with what this means for the investor's book.
-Write in a smooth narrative flow delivering real meaning with only 3–4 selective **bold** highlights. No bullet characters. No buy/sell advice.
+[One cohesive storytelling paragraph contextualizing the 7-day NAV performance with the macroeconomic backdrop, sector transmission, and holding impact.]
 """
 
 
@@ -871,7 +943,7 @@ def _fallback_bullets_from_events(events: list[dict], *, max_count: int) -> list
     for event in events:
         label = str(event.get("label") or "").strip()
         title = str(event.get("title") or "").strip()
-        snippet = _trim_snippet(str(event.get("snippet") or ""), 160)
+        snippet = _trim_snippet(str(event.get("snippet") or ""), 200)
         weight = event.get("weight_pct")
         where = str(event.get("where") or "").strip()
         bit = title
@@ -911,6 +983,7 @@ def compose_fund_insight(
     fund_events: list[dict],
     portfolio_events: list[dict],
     settings: Settings,
+    isin: str | None = None,
     query_log: QueryLogger | None = None,
 ) -> tuple[list[str], str, str, list[dict]]:
     """Returns bullets, summary, insight_source, sources."""
@@ -922,12 +995,33 @@ def compose_fund_insight(
     if not llm_api_key_configured(settings):
         raise RuntimeError(missing_llm_key_message())
 
+    nav_context_str = ""
+    if isin:
+        try:
+            from historical_data.nav_service import get_fund_nav_history
+            nav_info = get_fund_nav_history(isin)
+            if nav_info.get("success"):
+                latest_nav = nav_info.get("latest_nav")
+                latest_date = nav_info.get("latest_date")
+                w1 = (nav_info.get("stats") or {}).get("1W")
+                if w1:
+                    direction_str = "increased" if w1["is_positive"] else "declined"
+                    nav_context_str = (
+                        f"Fund 7-Day NAV Performance Context:\n"
+                        f"- Latest NAV: ₹{latest_nav} (as of {latest_date})\n"
+                        f"- 7-Day Change: {w1['change_pct']:+.2f}% ({direction_str} by ₹{abs(w1['change']):.3f} from ₹{w1['start_nav']} on {w1['start_date']} to ₹{w1['end_nav']} on {w1['end_date']})\n"
+                        f"- 7-Day Range: Min ₹{w1['min_nav']} to Max ₹{w1['max_nav']}\n\n"
+                    )
+        except Exception:
+            pass
+
     fund_blocks = [_format_event_block(event, section="this_fund") for event in fund_events]
     portfolio_blocks = [_format_event_block(event, section="other_funds") for event in portfolio_events]
     user_content = (
         f"Selected fund: {fund_short_name}\n"
         f"Time window: {window_label}\n\n"
-        f"This fund events ({len(fund_blocks)}):\n"
+        + nav_context_str
+        + f"This fund events ({len(fund_blocks)}):\n"
         + ("\n\n".join(fund_blocks) if fund_blocks else "(none)\n")
         + f"\n\nOther funds in portfolio ({len(portfolio_blocks)}):\n"
         + ("\n\n".join(portfolio_blocks) if portfolio_blocks else "(none)\n")
@@ -981,7 +1075,7 @@ def compose_fund_insight(
     return bullets, summary, insight_source, sources
 
 
-def _empty_brief(fund, isin: str, window_label: str, quiet: list[str]) -> dict[str, Any]:
+def _empty_brief(fund, isin: str, window_label: str, quiet: list[str], nav_stats: dict | None = None) -> dict[str, Any]:
     msg = (
         f"No matching news was found for {window_label} "
         f"for holdings and sectors at or above {HOLDING_MIN_PCT:g}% / {SECTOR_MIN_PCT:g}%."
@@ -995,6 +1089,7 @@ def _empty_brief(fund, isin: str, window_label: str, quiet: list[str]) -> dict[s
         "insight": msg,
         "sources": [],
         "quiet_holdings": quiet,
+        "nav_stats": nav_stats,
         "insight_source": "no_articles",
     }
 
@@ -1011,6 +1106,16 @@ def generate_fund_brief(
     name_map = instrument_to_qdrant_names(scope)
     filter_names = qdrant_filter_names(scope)
     query_text = fund_search_query(scope, isin, name_map)
+
+    nav_stats = None
+    try:
+        from historical_data.nav_service import get_fund_nav_history
+        nav_res = get_fund_nav_history(isin)
+        if nav_res.get("success"):
+            nav_stats = nav_res.get("stats", {}).get("1W")
+    except Exception:
+        pass
+
     if query_log is not None:
         query_log.write(
             f"fund_context isin={isin} fund_short_name={json.dumps(fund.fund_short_name)} "
@@ -1029,9 +1134,9 @@ def generate_fund_brief(
     if query_log is not None:
         query_log.write(f"quiet_holdings count={len(quiet)} names={json.dumps(quiet[:20], ensure_ascii=False)}")
     if not articles:
-        return _empty_brief(fund, isin, window_label, quiet)
+        return _empty_brief(fund, isin, window_label, quiet, nav_stats=nav_stats)
 
-    limit = settings.retrieve_max_articles
+    limit = max(settings.retrieve_max_articles, 20)
     fund_events = build_events(
         articles,
         scope=scope,
@@ -1067,6 +1172,7 @@ def generate_fund_brief(
             isin,
             window_label,
             quiet,
+            nav_stats=nav_stats,
         )
 
     bullets, summary, insight_source, sources = compose_fund_insight(
@@ -1075,6 +1181,7 @@ def generate_fund_brief(
         fund_events=fund_events,
         portfolio_events=portfolio_events,
         settings=settings,
+        isin=isin,
         query_log=query_log,
     )
     display = format_insight_display(bullets, summary)
@@ -1087,5 +1194,7 @@ def generate_fund_brief(
         "insight": display,
         "sources": sources,
         "quiet_holdings": quiet,
+        "nav_stats": nav_stats,
         "insight_source": insight_source,
     }
+
