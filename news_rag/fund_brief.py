@@ -328,103 +328,179 @@ def retrieve_fund_articles(
     filter_names: list[str],
     *,
     query_text: str,
+    scope: PortfolioScope | None = None,
+    isin: str | None = None,
+    name_map: dict[str, str] | None = None,
     window_days: int | None = None,
     query_log: QueryLogger | None = None,
 ) -> tuple[str, list[dict]]:
-    days = window_days if window_days is not None else settings.default_window_days
-    published_from, published_to, window_label = parse_time_window(
-        "",
-        date_from=None,
-        date_to=to_iso(utc_now()),
-        default_days=days,
-    )
-    filter_kwargs = {
-        "entity_names": filter_names or None,
-        "published_from": published_from,
-        "published_to": published_to,
-        "min_relevance": settings.min_relevance,
-    }
-    filt = build_filter(**filter_kwargs)
-    post_filter_meta = {
-        "retrieve_vector_limit": settings.retrieve_vector_limit,
-        "retrieve_impact_limit": settings.retrieve_impact_limit,
-        "collection": settings.qdrant_collection,
-    }
-    if query_log is not None:
-        query_log.write(
-            "fund_retrieval "
-            + f"window_label={json.dumps(window_label)} "
-            + f"query_text={clip_log_text(query_text, 500)} "
-            + f"filter_name_count={len(filter_names)}"
-        )
-        spec = filter_spec(**filter_kwargs)
-        query_log.log_filters(spec, post_filters=post_filter_meta)
-        query_log.log_filters_applied(
-            describe_filters_for_log(
-                spec,
-                collection=settings.qdrant_collection,
-                post_filters=post_filter_meta,
-            )
-        )
+    """
+    Multi-Query Multi-Stream Retrieval for Funds:
+    1. Targeted individual holding queries for top fund holdings.
+    2. Targeted individual sector queries for top fund sectors.
+    3. Portfolio-wide broad query.
+    4. Adaptive window expansion (7d -> 14d -> 30d) if fewer than 6 articles found.
+    5. Reciprocal Rank Fusion (RRF) deduplication and portfolio-weighted ranking.
+    """
+    initial_days = window_days if window_days is not None else settings.default_window_days
+    candidate_windows = [initial_days]
+    if initial_days < 14:
+        candidate_windows.append(14)
+    if initial_days < 30:
+        candidate_windows.append(30)
+
     reader = QdrantReader()
-    vector_rows: list[dict] = []
-    if query_text.strip() and filter_names:
-        t_embed = time.perf_counter()
-        vector = embed_query(query_text)
-        if query_log is not None:
-            query_log.log_step("embed_query", time.perf_counter() - t_embed, vector_dim=len(vector))
-        t_vec = time.perf_counter()
-        vector_rows = reader.query_vector(vector, filt, settings.retrieve_vector_limit)
-        if query_log is not None:
-            query_log.log_step(
-                "qdrant_query_vector",
-                time.perf_counter() - t_vec,
-                hits=len(vector_rows),
-                limit=settings.retrieve_vector_limit,
-            )
-            query_log.log_articles_block("qdrant_vector", vector_rows)
-    elif query_log is not None:
-        query_log.write("qdrant_query_vector skipped=true reason=empty_query_or_filter_names")
-    t_scroll = time.perf_counter()
-    impact_rows = reader.scroll_filtered(filt, settings.retrieve_impact_limit)
-    if query_log is not None:
-        query_log.log_step(
-            "qdrant_scroll_filtered",
-            time.perf_counter() - t_scroll,
-            hits=len(impact_rows),
-            limit=settings.retrieve_impact_limit,
-        )
-        query_log.log_articles_block("qdrant_scroll", impact_rows)
-
-    # Calculate Reciprocal Rank Fusion (RRF) scores
     k = 60.0
-    rrf_scores: dict[str, float] = {}
+    final_window_label = ""
     by_url: dict[str, dict] = {}
+    rrf_scores: dict[str, float] = {}
 
-    for rank, row in enumerate(vector_rows):
-        packed = _pack_article(row, settings, vector_score=float(row.get("score") or 0.0))
-        if packed is None:
-            continue
-        url = packed["url"]
-        rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
-        by_url[url] = packed
+    for days in candidate_windows:
+        published_from, published_to, window_label = parse_time_window(
+            "",
+            date_from=None,
+            date_to=to_iso(utc_now()),
+            default_days=days,
+        )
+        final_window_label = window_label
 
-    for rank, row in enumerate(impact_rows):
-        packed = _pack_article(row, settings, vector_score=0.0)
-        if packed is None:
-            continue
-        url = packed["url"]
-        rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
-        existing = by_url.get(url)
-        if existing is None:
-            by_url[url] = packed
-            continue
-        existing["max_impact"] = max(existing["max_impact"], packed["max_impact"])
-        if not existing.get("snippet"):
-            existing["snippet"] = packed["snippet"]
+        # ----------------------------------------------------
+        # Stream 1: Targeted Top Holdings Streams (Top 10)
+        # ----------------------------------------------------
+        top_holdings = []
+        if scope is not None and isin:
+            top_holdings = sorted(
+                scope.holdings_for_isin(isin),
+                key=lambda h: h.by_fund.get(isin, 0.0),
+                reverse=True,
+            )[:10]
+
+        for h in top_holdings:
+            disp_name = (name_map or {}).get(h.instrument_name, h.instrument_name)
+            h_entity_filter = [disp_name, h.instrument_name]
+            h_filt = build_filter(
+                entity_names=h_entity_filter,
+                published_from=published_from,
+                published_to=published_to,
+                min_relevance=settings.min_relevance,
+            )
+            h_query = f"{disp_name} {h.industry} business results orders deals growth expansion"
+            try:
+                h_vec = embed_query(h_query)
+                v_hits = reader.query_vector(h_vec, h_filt, 6)
+            except Exception:
+                v_hits = []
+            i_hits = reader.scroll_filtered(h_filt, 6)
+
+            for rank, row in enumerate(v_hits):
+                packed = _pack_article(row, settings, vector_score=float(row.get("score") or 0.0))
+                if not packed:
+                    continue
+                url = packed["url"]
+                rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.5 / (k + rank + 1))
+                if url not in by_url:
+                    by_url[url] = packed
+
+            for rank, row in enumerate(i_hits):
+                packed = _pack_article(row, settings, vector_score=0.0)
+                if not packed:
+                    continue
+                url = packed["url"]
+                rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.2 / (k + rank + 1))
+                if url not in by_url:
+                    by_url[url] = packed
+                else:
+                    by_url[url]["max_impact"] = max(by_url[url]["max_impact"], packed["max_impact"])
+
+        # ----------------------------------------------------
+        # Stream 2: Targeted Sector Streams (Top 4)
+        # ----------------------------------------------------
+        top_sectors = []
+        if scope is not None and isin:
+            top_sectors = sorted(
+                scope.sectors_for_isin(isin),
+                key=lambda s: s.by_fund.get(isin, 0.0),
+                reverse=True,
+            )[:4]
+
+        for sec in top_sectors:
+            s_filt = build_filter(
+                entity_names=[sec.canonical_name],
+                published_from=published_from,
+                published_to=published_to,
+                min_relevance=settings.min_relevance,
+            )
+            s_query = f"{sec.canonical_name} sector demand industry policy regulation growth"
+            try:
+                s_vec = embed_query(s_query)
+                v_hits = reader.query_vector(s_vec, s_filt, 5)
+            except Exception:
+                v_hits = []
+            i_hits = reader.scroll_filtered(s_filt, 5)
+
+            for rank, row in enumerate(v_hits):
+                packed = _pack_article(row, settings, vector_score=float(row.get("score") or 0.0))
+                if not packed:
+                    continue
+                url = packed["url"]
+                rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
+                if url not in by_url:
+                    by_url[url] = packed
+
+            for rank, row in enumerate(i_hits):
+                packed = _pack_article(row, settings, vector_score=0.0)
+                if not packed:
+                    continue
+                url = packed["url"]
+                rrf_scores[url] = rrf_scores.get(url, 0.0) + (0.8 / (k + rank + 1))
+                if url not in by_url:
+                    by_url[url] = packed
+                else:
+                    by_url[url]["max_impact"] = max(by_url[url]["max_impact"], packed["max_impact"])
+
+        # ----------------------------------------------------
+        # Stream 3: Overall Portfolio Broad Query
+        # ----------------------------------------------------
+        filter_kwargs = {
+            "entity_names": filter_names or None,
+            "published_from": published_from,
+            "published_to": published_to,
+            "min_relevance": settings.min_relevance,
+        }
+        filt = build_filter(**filter_kwargs)
+        if query_text.strip() and filter_names:
+            try:
+                vector = embed_query(query_text)
+                vector_rows = reader.query_vector(vector, filt, settings.retrieve_vector_limit)
+            except Exception:
+                vector_rows = []
+            for rank, row in enumerate(vector_rows):
+                packed = _pack_article(row, settings, vector_score=float(row.get("score") or 0.0))
+                if not packed:
+                    continue
+                url = packed["url"]
+                rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
+                if url not in by_url:
+                    by_url[url] = packed
+
+        impact_rows = reader.scroll_filtered(filt, settings.retrieve_impact_limit)
+        for rank, row in enumerate(impact_rows):
+            packed = _pack_article(row, settings, vector_score=0.0)
+            if not packed:
+                continue
+            url = packed["url"]
+            rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
+            if url not in by_url:
+                by_url[url] = packed
+            else:
+                by_url[url]["max_impact"] = max(by_url[url]["max_impact"], packed["max_impact"])
+
+        # If we found at least 6 distinct articles, the window is sufficient!
+        if len(by_url) >= 6:
+            break
 
     if query_log is not None:
-        query_log.write(f"merge unique_urls={len(by_url)} rrf_candidates={len(rrf_scores)}")
+        query_log.write(f"fund_multi_stream_retrieval window={final_window_label} unique_urls={len(by_url)}")
 
     articles = list(by_url.values())
     for item in articles:
@@ -436,7 +512,7 @@ def retrieve_fund_articles(
     )
     if query_log is not None:
         query_log.log_articles_block("fund_merged", articles, snippet_limit=settings.snippet_chars)
-    return window_label, articles
+    return final_window_label, articles
 
 
 def _fund_by_isin(scope: PortfolioScope, isin: str):
@@ -944,6 +1020,9 @@ def generate_fund_brief(
         settings,
         filter_names,
         query_text=query_text,
+        scope=scope,
+        isin=isin,
+        name_map=name_map,
         query_log=query_log,
     )
     quiet = _quiet_holdings(scope, isin, articles, name_map)
