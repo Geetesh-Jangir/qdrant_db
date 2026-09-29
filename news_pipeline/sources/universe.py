@@ -116,10 +116,10 @@ def load_holdings(settings: Settings) -> list[dict]:
 
     ranked = sorted(grouped.values(), key=lambda item: (-item["fund_count"], item["name"].lower()))
     selected = ranked[: settings.holdings_limit]
-    return _with_holding_aliases(selected)
+    return build_holding_entities(selected)
 
 
-def _with_holding_aliases(rows: list[dict]) -> list[dict]:
+def build_holding_entities(rows: list[dict]) -> list[dict]:
     token_owners: dict[str, set[str]] = defaultdict(set)
     prepared = []
     for row in rows:
