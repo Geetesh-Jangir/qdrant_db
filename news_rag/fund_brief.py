@@ -46,8 +46,8 @@ from news_pipeline.sources.universe import canonical_key
 
 FACT_TYPES = frozenset({"results", "order", "deal", "regulatory", "operations", "macro"})
 FUND_BRIEF_MAX_BULLETS = 20
-FUND_BRIEF_BULLET_MAX_CHARS = 650
-FUND_BRIEF_SUMMARY_MAX_WORDS = 220
+FUND_BRIEF_BULLET_MAX_CHARS = 320
+FUND_BRIEF_SUMMARY_MAX_WORDS = 200
 
 
 def _repo_root() -> Path:
@@ -873,25 +873,24 @@ def jev_filter_events(events: list[dict], *, query_log: QueryLogger | None = Non
 
 FUND_BRIEF_PROMPT = """You are an elite financial intelligence and storytelling analyst for Indian mutual fund investors.
 
-Your objective is to provide a rich, deeply meaningful, highly filtered, interconnected analysis of the material developments affecting this fund's top holdings, key sectors, and macroeconomic backdrop over the recent period.
+Your objective is to provide a rich, deeply meaningful, highly filtered, interconnected, and CRISP analysis of the material developments affecting this fund's top holdings, key sectors, and macroeconomic backdrop over the recent period.
 
 CRITICAL INSTRUCTIONS & GUIDELINES:
 
-1. KEY TAKEAWAYS (BULLET POINTS):
-   - Output ONE bullet point for each verified, impactful business, sector, or macroeconomic event.
-   - DO NOT artificially restrict the number of bullets. Include all distinct, verified material events across holdings, sectors, and macro factors.
-   - IN-DEPTH EXPLANATIONS FOR BIG EVENTS: When explaining a major event (e.g., quarterly earnings, CEO/leadership transitions, regulatory actions, major contracts, bond issuances, large M&A/capex, legal verdicts), explain the COMPLETE mechanism in that bullet:
-     * What happened -> Why it happened -> Operational/financial transmission -> Impact on company's growth/margins/competitive position -> Significance for fund investors.
-   - INTERCONNECTIVITY: Highlight causal links between points (e.g., how RBI rate/liquidity actions transmit into banking credit growth and specific bank earnings, or how global crude oil prices impact refining/automotive/chemicals margins).
+1. KEY TAKEAWAYS (CONCISE, PUNCHY BULLET POINTS):
+   - Keep each bullet point FULLY INFORMED with the exact event, key metrics, and direct business implication, but make the length CRISP and SHORT (strictly ONE concise sentence of about 20 to 30 words).
+   - AVOID verbose fluff, filler phrases, or long run-on compound sentences. Maximize factual density in clear, direct phrasing.
+   - Output ONE bullet point for each verified, impactful business, sector, or macroeconomic development (no artificial cap on the number of bullets).
+   - INTERCONNECTIVITY: Show clear cause-and-effect (e.g. how an RBI policy action transmits to bank credit growth, or how global crude spikes affect corporate input costs).
    - STRICT QUALITY FILTRATION:
-     * REJECT routine operational noise (e.g., bank holiday announcements, branch timings, routine notices, generic price fluctuation recaps with no corporate development).
+     * REJECT routine operational noise (e.g., bank holiday notices, branch timings, routine notices, generic price fluctuations without business catalyst).
      * ONLY include news with tangible business, strategic, or regulatory impact.
    - ELEGANT BOLDING & CLEAN FORMATTING:
-     * Use **bold** sparingly for only 1–2 key anchor terms per bullet (e.g. the company name or a key metric like **+18%** or **₹10,000 crore**).
+     * Use **bold** on only 1 or 2 key anchor terms per bullet (e.g. the company name or a key metric like **+18%** or **₹11.88 crore**).
      * On first mention of any acronym, write the full name in parentheses (e.g. RBI (Reserve Bank of India), SEBI (Securities and Exchange Board of India), TRAI (Telecom Regulatory Authority of India), NIM (Net Interest Margin), NBFC (Non-Banking Financial Company)).
 
 2. EXECUTIVE NARRATIVE (STORYTELLING PARAGRAPH):
-   - Write a cohesive storytelling narrative of about 120–180 words.
+   - Write a cohesive storytelling narrative of about 100–140 words.
    - TIE IN THE FUND'S 7-DAY NAV PERFORMANCE: Contextualize the fund's recent 7-day NAV movement (provided in the prompt, e.g., if NAV moved by +1.5% or -3.0%) with the underlying market themes, macroeconomic forces, and sector heavyweight developments.
    - Explain how macroeconomic backdrop and sector dynamics transmit into the fund's portfolio holdings and what it means strategically for the investor.
    - Use plain, engaging, conversational language that makes complex financial dynamics crystal clear without dumbing down the insights.
@@ -900,8 +899,8 @@ CRITICAL INSTRUCTIONS & GUIDELINES:
 OUTPUT FORMAT (PLAIN TEXT):
 
 BULLETS:
-- [Clear bullet line connecting the holding/sector/macro event, its deep causal explanation, and portfolio relevance]
-- [Next bullet line...]
+- [Crisp 20-30 word informative sentence connecting the event, key metric, and portfolio impact]
+- [Next crisp bullet line...]
 
 SUMMARY:
 [One cohesive storytelling paragraph contextualizing the 7-day NAV performance with the macroeconomic backdrop, sector transmission, and holding impact.]
