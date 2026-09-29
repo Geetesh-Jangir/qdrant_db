@@ -1,26 +1,46 @@
-"""Historical Gold and Silver price service (INR converted with metrics)."""
+"""Historical Gold and Silver price service using Snapdata IBJA 30-day feeds.
+
+Source feeds:
+- Gold: https://snapdata.dev/api/v1/gold/in/series/30d.csv (IBJA 24K, 22K, 18K in INR/gram)
+- Silver: https://snapdata.dev/api/v1/silver/in/series/30d.csv (IBJA Silver in INR/kg)
+
+Optimized for ultra-fast in-memory retrieval and compact storage for LLM prompts.
+"""
 
 from __future__ import annotations
 
+import io
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import yfinance as yf
+import requests
 
 logger = logging.getLogger(__name__)
 
-# Constants
-TROY_OUNCE_TO_GRAMS = 31.1034768
-DEFAULT_START_DATE = "2024-01-01"
+# Constants & Endpoints
+SNAPDATA_GOLD_URL = "https://snapdata.dev/api/v1/gold/in/series/30d.csv"
+SNAPDATA_SILVER_URL = "https://snapdata.dev/api/v1/silver/in/series/30d.csv"
+CACHE_TTL_SECONDS = 3600.0  # 1 hour in-memory cache
 
 _ROOT = Path(__file__).resolve().parents[1]
 _DATA_DIR = _ROOT / "data"
+_GOLD_RAW_CSV = _DATA_DIR / "gold_30d.csv"
+_SILVER_RAW_CSV = _DATA_DIR / "silver_30d.csv"
 _METALS_CSV = _DATA_DIR / "metals_prices.csv"
 _METALS_JSON = _DATA_DIR / "metals_prices.json"
+
+# In-memory cache for sub-millisecond retrieval
+_IN_MEMORY_CACHE: dict[str, Any] = {
+    "cached_at": 0.0,
+    "data": None,
+    "llm_context": "",
+    "latest_spot": {},
+}
 
 
 def _ensure_data_dir() -> Path:
@@ -28,154 +48,203 @@ def _ensure_data_dir() -> Path:
     return _DATA_DIR
 
 
-def fetch_metals_prices(
-    start: str = DEFAULT_START_DATE,
-    end: str | None = None,
-) -> pd.DataFrame:
-    """Fetch Gold (GC=F), Silver (SI=F), and USD/INR from Yahoo Finance,
-    align dates, convert to standard Indian units (₹/10g gold, ₹/kg silver),
-    and compute rolling metrics.
+def fetch_snapdata_metals() -> tuple[pd.DataFrame, str, str]:
+    """Download the 30-day Gold and Silver CSVs from Snapdata and merge into a unified DataFrame.
+
+    Returns:
+        tuple of (processed_df, raw_gold_csv_text, raw_silver_csv_text)
     """
-    tickers = ["GC=F", "SI=F", "USDINR=X"]
-    data = yf.download(
-        tickers,
-        start=start,
-        end=end,
-        auto_adjust=False,
-        progress=False,
-    )
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/csv,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    }
 
-    if data.empty:
-        raise ValueError("No data returned from Yahoo Finance for tickers: " + ", ".join(tickers))
+    try:
+        r_gold = requests.get(SNAPDATA_GOLD_URL, headers=headers, timeout=15)
+        r_gold.raise_for_status()
+        raw_gold_text = r_gold.text
 
-    close = data["Close"].copy()
+        r_silver = requests.get(SNAPDATA_SILVER_URL, headers=headers, timeout=15)
+        r_silver.raise_for_status()
+        raw_silver_text = r_silver.text
+    except Exception as exc:
+        logger.error("Failed to download metals data from Snapdata: %s", exc)
+        raise
 
-    # Forward-fill & backward-fill any trading calendar or timezone differences
-    close = close.ffill().bfill()
+    # Parse raw CSVs
+    df_g_raw = pd.read_csv(io.StringIO(raw_gold_text))
+    df_s_raw = pd.read_csv(io.StringIO(raw_silver_text))
 
-    close = close.rename(
-        columns={
-            "GC=F": "gold_usd_oz",
-            "SI=F": "silver_usd_oz",
-            "USDINR=X": "usd_inr",
-        }
-    )
+    # Filter out nulls/non-trading placeholders
+    df_g_valid = df_g_raw[df_g_raw["value"].notna()].copy()
+    df_s_valid = df_s_raw[df_s_raw["value"].notna()].copy()
 
-    # Convert USD/oz -> INR/oz
-    close["gold_inr_oz"] = close["gold_usd_oz"] * close["usd_inr"]
-    close["silver_inr_oz"] = close["silver_usd_oz"] * close["usd_inr"]
+    # Pivot Gold by instrument (XAU.24K, XAU.22K, XAU.18K)
+    g_pivot = df_g_valid.pivot(index="date", columns="instrument", values="value")
 
-    # Convert INR/oz -> INR/gram
-    close["gold_inr_gram"] = close["gold_inr_oz"] / TROY_OUNCE_TO_GRAMS
-    close["silver_inr_gram"] = close["silver_inr_oz"] / TROY_OUNCE_TO_GRAMS
+    df_merged = pd.DataFrame(index=g_pivot.index)
+    if "XAU.24K" in g_pivot.columns:
+        df_merged["gold_24k_inr_gram"] = g_pivot["XAU.24K"]
+        df_merged["gold_24k_inr_10g"] = g_pivot["XAU.24K"] * 10
+    if "XAU.22K" in g_pivot.columns:
+        df_merged["gold_22k_inr_gram"] = g_pivot["XAU.22K"]
+        df_merged["gold_22k_inr_10g"] = g_pivot["XAU.22K"] * 10
+    if "XAU.18K" in g_pivot.columns:
+        df_merged["gold_18k_inr_gram"] = g_pivot["XAU.18K"]
+        df_merged["gold_18k_inr_10g"] = g_pivot["XAU.18K"] * 10
 
-    # Common Indian Units
-    close["gold_inr_10g"] = close["gold_inr_gram"] * 10
-    close["silver_inr_kg"] = close["silver_inr_gram"] * 1000
+    # Silver (XAG is in INR/kg)
+    s_clean = df_s_valid.set_index("date")[["value"]].rename(columns={"value": "silver_inr_kg"})
+    s_clean["silver_inr_gram"] = s_clean["silver_inr_kg"] / 1000.0
 
-    # Percentage changes
-    close["gold_1d_pct"] = close["gold_inr_10g"].pct_change() * 100
-    close["silver_1d_pct"] = close["silver_inr_kg"].pct_change() * 100
-    close["usd_inr_1d_pct"] = close["usd_inr"].pct_change() * 100
+    df_merged = df_merged.join(s_clean, how="outer").sort_index()
+    df_merged = df_merged.ffill().bfill()
 
-    close["gold_7d_pct"] = close["gold_inr_10g"].pct_change(7) * 100
-    close["silver_7d_pct"] = close["silver_inr_kg"].pct_change(7) * 100
+    # Standard default aliases (primary gold = 24K)
+    df_merged["gold_inr_10g"] = df_merged.get("gold_24k_inr_10g", 0.0)
+    df_merged["gold_inr_gram"] = df_merged.get("gold_24k_inr_gram", 0.0)
 
-    close["gold_30d_pct"] = close["gold_inr_10g"].pct_change(30) * 100
-    close["silver_30d_pct"] = close["silver_inr_kg"].pct_change(30) * 100
+    # Returns & Momentum
+    df_merged["gold_1d_pct"] = df_merged["gold_24k_inr_10g"].pct_change() * 100
+    df_merged["silver_1d_pct"] = df_merged["silver_inr_kg"].pct_change() * 100
+    df_merged["gold_7d_pct"] = df_merged["gold_24k_inr_10g"].pct_change(7) * 100
+    df_merged["silver_7d_pct"] = df_merged["silver_inr_kg"].pct_change(7) * 100
 
-    # Moving Averages
-    close["gold_20d_ma"] = close["gold_inr_10g"].rolling(window=20).mean()
-    close["silver_20d_ma"] = close["silver_inr_kg"].rolling(window=20).mean()
+    # Moving averages
+    df_merged["gold_20d_ma"] = df_merged["gold_24k_inr_10g"].rolling(window=min(20, len(df_merged)), min_periods=1).mean()
+    df_merged["silver_20d_ma"] = df_merged["silver_inr_kg"].rolling(window=min(20, len(df_merged)), min_periods=1).mean()
 
-    # Format Date
-    close = close.reset_index()
-    close["date"] = close["Date"].dt.strftime("%Y-%m-%d")
-    close = close.drop(columns=["Date"])
+    # Reset index so 'date' is a column
+    df_merged = df_merged.reset_index().rename(columns={"index": "date"})
 
-    # Logical column ordering
-    columns = [
-        "date",
-        "gold_inr_10g",
-        "silver_inr_kg",
-        "gold_inr_gram",
-        "silver_inr_gram",
-        "gold_usd_oz",
-        "silver_usd_oz",
-        "usd_inr",
-        "gold_1d_pct",
-        "silver_1d_pct",
-        "usd_inr_1d_pct",
-        "gold_7d_pct",
-        "silver_7d_pct",
-        "gold_30d_pct",
-        "silver_30d_pct",
-        "gold_20d_ma",
-        "silver_20d_ma",
-    ]
-
-    return close[[c for c in columns if c in close.columns]]
+    return df_merged.round(2), raw_gold_text, raw_silver_text
 
 
 def save_metals_history(
     df: pd.DataFrame,
-    csv_path: Path = _METALS_CSV,
-    json_path: Path = _METALS_JSON,
+    raw_gold_text: str | None = None,
+    raw_silver_text: str | None = None,
 ) -> tuple[Path, Path]:
-    """Save metals historical dataframe to CSV and JSON in data/."""
+    """Save raw Snapdata CSVs, unified CSV, and structured JSON to disk and refresh in-memory cache."""
     _ensure_data_dir()
-    df.to_csv(csv_path, index=False)
 
+    # Save raw CSVs if provided
+    if raw_gold_text:
+        _GOLD_RAW_CSV.write_text(raw_gold_text, encoding="utf-8")
+    if raw_silver_text:
+        _SILVER_RAW_CSV.write_text(raw_silver_text, encoding="utf-8")
+
+    # Save unified CSV
+    df.to_csv(_METALS_CSV, index=False)
+
+    # Prepare JSON structure
+    latest_row = df.iloc[-1].to_dict() if not df.empty else {}
     records = df.to_dict(orient="records")
-    latest = records[-1] if records else {}
 
-    payload = {
+    # Metrics summary
+    summary = {
         "updated_at": datetime.now(timezone.utc).isoformat(),
+        "source": "IBJA via Snapdata (https://snapdata.dev)",
         "count": len(records),
-        "start_date": records[0]["date"] if records else None,
-        "end_date": latest.get("date"),
-        "latest": latest,
-        "records": records,
+        "latest": latest_row,
     }
 
-    with open(json_path, "w", encoding="utf-8") as f:
+    if not df.empty:
+        summary["recap"] = {
+            "gold_24k_latest_10g": float(latest_row.get("gold_24k_inr_10g", 0.0)),
+            "gold_22k_latest_10g": float(latest_row.get("gold_22k_inr_10g", 0.0)),
+            "gold_18k_latest_10g": float(latest_row.get("gold_18k_inr_10g", 0.0)),
+            "silver_latest_kg": float(latest_row.get("silver_inr_kg", 0.0)),
+            "gold_1d_change_pct": float(latest_row.get("gold_1d_pct", 0.0)) if pd.notna(latest_row.get("gold_1d_pct")) else 0.0,
+            "silver_1d_change_pct": float(latest_row.get("silver_1d_pct", 0.0)) if pd.notna(latest_row.get("silver_1d_pct")) else 0.0,
+            "gold_7d_change_pct": float(latest_row.get("gold_7d_pct", 0.0)) if pd.notna(latest_row.get("gold_7d_pct")) else 0.0,
+            "silver_7d_change_pct": float(latest_row.get("silver_7d_pct", 0.0)) if pd.notna(latest_row.get("silver_7d_pct")) else 0.0,
+            "gold_24k_30d_min_10g": float(df["gold_24k_inr_10g"].min()),
+            "gold_24k_30d_max_10g": float(df["gold_24k_inr_10g"].max()),
+            "silver_30d_min_kg": float(df["silver_inr_kg"].min()),
+            "silver_30d_max_kg": float(df["silver_inr_kg"].max()),
+        }
+
+    payload = {
+        "summary": summary,
+        "history": records,
+    }
+
+    with open(_METALS_JSON, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
-    return csv_path, json_path
+    # Invalidate & populate in-memory cache
+    _IN_MEMORY_CACHE["cached_at"] = time.time()
+    _IN_MEMORY_CACHE["data"] = payload
+    _IN_MEMORY_CACHE["latest_spot"] = summary.get("recap", {})
+    _IN_MEMORY_CACHE["llm_context"] = _build_llm_context(payload)
+
+    logger.info("Saved Snapdata metals prices (%d rows) to %s and %s", len(df), _METALS_CSV, _METALS_JSON)
+    return _METALS_CSV, _METALS_JSON
 
 
-def load_metals_history() -> dict[str, Any] | None:
-    """Load cached metals history from JSON file."""
-    if not _METALS_JSON.is_file():
-        return None
-    try:
-        with open(_METALS_JSON, encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as exc:
-        logger.warning("Failed to load metals history JSON: %s", exc)
-        return None
+def load_metals_history(force_refresh: bool = False) -> dict[str, Any]:
+    """Load metals history with high-performance in-memory caching."""
+    now = time.time()
+
+    if not force_refresh and _IN_MEMORY_CACHE["data"] is not None:
+        if (now - _IN_MEMORY_CACHE["cached_at"]) < CACHE_TTL_SECONDS:
+            return _IN_MEMORY_CACHE["data"]
+
+    # Try loading from JSON disk file
+    if not force_refresh and _METALS_JSON.exists():
+        try:
+            with open(_METALS_JSON, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            _IN_MEMORY_CACHE["cached_at"] = now
+            _IN_MEMORY_CACHE["data"] = data
+            _IN_MEMORY_CACHE["latest_spot"] = data.get("summary", {}).get("recap", {})
+            _IN_MEMORY_CACHE["llm_context"] = _build_llm_context(data)
+            return data
+        except Exception as exc:
+            logger.warning("Error reading %s, will refetch: %s", _METALS_JSON, exc)
+
+    # Download fresh from Snapdata
+    df, raw_gold, raw_silver = fetch_snapdata_metals()
+    save_metals_history(df, raw_gold, raw_silver)
+    return _IN_MEMORY_CACHE["data"]
 
 
-def get_latest_metals_prices() -> dict[str, Any]:
-    """Get the most recent Gold and Silver prices in INR with 1d/7d changes."""
-    data = load_metals_history()
-    if not data or not data.get("latest"):
-        df = fetch_metals_prices()
-        save_metals_history(df)
-        data = load_metals_history()
-
-    return (data or {}).get("latest", {})
+def get_latest_metals_spot() -> dict[str, Any]:
+    """Ultra-fast (<0.1ms) access to latest spot prices and trends."""
+    if _IN_MEMORY_CACHE["data"] is None or (time.time() - _IN_MEMORY_CACHE["cached_at"]) >= CACHE_TTL_SECONDS:
+        load_metals_history()
+    return _IN_MEMORY_CACHE.get("latest_spot", {})
 
 
-def get_metals_history(days: int = 30) -> list[dict[str, Any]]:
-    """Get recent N days of historical metals data."""
-    data = load_metals_history()
-    if not data or not data.get("records"):
-        df = fetch_metals_prices()
-        save_metals_history(df)
-        data = load_metals_history()
+def _build_llm_context(data: dict[str, Any]) -> str:
+    """Format a dense, informative context snippet for LLM prompts strictly focusing on 24K Gold and Silver."""
+    summary = data.get("summary", {})
+    recap = summary.get("recap", {})
+    latest = summary.get("latest", {})
+    latest_date = latest.get("date", "N/A")
 
-    records = (data or {}).get("records", [])
-    if days > 0:
-        return records[-days:]
-    return records
+    if not recap:
+        return ""
+
+    lines = [
+        "### Official 30-Day Bullion Benchmark Rates (India - IBJA Official Benchmark)",
+        f"- **Benchmark As-Of Date**: {latest_date} (Source: India Bullion and Jewellers Association via Snapdata)",
+        f"- **Pure Gold (24 Karat - XAU.24K.INR - 999 Purity)**: ₹{recap.get('gold_24k_latest_10g', 0):,.2f} per 10 grams (₹{latest.get('gold_24k_inr_gram', 0):,.2f} per gram)",
+        f"- **Silver (XAG.INR.KG)**: ₹{recap.get('silver_latest_kg', 0):,.2f} per kilogram (₹{latest.get('silver_inr_gram', 0):,.2f} per gram)",
+        f"- **1-Day Price Movement**: 24K Gold {recap.get('gold_1d_change_pct', 0):+.2f}% | Silver {recap.get('silver_1d_change_pct', 0):+.2f}%",
+        f"- **7-Day Price Trend**: 24K Gold {recap.get('gold_7d_change_pct', 0):+.2f}% | Silver {recap.get('silver_7d_change_pct', 0):+.2f}%",
+        f"- **30-Day Trading Range**: 24K Gold ₹{recap.get('gold_24k_30d_min_10g', 0):,.2f} (Low) - ₹{recap.get('gold_24k_30d_max_10g', 0):,.2f} (High) per 10g | Silver ₹{recap.get('silver_30d_min_kg', 0):,.2f} (Low) - ₹{recap.get('silver_30d_max_kg', 0):,.2f} (High) per kg",
+    ]
+    return "\n".join(lines)
+
+
+def format_metals_context_for_llm(force_refresh: bool = False) -> str:
+    """Return pre-computed LLM prompt context block in microseconds."""
+    now = time.time()
+    if not force_refresh and _IN_MEMORY_CACHE.get("llm_context"):
+        if (now - _IN_MEMORY_CACHE["cached_at"]) < CACHE_TTL_SECONDS:
+            return _IN_MEMORY_CACHE["llm_context"]
+
+    data = load_metals_history(force_refresh=force_refresh)
+    return _build_llm_context(data)

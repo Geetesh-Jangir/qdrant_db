@@ -145,7 +145,11 @@ CONCEPT_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 def is_concept_query(question: str) -> bool:
     q = question.strip().lower()
-    if any(q.startswith(p) for p in ["what is happening", "what's happening", "what happened", "what is going on"]):
+    if any(p in q for p in [
+        "what is happening", "what's happening", "what happened", "what is going on",
+        "price", "trend", "moving", "falling", "rising", "drop", "surge", "gain",
+        "today", "yesterday", "last week", "last month", "30 day", "rate", "target", "outlook"
+    ]):
         return False
     return any(p.search(question) for p in CONCEPT_PATTERNS)
 
@@ -390,18 +394,26 @@ def classify_query_intent(
     """Classifies user query intent into concept, single_stock, macro_commodity, sector, or general."""
     lower_q = question.lower()
     
-    # 1. Check Concept / Educational Definition Query
+    # 1. Check Bullion / Precious Metals (Gold & Silver)
+    bullion_terms = [
+        "gold", "silver", "bullion", "xau", "xag", "yellow metal", "white metal",
+        "sovereign gold bond", "sgb", "gold etf", "silver etf", "ibja"
+    ]
+    if any(re.search(rf"\b{re.escape(term)}\b", lower_q) for term in bullion_terms):
+        return "bullion"
+
+    # 2. Check Concept / Educational Definition Query
     # (E.g. "What is a conglomerate?", "What does EBITDA mean?", "Define core investment company")
     # Only if not asking about a specific company in the corpus
     has_specific_company = bool(resolved_entities and not any(e.startswith("Macro") for e in resolved_entities))
     if is_concept_query(question) and not has_specific_company:
         return "concept"
 
-    # 2. Check Macro / Commodity
+    # 3. Check Macro / Other Commodities
     if any(entity.startswith("Macro") for entity in resolved_entities) or stock_hint.startswith("Macro"):
         return "macro_commodity"
     macro_terms = [
-        "gold", "silver", "crude", "oil", "brent", "petroleum", "rupee", "dollar", "forex",
+        "crude", "oil", "brent", "petroleum", "rupee", "dollar", "forex",
         "inflation", "cpi", "wpi", "interest rate", "repo rate", "rbi policy", "mpc",
         "fii", "dii", "fpi", "gdp", "economic growth", "union budget", "tariffs", "geopolitic"
     ]

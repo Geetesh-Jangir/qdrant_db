@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI script to fetch historical Gold & Silver prices in INR and save to data/."""
+"""CLI script to fetch official IBJA Gold & Silver prices (30 days) from Snapdata and save to data/."""
 
 from __future__ import annotations
 
@@ -13,26 +13,15 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 from historical_data.metals_service import (
-    fetch_metals_prices,
+    fetch_snapdata_metals,
+    format_metals_context_for_llm,
     save_metals_history,
 )
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Fetch historical Gold, Silver, and USD/INR prices and save INR conversions to data/."
-    )
-    parser.add_argument(
-        "--start",
-        type=str,
-        default="2024-01-01",
-        help="Start date in YYYY-MM-DD format (default: 2024-01-01)",
-    )
-    parser.add_argument(
-        "--end",
-        type=str,
-        default=None,
-        help="End date in YYYY-MM-DD format (default: latest available)",
+        description="Fetch official IBJA Gold & Silver 30-day series from Snapdata and save to data/."
     )
     parser.add_argument(
         "--preview",
@@ -43,34 +32,38 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    print(f"Fetching Gold (GC=F), Silver (SI=F), and USDINR=X from {args.start} to {args.end or 'latest'}...")
+    print("Fetching 30-day series from Snapdata (Gold & Silver IBJA rates)...")
     try:
-        df = fetch_metals_prices(start=args.start, end=args.end)
-        csv_path, json_path = save_metals_history(df)
+        df, raw_gold, raw_silver = fetch_snapdata_metals()
+        csv_path, json_path = save_metals_history(df, raw_gold, raw_silver)
 
-        print(f"\nSuccessfully fetched {len(df)} daily trading records.")
-        print(f"Data range: {df['date'].iloc[0]} to {df['date'].iloc[-1]}")
-        print(f"\nSaved Files:")
-        print(f"  - CSV:  {csv_path} ({csv_path.stat().st_size:,} bytes)")
-        print(f"  - JSON: {json_path} ({json_path.stat().st_size:,} bytes)")
+        print(f"\nSuccessfully stored {len(df)} daily trading records.")
+        print(f"Date range: {df['date'].iloc[0]} to {df['date'].iloc[-1]}")
+        print(f"Unified CSV: {csv_path}")
+        print(f"JSON Cache:  {json_path}")
+        print(f"Raw Gold CSV:   {_ROOT / 'data' / 'gold_30d.csv'}")
+        print(f"Raw Silver CSV: {_ROOT / 'data' / 'silver_30d.csv'}")
 
-        if args.preview > 0:
-            print(f"\n--- Latest {args.preview} Days (Indian Units) ---")
-            preview_cols = [
+        print(f"\nPreview (Last {args.preview} records):")
+        cols_to_show = [
+            c
+            for c in [
                 "date",
-                "gold_inr_10g",
+                "gold_24k_inr_10g",
+                "gold_22k_inr_10g",
+                "gold_18k_inr_10g",
                 "silver_inr_kg",
-                "usd_inr",
                 "gold_1d_pct",
                 "silver_1d_pct",
             ]
-            print(df[preview_cols].tail(args.preview).to_string(index=False))
+            if c in df.columns
+        ]
+        print(df[cols_to_show].tail(args.preview).to_string(index=False))
 
-            latest = df.iloc[-1]
-            print("\n--- Current Spot Recap ---")
-            print(f"  Gold (₹/10g):   ₹{latest['gold_inr_10g']:,.2f} ({latest['gold_1d_pct']:+.2f}%)")
-            print(f"  Silver (₹/kg):  ₹{latest['silver_inr_kg']:,.2f} ({latest['silver_1d_pct']:+.2f}%)")
-            print(f"  USD/INR:        ₹{latest['usd_inr']:.2f}")
+        print("\nPre-computed LLM Context:")
+        print("=" * 60)
+        print(format_metals_context_for_llm(force_refresh=True))
+        print("=" * 60)
 
     except Exception as exc:
         print(f"\nError fetching metals history: {exc}", file=sys.stderr)

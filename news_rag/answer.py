@@ -103,6 +103,30 @@ SUMMARY:
 One short, engaging storytelling paragraph of about 45–65 words (2–4 sentences) focused strictly on this company. Connect what happened to the company's business outlook in plain prose. Deliver clear meaning with only 2–3 selective **bold** highlights. No bullet characters. No buy/sell advice. No URLs.
 """
 
+SYSTEM_PROMPT_BULLION = """You help Indian investors understand GOLD (strictly 24-Karat pure gold) and SILVER prices, trends, and market drivers in simple, data-backed, storytelling English.
+
+You receive a user question about Gold, Silver, or Bullion markets along with verified 30-day official benchmark data (IBJA daily rates) and relevant market news excerpts.
+Answer the question directly, weaving the exact verified spot numbers, price changes, and 30-day range into your response.
+
+CRITICAL RULES FOR GOLD/SILVER ANSWERS:
+1. STRICT 24K GOLD BENCHMARK: For all gold figures and discussions, use EXCLUSIVELY 24-Karat pure gold (999 purity / XAU.24K.INR) in ₹/10 grams or ₹/gram. Do NOT mention 22K or 18K gold.
+2. SILVER BENCHMARK: Use Silver (XAG.INR.KG) in ₹/kilogram or ₹/gram.
+3. DATA-BACKED ANCHORS: Directly quote the latest official rate, 1-day % change, 7-day trend, and where the price stands within its 30-day range (e.g., near monthly low/high).
+4. EXPLAIN WHY: Connect price moves to concrete catalysts (US dollar strength/weakness, geopolitical tensions, domestic festive/wedding demand, inflation hedging, interest rate outlook).
+5. BRACKETED EXPLANATIONS: Explain unfamiliar concepts in parentheses (...) on first mention (e.g., profit booking, hedge, safe-haven asset, spot price).
+
+Write your reply in exactly this structure (plain text):
+
+BULLETS:
+- [Spot Price & Recent Momentum: Direct bullet stating the exact 24K gold rate (₹/10g or ₹/g) or silver rate (₹/kg), today's % change, and 7-day trend with a bracketed explanation (...) of the primary catalyst. 1-2 complete sentences, ~30-45 words.]
+- [30-Day Context & Core Macro Drivers: Direct bullet stating where the metal trades within its 30-day high-low range and detailing the global/domestic macro factors pushing the price. 1-2 complete sentences, ~30-45 words.]
+- [Investor & Economic Takeaway: Direct bullet explaining the practical impact on Indian investors (physical buyers, sovereign gold bonds, silver/gold ETFs, consumer demand). 1-2 complete sentences, ~30-45 words.]
+(Do NOT include label prefixes like "Bullet 1:". Start each line directly with "- ".)
+
+SUMMARY:
+One short, engaging storytelling paragraph of about 45–65 words (2–4 sentences) delivering a data-backed narrative of where gold/silver stands and what it means for Indian investors. Deliver clear meaning with only 2–3 selective **bold** highlights. No bullet characters. No buy/sell advice. No URLs.
+"""
+
 SYSTEM_PROMPT_MACRO_COMMODITY = """You help Indian investors understand MACROECONOMIC & COMMODITY developments (e.g. Gold, Silver, Crude Oil, Interest Rates, Inflation, Forex, Government Policy) in simple, storytelling English.
 
 You receive a user question about a macro/commodity theme and numbered article excerpts. Use ONLY facts from those excerpts.
@@ -157,6 +181,8 @@ One short, engaging storytelling paragraph of about 45–65 words (2–4 sentenc
 
 
 def _get_system_prompt(intent: str) -> str:
+    if intent == "bullion":
+        return SYSTEM_PROMPT_BULLION
     if intent == "concept":
         return SYSTEM_PROMPT_CONCEPT
     if intent == "single_stock":
@@ -240,6 +266,21 @@ def generate_answer(
 
     system_prompt = _get_system_prompt(parsed.intent)
 
+    metals_context = ""
+    q_lower = parsed.question.lower()
+    is_bullion_query = (
+        parsed.intent == "bullion"
+        or any(m in q_lower for m in ["gold", "silver", "bullion", "xau", "xag", "yellow metal", "white metal", "sgb", "ibja"])
+        or any("gold" in str(e).lower() or "silver" in str(e).lower() for e in parsed.entity_resolved)
+    )
+    if is_bullion_query:
+        try:
+            from historical_data.metals_service import format_metals_context_for_llm
+            metals_context = format_metals_context_for_llm()
+            system_prompt = _get_system_prompt("bullion")
+        except Exception:
+            metals_context = ""
+
     if parsed.intent == "concept":
         user_content = (
             f"User Question: {parsed.question}\n\n"
@@ -247,12 +288,27 @@ def generate_answer(
             "Explain this business/investing concept simply and clearly in ONE short, beginner-friendly paragraph (~40-60 words).\n"
             "Do NOT output any bullet points. Give a relatable real-world Indian example if helpful."
         )
+    elif is_bullion_query and metals_context:
+        user_content = (
+            f"User Question: {parsed.question}\n"
+            f"Time Window: {parsed.window_label}\n"
+            f"{metals_context}\n\n"
+            f"Retrieved Market Articles & News Excerpts:\n{_format_context(articles)}\n\n"
+            "Instructions for Data-Backed Bullion Response:\n"
+            "1. STRICT 24K GOLD RULE: When answering about gold, reference and quote ONLY 24-Karat pure gold (₹/10g or ₹/g) from the official benchmark data above. Do NOT mention 22K or 18K gold.\n"
+            "2. DATA-BACKED ANCHORS: Weave the exact latest 24K gold rate (₹/10g or ₹/g) or silver rate (₹/kg), 1-day change %, 7-day trend %, and where the price sits in the 30-day range directly into the bullets and summary.\n"
+            "3. EXPLAIN THE WHY & IMPACT: Explain the economic catalysts behind the movement (dollar index, interest rate expectations, inflation, safe haven demand, festive buying) and practical takeaways for Indian investors.\n"
+            "4. Put unfamiliar financial terms in parentheses (...) on first mention.\n"
+            "5. Keep each bullet to 1-2 clear, punchy sentences (~30-45 words). Keep summary to 45-65 words."
+        )
     else:
+        extra_block = f"\nVerified 30-Day Spot Market Data:\n{metals_context}\n" if metals_context else ""
         user_content = (
             f"User Question: {parsed.question}\n"
             f"Detected Intent: {parsed.intent}\n"
             f"Time Window: {parsed.window_label}\n"
-            f"Resolved Entities: {', '.join(parsed.entity_resolved) or '(broad search)'}\n\n"
+            f"Resolved Entities: {', '.join(parsed.entity_resolved) or '(broad search)'}\n"
+            f"{extra_block}\n"
             f"Retrieved Articles:\n{_format_context(articles)}\n\n"
             "Instructions for Response:\n"
             "1. Directly answer the user's specific question using facts from the excerpts above.\n"
