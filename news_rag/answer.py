@@ -27,11 +27,16 @@ CORE GUIDELINES:
    - If the user asks "why" something happened or asks for "impact", lead directly with the cause-and-effect chain and tangible financial/business consequences.
    - Do NOT wander off-topic, recite generic market summaries, or answer unrelated questions.
 
-2. PRACTICAL MEANING & REAL-WORLD BUSINESS IMPACT:
+2. WHEN RETRIEVED EXCERPTS LACK SPECIFIC NEWS OR THE QUERY IS A GENERAL CONCEPT:
+   - NEVER output robotic bullets repeating "The provided excerpts do not contain information...".
+   - If the user is asking to understand or define a financial term or business concept, provide a direct, simple explanation in the SUMMARY paragraph and OMIT the BULLETS section completely.
+   - If the user asked for recent news about a specific company or event not present in the news store, provide a polite, simple 1-2 sentence explanation in the SUMMARY stating that no recent news was found in the verified store, without generating artificial bullet points.
+
+3. PRACTICAL MEANING & REAL-WORLD BUSINESS IMPACT:
    - Do NOT just report dry headlines or isolated numbers. Every point MUST explain the practical real-world meaning:
      What happened -> What it means for company revenues, profit margins, borrowing costs, or business growth -> Why it matters for investors.
 
-3. EXPLAIN UNFAMILIAR EVENTS & TERMS IN BRACKETS (...):
+4. EXPLAIN UNFAMILIAR EVENTS & TERMS IN BRACKETS (...):
    - Whenever you mention a specific corporate action, financial metric, regulatory rule, or macroeconomic event that an ordinary person wouldn't immediately understand, immediately explain it simply inside parentheses (...).
    - Examples:
      * "10-year G-sec yield (the benchmark interest rate the government pays to borrow money)"
@@ -48,23 +53,37 @@ CORE GUIDELINES:
      * "QoQ / Quarter-on-Quarter (comparing performance against the previous 3 months)"
      * "YoY / Year-on-Year (comparing performance against the same period last year)"
 
-4. SIMPLE, JARGON-FREE LANGUAGE (FOR BEGINNERS & NON-FINANCE INVESTORS):
+5. SIMPLE, JARGON-FREE LANGUAGE (FOR BEGINNERS & NON-FINANCE INVESTORS):
    - Use plain, conversational English that anyone with zero financial education can easily understand.
    - Replace heavy jargon with everyday words (e.g. say "making more profit on each loan" instead of "NIM expansion"; say "raw materials getting costlier" instead of "gross margin contraction via input cost inflation").
 
-5. SHOW INTERCONNECTIVITY & CAUSAL CHAINS:
+6. SHOW INTERCONNECTIVITY & CAUSAL CHAINS:
    - Explicitly show the cause-and-effect relationship (e.g., how higher global crude oil prices increase fuel and raw material input costs for paint and tyre makers, putting pressure on quarterly profit margins).
 
-6. STRICT MINIMAL HIGHLIGHTING (DO NOT OVER-HIGHLIGHT):
+7. STRICT MINIMAL HIGHLIGHTING (DO NOT OVER-HIGHLIGHT):
    - Highlight ONLY 1 or 2 most critical anchor terms per bullet (e.g. primary company name or key metric like **₹5,000 Cr** or **+12%** or **$85/barrel**).
    - Keep the summary to at most 2 or 3 total bold highlights across the entire paragraph.
    - DO NOT bold common verbs, adjectives, regulatory bodies, acronym expansions, or the bracketed explanations.
 
-7. REJECT TRIVIA & UNWANTED NOISE:
+8. REJECT TRIVIA & UNWANTED NOISE:
    - Exclude routine operational announcements, bank holiday notices, minor administrative changes, or generic price recaps without a business trigger.
 
-8. NO BUY/SELL ADVICE:
+9. NO BUY/SELL ADVICE:
    - Provide objective factual context and implications only.
+"""
+
+SYSTEM_PROMPT_CONCEPT = """You are a helpful, friendly financial guide explaining business, market, and investing concepts to beginners in very simple, plain English (easy enough for a 15-year-old to understand).
+
+Explain the concept directly, intuitively, and concisely in ONE short, engaging paragraph (40–60 words).
+- Do NOT generate any bullet points.
+- Do NOT say "The provided text excerpts do not contain...".
+- Use simple real-world Indian business examples (e.g. mentioning Tata Group or Reliance if explaining a conglomerate) to make the concept immediately clear and relatable.
+- Deliver clear meaning with only 1 or 2 selective **bold** highlights.
+
+OUTPUT FORMAT (PLAIN TEXT):
+
+SUMMARY:
+[Your clear, simple explanation in ONE concise paragraph. No bullet points.]
 """
 
 SYSTEM_PROMPT_SINGLE_STOCK = """You help Indian investors understand news about a SPECIFIC COMPANY in simple, clear, storytelling English (easy enough for a 15-year-old to grasp).
@@ -138,6 +157,8 @@ One short, engaging storytelling paragraph of about 45–65 words (2–4 sentenc
 
 
 def _get_system_prompt(intent: str) -> str:
+    if intent == "concept":
+        return SYSTEM_PROMPT_CONCEPT
     if intent == "single_stock":
         return SYSTEM_PROMPT_SINGLE_STOCK
     if intent == "macro_commodity":
@@ -219,20 +240,29 @@ def generate_answer(
 
     system_prompt = _get_system_prompt(parsed.intent)
 
-    user_content = (
-        f"User Question: {parsed.question}\n"
-        f"Detected Intent: {parsed.intent}\n"
-        f"Time Window: {parsed.window_label}\n"
-        f"Resolved Entities: {', '.join(parsed.entity_resolved) or '(broad search)'}\n\n"
-        f"Retrieved Articles:\n{_format_context(articles)}\n\n"
-        "Instructions for Response:\n"
-        "1. Directly answer the user's specific question using ONLY facts from the excerpts above.\n"
-        "2. If the user asks 'why' or asks for 'impact', focus directly on causal factors and tangible business effects (margins, profits, costs, debt, order book).\n"
-        "3. Explain every unfamiliar financial term, metric, or corporate action in parentheses (...) on first mention.\n"
-        "4. Keep each bullet to 1-2 clear, punchy sentences (~30-45 words). Do not rewrite headline titles.\n"
-        "5. Keep the summary paragraph to 45-65 words in plain, engaging English.\n"
-        "6. Do not include unwanted trivia or unrelated stories."
-    )
+    if parsed.intent == "concept":
+        user_content = (
+            f"User Question: {parsed.question}\n\n"
+            "Instructions:\n"
+            "Explain this business/investing concept simply and clearly in ONE short, beginner-friendly paragraph (~40-60 words).\n"
+            "Do NOT output any bullet points. Give a relatable real-world Indian example if helpful."
+        )
+    else:
+        user_content = (
+            f"User Question: {parsed.question}\n"
+            f"Detected Intent: {parsed.intent}\n"
+            f"Time Window: {parsed.window_label}\n"
+            f"Resolved Entities: {', '.join(parsed.entity_resolved) or '(broad search)'}\n\n"
+            f"Retrieved Articles:\n{_format_context(articles)}\n\n"
+            "Instructions for Response:\n"
+            "1. Directly answer the user's specific question using facts from the excerpts above.\n"
+            "2. If the user asks 'why' or asks for 'impact', focus directly on causal factors and tangible business effects (margins, profits, costs, debt, order book).\n"
+            "3. If the excerpts do NOT contain relevant information for this question or if the question is a concept definition, do NOT generate dummy bullets saying 'excerpts do not contain info'. Instead, omit the BULLETS section and provide a single simple explanation in the SUMMARY paragraph.\n"
+            "4. Explain every unfamiliar financial term, metric, or corporate action in parentheses (...) on first mention.\n"
+            "5. Keep each bullet to 1-2 clear, punchy sentences (~30-45 words). Do not rewrite headline titles.\n"
+            "6. Keep the summary paragraph to 45-65 words in plain, engaging English.\n"
+            "7. Do not include unwanted trivia or unrelated stories."
+        )
 
     llm_result = call_insight_llm(
         system_prompt=system_prompt,

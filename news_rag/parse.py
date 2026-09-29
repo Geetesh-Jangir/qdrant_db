@@ -123,7 +123,31 @@ STOPWORDS = {
     "that",
     "these",
     "those",
+    "define",
+    "definition",
+    "explain",
+    "explanation",
+    "concept",
+    "describe",
+    "description",
 }
+
+CONCEPT_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"^\s*what\s+is\s+(a|an|the)?\s*[\w\s&'-]+(\?|$)", re.I),
+    re.compile(r"^\s*what\s+are\s+(a|an|the)?\s*[\w\s&'-]+(\?|$)", re.I),
+    re.compile(r"^\s*define\s+[\w\s&'-]+(\?|$)", re.I),
+    re.compile(r"^\s*explain\s+(what\s+is\s+|what\s+are\s+|the\s+concept\s+of\s+)?[\w\s&'-]+(\?|$)", re.I),
+    re.compile(r"\bmeaning\s+of\s+[\w\s&'-]+(\?|$)", re.I),
+    re.compile(r"\bwhat\s+does\s+[\w\s&'-]+\s+mean\b", re.I),
+    re.compile(r"^\s*how\s+does\s+(a|an|the)?\s*[\w\s&'-]+\s+work(\?|$)", re.I),
+)
+
+
+def is_concept_query(question: str) -> bool:
+    q = question.strip().lower()
+    if any(q.startswith(p) for p in ["what is happening", "what's happening", "what happened", "what is going on"]):
+        return False
+    return any(p.search(question) for p in CONCEPT_PATTERNS)
 
 # Map phrases in the question to corpus entity_names (exact labels matching ingest universe).
 TOPIC_ENTITY_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
@@ -363,10 +387,17 @@ def classify_query_intent(
     stock_hint: str,
     resolved_entities: list[str],
 ) -> str:
-    """Classifies user query intent into single_stock, macro_commodity, sector, or general."""
+    """Classifies user query intent into concept, single_stock, macro_commodity, sector, or general."""
     lower_q = question.lower()
     
-    # 1. Check Macro / Commodity
+    # 1. Check Concept / Educational Definition Query
+    # (E.g. "What is a conglomerate?", "What does EBITDA mean?", "Define core investment company")
+    # Only if not asking about a specific company in the corpus
+    has_specific_company = bool(resolved_entities and not any(e.startswith("Macro") for e in resolved_entities))
+    if is_concept_query(question) and not has_specific_company:
+        return "concept"
+
+    # 2. Check Macro / Commodity
     if any(entity.startswith("Macro") for entity in resolved_entities) or stock_hint.startswith("Macro"):
         return "macro_commodity"
     macro_terms = [
@@ -377,7 +408,7 @@ def classify_query_intent(
     if any(re.search(rf"\b{re.escape(term)}\b", lower_q) for term in macro_terms):
         return "macro_commodity"
 
-    # 2. Check Sector / Industry
+    # 3. Check Sector / Industry
     sector_entities_lower = {name.lower() for name in SECTOR_CORPUS_NAMES}
     if any(entity.lower() in sector_entities_lower for entity in resolved_entities):
         return "sector"
@@ -385,8 +416,8 @@ def classify_query_intent(
     if any(term in lower_q for term in sector_terms):
         return "sector"
 
-    # 3. Check Single Stock
-    if resolved_entities and not any(e.startswith("Macro") for e in resolved_entities):
+    # 4. Check Single Stock
+    if has_specific_company:
         return "single_stock"
     if stock_hint and stock_hint.lower() not in STOPWORDS:
         return "single_stock"
