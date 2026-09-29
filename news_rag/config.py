@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     retrieve_max_articles: int = 15
     snippet_chars: int = 2500
     insight_max_bullets: int = 5
-    insight_bullet_max_chars: int = 320
+    insight_bullet_max_chars: int = 450
     insight_summary_max_words: int = 300
     min_relevance: int = 2
     embedding_model: str = EMBEDDING_MODEL
