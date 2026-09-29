@@ -73,13 +73,8 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
             continue
         resolved = _resolve_publisher_url(item["link"])
         source = _match_publisher(item["source_url"], item["source_name"], resolved)
-        
-        # --- STRICT PUBLISHER WHITELIST (COMMENTED TO ACCEPT ALL VALID SOURCES) ---
-        # if source is None:
-        #     continue
         if source is None:
-            source = host_of(resolved) or item.get("source_name") or "news"
-        # --------------------------------------------------------------------------
+            continue
 
         url = canonical_url(resolved)
         if not url.startswith("https://"):

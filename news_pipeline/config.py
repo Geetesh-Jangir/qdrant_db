@@ -263,21 +263,21 @@ class Settings(BaseSettings):
     # 0 = scan full RSS; keep every item that passes publisher/time/language/https filters.
     max_items_per_query: int = 0
     title_similarity: int = 80
-    recent_title_hours: int = 168
+    recent_title_hours: int = 720
     min_body_chars: int = 400
     embed_chars: int = 1500
     body_words: int = 2000
     # 0 = never delete by age. Ignored when news_corpus_mode is true.
-    retention_days: int = 180
+    retention_days: int = 30
     # Accumulate articles in Qdrant across runs; skip retention deletes and never wipe the collection.
-    news_corpus_mode: bool = True
+    news_corpus_mode: bool = False
     # Global title dedupe vs existing corpus. 0 hours = all stored articles; 0 limit = no cap.
     corpus_title_dedupe_hours: int = 0
     corpus_title_dedupe_limit: int = 0
     # Keep articles whose publish time is within this many hours (fetch + scrape). Env: NEWS_WINDOW_HOURS.
-    news_window_hours: int = 168
-    # Google News RSS search window suffix, e.g. 1d, 7d, 1m (without "when:"). Env: GOOGLE_NEWS_WHEN.
-    google_news_when: str = "7d"
+    news_window_hours: int = 720
+    # Google News RSS search window suffix, e.g. 1d, 7d, 30d (without "when:"). Env: GOOGLE_NEWS_WHEN.
+    google_news_when: str = "30d"
     fetch_workers: int = 2
     scrape_workers: int = 4
     upsert_batch: int = 128
