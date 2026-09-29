@@ -92,8 +92,12 @@ def jev_title_screen(state: PipelineState) -> dict:
             if is_macro_match(match):
                 continue
             score = relevance.get((index, match["name"]))
-            if score is None or score < settings.title_noul_min:
+            if score is None:
                 continue
+            # --- NOUL FILTER (COMMENTED TO STORE ALL CANDIDATES IN DB) ---
+            # if score < settings.title_noul_min:
+            #     continue
+            # -------------------------------------------------------------
 
             scored_matches.setdefault(index, []).append({**match, "title_relevance": round(score, 4)})
             by_entity.setdefault(match["name"], []).append((index, score))
@@ -106,8 +110,12 @@ def jev_title_screen(state: PipelineState) -> dict:
                 if entity.get("type") == "macro":
                     continue
                 score = relevance.get((index, entity_name))
-                if score is None or score < settings.title_noul_min:
+                if score is None:
                     continue
+                # --- NOUL FILTER (COMMENTED TO STORE ALL CANDIDATES IN DB) ---
+                # if score < settings.title_noul_min:
+                #     continue
+                # -------------------------------------------------------------
 
                 scored_matches.setdefault(index, []).append(
                     {
@@ -170,19 +178,19 @@ def jev_title_screen(state: PipelineState) -> dict:
                             f"title={clip_log_title(candidates[index]['title'])}"
                         )
 
-    for index, candidate in enumerate(candidates):
-        for match in candidate.get("matches") or []:
-            if is_macro_match(match):
-                continue
-            score = relevance.get((index, match["name"]))
-            if score is None:
-                continue
-            if score < settings.title_noul_min and run_log is not None:
-                run_log.write(
-                    f"jev_title_screen drop entity={match['name']} reason=below_noul "
-                    f"noul={score:.4f} min={settings.title_noul_min} "
-                    f"title={clip_log_title(candidate['title'])}"
-                )
+    # for index, candidate in enumerate(candidates):
+    #     for match in candidate.get("matches") or []:
+    #         if is_macro_match(match):
+    #             continue
+    #         score = relevance.get((index, match["name"]))
+    #         if score is None:
+    #             continue
+    #         if score < settings.title_noul_min and run_log is not None:
+    #             run_log.write(
+    #                 f"jev_title_screen drop entity={match['name']} reason=below_noul "
+    #                 f"noul={score:.4f} min={settings.title_noul_min} "
+    #                 f"title={clip_log_title(candidate['title'])}"
+    #             )
 
     kept = []
     for index, candidate in enumerate(candidates):
