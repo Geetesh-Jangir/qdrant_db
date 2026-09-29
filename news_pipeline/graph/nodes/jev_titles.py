@@ -23,17 +23,10 @@ def jev_title_screen(state: PipelineState) -> dict:
     errors = list(state.get("errors") or [])
     run_log = get_run_logger()
 
-    macro_rows: list[dict] = []
-    for index, candidate in enumerate(candidates):
-        if any(is_macro_match(match) for match in candidate.get("matches") or []):
-            macro_rows.append({"index": index, "title": candidate["title"]})
-
     if run_log is not None:
         run_log.write(
             "jev_title_screen started "
-            f"candidate_urls={len(candidates)} macro_pool_titles={len(macro_rows)} "
-            f"noul_min={settings.title_noul_min} max_scrape_per_entity={settings.max_scrape_per_entity} "
-            f"max_scrape_per_industry={settings.max_scrape_per_industry}"
+            f"candidate_urls={len(candidates)} entities={len(entities)}"
         )
 
     relevance: dict[tuple[int, str], float] = {}
@@ -51,7 +44,7 @@ def jev_title_screen(state: PipelineState) -> dict:
 
     with client:
         for name, entity in entities.items():
-            entity_rows, macro_only = _titles_for_entity(name, candidates, macro_rows)
+            entity_rows = _titles_for_entity(name, candidates)
             entity_rows.sort(
                 key=lambda row: candidates[row["index"]].get("published_at") or "",
                 reverse=True,
@@ -65,8 +58,7 @@ def jev_title_screen(state: PipelineState) -> dict:
             if run_log is not None:
                 run_log.write(
                     f"jev_title_screen entity={name} type={entity['type']} "
-                    f"titles_in_call={len(selected)} from_entity_query={len(entity_rows) - len(macro_only)} "
-                    f"from_macro_pool={len(macro_only)}"
+                    f"titles_in_call={len(selected)}"
                 )
 
             llm_usage = _score_entity_titles(
@@ -86,109 +78,18 @@ def jev_title_screen(state: PipelineState) -> dict:
     scored_matches: dict[int, list[dict]] = {}
     by_entity: dict[str, list[tuple[int, float]]] = {}
     for index, candidate in enumerate(candidates):
-        for match in candidate["matches"]:
-            if is_macro_match(match):
-                continue
+        for match in candidate.get("matches") or []:
             score = relevance.get((index, match["name"]))
             if score is None:
-                continue
-            # --- NOUL FILTER (COMMENTED TO STORE ALL CANDIDATES IN DB) ---
-            # if score < settings.title_noul_min:
-            #     continue
-            # -------------------------------------------------------------
-
+                score = 0.5
             scored_matches.setdefault(index, []).append({**match, "title_relevance": round(score, 4)})
             by_entity.setdefault(match["name"], []).append((index, score))
 
-    for index, candidate in enumerate(candidates):
-        for match in candidate.get("matches") or []:
-            if not is_macro_match(match):
-                continue
-            for entity_name, entity in entities.items():
-                if entity.get("type") == "macro":
-                    continue
-                score = relevance.get((index, entity_name))
-                if score is None:
-                    continue
-                # --- NOUL FILTER (COMMENTED TO STORE ALL CANDIDATES IN DB) ---
-                # if score < settings.title_noul_min:
-                #     continue
-                # -------------------------------------------------------------
-
-                scored_matches.setdefault(index, []).append(
-                    {
-                        "name": entity_name,
-                        "type": entity["type"],
-                        "industry": entity.get("industry") or "",
-                        "fund_count": entity["fund_count"],
-                        "total_percentage": entity["total_percentage"],
-                        "title_relevance": round(score, 4),
-                    }
-                )
-                by_entity.setdefault(entity_name, []).append((index, score))
-
     allowed: set[tuple[int, str]] = set()
-    industry_picks: dict[str, int] = defaultdict(int)
     for entity_name, rows in by_entity.items():
-        entity = entities.get(entity_name, {})
-        industry_key = (entity.get("industry") or entity_name).casefold()
         rows.sort(key=lambda item: item[1], reverse=True)
-        picked: list[tuple[int, float]] = []
         for index, score in rows:
-            # --- SCRAPE CAPPING (COMMENTED FOR FULL CORPUS SCRAPING) ---
-            # if settings.max_scrape_per_entity > 0 and len(picked) >= settings.max_scrape_per_entity:
-            #     break
-            # if (
-            #     entity.get("type") == "holding"
-            #     and settings.max_scrape_per_industry > 0
-            #     and industry_picks[industry_key] >= settings.max_scrape_per_industry
-            # ):
-            #     continue
-            # -----------------------------------------------------------
-            picked.append((index, score))
             allowed.add((index, entity_name))
-            if entity.get("type") == "holding":
-                industry_picks[industry_key] += 1
-        if run_log is not None:
-            passed = len(rows)
-            cap_label = (
-                "unlimited"
-                if settings.max_scrape_per_entity <= 0
-                else str(settings.max_scrape_per_entity)
-            )
-            run_log.write(
-                f"jev_title_screen entity={entity_name} passed_noul={passed} "
-                f"selected_for_scrape={len(picked)} cap={cap_label}"
-            )
-            for index, score in picked:
-                run_log.write(
-                    f"jev_title_screen keep entity={entity_name} noul={score:.4f} "
-                    f"title={clip_log_title(candidates[index]['title'])} "
-                    f"url={candidates[index].get('url', '')}"
-                )
-            for index, score in rows:
-                if (index, entity_name) in allowed:
-                    continue
-                if score >= settings.title_noul_min and run_log is not None:
-                    if settings.max_scrape_per_entity > 0 or settings.max_scrape_per_industry > 0:
-                        run_log.write(
-                            f"jev_title_screen drop entity={entity_name} reason=not_selected noul={score:.4f} "
-                            f"title={clip_log_title(candidates[index]['title'])}"
-                        )
-
-    # for index, candidate in enumerate(candidates):
-    #     for match in candidate.get("matches") or []:
-    #         if is_macro_match(match):
-    #             continue
-    #         score = relevance.get((index, match["name"]))
-    #         if score is None:
-    #             continue
-    #         if score < settings.title_noul_min and run_log is not None:
-    #             run_log.write(
-    #                 f"jev_title_screen drop entity={match['name']} reason=below_noul "
-    #                 f"noul={score:.4f} min={settings.title_noul_min} "
-    #                 f"title={clip_log_title(candidate['title'])}"
-    #             )
 
     kept = []
     for index, candidate in enumerate(candidates):
@@ -222,24 +123,15 @@ def _cap_titles(rows: list[dict], max_titles: int) -> list[dict]:
 def _titles_for_entity(
     name: str,
     candidates: list[dict],
-    macro_rows: list[dict],
-) -> tuple[list[dict], list[dict]]:
+) -> list[dict]:
     seen: set[int] = set()
     rows: list[dict] = []
-    macro_only: list[dict] = []
     for index, candidate in enumerate(candidates):
         for match in candidate.get("matches") or []:
-            if is_macro_match(match):
-                continue
             if match["name"] == name and index not in seen:
                 seen.add(index)
                 rows.append({"index": index, "title": candidate["title"]})
-    for row in macro_rows:
-        if row["index"] not in seen:
-            seen.add(row["index"])
-            rows.append(row)
-            macro_only.append(row)
-    return rows, macro_only
+    return rows
 
 
 def _entity_state(entity: dict) -> dict:
