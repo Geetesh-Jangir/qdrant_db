@@ -64,7 +64,32 @@ def retrieve_for_question(
     names, note = resolve_entities(hint, corpus)
     entity_filter = names if names else None
 
-    intent = classify_query_intent(question, hint, names)
+    # Resolve Fund & Sub-Questions
+    from news_rag.fund_search import extract_top_holdings, extract_top_sectors, get_fund_index
+    from news_rag.parse import split_multi_questions
+    fund_index = get_fund_index()
+    fund_detail = fund_index.resolve_fund_from_text(question)
+
+    sub_questions = split_multi_questions(question)
+    intent = classify_query_intent(question, hint, names, fund_resolved=fund_detail)
+
+    vector_query_text = question.strip()
+
+    # If a fund is resolved and no explicit single company was requested, focus on fund top holdings & sectors
+    if fund_detail and not names:
+        top_h = extract_top_holdings(fund_detail, limit=15)
+        top_s = extract_top_sectors(fund_detail, limit=4)
+        h_names = [h["name"] for h in top_h if h.get("name")]
+        s_names = [s["sector"] for s in top_s if s.get("sector")]
+        
+        matched_fund_entities = [e for e in (h_names + s_names) if e in corpus]
+        resolved_for_parsed = matched_fund_entities if matched_fund_entities else h_names[:5]
+        entity_filter = matched_fund_entities if matched_fund_entities else None
+        
+        # Guide vector search with fund holding keywords
+        vector_query_text = f"{question.strip()} {' '.join(h_names[:4])} {' '.join(s_names[:2])}".strip()
+    else:
+        resolved_for_parsed = names
 
     parsed = ParsedQuery(
         question=question.strip(),
@@ -72,9 +97,11 @@ def retrieve_for_question(
         published_to=published_to,
         window_label=window_label,
         stock_hint=hint,
-        entity_resolved=names,
+        entity_resolved=resolved_for_parsed,
         entity_match_note=note,
         intent=intent,
+        fund_resolved=fund_detail,
+        sub_questions=sub_questions,
     )
     if query_log is not None:
         query_log.log_parsed(parsed)
@@ -111,7 +138,7 @@ def retrieve_for_question(
 
     reader = QdrantReader()
     t1 = time.perf_counter()
-    vector = embed_query(question)
+    vector = embed_query(vector_query_text)
     if query_log is not None:
         query_log.log_step("embed_query", time.perf_counter() - t1, vector_dim=len(vector))
 
@@ -127,7 +154,39 @@ def retrieve_for_question(
         query_log.log_articles_block("qdrant_vector", vector_rows)
 
     t3 = time.perf_counter()
-    impact_rows = reader.scroll_filtered(filt, settings.retrieve_impact_limit)
+    if fund_detail and not names:
+        # Prioritize company-specific holding articles across multiple holdings first, then fallback to sector-level news
+        top_h = extract_top_holdings(fund_detail, limit=20)
+        top_s = extract_top_sectors(fund_detail, limit=4)
+        comp_matched = [h["name"] for h in top_h if h["name"] in corpus]
+        sec_matched = [s["sector"] for s in top_s if s["sector"] in corpus]
+
+        impact_rows = []
+        existing_urls = set()
+
+        # Balance scroll across distinct holding companies (up to 2 articles per holding to maximize entity diversity)
+        for comp in comp_matched:
+            filt_comp = build_filter(**{**filter_kwargs, "entity_names": [comp]})
+            rows = reader.scroll_filtered(filt_comp, 2)
+            for r in rows:
+                u = r.get("url")
+                if u and u not in existing_urls:
+                    impact_rows.append(r)
+                    existing_urls.add(u)
+
+        remaining = max(0, settings.retrieve_impact_limit - len(impact_rows))
+        if remaining > 0 and sec_matched:
+            for sec in sec_matched:
+                filt_sec = build_filter(**{**filter_kwargs, "entity_names": [sec]})
+                sec_rows = reader.scroll_filtered(filt_sec, 2)
+                for sr in sec_rows:
+                    u = sr.get("url")
+                    if u and u not in existing_urls:
+                        impact_rows.append(sr)
+                        existing_urls.add(u)
+    else:
+        impact_rows = reader.scroll_filtered(filt, settings.retrieve_impact_limit)
+
     if query_log is not None:
         query_log.log_step(
             "qdrant_scroll_filtered",
@@ -164,7 +223,7 @@ def retrieve_for_question(
 
     ranked: list[dict] = []
     skipped_recap = 0
-    entity_set = {name.lower() for name in names}
+    entity_set = {str(name).lower() for name in (resolved_for_parsed or names or [])}
 
     for url, row in by_url.items():
         if not allow_recap and row.get("event_type") == "price_recap":
@@ -221,4 +280,3 @@ def retrieve_for_question(
             query_log.write(f"post_filter skipped_price_recap={skipped_recap}")
         query_log.log_articles_block("ranked_for_llm", final, snippet_limit=settings.snippet_chars)
     return parsed, final
-

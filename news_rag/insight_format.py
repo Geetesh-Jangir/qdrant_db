@@ -18,8 +18,24 @@ def clean_insight_line(line: str) -> str:
     m = _QUOTED_BULLET.match(text)
     if m:
         text = m.group(1)
+
+    # Strip outer square brackets if the entire line was enclosed e.g. [Live NAV Trajectory: ...]
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1].strip()
+
+    # Strip any lingering prompt template labels or instruction phrases at the beginning of the bullet
+    text = re.sub(
+        r"^(?:\[?\s*(?:Live NAV Trajectory|Sector Breakdown|Sector Allocations|Key Holdings News|Growth Initiatives|Portfolio Transmission|Portfolio Impact|Direct Impact|Transmission to|Portfolio Cushion|Spot Price|30-Day Context|Investor & Economic|Core Catalyst|Direct answer addressing Question \d+|Explain the fund's latest value story|Explain the industry climate|Tell the story of [^:]*|Connect the big picture[^:]*|Fund NAV & Macro Backdrop|Primary Portfolio Mover & Catalysts|Major Deals & Corporate Actions|Sector Champions[^:]*|Investor Takeaway & Portfolio Resilience)[^:]*:\s*\]?)\s*",
+        "",
+        text,
+        flags=re.I,
+    )
+
     text = _WORD_COUNT.sub("", text).strip()
+    text = re.sub(r"\s*\[\s*\d+-\d+\s+complete\s+sentences[^\]]*\]", "", text, flags=re.I).strip()
+    text = re.sub(r"\s*\(\s*~?\d+\s*words?\s*\)\s*$", "", text, flags=re.I).strip()
     return text
+
 
 
 def parse_structured_insight(raw: str) -> tuple[list[str], str]:

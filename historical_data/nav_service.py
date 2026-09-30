@@ -216,3 +216,37 @@ def get_fund_nav_history(isin: str, *, use_cache: bool = True) -> dict[str, Any]
         "latest_date": latest["nav_date"],
         "stats": stats,
     }
+
+
+def format_nav_context_for_rag(isin: str, fund_name: str | None = None) -> str:
+    """Format a dense, verified NAV performance block for LLM prompts."""
+    nav_res = get_fund_nav_history(isin)
+    if not nav_res.get("success"):
+        return ""
+
+    latest_nav = nav_res.get("latest_nav")
+    latest_date = nav_res.get("latest_date")
+    stats = nav_res.get("stats") or {}
+    
+    w1 = stats.get("1W")
+    m1 = stats.get("1M")
+    m3 = stats.get("3M")
+    y1 = stats.get("1Y")
+
+    name_label = f" ({fund_name})" if fund_name else ""
+    lines = [
+        f"### Live Verified Mutual Fund NAV Performance{name_label}",
+        f"- **ISIN**: {isin.upper()}",
+        f"- **Latest NAV**: ₹{latest_nav} (as of {latest_date}) [Source: RupeeStop Real-time NAV API]",
+    ]
+
+    if w1:
+        lines.append(f"- **7-Day Return (1W)**: {w1['change_pct']:+.2f}% (from ₹{w1['start_nav']} on {w1['start_date']} to ₹{w1['end_nav']})")
+    if m1:
+        lines.append(f"- **30-Day Return (1M)**: {m1['change_pct']:+.2f}% (30-Day Range: Min ₹{m1['min_nav']} to Max ₹{m1['max_nav']})")
+    if m3:
+        lines.append(f"- **3-Month Return (3M)**: {m3['change_pct']:+.2f}%")
+    if y1:
+        lines.append(f"- **1-Year Return (1Y)**: {y1['change_pct']:+.2f}%")
+
+    return "\n".join(lines)

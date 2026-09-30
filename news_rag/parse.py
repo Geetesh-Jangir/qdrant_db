@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
 TIME_PATTERNS: list[tuple[re.Pattern[str], int]] = [
@@ -241,6 +241,8 @@ class ParsedQuery:
     entity_resolved: list[str]
     entity_match_note: str
     intent: str = "general"
+    fund_resolved: dict | None = None
+    sub_questions: list[str] = field(default_factory=list)
 
 
 def utc_now() -> datetime:
@@ -386,15 +388,51 @@ SECTOR_CORPUS_NAMES = {
 }
 
 
+def split_multi_questions(question: str) -> list[str]:
+    """Splits compound questions into individual sub-questions if multiple questions are detected."""
+    # Split on question marks first
+    parts = [p.strip() for p in re.split(r"\?+", question) if p.strip()]
+    if len(parts) > 1:
+        return [p + ("?" if not p.endswith("?") else "") for p in parts if len(p) > 5]
+    
+    # Split on explicit connectors like "and what", "also how", "and how"
+    sub_parts = re.split(r",?\s+(?:and|also)\s+(?:what|how|why|which|is|does|will|tell me)\s+", question, flags=re.I)
+    if len(sub_parts) > 1 and all(len(p.strip()) > 10 for p in sub_parts):
+        return [p.strip() for p in sub_parts]
+        
+    return [question.strip()]
+
+
 def classify_query_intent(
     question: str,
     stock_hint: str,
     resolved_entities: list[str],
+    fund_resolved: dict | None = None,
 ) -> str:
-    """Classifies user query intent into concept, single_stock, macro_commodity, sector, or general."""
+    """Classifies user query intent into fund_event_impact, fund_info, multi_question, bullion, concept, single_stock, macro_commodity, sector, or general."""
     lower_q = question.lower()
     
-    # 1. Check Bullion / Precious Metals (Gold & Silver)
+    # 1. Fund-related Intents
+    if fund_resolved:
+        sub_q = split_multi_questions(question)
+        if len(sub_q) > 1:
+            return "multi_question"
+        
+        event_impact_terms = [
+            "impact", "affect", "affecting", "crude", "oil", "tariff", "tariffs", "rate", "inflation",
+            "war", "geopolitic", "rbi", "policy", "down", "up", "fall", "rise", "crash", "rally",
+            "news", "event", "budget", "fed", "election", "holding news", "sector news"
+        ]
+        if any(re.search(rf"\b{re.escape(t)}\b", lower_q) for t in event_impact_terms):
+            return "fund_event_impact"
+        return "fund_info"
+
+    # Check multi-questions without fund
+    sub_q = split_multi_questions(question)
+    if len(sub_q) > 1 and question.count("?") > 1:
+        return "multi_question"
+
+    # 2. Bullion / Precious Metals (Gold & Silver)
     bullion_terms = [
         "gold", "silver", "bullion", "xau", "xag", "yellow metal", "white metal",
         "sovereign gold bond", "sgb", "gold etf", "silver etf", "ibja"
@@ -402,14 +440,12 @@ def classify_query_intent(
     if any(re.search(rf"\b{re.escape(term)}\b", lower_q) for term in bullion_terms):
         return "bullion"
 
-    # 2. Check Concept / Educational Definition Query
-    # (E.g. "What is a conglomerate?", "What does EBITDA mean?", "Define core investment company")
-    # Only if not asking about a specific company in the corpus
+    # 3. Concept / Educational Definition Query
     has_specific_company = bool(resolved_entities and not any(e.startswith("Macro") for e in resolved_entities))
     if is_concept_query(question) and not has_specific_company:
         return "concept"
 
-    # 3. Check Macro / Other Commodities
+    # 4. Macro / Other Commodities
     if any(entity.startswith("Macro") for entity in resolved_entities) or stock_hint.startswith("Macro"):
         return "macro_commodity"
     macro_terms = [
@@ -420,7 +456,7 @@ def classify_query_intent(
     if any(re.search(rf"\b{re.escape(term)}\b", lower_q) for term in macro_terms):
         return "macro_commodity"
 
-    # 3. Check Sector / Industry
+    # 5. Sector / Industry
     sector_entities_lower = {name.lower() for name in SECTOR_CORPUS_NAMES}
     if any(entity.lower() in sector_entities_lower for entity in resolved_entities):
         return "sector"
@@ -428,7 +464,7 @@ def classify_query_intent(
     if any(term in lower_q for term in sector_terms):
         return "sector"
 
-    # 4. Check Single Stock
+    # 6. Single Stock
     if has_specific_company:
         return "single_stock"
     if stock_hint and stock_hint.lower() not in STOPWORDS:

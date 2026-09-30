@@ -45,9 +45,9 @@ class Settings(BaseSettings):
     app_token: str = ""
     entity_cache_hours: float = 4.0
     default_window_days: int = 7
-    retrieve_vector_limit: int = 35
-    retrieve_impact_limit: int = 35
-    retrieve_max_articles: int = 15
+    retrieve_vector_limit: int = 40
+    retrieve_impact_limit: int = 40
+    retrieve_max_articles: int = 20
     snippet_chars: int = 2500
     insight_max_bullets: int = 5
     insight_bullet_max_chars: int = 600
