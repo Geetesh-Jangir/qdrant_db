@@ -27,6 +27,8 @@ from news_rag.query_router import RouterResult, route_query
 if TYPE_CHECKING:
     from news_rag.query_log import QueryLogger
 
+_FUND_FACT_INTENTS = frozenset({"fund_nav", "fund_holdings", "fund_sectors"})
+
 
 def _trim_snippet(text: str, limit: int) -> str:
     cleaned = " ".join((text or "").split())
@@ -69,6 +71,23 @@ def retrieve_for_question(
             isin=router.fund.isin,
             name=router.fund.name,
         )
+        if query_log is not None:
+            resolved_name = ""
+            resolved_isin = ""
+            if fund_detail:
+                resolved_isin = str(fund_detail.get("isin") or "")
+                resolved_name = str(
+                    fund_detail.get("fund_short_name") or fund_detail.get("fund_name") or ""
+                )
+            query_log.log_fund_lookup(
+                extracted_isin=router.fund.isin,
+                extracted_name=router.fund.name,
+                resolved=fund_detail is not None,
+                ambiguous=is_ambiguous,
+                close_matches=close_matches,
+                fund_isin=resolved_isin,
+                fund_name=resolved_name,
+            )
 
     # 3. Determine time window
     effective_days = router.window_days if router.window_days and not (date_from or date_to) else settings.default_window_days
@@ -79,20 +98,53 @@ def retrieve_for_question(
         default_days=effective_days,
     )
 
+    sub_questions = router.asked if router.asked else split_multi_questions(question)
+    intent = router.intent
+
+    # Fund facts: no stock hints, no corpus index, no Qdrant — data comes from fund API/JSON only.
+    if intent in _FUND_FACT_INTENTS:
+        parsed = ParsedQuery(
+            question=question.strip(),
+            published_from=published_from,
+            published_to=published_to,
+            window_label=window_label,
+            stock_hint="",
+            entity_resolved=[],
+            entity_match_note="fund_fact_no_news",
+            intent=intent,
+            fund_resolved=fund_detail,
+            sub_questions=sub_questions,
+            router_result=router,
+            fund_ambiguous=is_ambiguous,
+            close_funds=close_matches,
+        )
+        if query_log is not None:
+            query_log.log_parsed(parsed)
+            query_log.write(
+                f"retrieve_branch intent={intent} mode=fund_facts "
+                f"skip_corpus=true skip_qdrant=true fund_resolved={bool(fund_detail)}"
+            )
+        return parsed, []
+
     t0 = time.perf_counter()
     corpus = corpus_entity_names()
     if query_log is not None:
         query_log.log_step("corpus_entity_index", time.perf_counter() - t0, unique_names=len(corpus))
 
-    # 4. Resolve explicit company entities from router
+    # Resolve company entities only for news/stock queries — not when user named a fund scheme.
     extracted_companies = list(router.companies)
     if stock and stock not in extracted_companies:
         extracted_companies.append(stock)
 
-    hint = extracted_companies[0] if extracted_companies else extract_stock_hint(question, stock)
-    names, note = resolve_entities(hint, corpus)
-
-    sub_questions = router.asked if router.asked else split_multi_questions(question)
+    fund_named = bool(fund_detail) or not router.fund.is_empty()
+    if extracted_companies:
+        hint = extracted_companies[0]
+        names, note = resolve_entities(hint, corpus)
+    elif fund_named and intent.startswith("fund_"):
+        hint, names, note = "", [], "fund_query_no_stock_entity"
+    else:
+        hint = extract_stock_hint(question, stock) if not fund_named else ""
+        names, note = resolve_entities(hint, corpus) if hint else ([], "no_stock_hint")
 
     parsed = ParsedQuery(
         question=question.strip(),
@@ -102,7 +154,7 @@ def retrieve_for_question(
         stock_hint=hint,
         entity_resolved=names,
         entity_match_note=note,
-        intent=router.intent,
+        intent=intent,
         fund_resolved=fund_detail,
         sub_questions=sub_questions,
         router_result=router,
@@ -112,19 +164,10 @@ def retrieve_for_question(
     if query_log is not None:
         query_log.log_parsed(parsed)
 
-    # 5. Intent-driven Branching
-    intent = router.intent
-
     # Branch A: Concept queries — zero Qdrant queries
     if intent == "concept":
         if query_log is not None:
             query_log.write("retrieve_branch intent=concept skip_qdrant=true")
-        return parsed, []
-
-    # Branch B: Fund Facts queries (NAV, Holdings, Sectors) — zero Qdrant news queries
-    if intent in ("fund_nav", "fund_holdings", "fund_sectors"):
-        if query_log is not None:
-            query_log.write(f"retrieve_branch intent={intent} fund_resolved={bool(fund_detail)} skip_qdrant=true")
         return parsed, []
 
     # Branch C: News & Event Retrieval
@@ -142,7 +185,14 @@ def retrieve_for_question(
         fund_entities = comp_matched + sec_matched
 
         vector_query_text = f"{question.strip()} {router.event_focus} {' '.join(comp_matched[:4])}".strip()
+        t_embed = time.perf_counter()
         vector = embed_query(vector_query_text)
+        if query_log is not None:
+            query_log.log_step("embed_query", time.perf_counter() - t_embed, vector_dim=len(vector))
+            query_log.write(
+                f"retrieve_mode fund_news intent={intent} "
+                f"fund_entities={len(fund_entities)} vector_query={vector_query_text[:200]!r}"
+            )
 
         filter_kwargs = {
             "entity_names": fund_entities if fund_entities else None,
@@ -154,7 +204,32 @@ def retrieve_for_question(
             "direction": direction or None,
         }
         filt = build_filter(**filter_kwargs)
+        post_meta = {
+            "intent": intent,
+            "retrieval_mode": "fund_news",
+            "exclude_event_type_price_recap": not allow_recap,
+            "collection": settings.qdrant_collection,
+        }
+        spec = filter_spec(**filter_kwargs)
+        if query_log is not None:
+            query_log.log_filters(spec, post_filters=post_meta)
+            query_log.log_filters_applied(
+                describe_filters_for_log(
+                    spec,
+                    collection=settings.qdrant_collection,
+                    post_filters=post_meta,
+                )
+            )
+        t_vec = time.perf_counter()
         vector_rows = reader.query_vector(vector, filt, settings.retrieve_vector_limit)
+        if query_log is not None:
+            query_log.log_step(
+                "qdrant_query_vector",
+                time.perf_counter() - t_vec,
+                hits=len(vector_rows),
+                limit=settings.retrieve_vector_limit,
+            )
+            query_log.log_articles_block("qdrant_vector", vector_rows, snippet_limit=400)
 
         if intent == "fund_news":
             # Multi-holding scan for general fund news
@@ -168,7 +243,16 @@ def retrieve_for_question(
                         impact_rows.append(r)
                         existing_urls.add(u)
         else:
+            t_scroll = time.perf_counter()
             impact_rows = reader.scroll_filtered(filt, settings.retrieve_impact_limit)
+            if query_log is not None:
+                query_log.log_step(
+                    "qdrant_scroll_filtered",
+                    time.perf_counter() - t_scroll,
+                    hits=len(impact_rows),
+                    limit=settings.retrieve_impact_limit,
+                )
+                query_log.log_articles_block("qdrant_scroll", impact_rows, snippet_limit=400)
 
     # Case 2: Single Stock, Sector, Macro, Bullion, General
     else:
@@ -183,9 +267,50 @@ def retrieve_for_question(
             "direction": direction or None,
         }
         filt = build_filter(**filter_kwargs)
+        post_meta = {
+            "intent": intent,
+            "retrieval_mode": "entity_or_broad",
+            "entity_filter_empty": not entity_filter,
+            "exclude_event_type_price_recap": not allow_recap,
+            "collection": settings.qdrant_collection,
+        }
+        spec = filter_spec(**filter_kwargs)
+        if query_log is not None:
+            query_log.write(
+                f"retrieve_mode intent={intent} entity_resolved={names} entity_note={note}"
+            )
+            query_log.log_filters(spec, post_filters=post_meta)
+            query_log.log_filters_applied(
+                describe_filters_for_log(
+                    spec,
+                    collection=settings.qdrant_collection,
+                    post_filters=post_meta,
+                )
+            )
+        t_embed = time.perf_counter()
         vector = embed_query(question.strip())
+        if query_log is not None:
+            query_log.log_step("embed_query", time.perf_counter() - t_embed, vector_dim=len(vector))
+        t_vec = time.perf_counter()
         vector_rows = reader.query_vector(vector, filt, settings.retrieve_vector_limit)
+        if query_log is not None:
+            query_log.log_step(
+                "qdrant_query_vector",
+                time.perf_counter() - t_vec,
+                hits=len(vector_rows),
+                limit=settings.retrieve_vector_limit,
+            )
+            query_log.log_articles_block("qdrant_vector", vector_rows, snippet_limit=400)
+        t_scroll = time.perf_counter()
         impact_rows = reader.scroll_filtered(filt, settings.retrieve_impact_limit)
+        if query_log is not None:
+            query_log.log_step(
+                "qdrant_scroll_filtered",
+                time.perf_counter() - t_scroll,
+                hits=len(impact_rows),
+                limit=settings.retrieve_impact_limit,
+            )
+            query_log.log_articles_block("qdrant_scroll", impact_rows, snippet_limit=400)
 
     # 6. Reciprocal Rank Fusion (RRF) Ranking
     k = 60.0
@@ -271,8 +396,18 @@ def retrieve_for_question(
             break
 
     if query_log is not None:
+        query_log.write(
+            f"rank_merge unique_urls={len(by_url)} ranked={len(ranked)} final={len(final)}"
+        )
         if skipped_recap:
             query_log.write(f"post_filter skipped_price_recap={skipped_recap}")
         query_log.log_articles_block("ranked_for_llm", final, snippet_limit=settings.snippet_chars)
+        query_log.note(
+            "retrieval_done",
+            retrieved=len(final),
+            vector_hits=len(vector_rows),
+            scroll_hits=len(impact_rows),
+            intent=intent,
+        )
 
     return parsed, final

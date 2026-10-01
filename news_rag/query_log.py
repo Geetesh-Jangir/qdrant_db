@@ -24,11 +24,10 @@ def new_query_logger(*, kind: str = "ask") -> QueryLogger:
     settings = get_settings()
     log_dir = settings.rag_query_log_path()
     query_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + secrets.token_hex(3)
-    prefix = f"{kind}_" if kind and kind != "ask" else ""
+    prefix = "fund_brief_" if kind == "fund_brief" else "ask_"
     path = log_dir / f"{prefix}{query_id}.log"
-    logger = QueryLogger(query_id=query_id, log_path=path)
-    if kind and kind != "ask":
-        logger.write(f"kind={kind}")
+    logger = QueryLogger(query_id=query_id, log_path=path, kind=kind or "ask")
+    logger.write(f"kind={kind or 'ask'}")
     return logger
 
 
@@ -37,14 +36,16 @@ def new_fund_brief_logger() -> QueryLogger:
 
 
 class QueryLogger:
-    def __init__(self, query_id: str, log_path: Path) -> None:
+    def __init__(self, query_id: str, log_path: Path, *, kind: str = "ask") -> None:
         self.query_id = query_id
         self.log_path = log_path
+        self.kind = kind
         self.started_at = time.perf_counter()
         self.llm_provider = ""
         self.llm_calls = 0
         self.llm_input_tokens = 0
         self.llm_output_tokens = 0
+        self._summary: dict[str, Any] = {"query_id": query_id, "kind": kind, "events": []}
         self._file_lock = threading.Lock()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         if log_path.exists():
@@ -65,23 +66,94 @@ class QueryLogger:
             with self.log_path.open("a", encoding="utf-8") as handle:
                 handle.write(line)
 
+    def note(self, event: str, **fields: Any) -> None:
+        """Append a structured event to the JSON sidecar written at finish()."""
+        payload: dict[str, Any] = {"t": datetime.now(timezone.utc).isoformat(), "event": event}
+        payload.update(fields)
+        self._summary.setdefault("events", []).append(payload)
+
     def log_request(self, payload: dict[str, Any]) -> None:
         self.write("request " + _kv(payload))
 
     def log_parsed(self, parsed: Any) -> None:
+        fund = parsed.fund_resolved or {}
+        router = getattr(parsed, "router_result", None)
+        fields: dict[str, Any] = {
+            "question": clip_log_text(parsed.question, 500),
+            "intent": getattr(parsed, "intent", ""),
+            "window_label": parsed.window_label,
+            "published_from": parsed.published_from,
+            "published_to": parsed.published_to,
+            "stock_hint": parsed.stock_hint or "",
+            "entity_resolved": parsed.entity_resolved,
+            "entity_match_note": parsed.entity_match_note,
+            "sub_questions": getattr(parsed, "sub_questions", []) or [],
+            "fund_ambiguous": bool(getattr(parsed, "fund_ambiguous", False)),
+            "close_funds": getattr(parsed, "close_funds", []) or [],
+        }
+        if fund:
+            fields["fund_isin"] = fund.get("isin") or ""
+            fields["fund_name"] = fund.get("fund_short_name") or fund.get("fund_name") or ""
+        if router is not None:
+            fields["router_fund_isin"] = getattr(getattr(router, "fund", None), "isin", "") or ""
+            fields["router_fund_name"] = getattr(getattr(router, "fund", None), "name", "") or ""
+            fields["router_companies"] = getattr(router, "companies", []) or []
+            fields["router_event_focus"] = getattr(router, "event_focus", "") or ""
+            fields["router_window_days"] = getattr(router, "window_days", None)
+            fields["router_asked"] = getattr(router, "asked", []) or []
+        self.write("parsed " + _kv(fields))
+        self.note("parsed", intent=fields.get("intent"), entities=fields.get("entity_resolved"))
+
+    def log_fund_lookup(
+        self,
+        *,
+        extracted_isin: str,
+        extracted_name: str,
+        resolved: bool,
+        ambiguous: bool,
+        close_matches: list[str] | None = None,
+        fund_isin: str = "",
+        fund_name: str = "",
+    ) -> None:
         self.write(
-            "parsed "
+            "fund_lookup "
             + _kv(
                 {
-                    "question": clip_log_text(parsed.question, 500),
-                    "window_label": parsed.window_label,
-                    "published_from": parsed.published_from,
-                    "published_to": parsed.published_to,
-                    "stock_hint": parsed.stock_hint or "",
-                    "entity_resolved": parsed.entity_resolved,
-                    "entity_match_note": parsed.entity_match_note,
+                    "extracted_isin": extracted_isin or "",
+                    "extracted_name": extracted_name or "",
+                    "resolved": resolved,
+                    "ambiguous": ambiguous,
+                    "close_matches": close_matches or [],
+                    "fund_isin": fund_isin,
+                    "fund_name": fund_name,
                 }
             )
+        )
+        self.note(
+            "fund_lookup",
+            extracted_isin=extracted_isin,
+            extracted_name=extracted_name,
+            resolved=resolved,
+            ambiguous=ambiguous,
+            fund_isin=fund_isin,
+        )
+
+    def log_article_filter(
+        self,
+        *,
+        retrieved_count: int,
+        use_articles: list[int],
+        kept_count: int,
+    ) -> None:
+        self.write(
+            f"contract_article_filter retrieved={retrieved_count} "
+            f"use_articles={use_articles} kept_for_writer={kept_count}"
+        )
+        self.note(
+            "contract_article_filter",
+            retrieved=retrieved_count,
+            use_articles=use_articles,
+            kept=kept_count,
         )
 
     def log_filters(self, spec: dict[str, Any], *, post_filters: dict[str, Any]) -> None:
@@ -174,10 +246,31 @@ class QueryLogger:
         outcome: str,
         article_count: int,
         insight_source: str = "",
+        extra: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         total_seconds = round(time.perf_counter() - self.started_at, 3)
         source_bit = f" insight_source={insight_source}" if insight_source else ""
         provider_bit = f" llm_provider={self.llm_provider}" if self.llm_provider else ""
+        json_path: Path | None = self.log_path.with_suffix(".json")
+        self._summary.update(
+            {
+                "outcome": outcome,
+                "articles_retrieved": article_count,
+                "insight_source": insight_source,
+                "llm_provider": self.llm_provider,
+                "llm_calls": self.llm_calls,
+                "llm_input_tokens": self.llm_input_tokens,
+                "llm_output_tokens": self.llm_output_tokens,
+                "total_seconds": total_seconds,
+                "log_file": str(self.log_path),
+            }
+        )
+        if extra:
+            self._summary.update(extra)
+        try:
+            json_path.write_text(json.dumps(self._summary, ensure_ascii=False, indent=2), encoding="utf-8")
+        except OSError:
+            json_path = None
         self.write(
             "query finished "
             f"outcome={outcome} articles_returned={article_count}{source_bit}{provider_bit} "
@@ -186,9 +279,12 @@ class QueryLogger:
             f"llm_output_tokens={self.llm_output_tokens} "
             f"total_seconds={total_seconds}"
         )
+        if json_path is not None:
+            self.write(f"summary_json file={json_path}")
         return {
             "query_id": self.query_id,
             "log_file": str(self.log_path),
+            "summary_json": str(json_path) if json_path else "",
             "llm_provider": self.llm_provider,
             "llm_calls": self.llm_calls,
             "llm_input_tokens": self.llm_input_tokens,

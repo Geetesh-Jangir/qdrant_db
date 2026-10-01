@@ -18,12 +18,76 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _API_BASE_URL = "https://backend.rupeestop.com/api/v1/app/fund"
 
+# Pre-merger HDFC MF ISINs (INF063A*) → current HDFC AMC codes served by the API.
+_ISIN_ALIASES: dict[str, str] = {
+    "INF063A01027": "INF179KA1RT1",  # HDFC Large & Mid Cap Regular Growth
+    "INF063A01050": "INF179KA1RZ8",  # HDFC Small Cap Regular Growth
+}
+
+
+def resolve_canonical_isin(isin: str) -> str:
+    clean = (isin or "").strip().upper()
+    return _ISIN_ALIASES.get(clean, clean)
+
 
 def _clean_company_name(n: Any) -> str:
     s = str(n or "").strip()
     # Remove footnote annotations like £, *, #, @, etc.
     s = re.sub(r"[\*£@#$~\^]+$", "", s).strip()
     return s
+
+
+# Tokens in the user phrase that imply a specific AMC (must match fund name or ## AMC header).
+_AMC_HINT_TOKENS: dict[str, tuple[str, ...]] = {
+    "hdfc": ("hdfc",),
+    "icici": ("icici",),
+    "sbi": ("sbi", "state bank"),
+    "axis": ("axis",),
+    "kotak": ("kotak",),
+    "nippon": ("nippon",),
+    "mirae": ("mirae",),
+    "ppfas": ("ppfas", "parag parikh", "parag"),
+    "uti": ("uti",),
+    "tata": ("tata",),
+    "dsp": ("dsp",),
+    "franklin": ("franklin",),
+    "invesco": ("invesco",),
+    "motilal": ("motilal", "oswal"),
+    "bajaj": ("bajaj",),
+    "bandhan": ("bandhan",),
+    "baroda": ("baroda", "bnp"),
+    "canara": ("canara",),
+    "edelweiss": ("edelweiss",),
+    "quant": ("quant",),
+    "hsbc": ("hsbc",),
+    "jm": ("jm financial", "jm "),
+    "pgim": ("pgim",),
+    "samco": ("samco",),
+    "groww": ("groww",),
+    "zerodha": ("zerodha", "smallcase"),
+}
+
+
+def _amc_hints_from_tokens(tokens: list[str]) -> list[str]:
+    hints: list[str] = []
+    joined = " ".join(tokens)
+    for key, needles in _AMC_HINT_TOKENS.items():
+        if key in tokens or any(n in joined for n in needles):
+            hints.append(key)
+    return hints
+
+
+def _entry_matches_amc(entry: dict[str, Any], hints: list[str]) -> bool:
+    if not hints:
+        return True
+    amc = _normalize_fund_text(str(entry.get("amc") or ""))
+    name = _normalize_fund_text(str(entry.get("fund_short_name") or entry.get("fund_name") or ""))
+    blob = f"{amc} {name}"
+    for hint in hints:
+        needles = _AMC_HINT_TOKENS.get(hint, (hint,))
+        if any(n in blob for n in needles):
+            return True
+    return False
 
 
 def _normalize_fund_text(text: str) -> str:
@@ -241,6 +305,7 @@ class FundIndex:
                         {
                             "isin": e["isin"],
                             "fund_short_name": e["fund_short_name"],
+                            "amc": e.get("amc", ""),
                             "plan": e.get("plan", "Regular"),
                             "option": e.get("option", "Growth"),
                             "category": e["category"],
@@ -255,7 +320,9 @@ class FundIndex:
 
     def fetch_fund_detail_from_api(self, isin: str, timeout: float = 12.0) -> dict[str, Any] | None:
         """Fetches full live fund sectors, holdings, NAV and metadata from RupeeStop backend API."""
-        isin_clean = isin.strip().upper()
+        isin_clean = resolve_canonical_isin(isin)
+        if isin_clean != (isin or "").strip().upper():
+            logger.info("Resolved legacy ISIN %s → %s for fund API", isin.strip().upper(), isin_clean)
         url = f"{_API_BASE_URL}/{isin_clean}"
         try:
             with httpx.Client(timeout=timeout) as client:
@@ -396,12 +463,18 @@ class FundIndex:
     def get_fund_detail(self, isin: str) -> dict[str, Any] | None:
         """Get full details (sectors, holdings, info) for an ISIN with caching."""
         self._ensure_loaded()
-        isin_clean = isin.strip().upper()
+        raw_isin = isin.strip().upper()
+        isin_clean = resolve_canonical_isin(raw_isin)
 
         # Check cache
         with self._lock:
             if isin_clean in self._detail_cache:
-                return self._detail_cache[isin_clean]
+                cached = self._detail_cache[isin_clean]
+                if raw_isin != isin_clean and cached:
+                    return {**cached, "isin": isin_clean, "legacy_isin": raw_isin}
+                return cached
+            if raw_isin in self._detail_cache:
+                return self._detail_cache[raw_isin]
 
         # Fetch from live RupeeStop API
         detail = self.fetch_fund_detail_from_api(isin_clean)
@@ -409,7 +482,7 @@ class FundIndex:
             return detail
 
         # Fallback to local entries metadata if API was unreachable or has no data
-        entry = self._entries_by_isin.get(isin_clean)
+        entry = self._entries_by_isin.get(isin_clean) or self._entries_by_isin.get(raw_isin)
         if entry:
             fallback = {
                 "isin": isin_clean,
@@ -473,51 +546,64 @@ class FundIndex:
         if not q_tokens:
             return None, False, []
 
-        candidates = self.search(norm_name, limit=15)
-        if not candidates:
-            # Try searching individual key tokens if compound phrase yielded no direct search hits
-            primary_token = max(q_tokens, key=len)
-            candidates = self.search(primary_token, limit=15)
+        amc_hints = _amc_hints_from_tokens(q_tokens)
 
-        if not candidates:
-            return None, False, []
+        pool: list[dict[str, Any]] = list(self._entries)
+        if amc_hints:
+            pool = [e for e in pool if _entry_matches_amc(e, amc_hints)]
+            if not pool:
+                return None, False, []
 
         scored_candidates: list[tuple[float, dict[str, Any]]] = []
-        for c in candidates:
-            c_name = c.get("fund_short_name") or ""
+        for entry in pool:
+            c_name = entry.get("fund_short_name") or ""
             c_norm = _normalize_fund_text(c_name)
             c_tokens = set(re.findall(r"\b[a-z0-9]+\b", c_norm))
 
             matched = [t for t in q_tokens if t in c_tokens]
             coverage = len(matched) / len(q_tokens) if q_tokens else 0.0
 
-            # Score boosts for token coverage and exact matches
             score = coverage * 100.0
             if len(matched) == len(q_tokens):
                 score += 50.0
-            if norm_name in c_norm:
-                score += 30.0
+            if norm_name in c_norm or c_norm in norm_name:
+                score += 40.0
+            # Prefer schemes whose category tokens align (large / mid / cap)
+            for cat_token in ("large", "mid", "small", "flexi", "multi"):
+                if cat_token in q_tokens and cat_token in c_tokens:
+                    score += 8.0
 
-            if coverage >= 0.5 or (len(q_tokens) == 1 and coverage == 1.0):
-                scored_candidates.append((score, c))
+            if amc_hints and not _entry_matches_amc(entry, amc_hints):
+                continue
+
+            if coverage >= 0.55 or (norm_name in c_norm):
+                scored_candidates.append((score, entry))
+
+        if not scored_candidates:
+            candidates = self.search(norm_name, limit=20)
+            for c in candidates:
+                entry = self._entries_by_isin.get(str(c.get("isin") or "").upper())
+                if not entry or (amc_hints and not _entry_matches_amc(entry, amc_hints)):
+                    continue
+                scored_candidates.append((80.0, entry))
 
         if not scored_candidates:
             return None, False, []
 
-        scored_candidates.sort(key=lambda x: x[0], reverse=True)
-        top_score, top_cand = scored_candidates[0]
+        scored_candidates.sort(key=lambda x: (-x[0], str(x[1].get("fund_short_name") or "")))
+        top_score, top_entry = scored_candidates[0]
 
-        # Check for ambiguity (e.g. user said "HDFC Fund" or "SBI Fund", matching 5+ distinct funds equally)
         close_matches = [
-            c["fund_short_name"]
-            for score, c in scored_candidates
-            if abs(score - top_score) < 15.0
+            str(e.get("fund_short_name") or "")
+            for score, e in scored_candidates[:8]
+            if abs(score - top_score) < 12.0
         ]
+        close_matches = [n for n in close_matches if n]
 
-        if len(close_matches) > 1 and top_score < 130.0 and len(q_tokens) <= 2:
+        if len(set(close_matches)) > 1 and top_score < 145.0:
             return None, True, close_matches[:5]
 
-        detail = self.get_fund_detail(top_cand["isin"])
+        detail = self.get_fund_detail(str(top_entry["isin"]))
         return detail, False, []
 
 

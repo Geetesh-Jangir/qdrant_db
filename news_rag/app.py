@@ -14,7 +14,13 @@ from historical_data.nav_service import get_fund_nav_history
 from news_rag.answer import empty_answer, generate_answer
 from news_rag.config import get_settings
 from news_rag.fund_search import get_fund_index
-from news_rag.llm_client import llm_api_key_configured, llm_model, llm_provider, missing_llm_key_message
+from news_rag.llm_client import (
+    llm_api_key_configured,
+    llm_model,
+    llm_provider,
+    missing_llm_key_message,
+    reset_llm_request_state,
+)
 from news_rag.query_log import new_fund_brief_logger, new_query_logger
 from news_rag.fund_brief import generate_fund_brief, list_portfolio_funds
 from news_rag.retrieve import retrieve_for_question
@@ -43,6 +49,7 @@ class AskRequest(BaseModel):
 def _attach_llm_meta(result: dict, meta: dict) -> None:
     result["query_log_id"] = meta["query_id"]
     result["query_log_file"] = meta["log_file"]
+    result["query_summary_json"] = meta.get("summary_json") or ""
     result["llm_provider"] = meta.get("llm_provider") or ""
     result["llm_calls"] = meta["llm_calls"]
     result["llm_input_tokens"] = meta["llm_input_tokens"]
@@ -226,7 +233,14 @@ def ask(
     if not settings.qdrant_api_key and "cloud.qdrant.io" in settings.qdrant_url:
         raise HTTPException(status_code=500, detail="QDRANT_API_KEY required for Cloud")
 
+    reset_llm_request_state()
     query_log = new_query_logger()
+    configured_provider = llm_provider(settings)
+    query_log.write(
+        f"config llm_provider={configured_provider} llm_model={llm_model(settings)} "
+        f"collection={settings.qdrant_collection}"
+    )
+    query_log.note("request_start", llm_provider=configured_provider, llm_model=llm_model(settings))
     query_log.log_request(
         {
             "question": body.question,
@@ -236,6 +250,8 @@ def ask(
             "min_impact": body.min_impact,
             "source": body.source,
             "direction": body.direction,
+            "configured_llm_provider": configured_provider,
+            "configured_llm_model": llm_model(settings),
         }
     )
 
@@ -258,11 +274,27 @@ def ask(
             raise HTTPException(status_code=500, detail=message)
 
         result = generate_answer(parsed, articles, query_log=query_log)
-        outcome = "no_articles" if result.get("insight_source") == "no_articles" else "ok"
+        src = str(result.get("insight_source") or "")
+        if src == "no_articles":
+            outcome = "no_articles"
+        elif src == "fund_data":
+            outcome = "fund_data"
+        elif src.endswith("_rewritten") or (
+            isinstance(result.get("contract"), dict) and result["contract"].get("aligned") is False
+        ):
+            outcome = "alignment_failed"
+        else:
+            outcome = "ok"
         meta = query_log.finish(
             outcome=outcome,
             article_count=len(articles),
             insight_source=str(result.get("insight_source") or ""),
+            extra={
+                "question": body.question.strip(),
+                "intent": result.get("intent"),
+                "sources_in_response": len(result.get("sources") or []),
+                "writer_insight_source": result.get("insight_source"),
+            },
         )
         _attach_llm_meta(result, meta)
         return result

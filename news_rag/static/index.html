@@ -73,6 +73,10 @@
       font-size: 0.8rem; color: #64748b; margin-top: 1rem;
       padding-top: 0.75rem; border-top: 1px solid #f1f5f9;
     }
+    .meta-log {
+      font-size: 0.75rem; color: #475569; margin-top: 0.5rem;
+      word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
     
     .sources { margin-top: 1.75rem; }
     .sources h2 { font-size: 1.05rem; margin: 0 0 0.75rem; color: #0f172a; font-weight: 700; }
@@ -115,6 +119,7 @@
       <h2>💡 Summary Insight</h2>
       <div id="insight"></div>
       <p class="meta" id="meta"></p>
+      <p class="meta-log hidden" id="debugLog"></p>
     </div>
     <div class="sources">
       <h2>📰 Related Source Articles</h2>
@@ -129,7 +134,20 @@
     const resultEl = document.getElementById("result");
     const insightEl = document.getElementById("insight");
     const metaEl = document.getElementById("meta");
+    const debugLogEl = document.getElementById("debugLog");
     const sourcesEl = document.getElementById("sources");
+
+    function providerLabel(data) {
+      const configured = (data.llm_provider || "").toLowerCase();
+      const writer = String(data.insight_source || "").toLowerCase();
+      const base = writer.includes("gemini") ? "gemini" : writer.includes("deepseek") ? "deepseek" : configured;
+      if (data.insight_source === "fund_data") return "From fund data (no AI, no news search)";
+      if (base === "gemini") return "Synthesized by Gemini";
+      if (base === "deepseek") return "Synthesized by DeepSeek";
+      if (data.insight_source === "no_articles") return "No LLM synthesis (no matching news)";
+      if (data.insight_source === "articles_fallback") return "Synthesized from retrieved articles (fallback)";
+      return writer ? `Synthesized (${data.insight_source})` : "Summary";
+    }
 
     function formatMarkdown(text) {
       if (!text) return "";
@@ -228,15 +246,15 @@
         const insightText = (data.insight || data.answer || "").trim();
         renderInsight(insightEl, data, insightText);
         
-        const sourceLabel =
-          data.insight_source === "deepseek"
-            ? "Synthesized by DeepSeek"
-            : data.insight_source === "gemini"
-              ? "Synthesized by Gemini"
-              : data.insight_source === "articles_fallback"
-                ? "Synthesized from retrieved articles (fallback)"
-                : data.insight_source || "Summary";
-        metaEl.textContent = `${sourceLabel} · Evaluated across ${data.sources ? data.sources.length : 0} news sources`;
+        const sourceLabel = providerLabel(data);
+        metaEl.textContent = `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources shown to you · intent ${data.intent || "?"}`;
+        if (data.query_log_file) {
+          debugLogEl.textContent = "Debug log: " + data.query_log_file
+            + (data.query_summary_json ? " · JSON: " + data.query_summary_json : "");
+          debugLogEl.classList.remove("hidden");
+        } else {
+          debugLogEl.classList.add("hidden");
+        }
 
         sourcesEl.innerHTML = "";
         for (const row of data.sources || []) {

@@ -898,7 +898,7 @@ Generated: 2026-09-30
 - HDFC Income Plus Arbitrage Omni FOF - Regular Plan - Growth — `INF179KC1KB2`
 - HDFC Infrastructure Fund - Growth — `INF179K01GF8`
 - HDFC Innovation Fund - Regular Plan - Growth — `INF179KC1JL3`
-- HDFC Large & Mid Cap Fund - Regular Plan - Growth — `INF063A01027`
+- HDFC Large & Mid Cap Fund - Regular Plan - Growth — `INF179KA1RT1`
 - HDFC Large Cap Fund - Growth — `INF179K01BE2`
 - HDFC Liquid Fund - Growth — `INF179KB1HK0`
 - HDFC Long Term Fund - Regular Plan - Growth — `INF179KC1EW1`
@@ -960,7 +960,7 @@ Generated: 2026-09-30
 - HDFC Short Term Fund - Growth — `INF179K01CU6`
 - HDFC Silver ETF — `INF179KC1DI2`
 - HDFC Silver ETF Fund of Fund - Regular Plan - Growth — `INF179KC1DV5`
-- HDFC Small Cap Fund - Regular Plan - Growth — `INF063A01050`
+- HDFC Small Cap Fund - Regular Plan - Growth — `INF179KA1RZ8`
 - HDFC Technology Fund - Regular Plan - Growth — `INF179KC1HF9`
 - HDFC Transportation and Logistics Fund - Regular Plan - Growth — `INF179KC1GX4`
 - HDFC Ultra Short Term Fund - Regular Plan - Growth — `INF179KB11R3`

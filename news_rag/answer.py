@@ -11,6 +11,7 @@ from historical_data.nav_service import get_fund_nav_history
 from historical_data.stocks_service import get_stock_profile
 from news_rag.answer_contract import AnswerContract, check_answer_alignment, plan_answer_contract
 from news_rag.config import get_settings
+from news_rag.fund_facts import try_fund_fact_answer
 from news_rag.fund_search import extract_top_holdings, extract_top_sectors
 from news_rag.insight_format import (
     clamp_bullets,
@@ -138,12 +139,43 @@ def generate_answer(
     """Generates contract-governed answer with alignment check and single rewrite."""
     settings = get_settings()
 
-    if not llm_api_key_configured(settings):
-        raise RuntimeError(missing_llm_key_message(settings))
+    if query_log is not None:
+        query_log.write(f"answer_phase start intent={parsed.intent} articles_retrieved={len(articles)}")
 
     # 1. Handle Ambiguous Fund matches early
     if parsed.fund_ambiguous:
-        return empty_answer(parsed)
+        result = empty_answer(parsed)
+        if query_log is not None:
+            query_log.log_insight_output(
+                insight_source=result["insight_source"],
+                char_count=len(result.get("insight") or ""),
+                preview=str(result.get("insight") or ""),
+            )
+        return result
+
+    if parsed.intent in ("fund_nav", "fund_holdings", "fund_sectors") and not parsed.fund_resolved:
+        result = empty_answer(parsed)
+        if query_log is not None:
+            query_log.log_insight_output(
+                insight_source=result["insight_source"],
+                char_count=len(result.get("insight") or ""),
+                preview=str(result.get("insight") or ""),
+            )
+        return result
+
+    fact = try_fund_fact_answer(parsed)
+    if fact is not None:
+        if query_log is not None:
+            query_log.write("answer_path fund_facts deterministic=true llm_skipped=true")
+            query_log.log_insight_output(
+                insight_source=fact["insight_source"],
+                char_count=len(fact.get("insight") or ""),
+                preview=str(fact.get("insight") or "")[:500],
+            )
+        return fact
+
+    if not llm_api_key_configured(settings):
+        raise RuntimeError(missing_llm_key_message(settings))
 
     # 2. Gather Evidence and External Data Blocks
     router = parsed.router_result or RouterResult(
@@ -210,6 +242,17 @@ def generate_answer(
     # 5. Filter Articles according to Contract
     filtered_articles = [articles[i] for i in contract.use_articles if i < len(articles)]
     sources = _sources_from_articles(filtered_articles)
+    if query_log is not None:
+        query_log.log_article_filter(
+            retrieved_count=len(articles),
+            use_articles=list(contract.use_articles),
+            kept_count=len(filtered_articles),
+        )
+        if articles and not filtered_articles:
+            query_log.write(
+                "contract_dropped_all_articles "
+                "retrieval_had_hits=true but contract use_articles excluded every item"
+            )
 
     # 6. Assemble Prompt Payload for Writer
     context_blocks: list[str] = []
@@ -343,6 +386,21 @@ def generate_answer(
     if summary:
         summary = clamp_summary(summary, max_words=settings.insight_summary_max_words)
     display_insight = format_insight_display(bullets, summary)
+
+    if query_log is not None:
+        query_log.write(f"llm raw_preview text={clip_log_text(final_raw, 500)}")
+        query_log.log_insight_output(
+            insight_source=insight_source,
+            char_count=len(display_insight),
+            preview=display_insight,
+        )
+        query_log.note(
+            "answer_done",
+            intent=parsed.intent,
+            sources=len(sources),
+            aligned=alignment.aligned,
+            writer_provider=insight_source,
+        )
 
     return {
         "insight_bullets": bullets,

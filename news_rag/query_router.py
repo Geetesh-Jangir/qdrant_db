@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -135,12 +136,84 @@ class RouterResult:
         )
 
 
+_ISIN_IN_TEXT = re.compile(r"\b(INF[A-Z0-9]{9})\b", re.I)
+
+
+def try_fast_fund_fact_route(question: str) -> RouterResult | None:
+    """Rule-based router for fund NAV / holdings / sectors — no LLM."""
+    q = (question or "").strip()
+    if not q:
+        return None
+    lower = q.lower()
+    if "mutual fund" in lower and "what is" in lower:
+        return None
+
+    isin_m = _ISIN_IN_TEXT.search(q)
+    isin = isin_m.group(1).upper() if isin_m else ""
+
+    fund_name = ""
+    intent: str | None = None
+
+    if re.search(r"\b(sector|sectors)\b", lower) and re.search(r"\bfund\b", lower):
+        intent = "fund_sectors"
+        m = re.search(
+            r"(?:sectors?\s+(?:in|of|for)\s+|allocation\s+(?:of|for)\s+)(.+?)(?:\?|$)",
+            q,
+            re.I,
+        )
+        if m:
+            fund_name = m.group(1).strip().rstrip("?")
+    elif re.search(r"\b(holdings?|stocks held|portfolio stocks)\b", lower) and re.search(
+        r"\bfund\b", lower
+    ):
+        intent = "fund_holdings"
+        m = re.search(r"(?:holdings?\s+(?:of|in|for)\s+|(?:of|in|for)\s+)(.+?fund.*?)(?:\?|$)", q, re.I)
+        if m:
+            fund_name = m.group(1).strip().rstrip("?")
+    elif re.search(r"\bnav\b", lower) and re.search(r"\bfund\b", lower):
+        intent = "fund_nav"
+        m = re.search(r"(?:nav\s+(?:of|for)\s+|(?:of|for)\s+)(.+?)(?:\?|$)", q, re.I)
+        if m:
+            fund_name = m.group(1).strip().rstrip("?")
+
+    if not intent:
+        return None
+
+    if not fund_name and not isin:
+        m2 = re.search(r"\b(in|of)\s+(.+?fund)\b", q, re.I)
+        if m2:
+            fund_name = m2.group(2).strip().rstrip("?")
+
+    if not fund_name and not isin:
+        return None
+
+    return RouterResult(
+        intent=intent,
+        fund=RouterFund(isin=isin, name=fund_name if not isin else ""),
+        companies=[],
+        event_focus="",
+        window_days=None,
+        asked=[q],
+        raw_json={"fast_route": True},
+        duration_sec=0.0,
+    )
+
+
 def route_query(
     question: str,
     *,
     query_log: QueryLogger | None = None,
 ) -> RouterResult:
     """Invokes the cheap-LLM query router to extract intent, fund, companies, event focus, and time window."""
+    fast = try_fast_fund_fact_route(question)
+    if fast is not None:
+        if query_log is not None:
+            query_log.write(
+                f"router_fast_path intent={fast.intent} fund_isin={fast.fund.isin} "
+                f"fund_name={fast.fund.name!r}"
+            )
+        return fast
+
     settings = get_settings()
     user_content = f"User Question: {question.strip()}"
 

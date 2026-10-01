@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
+import contextvars
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
+
+# After a Gemini quota 429 in this request, skip further Gemini calls (use DeepSeek if configured).
+_gemini_skip_for_request: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "gemini_skip_for_request",
+    default=False,
+)
+
+
+def reset_llm_request_state() -> None:
+    _gemini_skip_for_request.set(False)
+
+
+def _mark_gemini_quota_exceeded(query_log: QueryLogger | None, body: str) -> None:
+    _gemini_skip_for_request.set(True)
+    if query_log is not None:
+        query_log.write("gemini_quota_exceeded skip_further_gemini_calls=true")
 
 from news_rag.config import Settings, get_settings
 from news_rag.llm_text import extract_assistant_text, extract_gemini_text
@@ -70,6 +87,19 @@ def missing_llm_key_message(settings: Settings | None = None) -> str:
     return "DEEPSEEK_API_KEY not configured"
 
 
+def _effective_provider(settings: Settings) -> str:
+    if _gemini_skip_for_request.get() and (settings.deepseek_api_key or "").strip():
+        return "deepseek"
+    return llm_provider(settings)
+
+
+def _is_gemini_quota_response(status: int, body: str) -> bool:
+    if status != 429:
+        return False
+    lower = (body or "").lower()
+    return "quota" in lower or "rate limit" in lower or "resource_exhausted" in lower
+
+
 def call_insight_llm(
     *,
     system_prompt: str,
@@ -77,7 +107,7 @@ def call_insight_llm(
     query_log: QueryLogger | None = None,
 ) -> LlmCallResult:
     settings = get_settings()
-    provider = llm_provider(settings)
+    provider = _effective_provider(settings)
     if provider == "gemini":
         try:
             return _call_gemini(
@@ -93,6 +123,9 @@ def call_insight_llm(
             if settings.deepseek_api_key and settings.deepseek_api_key.strip():
                 if query_log is not None:
                     query_log.write(f"gemini_failed_falling_back_to_deepseek error={exc}")
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                    if _is_gemini_quota_response(exc.response.status_code, exc.response.text):
+                        _mark_gemini_quota_exceeded(query_log, exc.response.text)
                 return _call_deepseek(
                     settings,
                     system_prompt,
@@ -140,8 +173,8 @@ def call_json_llm(
     query_log: QueryLogger | None = None,
 ) -> LlmCallResult:
     settings = get_settings()
-    provider = llm_provider(settings)
-    chosen_model = model_override or (router_model(settings) if provider == "gemini" else router_model(settings))
+    provider = _effective_provider(settings)
+    chosen_model = model_override or router_model(settings)
     if provider == "gemini":
         try:
             return _call_gemini(
@@ -158,6 +191,9 @@ def call_json_llm(
             if settings.deepseek_api_key and settings.deepseek_api_key.strip():
                 if query_log is not None:
                     query_log.write(f"gemini_json_failed_falling_back_to_deepseek error={exc}")
+                if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                    if _is_gemini_quota_response(exc.response.status_code, exc.response.text):
+                        _mark_gemini_quota_exceeded(query_log, exc.response.text)
                 return _call_deepseek(
                     settings,
                     system_prompt,
@@ -260,7 +296,7 @@ def _call_deepseek(
     total_raw = usage.get("total_tokens")
     total_tokens = int(total_raw) if total_raw is not None else None
 
-    return LlmCallResult(
+    result = LlmCallResult(
         raw_text=extract_assistant_text(data),
         provider="deepseek",
         model=chosen_model,
@@ -270,6 +306,17 @@ def _call_deepseek(
         duration_sec=duration,
         http_status=response.status_code,
     )
+    if query_log is not None:
+        query_log.record_llm_call(
+            provider=result.provider,
+            model=result.model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            total_tokens=result.total_tokens,
+            duration_sec=result.duration_sec,
+            http_status=result.http_status,
+        )
+    return result
 
 
 def _call_gemini(
@@ -338,6 +385,8 @@ def _call_gemini(
                     "llm",
                     f"provider=gemini http_status={response.status_code} body={response.text[:500]}",
                 )
+            if _is_gemini_quota_response(response.status_code, response.text):
+                _mark_gemini_quota_exceeded(query_log, response.text)
             if response.status_code == 404:
                 raise httpx.HTTPStatusError(
                     "Gemini model not found or retired for your API key. "
@@ -356,7 +405,7 @@ def _call_gemini(
     total_raw = usage.get("totalTokenCount")
     total_tokens = int(total_raw) if total_raw is not None else None
 
-    return LlmCallResult(
+    result = LlmCallResult(
         raw_text=extract_gemini_text(data),
         provider="gemini",
         model=chosen_model,
@@ -366,4 +415,15 @@ def _call_gemini(
         duration_sec=duration,
         http_status=response.status_code,
     )
+    if query_log is not None:
+        query_log.record_llm_call(
+            provider=result.provider,
+            model=result.model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            total_tokens=result.total_tokens,
+            duration_sec=result.duration_sec,
+            http_status=result.http_status,
+        )
+    return result
 
