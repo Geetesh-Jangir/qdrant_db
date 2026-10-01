@@ -56,7 +56,47 @@ def _plain_answer_from_reasoning(text: str) -> str:
             if len(line) > 40:
                 headline = line
                 break
-        parts = [headline] if headline else []
-        parts.extend(bullet_lines)
-        return "\n".join(parts)
     return tail[-1]
+
+
+def parse_json_from_text(text: str) -> dict[str, Any] | None:
+    """Extract and parse the first valid JSON object from LLM response text."""
+    import json
+    import re
+
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return None
+
+    # 1. Direct parse attempt
+    try:
+        data = json.loads(cleaned)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    # 2. Extract from markdown code blocks (```json ... ``` or ``` ...)
+    code_block_match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", cleaned, re.IGNORECASE)
+    if code_block_match:
+        try:
+            data = json.loads(code_block_match.group(1).strip())
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    # 3. Scan for outermost balanced curly brackets { ... }
+    first_brace = cleaned.find("{")
+    last_brace = cleaned.rfind("}")
+    if first_brace != -1 and last_brace > first_brace:
+        candidate = cleaned[first_brace : last_brace + 1]
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    return None
+

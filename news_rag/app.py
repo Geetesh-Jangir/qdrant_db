@@ -251,24 +251,6 @@ def ask(
             direction=body.direction,
             query_log=query_log,
         )
-        article_count = len(articles)
-
-        if not articles:
-            result = empty_answer(parsed)
-            result["insight_source"] = "no_articles"
-            query_log.log_insight_output(
-                insight_source="no_articles",
-                char_count=len(result.get("insight") or ""),
-                preview=str(result.get("insight") or ""),
-            )
-            meta = query_log.finish(
-                outcome="no_articles",
-                article_count=0,
-                insight_source="no_articles",
-            )
-            _attach_llm_meta(result, meta)
-            return result
-
         if not llm_api_key_configured(settings):
             message = missing_llm_key_message(settings)
             query_log.log_error("config", message)
@@ -276,8 +258,9 @@ def ask(
             raise HTTPException(status_code=500, detail=message)
 
         result = generate_answer(parsed, articles, query_log=query_log)
+        outcome = "no_articles" if result.get("insight_source") == "no_articles" else "ok"
         meta = query_log.finish(
-            outcome="ok",
+            outcome=outcome,
             article_count=len(articles),
             insight_source=str(result.get("insight_source") or ""),
         )

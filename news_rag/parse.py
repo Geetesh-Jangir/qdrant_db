@@ -350,6 +350,10 @@ class ParsedQuery:
     intent: str = "general"
     fund_resolved: dict | None = None
     sub_questions: list[str] = field(default_factory=list)
+    router_result: Any | None = None
+    fund_ambiguous: bool = False
+    close_funds: list[str] = field(default_factory=list)
+    contract: Any | None = None
 
 
 def utc_now() -> datetime:

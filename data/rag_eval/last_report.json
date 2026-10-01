@@ -1,0 +1,1036 @@
+{
+  "timestamp": "2026-10-01T09:17:00Z",
+  "total_cases": 40,
+  "router": {},
+  "pinned_answers": {
+    "total": 30,
+    "passed": 27,
+    "accuracy_pct": 90.0,
+    "forbidden_clean_pct": 100.0,
+    "forbidden_target_met": true,
+    "details": [
+      {
+        "id": "nav_parag_parikh",
+        "question": "What is the latest NAV of Parag Parikh Flexi Cap Fund?",
+        "intent": "fund_nav",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "The latest NAV value of Parag Parikh Flexi Cap Fund (state the exact figure and the plan/option, e.g., Direct Plan \u2013 Growth).",
+            "The date as of which that NAV is applicable (NAV date)."
+          ],
+          "forbidden": [
+            "Do not list or discuss fund holdings or portfolio stocks.",
+            "Do not provide sector allocation or sector breakdown.",
+            "Do not cite or compare NAVs of other funds or benchmarks.",
+            "Do not give buy/sell/hold recommendations or investment advice.",
+            "Do not discuss general macro trends or market commentary.",
+            "Do not include expense ratio, AUM, or fund manager details unless directly tied to the NAV figure."
+          ],
+          "use_articles_count": 0,
+          "include_nav": true,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": false
+        },
+        "missing_must_contain": [
+          "Parag Parikh"
+        ],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": false,
+        "insight_source": "deepseek_rewritten",
+        "answer_preview": "\nThey say previous draft had alignment issues. The issue is \"Missing required coverage: ['The specific plan/option for the NAV (e.g., Direct Plan \u2013 Growth) is not stated.']\" Wait this is exactly what previous draft says: \"The specific plan or option ",
+        "duration_sec": 32.353
+      },
+      {
+        "id": "nav_isin_lookup",
+        "question": "Show me the current NAV and returns for INF179K01BE2",
+        "intent": "fund_nav",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "What is the current NAV of fund INF179K01BE2?",
+            "What are the fund's returns (trailing performance over relevant periods)?"
+          ],
+          "forbidden": [
+            "Do not list fund holdings or underlying stocks",
+            "Do not provide sector allocation or sector breakdown",
+            "Do not include stock prices or returns of individual companies",
+            "Do not include gold/silver spot prices or bullion data",
+            "Do not give buy/sell/hold recommendations",
+            "Do not discuss unrelated funds or general macro trends"
+          ],
+          "use_articles_count": 0,
+          "include_nav": true,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\nAs per the available data, **HDFC Large Cap Fund** (scheme code **INF179K01BE2**) has a current **NAV (Net Asset Value \u2014 the per-unit price of the fund)** of **\u20b91066.665**, dated **2026-09-30**. Trailing returns stand at **-3.80%** over **1 week**, ",
+        "duration_sec": 17.344
+      },
+      {
+        "id": "nav_sbi_bluechip",
+        "question": "How much has the NAV of SBI Bluechip Fund moved over the last week?",
+        "intent": "fund_nav",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "What was the NAV of SBI Bluechip Fund at the start and end of the last week (or the exact weekly NAV change)?",
+            "The absolute and percentage change in SBI Bluechip Fund's NAV over the last week."
+          ],
+          "forbidden": [
+            "Do not list fund holdings or underlying stocks",
+            "Do not list sector allocations or sector breakdown",
+            "Do not provide stock price or returns for any specific company",
+            "Do not discuss gold/silver/bullion prices",
+            "Do not give a buy/sell/hold recommendation",
+            "Do not discuss general macro trends or unrelated news",
+            "Do not mention unrelated funds or companies"
+          ],
+          "use_articles_count": 0,
+          "include_nav": true,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\nI'm sorry, but no verified NAV data for **SBI Bluechip Fund** was found in the store for the last week, so I cannot give you its starting and ending NAV or the weekly absolute and percentage change. The only NAV record available relates to a differe",
+        "duration_sec": 20.371
+      },
+      {
+        "id": "holdings_hdfc_top100",
+        "question": "What are the top holdings in HDFC Top 100 Fund?",
+        "intent": "fund_holdings",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "List the top holdings of HDFC Top 100 Fund, including the name of each stock and its portfolio weight (as available).",
+            "Indicate the number/ranking of top holdings shown and the as-of date of the holdings data."
+          ],
+          "forbidden": [
+            "Do not list or discuss sector allocations or sector breakdown.",
+            "Do not cite NAV values, NAV history, or fund return performance.",
+            "Do not repeat or re-list the holdings in a narrative summary after the list.",
+            "Do not provide buy/sell/hold recommendations or any investment advice.",
+            "Do not mention companies, funds, or stocks outside the fund's holdings data.",
+            "Do not discuss general macroeconomic trends or market commentary."
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": true,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\n**HDFC Top 100 Fund \u2014 Top 10 Holdings** (Note: the holdings data available in the store is labelled **HDFC Large Cap Fund** \u2014 the same large-cap portfolio the fund's holdings sheet covers.) 1. **ICICI Bank Ltd.**: **10.05%** 2. **HDFC Bank Ltd.**: *",
+        "duration_sec": 19.86
+      },
+      {
+        "id": "holdings_ppfas",
+        "question": "Which stocks are held by Parag Parikh Flexi Cap Fund?",
+        "intent": "fund_holdings",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Provide the list of stocks held by Parag Parikh Flexi Cap Fund.",
+            "Note the fund's holdings composition as per available data."
+          ],
+          "forbidden": [
+            "Do not cite NAV values or fund return performance numbers.",
+            "Do not list sector allocation breakdowns or sector weights.",
+            "Do not duplicate the holdings list in a narrative summary after presenting it.",
+            "Do not give buy/sell/hold recommendations.",
+            "Do not discuss general macro trends or unrelated funds/companies."
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": true,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [
+          "Parag Parikh"
+        ],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": false,
+        "insight_source": "deepseek",
+        "answer_preview": "- **HDFC Bank Limited**: **7.63%** (Banks \u2014 a private-sector bank that takes deposits and gives loans)\n- **ICICI Bank Limited**: **5.67%** (Banks)\n- **Power Grid Corporation of India Limited**: **5.58%** (Power \u2014 the central transmission utility that",
+        "duration_sec": 18.851
+      },
+      {
+        "id": "holdings_nippon_growth",
+        "question": "What companies does Nippon India Growth Fund invest in?",
+        "intent": "fund_holdings",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Which companies/stocks are held in the Nippon India Growth Fund portfolio?"
+          ],
+          "forbidden": [
+            "Do not provide NAV, fund price, or fund return performance figures",
+            "Do not provide sector allocation breakdowns",
+            "Do not duplicate or re-list the holdings in a narrative summary after the list",
+            "Do not include buy/sell or investment recommendations",
+            "Do not mention companies unrelated to the fund's portfolio"
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": true,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": false
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek_rewritten",
+        "answer_preview": "\nMaybe we can say: \"The provided evidence lists top holdings for Nippon Active Momentum Fund, not Nippon India Growth Fund. Thus, the companies/stocks held in Nippon India Growth Fund cannot be determined from this evidence. For completeness, the evi",
+        "duration_sec": 30.321
+      },
+      {
+        "id": "sectors_axis_bluechip",
+        "question": "What is the sector allocation of Axis Bluechip Fund?",
+        "intent": "fund_sectors",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "What is the sector allocation (sector-wise breakdown) of Axis Bluechip Fund?",
+            "If sector allocation data is unavailable, state clearly that it cannot be retrieved rather than estimating or fabricating figures."
+          ],
+          "forbidden": [
+            "Do not fabricate or estimate sector weights, percentages, or sector names not present in the evidence",
+            "Do not list fund holdings or individual underlying stocks",
+            "Do not cite NAV, fund price, or fund return figures",
+            "Do not discuss general macro trends or market commentary",
+            "Do not provide any buy/sell/hold recommendation",
+            "Do not mention unrelated funds or companies"
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": true,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\nI'm sorry, but the sector allocation (the percentage-wise breakup of a fund's portfolio across industries like banking, IT, or FMCG) for **Axis Bluechip Fund** cannot be retrieved, as no verified sector allocation data was found in the store for thi",
+        "duration_sec": 18.101
+      },
+      {
+        "id": "sectors_mirae_large_cap",
+        "question": "Show me the sector breakdown for Mirae Asset Large Cap Fund",
+        "intent": "fund_sectors",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Provide the sector allocation breakdown for Mirae Asset Large Cap Fund, listing each sector and its percentage weight in the portfolio."
+          ],
+          "forbidden": [
+            "Do not include NAV, fund price, or fund return figures.",
+            "Do not list individual fund holdings or underlying stocks.",
+            "Do not duplicate the sector list in a separate narrative summary.",
+            "Do not include buy/sell/hold recommendations or performance forecasts.",
+            "Do not discuss general macro trends or unrelated funds/companies."
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": true,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [
+          "Mirae"
+        ],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": false,
+        "insight_source": "deepseek",
+        "answer_preview": "- **Banks**: **26.75%** (financial institutions that accept deposits and lend money \u2014 the largest sector weight in this portfolio)\n- **Automobiles**: **7.09%** (companies that manufacture cars, two-wheelers, and commercial vehicles)\n- **IT - Software",
+        "duration_sec": 17.918
+      },
+      {
+        "id": "event_crude_ppfas",
+        "question": "How will the surge in global crude oil prices affect Parag Parikh Flexi Cap Fund?",
+        "intent": "fund_event_impact",
+        "articles_retrieved": 12,
+        "articles_used": 8,
+        "contract": {
+          "must_answer": [
+            "How will the surge in global crude oil prices affect Parag Parikh Flexi Cap Fund?"
+          ],
+          "forbidden": [
+            "No buy/sell advice",
+            "Do not cite unrelated news"
+          ],
+          "use_articles_count": 8,
+          "include_nav": true,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- The **RBI's monthly bulletin (Article 3)** notes that the escalation of conflict in West Asia in September caused a **sharp increase in crude oil prices**, reigniting concerns about global supply-chain disruption and a build-up of **inflationary pr",
+        "duration_sec": 81.538
+      },
+      {
+        "id": "event_rbi_rate_hdfc",
+        "question": "What is the impact of RBI repo rate changes on HDFC Top 100 Fund?",
+        "intent": "fund_event_impact",
+        "articles_retrieved": 4,
+        "articles_used": 4,
+        "contract": {
+          "must_answer": [
+            "Impact of RBI repo rate changes on HDFC Top 100 Fund"
+          ],
+          "forbidden": [
+            "No buy/sell advice",
+            "Do not cite unrelated news"
+          ],
+          "use_articles_count": 4,
+          "include_nav": true,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **What the repo rate is**: the **Repo Rate** is the interest rate at which the RBI (India's central bank) lends money to commercial banks \u2014 when it moves, it changes the cost of borrowing across the entire economy.\n- The verified news store shows a",
+        "duration_sec": 29.417
+      },
+      {
+        "id": "news_sbi_bluechip",
+        "question": "What is the recent news and performance update on SBI Bluechip Fund?",
+        "intent": "fund_news",
+        "articles_retrieved": 30,
+        "articles_used": 8,
+        "contract": {
+          "must_answer": [
+            "recent news on SBI Bluechip Fund",
+            "performance update on SBI Bluechip Fund"
+          ],
+          "forbidden": [
+            "No buy/sell advice",
+            "Do not cite unrelated news"
+          ],
+          "use_articles_count": 8,
+          "include_nav": true,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **No verified news article specific to SBI Bluechip Fund** exists in the news store provided. Every article found relates either to **SBI (the bank)** or to broader market/macro events \u2014 none reports on the scheme itself.\n- The closest genuinely fu",
+        "duration_sec": 31.743
+      },
+      {
+        "id": "news_kotak_emerging",
+        "question": "What is happening with Kotak Emerging Equity Fund recently?",
+        "intent": "fund_news",
+        "articles_retrieved": 30,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Whether any recent, fund-specific news exists for Kotak Emerging Equity Fund (and if not, state clearly that no fund-specific developments were found in the retrieved coverage).",
+            "If no fund-specific news is available, note that the fund's situation can only be inferred from general market/mutual-fund context rather than fund-specific events."
+          ],
+          "forbidden": [
+            "Do not attribute any company-specific news (e.g., PB Fintech, Fortis, Sun Pharma, Tata Motors, etc.) as being news about Kotak Emerging Equity Fund",
+            "Do not fabricate, speculate, or invent fund-specific developments, management changes, or flows",
+            "Do not list fund holdings",
+            "Do not cite NAV numbers or fund returns",
+            "Do not discuss broad macroeconomic trends (rupee, oil, bond yields, RBI rate) as if they are fund-specific news",
+            "Do not re-list the retrieved article headlines in a narrative summary",
+            "No buy/sell/hold recommendation"
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **No fund-specific news was found** in the retrieved coverage for **Kotak Emerging Equity Fund**. There are no verified articles, filings, or announcements about this particular scheme in the data store.\n- Because of this, nothing can be said about",
+        "duration_sec": 22.746
+      },
+      {
+        "id": "single_stock_hdfc_bank",
+        "question": "What is the latest news and earnings update on HDFC Bank?",
+        "intent": "single_stock",
+        "articles_retrieved": 1,
+        "articles_used": 1,
+        "contract": {
+          "must_answer": [
+            "latest news on HDFC Bank",
+            "earnings update on HDFC Bank"
+          ],
+          "forbidden": [
+            "No buy/sell advice",
+            "Do not cite unrelated news"
+          ],
+          "use_articles_count": 1,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": true,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **Leadership transition is the big near-term trigger**: global brokerage **Jefferies** expects **HDFC Bank** may soon name its next **CEO** (Chief Executive Officer), with the **RBI** (Reserve Bank of India, the banking regulator) reportedly evalua",
+        "duration_sec": 31.986
+      },
+      {
+        "id": "single_stock_infosys",
+        "question": "Why did Infosys shares drop this week?",
+        "intent": "single_stock",
+        "articles_retrieved": 1,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "What caused Infosys shares to decline this week?",
+            "What was Infosys's stock price performance this week?"
+          ],
+          "forbidden": [
+            "Do not speculate on reasons without supporting evidence",
+            "Do not cite generic 'stocks in focus' articles as the cause",
+            "Do not mention unrelated companies (HCL Tech, NCC, IRFC, Power Mech, Fortis, Aurobindo)",
+            "Do not provide buy/sell recommendations"
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": true,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **Premise check**: Based on the verified price data, **Infosys (INFY.NS)** did not drop this week \u2014 it actually **gained +2.29%** over the past week, closing at a **CMP (current market price) of \u20b91023.15**.\n- **Where the decline sits**: The weaknes",
+        "duration_sec": 23.984
+      },
+      {
+        "id": "single_stock_tata_motors",
+        "question": "What did Tata Motors announce regarding their commercial vehicle demerger?",
+        "intent": "single_stock",
+        "articles_retrieved": 2,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "State what Tata Motors announced regarding the demerger of its commercial vehicle business (e.g., separation into a separate listed entity, timeline, structure, rationale).",
+            "If the retrieved articles contain no relevant information on this announcement, explicitly acknowledge the lack of evidence."
+          ],
+          "forbidden": [
+            "Do not discuss Tata Motors' passenger vehicle commodity cost warnings or Aeris compact sedan demand.",
+            "Do not provide buy/sell recommendations or investment advice.",
+            "Do not include NAV, holdings, sector allocation, stock price, or metals price data."
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- I checked the available verified news store for any announcement from **Tata Motors** about a demerger (a corporate action where one business vertical is separated from the parent company and given its own independent legal identity) of its **comme",
+        "duration_sec": 23.793
+      },
+      {
+        "id": "single_stock_reliance",
+        "question": "Any major updates on Reliance Industries retail and telecom businesses?",
+        "intent": "single_stock",
+        "articles_retrieved": 3,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Provide any major updates on Reliance Industries' retail business",
+            "Provide any major updates on Reliance Industries' telecom (Jio) business",
+            "If no specific retail or telecom updates are available, clearly state that without substituting unrelated segment news"
+          ],
+          "forbidden": [
+            "Do not discuss Reliance's oil-to-chemicals, fuel rationing, or crude oil price impacts unless directly tied to retail or telecom",
+            "Do not list stock price movements or 52-week low data unless explicitly relevant to retail or telecom",
+            "Do not mention unrelated companies such as PB Fintech or Nayara",
+            "No buy/sell recommendation"
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **Reliance Retail**: No verified news articles or data blocks on Reliance Industries' retail business were found in the store for this query, so I cannot share any confirmed retail-specific updates (store expansions, acquisitions, IPO plans, or qua",
+        "duration_sec": 22.486
+      },
+      {
+        "id": "sector_it",
+        "question": "How is the Indian IT software sector performing this quarter?",
+        "intent": "sector",
+        "articles_retrieved": 14,
+        "articles_used": 8,
+        "contract": {
+          "must_answer": [
+            "Indian IT software sector performance this quarter"
+          ],
+          "forbidden": [
+            "No buy/sell advice",
+            "Do not cite unrelated news"
+          ],
+          "use_articles_count": 8,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **Nifty IT** (the NSE index that tracks Indian IT software shares) **slid 3.2%** in a single session on **9 September 2026**, dragging the broader market to three-month lows as **Brent crude crossed $100 a barrel** \u2014 investors were jittery about oi",
+        "duration_sec": 32.084
+      },
+      {
+        "id": "sector_auto",
+        "question": "What are the latest passenger vehicle sales trends in the Indian automobile industry?",
+        "intent": "sector",
+        "articles_retrieved": 4,
+        "articles_used": 4,
+        "contract": {
+          "must_answer": [
+            "latest passenger vehicle sales trends in the Indian automobile industry"
+          ],
+          "forbidden": [
+            "No buy/sell advice",
+            "Do not cite unrelated news"
+          ],
+          "use_articles_count": 4,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **No verified article in the store carries industry-wide passenger vehicle (PV) sales volume numbers** for the latest month or quarter \u2014 the available verified coverage focuses on **Mahindra & Mahindra's** SUV demand commentary, pricing and capacit",
+        "duration_sec": 29.907
+      },
+      {
+        "id": "sector_pharma",
+        "question": "Are Indian pharmaceutical companies facing USFDA regulatory inspections recently?",
+        "intent": "sector",
+        "articles_retrieved": 3,
+        "articles_used": 3,
+        "contract": {
+          "must_answer": [
+            "Are Indian pharmaceutical companies facing USFDA regulatory inspections recently?",
+            "Recent USFDA inspection trends for Indian pharma"
+          ],
+          "forbidden": [
+            "No buy/sell advice",
+            "Do not cite unrelated news"
+          ],
+          "use_articles_count": 3,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\nNo verified news was found in the store regarding recent **USFDA** (United States Food and Drug Administration, the US regulator that approves drugs and audits manufacturing plants) inspections of Indian pharmaceutical companies. The articles availa",
+        "duration_sec": 24.289
+      },
+      {
+        "id": "macro_rbi_repo",
+        "question": "What was the outcome of the latest RBI Monetary Policy Committee meeting on repo rates?",
+        "intent": "macro",
+        "articles_retrieved": 2,
+        "articles_used": 2,
+        "contract": {
+          "must_answer": [
+            "Latest RBI Monetary Policy Committee meeting outcome on repo rates"
+          ],
+          "forbidden": [
+            "No buy/sell advice",
+            "Do not cite unrelated news"
+          ],
+          "use_articles_count": 2,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **No verified news article in the store reports the actual outcome of the latest RBI MPC (Monetary Policy Committee \u2014 the six-member RBI panel that decides interest rates) meeting.** The available verified coverage is pre-meeting expectation news, ",
+        "duration_sec": 25.128
+      },
+      {
+        "id": "macro_inflation",
+        "question": "What is the latest CPI retail inflation rate in India?",
+        "intent": "macro",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "The latest reported CPI retail inflation rate for India, expressed as a year-on-year percentage.",
+            "The specific reference period (month and year) the figure corresponds to.",
+            "Whether the figure represents a rise, fall, or stability relative to the previous month's reading (and, if available, versus the RBI's inflation target range)."
+          ],
+          "forbidden": [
+            "Do not list mutual fund holdings, portfolio constituents, or underlying stocks.",
+            "Do not quote NAV values or fund return performance.",
+            "Do not provide sector allocation breakdowns.",
+            "Do not provide stock prices or returns of any specific company.",
+            "Do not provide gold or silver spot/bullion prices.",
+            "Do not give buy/sell/hold investment recommendations.",
+            "Do not discuss unrelated macro topics such as GDP, employment, or global markets beyond a brief context mention.",
+            "Do not fabricate or estimate a figure if no verified data is available; state that current data is unavailable."
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\nI'm sorry, but no verified news articles or data blocks on India's **CPI (Consumer Price Index \u2014 the basket of everyday goods and services whose price changes measure retail inflation)** were found in the store, so I cannot confirm the latest year-o",
+        "duration_sec": 21.087
+      },
+      {
+        "id": "macro_gsec_yield",
+        "question": "How are Indian 10-year benchmark government bond yields trending?",
+        "intent": "macro",
+        "articles_retrieved": 3,
+        "articles_used": 3,
+        "contract": {
+          "must_answer": [
+            "What is the current direction of the Indian 10-year benchmark government bond yield trend (rising/falling) and the approximate yield levels involved?",
+            "What are the key drivers/catalysts behind the recent yield movement?"
+          ],
+          "forbidden": [
+            "Do not list fund holdings or underlying securities",
+            "Do not cite NAV numbers or fund return performance",
+            "Do not discuss sector allocations or sector breakdowns",
+            "Do not provide buy/sell/hold recommendations on bonds, funds, or securities",
+            "Do not mention individual company stock prices or equity returns",
+            "Do not discuss gold/silver spot prices or bullion",
+            "Do not discuss unrelated companies or tangential macro topics beyond bond yields"
+          ],
+          "use_articles_count": 3,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **Direction: Rising (yields hardening).** India's **10-year benchmark G-sec** (Government Security \u2014 a long-term government bond whose yield is the market's reference borrowing rate) closed at **7.19%**, a level last seen in **April 2024**, before ",
+        "duration_sec": 24.641
+      },
+      {
+        "id": "bullion_gold_price",
+        "question": "What is the current gold price per 10 grams in India?",
+        "intent": "bullion",
+        "articles_retrieved": 2,
+        "articles_used": 2,
+        "contract": {
+          "must_answer": [
+            "The current retail gold price per 10 grams in India (24K and 22K rates) for key cities such as Mumbai and Delhi.",
+            "The current silver rate (999 silver per 10 grams or per kg) if the article provides it alongside gold."
+          ],
+          "forbidden": [
+            "Do not include NAV, fund holdings, or sector allocation information.",
+            "Do not provide stock prices or returns for any specific company.",
+            "Do not issue any buy/sell/hold recommendation on gold or silver.",
+            "Do not discuss general macro trends, US Treasury yields, or Fed policy in depth.",
+            "Do not fabricate prices if the retrieved articles do not state them.",
+            "Do not list prices for unrelated commodities or assets."
+          ],
+          "use_articles_count": 2,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": true,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **24 Karat Gold (Mumbai)**: **\u20b9147,250 per 10 grams** \u2014 24K is the purest form of gold sold (99.9% purity), mostly bought as coins or bars.\n- **22 Karat Gold (Mumbai)**: **\u20b9134,979 per 10 grams** \u2014 22K is gold mixed with a small amount of other met",
+        "duration_sec": 24.466
+      },
+      {
+        "id": "bullion_silver_trend",
+        "question": "Why is silver rallying on MCX today?",
+        "intent": "bullion",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "What is driving the rally in silver prices on MCX today (key catalysts such as global spot silver moves, US dollar/rupee levels, industrial or safe-haven demand)?",
+            "How large is today's move in MCX silver and which contract/level is being referenced?",
+            "What is the near-term outlook or key levels/triggers traders should watch for silver on MCX?"
+          ],
+          "forbidden": [
+            "Do not provide any buy/sell/hold recommendation or price target framed as investment advice",
+            "Do not list fund holdings or underlying stocks",
+            "Do not cite NAV or fund return figures",
+            "Do not discuss sector allocations or sector breakdowns",
+            "Do not quote stock prices or returns of specific companies",
+            "Do not discuss unrelated commodities, equities, or general macro trends beyond what directly explains the silver move",
+            "Do not invent article-sourced facts or attribute claims to sources when no articles are available"
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": true,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **No verified news articles were found in the store today** that explain a silver rally on **MCX** (Multi Commodity Exchange, India's commodity derivatives exchange where silver futures trade). So I can't attribute today's move to any specific cata",
+        "duration_sec": 23.833
+      },
+      {
+        "id": "concept_what_is_nav",
+        "question": "What is NAV in mutual funds and how is it calculated?",
+        "intent": "concept",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Define NAV (Net Asset Value) as the per-unit value of a mutual fund's assets minus its liabilities.",
+            "Explain the calculation formula: (Total Assets \u2212 Total Liabilities) \u00f7 Number of Outstanding Units.",
+            "Describe what constitutes assets and liabilities and the frequency/timing of NAV computation (e.g., daily at market close)."
+          ],
+          "forbidden": [
+            "Do not quote actual NAV figures or prices of any specific fund.",
+            "Do not list any fund's holdings or underlying stocks.",
+            "Do not provide sector allocations or breakdowns.",
+            "Do not discuss specific companies or stock prices.",
+            "Do not give buy/sell/hold recommendations or investment advice.",
+            "Do not discuss general macro or market trends.",
+            "Do not cite any specific retrieved articles or sources (none available)."
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\n**NAV (Net Asset Value)** is the per-unit price of a mutual fund \u2014 the value of everything the fund owns minus what it owes, divided by the total number of units investors hold. The formula is **(Total Assets \u2212 Total Liabilities) \u00f7 Number of Outstan",
+        "duration_sec": 16.723
+      },
+      {
+        "id": "concept_expense_ratio",
+        "question": "Explain what Total Expense Ratio (TER) means in a mutual fund scheme",
+        "intent": "concept",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Define Total Expense Ratio (TER) as the annual fee charged by a mutual fund to cover operating and management expenses, expressed as a percentage of the fund's average net assets.",
+            "Explain what costs TER typically includes (e.g., management fees, administrative costs, distribution expenses) and how it is deducted from the fund's returns.",
+            "Clarify why TER matters to investors: it directly reduces net returns, and higher TER means a larger drag on performance over time."
+          ],
+          "forbidden": [
+            "Do not list fund holdings or underlying stocks",
+            "Do not cite NAV numbers, fund returns, or fund-specific expense ratios",
+            "Do not provide fund-specific recommendations or comparisons",
+            "Do not discuss general macro trends or market outlook",
+            "Do not include buy/sell/hold recommendations",
+            "Do not mention unrelated companies or sectors"
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\n**Total Expense Ratio (TER)** is the annual fee a mutual fund charges to cover its running costs \u2014 **management fees** (paid to the fund manager), administrative charges, registrar and audit costs, and distribution expenses \u2014 expressed as a percenta",
+        "duration_sec": 20.178
+      },
+      {
+        "id": "concept_ebitda",
+        "question": "What does EBITDA margin mean in corporate financial reports?",
+        "intent": "concept",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Define EBITDA margin (EBITDA divided by total revenue, expressed as a percentage) and what it measures about a company's operating profitability.",
+            "Explain how it is calculated (EBITDA = earnings before interest, taxes, depreciation, and amortization; margin = EBITDA / revenue).",
+            "Explain why it is used and its key limitations (ignores capital structure, tax environment, and capital intensity; not a GAAP/IFRS measure)."
+          ],
+          "forbidden": [
+            "Do not include NAV values, fund prices, or fund return performance.",
+            "Do not list fund holdings or underlying stocks.",
+            "Do not provide sector allocations or sector breakdowns.",
+            "Do not cite stock prices or returns for any specific company.",
+            "Do not mention gold, silver, or bullion spot prices.",
+            "Do not give buy/sell/hold recommendations or investment advice.",
+            "Do not discuss specific companies or funds by name.",
+            "Do not discuss general macro trends or market outlook."
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\nEBITDA margin is the percentage of total revenue a company keeps as operating profit before interest, taxes, depreciation and amortisation. It is calculated by dividing EBITDA (earnings before interest, taxes, depreciation, and amortisation) by tota",
+        "duration_sec": 18.805
+      },
+      {
+        "id": "concept_direct_vs_regular",
+        "question": "What is the difference between Direct Plan and Regular Plan in mutual funds?",
+        "intent": "concept",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Explain what a Direct Plan is in mutual funds and how it differs from a Regular Plan.",
+            "Explain the key difference in expense ratio/commission structure between Direct and Regular Plans and its impact on returns.",
+            "Note which plan is generally more cost-effective for investors and why."
+          ],
+          "forbidden": [
+            "Do not provide NAV numbers, fund returns, or performance data.",
+            "Do not list fund holdings or underlying stocks.",
+            "Do not list sector allocations or sector breakdowns.",
+            "Do not mention specific fund houses, scheme names, or companies.",
+            "Do not provide buy/sell recommendations or investment advice.",
+            "Do not discuss general macro trends or market outlook."
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **Direct Plan**: A Direct Plan is a mutual fund option you buy straight from the fund house (the asset management company that runs the scheme) \u2014 no broker, bank relationship manager, or financial advisor stands in between you and the fund.\n- **Reg",
+        "duration_sec": 24.212
+      },
+      {
+        "id": "multi_question_nav_and_stock",
+        "question": "What is the NAV of HDFC Top 100 Fund, and what happened with TCS shares today?",
+        "intent": "multi",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "The current NAV of HDFC Top 100 Fund (latest available value, with date as applicable).",
+            "What happened with TCS shares today (price movement / direction and magnitude of change, if data available)."
+          ],
+          "forbidden": [
+            "Do not list HDFC Top 100 Fund holdings or underlying stocks",
+            "Do not provide sector allocation or sector breakdown for any fund",
+            "Do not provide buy/sell/hold recommendations on the fund or on TCS",
+            "Do not discuss general macro trends, market outlook, or unrelated indices",
+            "Do not mention companies or funds other than HDFC Top 100 Fund and TCS",
+            "Do not fabricate NAV or stock price figures if not available; state data unavailability instead"
+          ],
+          "use_articles_count": 0,
+          "include_nav": true,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": true,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "- **HDFC Top 100 Fund**: No verified NAV figure for this fund was found in the data store, so I cannot quote a latest NAV (Net Asset Value \u2014 the per-unit price of a mutual fund, calculated as total assets minus liabilities divided by the number of un",
+        "duration_sec": 23.04
+      },
+      {
+        "id": "general_market_wrap",
+        "question": "How are the Indian benchmark indices Sensex and Nifty trading today?",
+        "intent": "general",
+        "articles_retrieved": 0,
+        "articles_used": 0,
+        "contract": {
+          "must_answer": [
+            "Current trading levels or point values of the Sensex and Nifty for today",
+            "Whether the Sensex and Nifty are up or down today (direction and magnitude of change)"
+          ],
+          "forbidden": [
+            "Do not provide buy/sell/hold recommendations or investment advice",
+            "Do not discuss general macro trends or unrelated market commentary",
+            "Do not mention individual companies or stocks unless directly tied to index movement",
+            "Do not fabricate index levels or percentage moves when no data is available; state clearly that live data was not retrieved",
+            "Do not re-list or duplicate the same index figures in a repeated narrative summary"
+          ],
+          "use_articles_count": 0,
+          "include_nav": false,
+          "include_holdings": false,
+          "include_sectors": false,
+          "include_stock_price": false,
+          "include_metals": false,
+          "aligned": true
+        },
+        "missing_must_contain": [],
+        "found_forbidden": [],
+        "clean_forbidden": true,
+        "passed": true,
+        "insight_source": "deepseek",
+        "answer_preview": "\nI wasn't able to retrieve live index data for today, so I can't give you verified Sensex or Nifty levels or tell you whether they are up or down. **Sensex** (the benchmark index of **30** major companies on the BSE) and **Nifty 50** (the benchmark i",
+        "duration_sec": 20.623
+      }
+    ]
+  }
+}

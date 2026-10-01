@@ -42,6 +42,20 @@ def llm_model(settings: Settings | None = None) -> str:
     return settings.deepseek_model
 
 
+def router_model(settings: Settings | None = None) -> str:
+    settings = settings or get_settings()
+    if (settings.rag_router_model or "").strip():
+        return settings.rag_router_model.strip()
+    return llm_model(settings)
+
+
+def contract_model(settings: Settings | None = None) -> str:
+    settings = settings or get_settings()
+    if (settings.rag_contract_model or "").strip():
+        return settings.rag_contract_model.strip()
+    return router_model(settings)
+
+
 def llm_api_key_configured(settings: Settings | None = None) -> bool:
     settings = settings or get_settings()
     if llm_provider(settings) == "gemini":
@@ -65,8 +79,123 @@ def call_insight_llm(
     settings = get_settings()
     provider = llm_provider(settings)
     if provider == "gemini":
-        return _call_gemini(settings, system_prompt, user_content, query_log=query_log)
-    return _call_deepseek(settings, system_prompt, user_content, query_log=query_log)
+        try:
+            return _call_gemini(
+                settings,
+                system_prompt,
+                user_content,
+                model=settings.gemini_model,
+                max_tokens=settings.llm_max_tokens,
+                temperature=0.25,
+                query_log=query_log,
+            )
+        except Exception as exc:
+            if settings.deepseek_api_key and settings.deepseek_api_key.strip():
+                if query_log is not None:
+                    query_log.write(f"gemini_failed_falling_back_to_deepseek error={exc}")
+                return _call_deepseek(
+                    settings,
+                    system_prompt,
+                    user_content,
+                    model=settings.deepseek_model,
+                    max_tokens=settings.llm_max_tokens,
+                    temperature=0.25,
+                    query_log=query_log,
+                )
+            raise
+    else:
+        try:
+            return _call_deepseek(
+                settings,
+                system_prompt,
+                user_content,
+                model=settings.deepseek_model,
+                max_tokens=settings.llm_max_tokens,
+                temperature=0.25,
+                query_log=query_log,
+            )
+        except Exception as exc:
+            if settings.gemini_api_key and settings.gemini_api_key.strip():
+                if query_log is not None:
+                    query_log.write(f"deepseek_failed_falling_back_to_gemini error={exc}")
+                return _call_gemini(
+                    settings,
+                    system_prompt,
+                    user_content,
+                    model=settings.gemini_model,
+                    max_tokens=settings.llm_max_tokens,
+                    temperature=0.25,
+                    query_log=query_log,
+                )
+            raise
+
+
+def call_json_llm(
+    *,
+    system_prompt: str,
+    user_content: str,
+    model_override: str | None = None,
+    max_tokens: int = 600,
+    temperature: float = 0.0,
+    query_log: QueryLogger | None = None,
+) -> LlmCallResult:
+    settings = get_settings()
+    provider = llm_provider(settings)
+    chosen_model = model_override or (router_model(settings) if provider == "gemini" else router_model(settings))
+    if provider == "gemini":
+        try:
+            return _call_gemini(
+                settings,
+                system_prompt,
+                user_content,
+                model=chosen_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                response_json=True,
+                query_log=query_log,
+            )
+        except Exception as exc:
+            if settings.deepseek_api_key and settings.deepseek_api_key.strip():
+                if query_log is not None:
+                    query_log.write(f"gemini_json_failed_falling_back_to_deepseek error={exc}")
+                return _call_deepseek(
+                    settings,
+                    system_prompt,
+                    user_content,
+                    model=settings.deepseek_model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_json=True,
+                    query_log=query_log,
+                )
+            raise
+    else:
+        try:
+            return _call_deepseek(
+                settings,
+                system_prompt,
+                user_content,
+                model=chosen_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                response_json=True,
+                query_log=query_log,
+            )
+        except Exception as exc:
+            if settings.gemini_api_key and settings.gemini_api_key.strip():
+                if query_log is not None:
+                    query_log.write(f"deepseek_json_failed_falling_back_to_gemini error={exc}")
+                return _call_gemini(
+                    settings,
+                    system_prompt,
+                    user_content,
+                    model=settings.gemini_model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    response_json=True,
+                    query_log=query_log,
+                )
+            raise
 
 
 def _call_deepseek(
@@ -74,6 +203,10 @@ def _call_deepseek(
     system_prompt: str,
     user_content: str,
     *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.25,
+    response_json: bool = False,
     query_log: QueryLogger | None,
 ) -> LlmCallResult:
     api_key = (settings.deepseek_api_key or "").strip()
@@ -81,21 +214,24 @@ def _call_deepseek(
         raise RuntimeError("Set DEEPSEEK_API_KEY in .env")
 
     url = settings.deepseek_base_url.rstrip("/") + "/chat/completions"
-    model = settings.deepseek_model
-    max_tokens = settings.llm_max_tokens
-    payload = {
-        "model": model,
+    chosen_model = model or settings.deepseek_model
+    chosen_max_tokens = max_tokens or settings.llm_max_tokens
+    payload: dict[str, Any] = {
+        "model": chosen_model,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_content},
         ],
-        "max_tokens": max_tokens,
-        "temperature": 0.25,
+        "max_tokens": chosen_max_tokens,
+        "temperature": temperature,
     }
+    if response_json:
+        payload["response_format"] = {"type": "json_object"}
+
     if query_log is not None:
         query_log.write(
-            f"llm request provider=deepseek url={url} model={model} "
-            f"max_tokens={max_tokens} system_chars={len(system_prompt)} "
+            f"llm request provider=deepseek url={url} model={chosen_model} "
+            f"max_tokens={chosen_max_tokens} system_chars={len(system_prompt)} "
             f"user_chars={len(user_content)}"
         )
 
@@ -127,7 +263,7 @@ def _call_deepseek(
     return LlmCallResult(
         raw_text=extract_assistant_text(data),
         provider="deepseek",
-        model=model,
+        model=chosen_model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
@@ -141,57 +277,78 @@ def _call_gemini(
     system_prompt: str,
     user_content: str,
     *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.25,
+    response_json: bool = False,
     query_log: QueryLogger | None,
 ) -> LlmCallResult:
     api_key = (settings.gemini_api_key or "").strip().strip('"')
     if not api_key:
         raise RuntimeError("Set GEMINI_API_KEY in .env")
 
-    model = settings.gemini_model.strip()
+    chosen_model = (model or settings.gemini_model).strip()
     base = settings.gemini_base_url.rstrip("/")
-    url = f"{base}/models/{model}:generateContent"
-    max_tokens = settings.llm_max_tokens
+    url = f"{base}/models/{chosen_model}:generateContent"
+    chosen_max_tokens = max_tokens or settings.llm_max_tokens
+    
+    gen_config: dict[str, Any] = {
+        "temperature": temperature,
+        "maxOutputTokens": chosen_max_tokens,
+    }
+    if response_json:
+        gen_config["responseMimeType"] = "application/json"
+
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
         "contents": [{"role": "user", "parts": [{"text": user_content}]}],
-        "generationConfig": {
-            "temperature": 0.25,
-            "maxOutputTokens": max_tokens,
-        },
+        "generationConfig": gen_config,
     }
     if query_log is not None:
         query_log.write(
-            f"llm request provider=gemini url={url} model={model} "
-            f"max_output_tokens={max_tokens} system_chars={len(system_prompt)} "
+            f"llm request provider=gemini url={url} model={chosen_model} "
+            f"max_output_tokens={chosen_max_tokens} system_chars={len(system_prompt)} "
             f"user_chars={len(user_content)}"
         )
 
     started = time.perf_counter()
-    with httpx.Client(timeout=120.0) as client:
-        response = client.post(
-            url,
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key,
-            },
-            json=payload,
-        )
-        duration = time.perf_counter() - started
-        if query_log is not None and response.status_code >= 400:
-            query_log.log_error(
-                "llm",
-                f"provider=gemini http_status={response.status_code} body={response.text[:500]}",
+    has_fallback = bool((settings.deepseek_api_key or "").strip())
+    max_retries = 1 if has_fallback else 3
+    backoffs = [1.0] if has_fallback else [2.0, 4.0, 8.0]
+    for attempt in range(max_retries + 1):
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                url,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+                json=payload,
             )
-        if response.status_code == 404:
-            raise httpx.HTTPStatusError(
-                "Gemini model not found or retired for your API key. "
-                f"Try GEMINI_MODEL=gemini-3.5-flash-lite (current: {model!r}). "
-                "List models: GET .../v1beta/models with x-goog-api-key.",
-                request=response.request,
-                response=response,
-            )
-        response.raise_for_status()
-        data = response.json()
+            duration = time.perf_counter() - started
+            if response.status_code == 429 and attempt < max_retries:
+                backoff = backoffs[attempt] if attempt < len(backoffs) else 5.0
+                if query_log is not None:
+                    query_log.write(f"gemini_rate_limited attempt={attempt+1} sleep={backoff:.1f}s")
+                time.sleep(backoff)
+                continue
+
+            if query_log is not None and response.status_code >= 400:
+                query_log.log_error(
+                    "llm",
+                    f"provider=gemini http_status={response.status_code} body={response.text[:500]}",
+                )
+            if response.status_code == 404:
+                raise httpx.HTTPStatusError(
+                    "Gemini model not found or retired for your API key. "
+                    f"Try GEMINI_MODEL=gemini-3.5-flash-lite (current: {chosen_model!r}). "
+                    "List models: GET .../v1beta/models with x-goog-api-key.",
+                    request=response.request,
+                    response=response,
+                )
+            response.raise_for_status()
+            data = response.json()
+            break
 
     usage = data.get("usageMetadata") or {}
     input_tokens = int(usage.get("promptTokenCount") or 0)
@@ -202,10 +359,11 @@ def _call_gemini(
     return LlmCallResult(
         raw_text=extract_gemini_text(data),
         provider="gemini",
-        model=model,
+        model=chosen_model,
         input_tokens=input_tokens,
         output_tokens=output_tokens,
         total_tokens=total_tokens,
         duration_sec=duration,
         http_status=response.status_code,
     )
+

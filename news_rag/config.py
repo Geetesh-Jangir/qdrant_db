@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
+    # Dedicated cheap model for query routing and answer contract planning (default: flash-lite)
+    rag_router_model: str = ""
+    rag_contract_model: str = ""
+    router_max_tokens: int = 600
+    contract_max_tokens: int = 800
+
     llm_max_tokens: int = Field(
         default=2000,
         validation_alias=AliasChoices("LLM_MAX_TOKENS", "DEEPSEEK_MAX_TOKENS"),
@@ -58,6 +64,7 @@ class Settings(BaseSettings):
     rag_query_log_dir: str = "data/rag_query_logs"
 
     portfolio_json: str = "investor_data/mohit/portfolio.json"
+    funds_by_amc_md: str = "data/fund_holdings_aggregate/regular-growth-by-amc.md"
     allisin_sectors_holdings_json: str = "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json"
     portfolio_allisin_holdings_json: str = "data/fund_holdings_aggregate/portfolio_allisin_holdings.json"
     portfolio_manifest_path: str = "data/fund_holdings_aggregate/portfolio_news_scope.json"

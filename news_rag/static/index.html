@@ -159,7 +159,7 @@
         }
       }
 
-      if (bullets.length) {
+      if (bullets.length && summary) {
         const h3 = document.createElement("h3");
         h3.textContent = "Key Takeaways";
         container.appendChild(h3);
@@ -170,23 +170,34 @@
           ul.appendChild(li);
         }
         container.appendChild(ul);
-      }
 
-      if (summary) {
         const section = document.createElement("div");
         section.className = "summary-section";
-        const h3 = document.createElement("h3");
-        h3.textContent = "Executive Narrative";
-        h3.style.margin = "0 0 0.35rem";
-        section.appendChild(h3);
+        const h3Summary = document.createElement("h3");
+        h3Summary.textContent = "Summary & Market Context";
+        h3Summary.style.margin = "0 0 0.35rem";
+        section.appendChild(h3Summary);
         const p = document.createElement("p");
         p.className = "summary-text";
         p.innerHTML = formatMarkdown(summary);
         section.appendChild(p);
         container.appendChild(section);
-      }
-
-      if (!bullets.length && !summary) {
+      } else if (bullets.length) {
+        const ul = document.createElement("ul");
+        for (const item of bullets) {
+          const li = document.createElement("li");
+          li.innerHTML = formatMarkdown(item);
+          ul.appendChild(li);
+        }
+        container.appendChild(ul);
+      } else if (summary) {
+        const p = document.createElement("p");
+        p.className = "summary-text";
+        p.style.fontSize = "1rem";
+        p.style.lineHeight = "1.6";
+        p.innerHTML = formatMarkdown(summary);
+        container.appendChild(p);
+      } else {
         container.innerHTML = formatMarkdown(
           fallbackText || "Could not build an insight from this response. Check server query log."
         );

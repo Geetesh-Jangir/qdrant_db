@@ -1,0 +1,348 @@
+[
+  {
+    "id": "nav_parag_parikh",
+    "question": "What is the latest NAV of Parag Parikh Flexi Cap Fund?",
+    "expected_intent": "fund_nav",
+    "expected_fund_name": "Parag Parikh Flexi Cap",
+    "expected_fund_isin": "INF879O01027",
+    "pinned_answer_eval": true,
+    "must_contain": ["NAV", "Parag Parikh"],
+    "must_not_contain": ["Top Holdings:", "Sector Allocation:", "Buy this fund", "Sell this fund"]
+  },
+  {
+    "id": "nav_isin_lookup",
+    "question": "Show me the current NAV and returns for INF179K01BE2",
+    "expected_intent": "fund_nav",
+    "expected_fund_isin": "INF179K01BE2",
+    "pinned_answer_eval": true,
+    "must_contain": ["NAV", "HDFC"],
+    "must_not_contain": ["Top Holdings:", "Sector Breakdown:"]
+  },
+  {
+    "id": "nav_sbi_bluechip",
+    "question": "How much has the NAV of SBI Bluechip Fund moved over the last week?",
+    "expected_intent": "fund_nav",
+    "expected_fund_name": "SBI Bluechip",
+    "expected_fund_isin": "INF200K01164",
+    "pinned_answer_eval": true,
+    "must_contain": ["NAV", "SBI Bluechip"],
+    "must_not_contain": ["Top Holdings:", "Sector Breakdown:"]
+  },
+  {
+    "id": "holdings_hdfc_top100",
+    "question": "What are the top holdings in HDFC Top 100 Fund?",
+    "expected_intent": "fund_holdings",
+    "expected_fund_name": "HDFC Top 100",
+    "expected_fund_isin": "INF179K01BE2",
+    "pinned_answer_eval": true,
+    "must_contain": ["HDFC", "HDFC Bank"],
+    "must_not_contain": ["1-Week Change:", "1-Month Change:", "Sector Allocation:"]
+  },
+  {
+    "id": "holdings_ppfas",
+    "question": "Which stocks are held by Parag Parikh Flexi Cap Fund?",
+    "expected_intent": "fund_holdings",
+    "expected_fund_name": "Parag Parikh Flexi Cap",
+    "expected_fund_isin": "INF879O01027",
+    "pinned_answer_eval": true,
+    "must_contain": ["Parag Parikh", "HDFC Bank"],
+    "must_not_contain": ["Latest NAV: ₹", "1-Year Change:"]
+  },
+  {
+    "id": "holdings_nippon_growth",
+    "question": "What companies does Nippon India Growth Fund invest in?",
+    "expected_intent": "fund_holdings",
+    "expected_fund_name": "Nippon India Growth",
+    "expected_fund_isin": "INF204K01018",
+    "pinned_answer_eval": true,
+    "must_contain": ["Nippon"],
+    "must_not_contain": ["Sector Allocation:", "NAV: ₹"]
+  },
+  {
+    "id": "sectors_axis_bluechip",
+    "question": "What is the sector allocation of Axis Bluechip Fund?",
+    "expected_intent": "fund_sectors",
+    "expected_fund_name": "Axis Bluechip",
+    "expected_fund_isin": "INF846K01164",
+    "pinned_answer_eval": true,
+    "must_contain": ["Axis"],
+    "must_not_contain": ["Top Holdings: -", "1-Week Change:"]
+  },
+  {
+    "id": "sectors_mirae_large_cap",
+    "question": "Show me the sector breakdown for Mirae Asset Large Cap Fund",
+    "expected_intent": "fund_sectors",
+    "expected_fund_name": "Mirae Asset Large Cap",
+    "expected_fund_isin": "INF769K01010",
+    "pinned_answer_eval": true,
+    "must_contain": ["Mirae", "%"],
+    "must_not_contain": ["Top Holdings: -", "Latest NAV: ₹"]
+  },
+  {
+    "id": "event_crude_ppfas",
+    "question": "How will the surge in global crude oil prices affect Parag Parikh Flexi Cap Fund?",
+    "expected_intent": "fund_event_impact",
+    "expected_fund_name": "Parag Parikh Flexi Cap",
+    "expected_fund_isin": "INF879O01027",
+    "pinned_answer_eval": true,
+    "must_contain": ["crude", "Parag Parikh"],
+    "must_not_contain": ["Buy recommendations", "Sell recommendations"]
+  },
+  {
+    "id": "event_rbi_rate_hdfc",
+    "question": "What is the impact of RBI repo rate changes on HDFC Top 100 Fund?",
+    "expected_intent": "fund_event_impact",
+    "expected_fund_name": "HDFC Top 100",
+    "expected_fund_isin": "INF179K01BE2",
+    "pinned_answer_eval": true,
+    "must_contain": ["HDFC Top 100", "RBI"],
+    "must_not_contain": ["Buy", "Sell"]
+  },
+  {
+    "id": "news_sbi_bluechip",
+    "question": "What is the recent news and performance update on SBI Bluechip Fund?",
+    "expected_intent": "fund_news",
+    "expected_fund_name": "SBI Bluechip",
+    "expected_fund_isin": "INF200K01164",
+    "pinned_answer_eval": true,
+    "must_contain": ["SBI Bluechip"],
+    "must_not_contain": ["Buy now", "Sell now"]
+  },
+  {
+    "id": "news_kotak_emerging",
+    "question": "What is happening with Kotak Emerging Equity Fund recently?",
+    "expected_intent": "fund_news",
+    "expected_fund_name": "Kotak Emerging Equity",
+    "expected_fund_isin": "INF174K01101",
+    "pinned_answer_eval": true,
+    "must_contain": ["Kotak Emerging Equity"],
+    "must_not_contain": ["Guaranteed returns"]
+  },
+  {
+    "id": "single_stock_hdfc_bank",
+    "question": "What is the latest news and earnings update on HDFC Bank?",
+    "expected_intent": "single_stock",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["HDFC Bank"],
+    "must_not_contain": ["Top Holdings:", "Sector Allocation:"]
+  },
+  {
+    "id": "single_stock_infosys",
+    "question": "Why did Infosys shares drop this week?",
+    "expected_intent": "single_stock",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["Infosys"],
+    "must_not_contain": ["Parag Parikh", "HDFC Top 100"]
+  },
+  {
+    "id": "single_stock_tata_motors",
+    "question": "What did Tata Motors announce regarding their commercial vehicle demerger?",
+    "expected_intent": "single_stock",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["Tata Motors"],
+    "must_not_contain": ["Mutual fund NAV"]
+  },
+  {
+    "id": "single_stock_reliance",
+    "question": "Any major updates on Reliance Industries retail and telecom businesses?",
+    "expected_intent": "single_stock",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["Reliance"],
+    "must_not_contain": ["Mutual fund NAV: ₹"]
+  },
+  {
+    "id": "sector_it",
+    "question": "How is the Indian IT software sector performing this quarter?",
+    "expected_intent": "sector",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["IT", "software"],
+    "must_not_contain": ["HDFC Top 100 NAV", "Axis Bluechip"]
+  },
+  {
+    "id": "sector_auto",
+    "question": "What are the latest passenger vehicle sales trends in the Indian automobile industry?",
+    "expected_intent": "sector",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["auto", "vehicle"],
+    "must_not_contain": ["Parag Parikh Flexi Cap NAV"]
+  },
+  {
+    "id": "sector_pharma",
+    "question": "Are Indian pharmaceutical companies facing USFDA regulatory inspections recently?",
+    "expected_intent": "sector",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["pharma", "USFDA"],
+    "must_not_contain": ["SBI Bluechip NAV"]
+  },
+  {
+    "id": "macro_rbi_repo",
+    "question": "What was the outcome of the latest RBI Monetary Policy Committee meeting on repo rates?",
+    "expected_intent": "macro",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["RBI", "repo rate"],
+    "must_not_contain": ["HDFC Top 100 holdings", "Axis Bluechip"]
+  },
+  {
+    "id": "macro_inflation",
+    "question": "What is the latest CPI retail inflation rate in India?",
+    "expected_intent": "macro",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["inflation", "CPI"],
+    "must_not_contain": ["Top Holdings:"]
+  },
+  {
+    "id": "macro_gsec_yield",
+    "question": "How are Indian 10-year benchmark government bond yields trending?",
+    "expected_intent": "macro",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["yield", "bond"],
+    "must_not_contain": ["Mutual fund NAV: ₹"]
+  },
+  {
+    "id": "bullion_gold_price",
+    "question": "What is the current gold price per 10 grams in India?",
+    "expected_intent": "bullion",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["Gold", "₹"],
+    "must_not_contain": ["Parag Parikh holdings", "Infosys shares"]
+  },
+  {
+    "id": "bullion_silver_trend",
+    "question": "Why is silver rallying on MCX today?",
+    "expected_intent": "bullion",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["Silver"],
+    "must_not_contain": ["HDFC Bank earnings"]
+  },
+  {
+    "id": "concept_what_is_nav",
+    "question": "What is NAV in mutual funds and how is it calculated?",
+    "expected_intent": "concept",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["NAV", "Net Asset Value"],
+    "must_not_contain": ["Parag Parikh Flexi Cap", "Latest headlines:", "Article 1"]
+  },
+  {
+    "id": "concept_expense_ratio",
+    "question": "Explain what Total Expense Ratio (TER) means in a mutual fund scheme",
+    "expected_intent": "concept",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["expense ratio", "fee"],
+    "must_not_contain": ["HDFC Top 100", "Breaking News:"]
+  },
+  {
+    "id": "concept_ebitda",
+    "question": "What does EBITDA margin mean in corporate financial reports?",
+    "expected_intent": "concept",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["EBITDA", "profit"],
+    "must_not_contain": ["Verified News Articles", "NAV"]
+  },
+  {
+    "id": "concept_direct_vs_regular",
+    "question": "What is the difference between Direct Plan and Regular Plan in mutual funds?",
+    "expected_intent": "concept",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["Direct", "Regular", "commission"],
+    "must_not_contain": ["Article 1 -", "Headline"]
+  },
+  {
+    "id": "multi_question_nav_and_stock",
+    "question": "What is the NAV of HDFC Top 100 Fund, and what happened with TCS shares today?",
+    "expected_intent": "multi",
+    "expected_fund_name": "HDFC Top 100",
+    "expected_fund_isin": "INF179K01BE2",
+    "pinned_answer_eval": true,
+    "must_contain": ["HDFC Top 100", "TCS"],
+    "must_not_contain": ["Guaranteed return"]
+  },
+  {
+    "id": "general_market_wrap",
+    "question": "How are the Indian benchmark indices Sensex and Nifty trading today?",
+    "expected_intent": "general",
+    "expected_fund_name": "",
+    "pinned_answer_eval": true,
+    "must_contain": ["Nifty", "market"],
+    "must_not_contain": ["Parag Parikh Flexi Cap holdings"]
+  },
+  {
+    "id": "router_test_icici_bluechip_nav",
+    "question": "Can you give me the latest NAV of ICICI Prudential Bluechip Fund?",
+    "expected_intent": "fund_nav",
+    "expected_fund_name": "ICICI Prudential Bluechip",
+    "expected_fund_isin": "INF109K014L5"
+  },
+  {
+    "id": "router_test_uti_nifty50_holdings",
+    "question": "Show me the top 5 stocks in UTI Nifty 50 Index Fund",
+    "expected_intent": "fund_holdings",
+    "expected_fund_name": "UTI Nifty 50 Index",
+    "expected_fund_isin": "INF789F01059"
+  },
+  {
+    "id": "router_test_quant_value_sectors",
+    "question": "What sectors are held by Quantum Value Fund?",
+    "expected_intent": "fund_sectors",
+    "expected_fund_name": "Quantum Value",
+    "expected_fund_isin": "INF082J01044"
+  },
+  {
+    "id": "router_test_tcs_results",
+    "question": "How were TCS Q3 financial results and revenue growth?",
+    "expected_intent": "single_stock",
+    "expected_fund_name": ""
+  },
+  {
+    "id": "router_test_banking_sector",
+    "question": "What is the credit growth outlook for Indian banking industry?",
+    "expected_intent": "sector",
+    "expected_fund_name": ""
+  },
+  {
+    "id": "router_test_rupee_dollar",
+    "question": "Why is the Indian Rupee depreciating against the US Dollar?",
+    "expected_intent": "macro",
+    "expected_fund_name": ""
+  },
+  {
+    "id": "router_test_gold_rate",
+    "question": "What is the 24K gold rate in India right now?",
+    "expected_intent": "bullion",
+    "expected_fund_name": ""
+  },
+  {
+    "id": "router_test_sip_concept",
+    "question": "What is an SIP (Systematic Investment Plan) and how does rupee cost averaging work?",
+    "expected_intent": "concept",
+    "expected_fund_name": ""
+  },
+  {
+    "id": "router_test_isin_direct_lookup",
+    "question": "Tell me the NAV performance of INF200K01T43 over 30 days",
+    "expected_intent": "fund_nav",
+    "expected_fund_isin": "INF200K01T43"
+  },
+  {
+    "id": "router_test_motilal_midcap_news",
+    "question": "Any major news on Motilal Oswal Midcap Fund this month?",
+    "expected_intent": "fund_news",
+    "expected_fund_name": "Motilal Oswal Midcap",
+    "expected_fund_isin": "INF247L01168"
+  }
+]

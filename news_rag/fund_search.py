@@ -1,60 +1,29 @@
-"""Fast search and autocomplete recommendations across mutual funds."""
+"""Fast search and autocomplete recommendations across mutual funds using regular-growth-by-amc universe and live RupeeStop API."""
 
 from __future__ import annotations
 
 import json
 import logging
 import re
+import threading
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from news_rag.config import get_settings
 
 logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
+_API_BASE_URL = "https://backend.rupeestop.com/api/v1/app/fund"
 
 
-def _extract_plan_option(isin: str, name: str, direct_growth_isins: set[str]) -> tuple[str, str]:
-    name_lower = name.lower()
-    
-    # 1. Determine Plan
-    if "direct" in name_lower or isin in direct_growth_isins:
-        plan = "Direct"
-    elif "regular" in name_lower:
-        plan = "Regular"
-    else:
-        plan = "Regular"
-
-    # 2. Determine Option
-    if "reinvestment" in name_lower or "reinvest" in name_lower:
-        option = "IDCW Reinvestment"
-    elif "payout" in name_lower:
-        option = "IDCW Payout"
-    elif "idcw" in name_lower:
-        option = "IDCW"
-    elif "dividend" in name_lower:
-        option = "Dividend"
-    elif "bonus" in name_lower:
-        option = "Bonus"
-    elif "monthly" in name_lower:
-        option = "Monthly"
-    elif "quarterly" in name_lower:
-        option = "Quarterly"
-    elif "weekly" in name_lower:
-        option = "Weekly"
-    elif "fortnightly" in name_lower:
-        option = "Fortnightly"
-    elif "annually" in name_lower or "annual" in name_lower:
-        option = "Annual"
-    elif "daily" in name_lower:
-        option = "Daily"
-    elif "growth" in name_lower or isin in direct_growth_isins:
-        option = "Growth"
-    else:
-        option = "Growth"
-
-    return plan, option
+def _clean_company_name(n: Any) -> str:
+    s = str(n or "").strip()
+    # Remove footnote annotations like £, *, #, @, etc.
+    s = re.sub(r"[\*£@#$~\^]+$", "", s).strip()
+    return s
 
 
 def _normalize_fund_text(text: str) -> str:
@@ -67,98 +36,155 @@ def _normalize_fund_text(text: str) -> str:
     t = re.sub(r"\bmulticap\b", "multi cap", t)
     t = re.sub(r"\bmicrocap\b", "micro cap", t)
     t = re.sub(r"\bbluechip\b", "blue chip", t)
+    t = re.sub(r"\btop\s*100\b", "large cap", t)
+    t = re.sub(r"\btop\s*200\b", "large mid cap", t)
     t = re.sub(r"\b&\b", " and ", t)
     t = re.sub(r"\bppfas\b", "parag parikh ppfas", t)
     return t
+
+
+def _infer_category_and_type(name: str) -> tuple[str, str]:
+    """Infers scheme category and type from fund name."""
+    nl = name.lower()
+    scheme_type = "Equity"
+    category = "Other Equity"
+
+    if any(k in nl for k in ["liquid", "overnight", "money market", "ultra short", "low duration", "short duration", "corporate bond", "banking & psu", "gilt", "dynamic bond", "credit risk", "target maturity", "fixed horizon"]):
+        scheme_type = "Debt"
+        category = "Debt"
+    elif any(k in nl for k in ["balanced hybrid", "aggressive hybrid", "conservative hybrid", "balanced advantage", "dynamic asset", "multi asset", "arbitrage", "equity savings"]):
+        scheme_type = "Hybrid"
+        category = "Hybrid"
+    elif any(k in nl for k in ["gold etf", "gold fund", "silver etf", "silver fund", "commodity"]):
+        scheme_type = "Commodity"
+        category = "Commodities"
+    elif any(k in nl for k in ["index fund", "etf", "nifty 50", "sensex", "nifty", "bse"]):
+        scheme_type = "Index / Passive"
+        category = "Index Funds"
+    elif "flexi cap" in nl or "flexicap" in nl:
+        category = "Flexi Cap"
+    elif "large cap" in nl or "largecap" in nl or "bluechip" in nl:
+        category = "Large Cap"
+    elif "mid cap" in nl or "midcap" in nl or "emerging equity" in nl:
+        category = "Mid Cap"
+    elif "small cap" in nl or "smallcap" in nl:
+        category = "Small Cap"
+    elif "elss" in nl or "tax saver" in nl:
+        category = "ELSS"
+    elif "focused" in nl:
+        category = "Focused"
+    elif "value" in nl or "contra" in nl:
+        category = "Value / Contra"
+
+    return category, scheme_type
 
 
 class FundIndex:
     def __init__(self) -> None:
         self._loaded: bool = False
         self._entries: list[dict[str, Any]] = []
+        self._entries_by_isin: dict[str, dict[str, Any]] = {}
+        self._detail_cache: dict[str, dict[str, Any]] = {}
+        self._lock = threading.Lock()
         self._data_path: Path | None = None
-        self._full_map: dict[str, dict[str, Any]] | None = None
-        self._direct_growth_isins: set[str] = set()
 
-    def _find_data_file(self) -> Path | None:
-        settings = get_settings()
+    def _find_md_file(self) -> Path | None:
         candidates = [
-            _REPO_ROOT / settings.allisin_sectors_holdings_json,
-            _REPO_ROOT / "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json",
-            _REPO_ROOT / "data/fund_holdings_aggregate/fund_sectors_and_holdings_aggregate.json",
+            _REPO_ROOT / "data/fund_holdings_aggregate/regular-growth-by-amc.md",
+            _REPO_ROOT / "data/regular-growth-by-amc.md",
         ]
         for path in candidates:
             if path.is_file():
                 return path
         return None
 
-    def _load_direct_growth_isins(self) -> set[str]:
-        direct_file = _REPO_ROOT / "data" / "direct_plan_growth_isins.txt"
-        if direct_file.is_file():
-            try:
-                return set(direct_file.read_text(encoding="utf-8").splitlines())
-            except Exception:
-                pass
-        return set()
-
     def _ensure_loaded(self) -> None:
         if self._loaded:
             return
-        data_path = self._find_data_file()
-        if not data_path or not data_path.is_file():
-            logger.warning("No fund aggregate JSON file found for search index")
-            self._loaded = True
-            return
+        with self._lock:
+            if self._loaded:
+                return
 
-        self._data_path = data_path
-        self._direct_growth_isins = self._load_direct_growth_isins()
-
-        try:
-            with open(data_path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
-
+            md_path = self._find_md_file()
             entries: list[dict[str, Any]] = []
-            full_map: dict[str, dict[str, Any]] = {}
+            entries_by_isin: dict[str, dict[str, Any]] = {}
 
-            if isinstance(raw, dict):
-                for isin, val in raw.items():
-                    if isin.startswith("_") or not isinstance(val, dict):
-                        continue
-                    name = str(val.get("fund_short_name") or val.get("fund_name") or isin).strip()
-                    category = str(val.get("category") or "").strip()
-                    scheme_type = str(val.get("scheme_type") or "").strip()
-                    as_on = str(val.get("as_on") or "").strip()
-                    
-                    plan, option = _extract_plan_option(isin, name, self._direct_growth_isins)
+            if md_path and md_path.is_file():
+                self._data_path = md_path
+                try:
+                    text = md_path.read_text(encoding="utf-8")
+                    current_amc = ""
+                    for line in text.splitlines():
+                        line = line.strip()
+                        if line.startswith("## "):
+                            current_amc = line.replace("## ", "").strip()
+                        elif line.startswith("- ") and "—" in line:
+                            parts = line[2:].split("—")
+                            if len(parts) >= 2:
+                                fname = parts[0].strip()
+                                isin = parts[1].replace("`", "").strip()
+                                cat, stype = _infer_category_and_type(fname)
+                                entry = {
+                                    "isin": isin,
+                                    "fund_name": fname,
+                                    "fund_short_name": fname,
+                                    "amc": current_amc,
+                                    "plan": "Regular",
+                                    "option": "Growth",
+                                    "category": cat,
+                                    "scheme_type": stype,
+                                    "as_on": "",
+                                    "name_lower": fname.lower(),
+                                    "name_norm": _normalize_fund_text(fname),
+                                    "isin_lower": isin.lower(),
+                                }
+                                entries.append(entry)
+                                entries_by_isin[isin.upper()] = entry
+                    logger.info("Loaded %d Regular Growth funds into search index from %s", len(entries), md_path.name)
+                except Exception as exc:
+                    logger.exception("Failed loading funds from markdown %s: %s", md_path, exc)
 
-                    # Strict filter for conversational search: Regular Plan + Growth Option
-                    if plan == "Regular" and option == "Growth":
-                        entry = {
-                            "isin": isin,
-                            "fund_short_name": name,
-                            "plan": plan,
-                            "option": option,
-                            "category": category,
-                            "scheme_type": scheme_type,
-                            "as_on": as_on,
-                            "name_lower": name.lower(),
-                            "name_norm": _normalize_fund_text(name),
-                            "isin_lower": isin.lower(),
-                        }
-                        entries.append(entry)
-                    
-                    # Augment full map with plan and option
-                    val_copy = dict(val)
-                    val_copy["plan"] = plan
-                    val_copy["option"] = option
-                    full_map[isin] = val_copy
+            # Fallback to json if markdown was empty or missing
+            if not entries:
+                json_candidates = [
+                    _REPO_ROOT / "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json",
+                    _REPO_ROOT / "data/fund_holdings_aggregate/fund_sectors_and_holdings_aggregate.json",
+                ]
+                for jpath in json_candidates:
+                    if jpath.is_file():
+                        try:
+                            with open(jpath, "r", encoding="utf-8") as f:
+                                raw = json.load(f)
+                            if isinstance(raw, dict):
+                                for isin, val in raw.items():
+                                    if isin.startswith("_") or not isinstance(val, dict):
+                                        continue
+                                    fname = str(val.get("fund_short_name") or val.get("fund_name") or isin).strip()
+                                    cat = str(val.get("category") or "").strip()
+                                    stype = str(val.get("scheme_type") or "").strip()
+                                    entry = {
+                                        "isin": isin,
+                                        "fund_name": fname,
+                                        "fund_short_name": fname,
+                                        "amc": "",
+                                        "plan": "Regular",
+                                        "option": "Growth",
+                                        "category": cat,
+                                        "scheme_type": stype,
+                                        "as_on": str(val.get("as_on") or ""),
+                                        "name_lower": fname.lower(),
+                                        "name_norm": _normalize_fund_text(fname),
+                                        "isin_lower": isin.lower(),
+                                    }
+                                    entries.append(entry)
+                                    entries_by_isin[isin.upper()] = entry
+                            logger.info("Fallback loaded %d funds from %s", len(entries), jpath.name)
+                            break
+                        except Exception:
+                            pass
 
             self._entries = entries
-            self._full_map = full_map
-            self._loaded = True
-            logger.info("Loaded %d Regular Growth funds into search index from %s", len(self._entries), data_path.name)
-        except Exception as exc:
-            logger.exception("Failed to load fund index from %s: %s", data_path, exc)
+            self._entries_by_isin = entries_by_isin
             self._loaded = True
 
     def search(self, query: str, limit: int = 15) -> list[dict[str, Any]]:
@@ -174,7 +200,7 @@ class FundIndex:
                     "option": e.get("option", "Growth"),
                     "category": e["category"],
                     "scheme_type": e["scheme_type"],
-                    "as_on": e["as_on"],
+                    "as_on": e.get("as_on", ""),
                 }
                 for e in self._entries[:limit]
             ]
@@ -219,7 +245,7 @@ class FundIndex:
                             "option": e.get("option", "Growth"),
                             "category": e["category"],
                             "scheme_type": e["scheme_type"],
-                            "as_on": e["as_on"],
+                            "as_on": e.get("as_on", ""),
                         }
                     )
                     if len(results) >= limit:
@@ -227,132 +253,280 @@ class FundIndex:
 
         return results
 
+    def fetch_fund_detail_from_api(self, isin: str, timeout: float = 12.0) -> dict[str, Any] | None:
+        """Fetches full live fund sectors, holdings, NAV and metadata from RupeeStop backend API."""
+        isin_clean = isin.strip().upper()
+        url = f"{_API_BASE_URL}/{isin_clean}"
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                resp = client.get(url)
+                if resp.status_code != 200:
+                    logger.warning("RupeeStop fund API returned status %d for ISIN %s", resp.status_code, isin_clean)
+                    return None
+                payload = resp.json()
+        except Exception as exc:
+            logger.warning("Failed to fetch fund detail from RupeeStop API for %s: %s", isin_clean, exc)
+            return None
+
+        raw = payload.get("data") or {}
+        if not raw or not isinstance(raw, dict):
+            return None
+
+        ident = raw.get("identity") or {}
+        facts = raw.get("fund_facts") or {}
+        nav = raw.get("nav") or {}
+        ret = raw.get("returns") or {}
+        alloc = raw.get("allocations") or {}
+        port = raw.get("portfolio") or {}
+
+        # 1. Process sectors into standard { sector_name: percentage } map
+        raw_sectors = alloc.get("sector_from_holdings") or alloc.get("sector") or []
+        sectors: dict[str, float] = {}
+        if isinstance(raw_sectors, list):
+            for s in raw_sectors:
+                if isinstance(s, dict):
+                    sname = str(s.get("sector") or s.get("name") or "").strip()
+                    if sname:
+                        try:
+                            sectors[sname] = float(s.get("percentage") or 0.0)
+                        except Exception:
+                            pass
+        elif isinstance(raw_sectors, dict):
+            for sname, pct in raw_sectors.items():
+                try:
+                    sectors[str(sname).strip()] = float(pct or 0.0)
+                except Exception:
+                    pass
+
+        # 2. Process holdings into standard { company_name: {percentage, industry, rating, market_value} }
+        raw_holdings = port.get("holdings") or []
+        holdings: dict[str, dict[str, Any]] = {}
+        if isinstance(raw_holdings, list):
+            for h in raw_holdings:
+                if isinstance(h, dict):
+                    hname = _clean_company_name(h.get("instrument_name") or h.get("company_name") or h.get("name") or "")
+                    if hname:
+                        pct = float(h.get("percentage") or 0.0)
+                        ind = str(h.get("industry") or h.get("asset_type") or "Equity").strip()
+                        rat = str(h.get("rating") or "").strip()
+                        mv = float(h.get("market_value") or 0.0) if h.get("market_value") is not None else None
+                        holdings[hname] = {
+                            "percentage": pct,
+                            "industry": ind,
+                            "rating": rat,
+                            "market_value": mv,
+                        }
+        elif isinstance(raw_holdings, dict):
+            for hname, meta in raw_holdings.items():
+                cname = _clean_company_name(hname)
+                if isinstance(meta, dict):
+                    holdings[cname] = {
+                        "percentage": float(meta.get("percentage") or 0.0),
+                        "industry": str(meta.get("industry") or "Equity"),
+                        "rating": str(meta.get("rating") or ""),
+                    }
+                else:
+                    try:
+                        p = float(meta)
+                    except Exception:
+                        p = 0.0
+                    holdings[cname] = {"percentage": p, "industry": "Equity", "rating": ""}
+
+        # 3. Process returns
+        returns_map: dict[str, Any] = {}
+        if isinstance(ret, dict):
+            for period in ["1m", "3m", "6m", "1y", "3y", "5y", "ytd", "inception"]:
+                val_obj = ret.get(period)
+                if isinstance(val_obj, dict):
+                    returns_map[period] = val_obj.get("value")
+                elif val_obj is not None:
+                    returns_map[period] = val_obj
+            extra = ret.get("extra") or {}
+            if isinstance(extra, dict):
+                for period in ["1w", "9m", "2y", "4y"]:
+                    val_obj = extra.get(period)
+                    if isinstance(val_obj, dict):
+                        returns_map[period] = val_obj.get("value")
+                    elif val_obj is not None:
+                        returns_map[period] = val_obj
+
+        # Dates & identification
+        as_on = (
+            str(port.get("portfolio_date") or "").strip()
+            or str((raw.get("as_on") or {}).get("accord") or "").strip()
+            or str((raw.get("as_on") or {}).get("nav") or "").strip()
+        )
+
+        entry_meta = self._entries_by_isin.get(isin_clean) or {}
+
+        fund_name = ident.get("fund_name") or entry_meta.get("fund_name") or isin_clean
+        fund_short_name = ident.get("fund_short_name") or ident.get("fund_name") or entry_meta.get("fund_short_name") or isin_clean
+
+        cat = ident.get("category") or ident.get("sebi_category") or ident.get("sub_category") or entry_meta.get("category") or ""
+        stype = ident.get("scheme_type") or entry_meta.get("scheme_type") or "Equity"
+        plan = ident.get("plan") or entry_meta.get("plan") or "Regular"
+        opt = ident.get("option") or entry_meta.get("option") or "Growth"
+
+        detail: dict[str, Any] = {
+            "isin": isin_clean,
+            "fund_name": fund_name,
+            "fund_short_name": fund_short_name,
+            "category": cat,
+            "scheme_type": stype,
+            "plan": plan,
+            "option": opt,
+            "as_on": as_on,
+            "benchmark": facts.get("benchmark") or get_fund_benchmark(cat, fund_name),
+            "nav": nav.get("value"),
+            "nav_date": nav.get("date"),
+            "nav_day_change": nav.get("day_change"),
+            "nav_day_change_pct": nav.get("day_change_pct"),
+            "high_52w": nav.get("high_52w"),
+            "low_52w": nav.get("low_52w"),
+            "returns": returns_map,
+            "sectors": sectors,
+            "holdings": holdings,
+        }
+
+        with self._lock:
+            self._detail_cache[isin_clean] = detail
+
+        return detail
+
     def get_fund_detail(self, isin: str) -> dict[str, Any] | None:
-        """Get full details (sectors, holdings, info) for an ISIN."""
+        """Get full details (sectors, holdings, info) for an ISIN with caching."""
         self._ensure_loaded()
         isin_clean = isin.strip().upper()
-        if not self._full_map or isin_clean not in self._full_map:
-            for k, val in (self._full_map or {}).items():
-                if k.upper() == isin_clean:
-                    return {"isin": k, **val}
-            return None
 
-        val = self._full_map[isin_clean]
-        return {"isin": isin_clean, **val}
+        # Check cache
+        with self._lock:
+            if isin_clean in self._detail_cache:
+                return self._detail_cache[isin_clean]
 
-    def resolve_fund_from_text(self, text: str) -> dict[str, Any] | None:
-        """Intelligently resolves a Regular Growth mutual fund from natural language text or ISIN."""
-        self._ensure_loaded()
-        if not text:
-            return None
+        # Fetch from live RupeeStop API
+        detail = self.fetch_fund_detail_from_api(isin_clean)
+        if detail:
+            return detail
 
-        clean_text = text.strip()
-        lower_text = clean_text.lower()
-
-        # 1. Direct ISIN match (INF...)
-        isin_match = re.search(r"\b(INF[A-Z0-9]{9})\b", clean_text, re.IGNORECASE)
-        if isin_match:
-            isin_str = isin_match.group(1).upper()
-            detail = self.get_fund_detail(isin_str)
-            if detail:
-                return detail
-
-        norm_text = _normalize_fund_text(clean_text)
-
-        # 2. Check curated conversational aliases
-        for alias, isin in FUND_ALIASES.items():
-            norm_alias = _normalize_fund_text(alias)
-            if re.search(rf"\b{re.escape(norm_alias)}\b", norm_text) or re.search(rf"\b{re.escape(alias)}\b", lower_text):
-                detail = self.get_fund_detail(isin)
-                if detail:
-                    return detail
-
-        # 3. Token-set scoring against all Regular Growth fund entries
-        stop_words = {
-            "what", "where", "which", "when", "how", "much", "many", "does", "will", "this", "that",
-            "fund", "funds", "mutual", "holding", "holdings", "sector", "sectors", "growth", "regular",
-            "plan", "option", "impact", "affect", "news", "today", "return", "returns", "latest",
-            "price", "prices", "trend", "trends", "current", "tell", "show", "give", "about", "with",
-            "have", "from", "over", "last", "days", "week", "month", "year", "time", "rate", "rates",
-            "happening", "recently", "doing", "performance"
-        }
-        q_tokens = [w for w in re.findall(r"\b[a-z0-9]+\b", norm_text) if len(w) >= 3 and w not in stop_words]
-        q_set = set(q_tokens)
-
-        if len(q_set) >= 2:
-            best_entry = None
-            best_score = -999
-
-            distinguishing_categories = {
-                "large", "mid", "small", "flexi", "multi", "micro", "focused", "contra", "value",
-                "hybrid", "etf", "index", "overnight", "liquid", "debt", "psu", "pharma",
-                "technology", "manufacturing", "consumption", "elss", "tax"
+        # Fallback to local entries metadata if API was unreachable or has no data
+        entry = self._entries_by_isin.get(isin_clean)
+        if entry:
+            fallback = {
+                "isin": isin_clean,
+                "fund_name": entry["fund_name"],
+                "fund_short_name": entry["fund_short_name"],
+                "category": entry["category"],
+                "scheme_type": entry["scheme_type"],
+                "plan": entry["plan"],
+                "option": entry["option"],
+                "as_on": entry.get("as_on", ""),
+                "benchmark": get_fund_benchmark(entry["category"], entry["fund_name"]),
+                "sectors": {},
+                "holdings": {},
             }
-
-            for e in self._entries:
-                norm_e = e.get("name_norm") or _normalize_fund_text(e["name_lower"])
-                e_tokens = [w for w in re.findall(r"\b[a-z0-9]+\b", norm_e) if len(w) >= 3 and w not in stop_words]
-                e_set = set(e_tokens)
-
-                matched = q_set & e_set
-                if len(matched) < 2:
-                    continue
-
-                score = len(matched) * 10
-
-                # Distinguishing category penalty if entry has a category word NOT requested in query
-                for extra in (e_set - q_set):
-                    if extra in distinguishing_categories:
-                        score -= 15
-
-                # Bonus if all query tokens are present in fund entry
-                if q_tokens and all(t in e_set for t in q_tokens):
-                    score += 20
-
-                # Bonus for exact token set equality
-                if len(q_set) == len(e_set) and q_set == e_set:
-                    score += 30
-
-                if score > best_score and score >= 10:
-                    best_score = score
-                    best_entry = e
-
-            if best_entry:
-                return self.get_fund_detail(best_entry["isin"])
+            with self._lock:
+                self._detail_cache[isin_clean] = fallback
+            return fallback
 
         return None
 
+    def lookup_extracted_fund(
+        self,
+        isin: str = "",
+        name: str = "",
+    ) -> tuple[dict[str, Any] | None, bool, list[str]]:
+        """Lookup fund by exact ISIN or extracted scheme name only.
 
-FUND_ALIASES: dict[str, str] = {
-    "parag parikh flexi cap": "INF879O01027",
-    "parag parikh flexicap": "INF879O01027",
-    "parag parikh": "INF879O01027",
-    "ppfas flexi cap": "INF879O01027",
-    "ppfas flexicap": "INF879O01027",
-    "ppfas": "INF879O01027",
-    "hdfc top 100": "INF179K01BE2",
-    "sbi bluechip": "INF200K01164",
-    "sbi blue chip": "INF200K01164",
-    "invesco largecap": "INF205K01304",
-    "invesco large cap": "INF205K01304",
-    "invesco large and mid cap": "INF205K01247",
-    "invesco large & mid cap": "INF205K01247",
-    "nippon india growth": "INF204K01018",
-    "nippon growth": "INF204K01018",
-    "icici prudential bluechip": "INF109K014L5",
-    "icici bluechip": "INF109K014L5",
-    "mirae asset large cap": "INF769K01010",
-    "mirae large cap": "INF769K01010",
-    "kotak emerging equity": "INF174K01101",
-    "axis bluechip": "INF846K01164",
-    "quantum value": "INF082J01044",
-    "quantum elss": "INF082J01085",
-    "sbi small cap": "INF200K01T43",
-    "hdfc mid cap opportunities": "INF179K01967",
-    "motilal oswal midcap": "INF247L01168",
-    "uti nifty 50 index": "INF789F01059",
-    "dsp flexi cap": "INF740K01079",
-}
+        Returns:
+            (fund_detail, is_ambiguous, close_matches)
+        """
+        self._ensure_loaded()
+        clean_isin = (isin or "").strip().upper()
+        clean_name = (name or "").strip()
+
+        # 1. Exact ISIN lookup
+        if clean_isin:
+            isin_match = re.search(r"\b(INF[A-Z0-9]{9})\b", clean_isin)
+            target_isin = isin_match.group(1).upper() if isin_match else clean_isin
+            detail = self.get_fund_detail(target_isin)
+            if detail:
+                return detail, False, []
+
+        # Check if name contains an ISIN
+        if clean_name:
+            isin_in_name = re.search(r"\b(INF[A-Z0-9]{9})\b", clean_name, re.IGNORECASE)
+            if isin_in_name:
+                detail = self.get_fund_detail(isin_in_name.group(1).upper())
+                if detail:
+                    return detail, False, []
+
+        if not clean_name:
+            return None, False, []
+
+        # 2. Search on extracted name only
+        norm_name = _normalize_fund_text(clean_name)
+        stop_words = {
+            "fund", "funds", "mutual", "scheme", "plan", "growth", "regular",
+            "the", "and", "of", "in", "for", "to", "a", "an", "is", "about"
+        }
+        q_tokens = [w for w in re.findall(r"\b[a-z0-9]+\b", norm_name) if len(w) >= 2 and w not in stop_words]
+        if not q_tokens:
+            return None, False, []
+
+        candidates = self.search(norm_name, limit=15)
+        if not candidates:
+            # Try searching individual key tokens if compound phrase yielded no direct search hits
+            primary_token = max(q_tokens, key=len)
+            candidates = self.search(primary_token, limit=15)
+
+        if not candidates:
+            return None, False, []
+
+        scored_candidates: list[tuple[float, dict[str, Any]]] = []
+        for c in candidates:
+            c_name = c.get("fund_short_name") or ""
+            c_norm = _normalize_fund_text(c_name)
+            c_tokens = set(re.findall(r"\b[a-z0-9]+\b", c_norm))
+
+            matched = [t for t in q_tokens if t in c_tokens]
+            coverage = len(matched) / len(q_tokens) if q_tokens else 0.0
+
+            # Score boosts for token coverage and exact matches
+            score = coverage * 100.0
+            if len(matched) == len(q_tokens):
+                score += 50.0
+            if norm_name in c_norm:
+                score += 30.0
+
+            if coverage >= 0.5 or (len(q_tokens) == 1 and coverage == 1.0):
+                scored_candidates.append((score, c))
+
+        if not scored_candidates:
+            return None, False, []
+
+        scored_candidates.sort(key=lambda x: x[0], reverse=True)
+        top_score, top_cand = scored_candidates[0]
+
+        # Check for ambiguity (e.g. user said "HDFC Fund" or "SBI Fund", matching 5+ distinct funds equally)
+        close_matches = [
+            c["fund_short_name"]
+            for score, c in scored_candidates
+            if abs(score - top_score) < 15.0
+        ]
+
+        if len(close_matches) > 1 and top_score < 130.0 and len(q_tokens) <= 2:
+            return None, True, close_matches[:5]
+
+        detail = self.get_fund_detail(top_cand["isin"])
+        return detail, False, []
+
+
+def lookup_extracted_fund(
+    isin: str = "",
+    name: str = "",
+) -> tuple[dict[str, Any] | None, bool, list[str]]:
+    """Convenience helper to lookup fund from global fund index."""
+    return get_fund_index().lookup_extracted_fund(isin=isin, name=name)
 
 
 def extract_top_holdings(detail: dict[str, Any] | None, limit: int = 10) -> list[dict[str, Any]]:
@@ -361,8 +535,10 @@ def extract_top_holdings(detail: dict[str, Any] | None, limit: int = 10) -> list
         return []
     raw = detail.get("holdings") or {}
     items: list[dict[str, Any]] = []
+
     if isinstance(raw, dict):
         for name, meta in raw.items():
+            cname = _clean_company_name(name)
             if isinstance(meta, dict):
                 pct = float(meta.get("percentage") or 0.0)
                 ind = meta.get("industry", "Equity")
@@ -372,16 +548,16 @@ def extract_top_holdings(detail: dict[str, Any] | None, limit: int = 10) -> list
                 except Exception:
                     pct = 0.0
                 ind = "Equity"
-            items.append({"name": str(name), "percentage": pct, "industry": ind})
+            items.append({"name": cname, "percentage": pct, "industry": ind})
     elif isinstance(raw, list):
         for h in raw:
             if isinstance(h, dict):
-                name = h.get("instrument_name") or h.get("name") or ""
+                name = _clean_company_name(h.get("instrument_name") or h.get("company_name") or h.get("name") or "")
                 pct = float(h.get("percentage") or 0.0)
                 ind = h.get("industry", "Equity")
-                items.append({"name": str(name), "percentage": pct, "industry": ind})
+                items.append({"name": name, "percentage": pct, "industry": ind})
             elif isinstance(h, str):
-                items.append({"name": h, "percentage": 0.0, "industry": "Equity"})
+                items.append({"name": _clean_company_name(h), "percentage": 0.0, "industry": "Equity"})
     items.sort(key=lambda x: x["percentage"], reverse=True)
     return items[:limit]
 
@@ -402,7 +578,7 @@ def extract_top_sectors(detail: dict[str, Any] | None, limit: int = 8) -> list[d
     elif isinstance(raw, list):
         for s in raw:
             if isinstance(s, dict):
-                name = s.get("sector_label") or s.get("sector") or ""
+                name = s.get("sector_label") or s.get("sector") or s.get("name") or ""
                 p = float(s.get("percentage") or 0.0)
                 items.append({"sector": str(name), "percentage": p})
             elif isinstance(s, str):
@@ -451,5 +627,3 @@ def get_fund_index() -> FundIndex:
     if _fund_index is None:
         _fund_index = FundIndex()
     return _fund_index
-
-
