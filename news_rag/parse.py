@@ -171,18 +171,125 @@ TOPIC_ENTITY_HINTS: tuple[tuple[re.Pattern[str], str], ...] = (
     # Industry / Sector Entities
     (re.compile(r"\bbanking\b|\bbank\s+sector\b|\bbanks\b|\bpsu\s+banks?\b|\bprivate\s+banks?\b", re.I), "Banks"),
     (re.compile(r"\bit\s+sector\b|\bsoftware\b|\bit\s+services\b|\btech\s+sector\b", re.I), "IT - Software"),
-    (re.compile(r"\bpharma\b|\bbiotech\b|\bpharmaceuticals?\b|\bhealthcare\b|\bdrugmakers?\b", re.I), "Pharmaceuticals & Biotechnology"),
-    (re.compile(r"\bretail\b|\bretailing\b", re.I), "Retailing"),
+    (re.compile(r"\bhospital\b|\bhospitals\b|\bhealthcare\b|\bhealth\s+care\b|\bmedical\b", re.I), "Healthcare Services"),
+    (re.compile(r"\bpharma\b|\bbiotech\b|\bpharmaceuticals?\b|\bdrugmakers?\b", re.I), "Pharmaceuticals & Biotechnology"),
+    (re.compile(r"\bretail\b|\bretailing\b|\be-commerce\b", re.I), "Retailing"),
     (re.compile(r"\bauto\b|\bautomobile\b|\bcarmaker\b|\bevs?\b|\belectric\s+vehicles?\b", re.I), "Automobiles"),
     (re.compile(r"\bfinance\s+sector\b|\bfinancial\s+services\b|\bnbfc\b", re.I), "Finance"),
     (re.compile(r"\bpower\b|\belectricity\b|\benergy\s+sector\b|\brenewable\b", re.I), "Power"),
     (re.compile(r"\bfmcg\b|\bconsumer\s+goods\b", re.I), "Diversified FMCG"),
     (re.compile(r"\bmetals?\b|\bsteel\s+sector\b|\bmining\b", re.I), "Ferrous Metals"),
     (re.compile(r"\btelecom\b|\b5g\b|\btelecommunication\b", re.I), "Telecom - Services"),
-    (re.compile(r"\bhospital\b|\bhospitals\b|\bhealth\s+care\b", re.I), "Healthcare Services"),
+    (re.compile(r"\btransport\b|\baviation\b|\bairline\b|\bairlines\b|\bair\s+travel\b", re.I), "Transport Services"),
     (re.compile(r"\binsurance\b|\blife\s+insurance\b", re.I), "Insurance"),
     (re.compile(r"\bfintech\b|\bdigital\s+payments?\b", re.I), "Financial Technology (Fintech)"),
+    (re.compile(r"\bconstruction\b|\binfrastructure\b|\brealty\b|\breal\s+estate\b|\bcement\b", re.I), "Construction"),
 )
+
+SECTOR_EXPANSIONS: dict[str, list[str]] = {
+    "Healthcare Services": [
+        "Healthcare Services",
+        "Pharmaceuticals & Biotechnology",
+        "Max Healthcare Institute Limited",
+        "Fortis Healthcare Limited",
+        "Apollo Hospitals Enterprise Limited",
+        "Dr. Lal PathLabs Ltd.",
+        "Sun Pharmaceutical Industries Limited",
+        "Torrent Pharmaceuticals Limited",
+    ],
+    "Pharmaceuticals & Biotechnology": [
+        "Pharmaceuticals & Biotechnology",
+        "Healthcare Services",
+        "Sun Pharmaceutical Industries Limited",
+        "Torrent Pharmaceuticals Limited",
+        "Aurobindo Pharma Limited",
+        "Sai Life Sciences Limited",
+        "Max Healthcare Institute Limited",
+    ],
+    "IT - Software": [
+        "IT - Software",
+        "Infosys Limited",
+        "Tata Consultancy Services Limited",
+        "HCL Technologies Ltd.",
+        "Coforge Limited",
+        "Wipro Limited",
+        "Tech Mahindra Limited",
+    ],
+    "Banks": [
+        "Banks",
+        "Finance",
+        "ICICI Bank Limited",
+        "HDFC Bank Limited",
+        "State Bank of India",
+        "Kotak Mahindra Bank Limited",
+        "Axis Bank Limited",
+        "The Federal Bank Limited",
+        "AU Small Finance Bank Limited",
+        "Indian Bank",
+    ],
+    "Finance": [
+        "Finance",
+        "Banks",
+        "Bajaj Finance Limited",
+        "Financial Technology (Fintech)",
+        "One 97 Communications Limited",
+    ],
+    "Automobiles": [
+        "Automobiles",
+        "Mahindra & Mahindra Limited",
+        "Maruti Suzuki India Limited",
+        "Bajaj Auto Limited",
+        "Tata Motors Limited",
+        "Eicher Motors Ltd.",
+        "Hero MotoCorp Limited",
+    ],
+    "Retailing": [
+        "Retailing",
+        "Diversified FMCG",
+        "Trent Limited",
+        "Eternal Limited",
+        "FSN E-Commerce Ventures Ltd.",
+        "Titan Company Limited",
+    ],
+    "Diversified FMCG": [
+        "Diversified FMCG",
+        "ITC Limited",
+        "Hindustan Unilever Ltd.",
+        "Tata Consumer Products Limited",
+    ],
+    "Transport Services": [
+        "Transport Services",
+        "InterGlobe Aviation Limited",
+        "Container Corporation of India Limited",
+    ],
+    "Telecom - Services": [
+        "Telecom - Services",
+        "Bharti Airtel Limited",
+        "Vodafone Idea Limited",
+    ],
+    "Power": [
+        "Power",
+        "NTPC Limited",
+        "Tata Power Company Limited",
+        "Power Grid Corporation of India Limited",
+        "Adani Power Limited",
+    ],
+    "Construction": [
+        "Construction",
+        "Construction Materials",
+        "Larsen & Toubro Limited",
+        "Prestige Estates Projects Limited",
+        "ABB India Limited",
+        "Siemens Limited",
+        "Ultratech Cement Ltd.",
+    ],
+    "Ferrous Metals": [
+        "Ferrous Metals",
+        "Tata Steel Ltd.",
+        "JSW Steel Limited",
+        "Hindalco Industries Limited",
+    ],
+}
 
 COMPANY_ALIAS_MAP: dict[str, str] = {
     "tcs": "Tata Consultancy Services Limited",
@@ -333,10 +440,22 @@ def extract_stock_hint(question: str, explicit: str | None = None) -> str:
 def resolve_entities(hint: str, corpus_names: set[str]) -> tuple[list[str], str]:
     if not hint:
         return [], "no_stock_hint"
+
+    # Check if hint is a sector with defined company expansions
+    if hint in SECTOR_EXPANSIONS:
+        expanded = [e for e in SECTOR_EXPANSIONS[hint] if e in corpus_names]
+        if expanded:
+            return expanded, "sector_expanded"
+
     hint_lower = hint.lower()
     for name in corpus_names:
         if hint_lower == name.lower():
+            if name in SECTOR_EXPANSIONS:
+                expanded = [e for e in SECTOR_EXPANSIONS[name] if e in corpus_names]
+                if expanded:
+                    return expanded, "sector_expanded"
             return [name], "exact_match"
+
     matches = []
     for name in sorted(corpus_names):
         if hint_lower in name.lower():
@@ -417,11 +536,31 @@ def classify_query_intent(
         sub_q = split_multi_questions(question)
         if len(sub_q) > 1:
             return "multi_question"
-        
+
+        is_general_performance = any(re.search(rf"\b{re.escape(w)}\b", lower_q) for w in [
+            "how is", "performing", "performance", "outlook", "breakdown", "analysis",
+            "review", "holding news", "portfolio news", "tell me about", "doing"
+        ])
+
+        # Check if query is specifically asking for NAV / Net Asset Value / Price of the fund
+        nav_terms = ["nav", "net asset value", "latest nav", "current nav", "nav price", "nav value"]
+        if any(re.search(rf"\b{re.escape(t)}\b", lower_q) for t in nav_terms) and not is_general_performance:
+            return "fund_nav"
+
+        # Check if query is specifically asking for holdings / stocks held
+        holdings_terms = ["top holdings", "holdings", "stocks held", "portfolio stocks", "top stocks", "what stocks", "which stocks", "underlying stocks", "companies held"]
+        if any(re.search(rf"\b{re.escape(t)}\b", lower_q) for t in holdings_terms) and not is_general_performance:
+            return "fund_holdings"
+
+        # Check if query is specifically asking for sector allocation
+        sector_terms = ["sector allocation", "sector breakdown", "sectors", "sector exposure", "what sectors", "industry allocation"]
+        if any(re.search(rf"\b{re.escape(t)}\b", lower_q) for t in sector_terms) and not is_general_performance:
+            return "fund_sectors"
+
         event_impact_terms = [
             "impact", "affect", "affecting", "crude", "oil", "tariff", "tariffs", "rate", "inflation",
             "war", "geopolitic", "rbi", "policy", "down", "up", "fall", "rise", "crash", "rally",
-            "news", "event", "budget", "fed", "election", "holding news", "sector news"
+            "news", "event", "budget", "fed", "election"
         ]
         if any(re.search(rf"\b{re.escape(t)}\b", lower_q) for t in event_impact_terms):
             return "fund_event_impact"

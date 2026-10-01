@@ -155,7 +155,8 @@ def retrieve_for_question(
 
     t3 = time.perf_counter()
     if fund_detail and not names:
-        # Prioritize company-specific holding articles across multiple holdings first, then fallback to sector-level news
+        # Multi-Channel Retrieval Engine for Funds
+        # Channel 1: Core Holding-by-Holding Scans (up to 15 holdings)
         top_h = extract_top_holdings(fund_detail, limit=20)
         top_s = extract_top_sectors(fund_detail, limit=4)
         comp_matched = [h["name"] for h in top_h if h["name"] in corpus]
@@ -164,8 +165,8 @@ def retrieve_for_question(
         impact_rows = []
         existing_urls = set()
 
-        # Balance scroll across distinct holding companies (up to 2 articles per holding to maximize entity diversity)
-        for comp in comp_matched:
+        # 1. Holding channel: Scroll top 2 articles per holding
+        for comp in comp_matched[:15]:
             filt_comp = build_filter(**{**filter_kwargs, "entity_names": [comp]})
             rows = reader.scroll_filtered(filt_comp, 2)
             for r in rows:
@@ -174,9 +175,9 @@ def retrieve_for_question(
                     impact_rows.append(r)
                     existing_urls.add(u)
 
-        remaining = max(0, settings.retrieve_impact_limit - len(impact_rows))
-        if remaining > 0 and sec_matched:
-            for sec in sec_matched:
+        # 2. Sector channel: Scroll top 2 articles per top fund sector
+        if sec_matched:
+            for sec in sec_matched[:4]:
                 filt_sec = build_filter(**{**filter_kwargs, "entity_names": [sec]})
                 sec_rows = reader.scroll_filtered(filt_sec, 2)
                 for sr in sec_rows:
@@ -184,8 +185,62 @@ def retrieve_for_question(
                     if u and u not in existing_urls:
                         impact_rows.append(sr)
                         existing_urls.add(u)
+
+        # 3. Macro channel: Additional vector query for market-wide monetary/macro drivers
+        try:
+            macro_query = "Reserve Bank of India repo rate inflation market liquidity GDP monetary policy"
+            macro_vector = embed_query(macro_query)
+            macro_filt = build_filter(
+                published_from=published_from,
+                published_to=published_to,
+                min_relevance=settings.min_relevance,
+            )
+            macro_rows = reader.query_vector(macro_vector, macro_filt, limit=10)
+            for mr in macro_rows:
+                u = mr.get("url")
+                if u and u not in existing_urls:
+                    vector_rows.append(mr)
+                    existing_urls.add(u)
+        except Exception:
+            pass
     else:
         impact_rows = reader.scroll_filtered(filt, settings.retrieve_impact_limit)
+
+    # Resilience fallback: If initial filtered retrieval yields sparse results (< 5 items),
+    # expand the search to 30 days and broad unconstrained vector retrieval
+    if (len(vector_rows) + len(impact_rows)) < 5 and not fund_detail:
+        from datetime import datetime, timedelta, timezone
+        from news_rag.parse import to_iso
+        now = datetime.now(timezone.utc)
+        fallback_30d = to_iso(now - timedelta(days=30))
+        
+        # Fallback 1: Filtered query with 30-day window
+        fallback_filt = build_filter(**{**filter_kwargs, "published_from": fallback_30d})
+        fb_vec_rows = reader.query_vector(vector, fallback_filt, settings.retrieve_vector_limit)
+        fb_imp_rows = reader.scroll_filtered(fallback_filt, settings.retrieve_impact_limit)
+        
+        existing_urls = {r.get("url") for r in (vector_rows + impact_rows) if r.get("url")}
+        for r in fb_vec_rows:
+            if r.get("url") and r.get("url") not in existing_urls:
+                vector_rows.append(r)
+                existing_urls.add(r.get("url"))
+        for r in fb_imp_rows:
+            if r.get("url") and r.get("url") not in existing_urls:
+                impact_rows.append(r)
+                existing_urls.add(r.get("url"))
+                
+        # Fallback 2: If still sparse (< 3), perform broad unconstrained vector search without entity filter
+        if (len(vector_rows) + len(impact_rows)) < 3:
+            broad_filt = build_filter(
+                published_from=fallback_30d,
+                published_to=published_to,
+                min_relevance=settings.min_relevance,
+            )
+            broad_vec = reader.query_vector(vector, broad_filt, settings.retrieve_vector_limit)
+            for r in broad_vec:
+                if r.get("url") and r.get("url") not in existing_urls:
+                    vector_rows.append(r)
+                    existing_urls.add(r.get("url"))
 
     if query_log is not None:
         query_log.log_step(
@@ -241,8 +296,15 @@ def retrieve_for_question(
         impact = int(row.get("max_impact") or 0)
         base_rrf = rrf_scores.get(url, 0.0)
         
-        # Combined score with entity boost and business impact weight
-        combined_score = base_rrf + (0.05 if exact_entity_match else 0.0) + (0.01 * impact)
+        # Fund holding weight bonus
+        holding_weight_boost = 0.0
+        if fund_detail:
+            h_weights = {h["name"].lower(): h.get("percentage", 0.0) for h in (top_h if "top_h" in locals() else [])}
+            for e_name in article_entities:
+                if e_name in h_weights:
+                    holding_weight_boost = max(holding_weight_boost, (h_weights[e_name] / 100.0) * 0.1)
+
+        combined_score = base_rrf + (0.05 if exact_entity_match else 0.0) + (0.01 * impact) + holding_weight_boost
 
         ranked.append(
             {
@@ -274,7 +336,29 @@ def retrieve_for_question(
         ),
         reverse=True,
     )
-    final = ranked[: settings.retrieve_max_articles]
+
+    # Balance entity representation (max 3 articles per primary entity to maximize holding diversity)
+    final: list[dict] = []
+    entity_counts: dict[str, int] = {}
+    remaining_overflow: list[dict] = []
+
+    for item in ranked:
+        ents = [str(e).lower() for e in item.get("entity_names") or []]
+        primary_ent = ents[0] if ents else "unknown"
+        if entity_counts.get(primary_ent, 0) < 3:
+            final.append(item)
+            entity_counts[primary_ent] = entity_counts.get(primary_ent, 0) + 1
+        else:
+            remaining_overflow.append(item)
+        if len(final) >= settings.retrieve_max_articles:
+            break
+
+    if len(final) < settings.retrieve_max_articles and remaining_overflow:
+        for item in remaining_overflow:
+            final.append(item)
+            if len(final) >= settings.retrieve_max_articles:
+                break
+
     if query_log is not None:
         if skipped_recap:
             query_log.write(f"post_filter skipped_price_recap={skipped_recap}")

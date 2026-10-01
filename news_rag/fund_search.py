@@ -411,6 +411,38 @@ def extract_top_sectors(detail: dict[str, Any] | None, limit: int = 8) -> list[d
     return items[:limit]
 
 
+def get_fund_benchmark(category: str, fund_name: str = "") -> str:
+    """Maps fund category and name to the standard AMFI/SEBI benchmark index."""
+    c_lower = (category or "").lower()
+    n_lower = (fund_name or "").lower()
+
+    if "large & mid" in c_lower or "large and mid" in c_lower or "large & mid" in n_lower or "large and mid" in n_lower:
+        return "Nifty LargeMidcap 250 TRI"
+    elif "large cap" in c_lower or "largecap" in c_lower or "bluechip" in c_lower or "top 100" in n_lower or "large cap" in n_lower:
+        return "Nifty 50 TRI"
+    elif "small cap" in c_lower or "smallcap" in c_lower or "small cap" in n_lower:
+        return "Nifty Smallcap 250 TRI"
+    elif "mid cap" in c_lower or "midcap" in c_lower or "emerging equity" in n_lower or "mid cap" in n_lower:
+        return "Nifty Midcap 150 TRI"
+    elif "flexi" in c_lower or "multi" in c_lower or "focused" in c_lower or "value" in c_lower or "contra" in c_lower or "elss" in c_lower:
+        return "Nifty 500 TRI"
+    elif "bank" in c_lower or "financial" in c_lower or "bank" in n_lower:
+        return "Nifty Financial Services TRI"
+    elif "pharma" in c_lower or "health" in c_lower:
+        return "Nifty Healthcare TRI"
+    elif "tech" in c_lower or "it" in c_lower:
+        return "Nifty IT TRI"
+    elif "infra" in c_lower:
+        return "Nifty Infrastructure TRI"
+    elif "consumption" in c_lower:
+        return "Nifty India Consumption TRI"
+    elif "hybrid" in c_lower or "balanced" in c_lower:
+        return "CRISIL Hybrid 35+65 Aggressive Index"
+    elif "arbitrage" in c_lower or "liquid" in c_lower or "overnight" in c_lower:
+        return "CRISIL Liquid Debt Index"
+    return "Nifty 500 TRI"
+
+
 _fund_index: FundIndex | None = None
 
 
@@ -419,4 +451,5 @@ def get_fund_index() -> FundIndex:
     if _fund_index is None:
         _fund_index = FundIndex()
     return _fund_index
+
 
