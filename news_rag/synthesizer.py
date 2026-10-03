@@ -7,6 +7,7 @@ import re
 from typing import Any, TYPE_CHECKING
 
 from news_rag.config import get_settings
+from news_rag.json_util import safe_json_dumps
 from news_rag.insights import article_takeaway
 from news_rag.snippet_clean import clean_scraped_snippet
 from news_rag.llm_client import call_insight_llm, llm_api_key_configured
@@ -184,7 +185,7 @@ def build_subquery_section(
             f"Sub-question: {sq.text}\n"
             f"User question (full): {user_question[:500]}\n\n"
             f"Use article snippets below for facts. Context JSON:\n"
-            f"{json.dumps(ctx, ensure_ascii=False)[:14000]}"
+            f"{safe_json_dumps(ctx, limit=14000)}"
         )
         try:
             res = call_insight_llm(NARRATIVE_SYSTEM, user, query_log=query_log)

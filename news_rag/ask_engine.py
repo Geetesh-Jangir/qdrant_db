@@ -5,10 +5,10 @@ Does not read investor portfolio JSON; hypothetical "my portfolio" in questions 
 
 from __future__ import annotations
 
-import json
 from typing import Any, TYPE_CHECKING
 
 from news_rag.config import get_settings
+from news_rag.json_util import safe_json_dumps
 from news_rag.execution import execute_plan
 from news_rag.final_composer import aggregate_runs, compose_unified_answer, should_unify_compose
 from news_rag.macro_plans import PRESET_SOURCES
@@ -152,7 +152,7 @@ def run_ask_engine(
         for sec in sections:
             bullets.extend(sec.get("bullets") or [])
 
-    context_summary = json.dumps({"sections": sections}, ensure_ascii=False)[:8000]
+    context_summary = safe_json_dumps({"sections": sections}, limit=8000)
 
     if needs_judge and insight:
         jr = judge_answer(q, insight, context_summary, query_log=query_log)

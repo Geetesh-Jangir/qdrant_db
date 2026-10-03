@@ -5,8 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import httpx
+import logging
+
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -29,7 +31,20 @@ from news_rag.retrieve import retrieve_for_question
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="News RAG", version="1.0.0")
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        if not isinstance(detail, (str, dict, list)):
+            detail = str(detail)
+        return JSONResponse(status_code=exc.status_code, content={"detail": detail})
+    logger.exception("unhandled_request_error")
+    return JSONResponse(status_code=500, content={"detail": str(exc)[:800]})
 if _STATIC.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
@@ -190,7 +205,7 @@ def fund_brief(
     except Exception as exc:
         query_log.log_error("unhandled", str(exc))
         query_log.finish(outcome="error", article_count=article_count)
-        raise
+        raise HTTPException(status_code=500, detail=str(exc)[:800]) from exc
 
 
 @app.get("/health")
@@ -354,4 +369,4 @@ def ask(
     except Exception as exc:
         query_log.log_error("unhandled", str(exc))
         query_log.finish(outcome="error", article_count=article_count)
-        raise
+        raise HTTPException(status_code=500, detail=str(exc)[:800]) from exc

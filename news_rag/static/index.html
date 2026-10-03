@@ -312,9 +312,16 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const data = await response.json();
+        const data = await parseRagJsonResponse(response);
         if (!response.ok) {
-          throw new Error(data.detail || response.statusText);
+          const detail = data.detail;
+          const msg =
+            typeof detail === "string"
+              ? detail
+              : Array.isArray(detail)
+                ? detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
+                : response.statusText;
+          throw new Error(msg || response.statusText);
         }
         const insightText = (data.insight || data.answer || "").trim();
         renderInsight(insightEl, data, insightText);
