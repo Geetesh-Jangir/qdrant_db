@@ -99,8 +99,17 @@ Fund ranking JSON, `regular-growth-by-amc.md`, and `data/metals_prices.json` are
 ## Troubleshooting
 
 ```bash
-sudo journalctl -u news-rag -n 50 --no-pager
-sudo systemctl status nginx news-rag --no-pager
+sudo systemctl status news-rag --no-pager -l
+sudo journalctl -u news-rag -n 80 --no-pager
+curl -v http://127.0.0.1:8081/health
+```
+
+If install said health failed but the service is **activating**, wait 60s and run `curl` again — first boot imports many Python modules.
+
+```bash
+cd /opt/news-rag && source .venv/bin/activate
+export PYTHONPATH=/opt/news-rag
+python3 -c "import news_rag.app"   # shows import errors immediately
 ```
 
 | Issue | Fix |

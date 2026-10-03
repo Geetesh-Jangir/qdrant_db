@@ -100,12 +100,23 @@ ${SUDO} systemctl daemon-reload
 ${SUDO} systemctl enable news-rag
 ${SUDO} systemctl restart news-rag
 
-sleep 2
-if curl -sf "http://127.0.0.1:${RAG_PORT}/health" >/dev/null; then
+echo "==> Waiting for /health (imports can take 30–90s on small instances)..."
+HEALTH_OK=0
+for _ in $(seq 1 40); do
+  if curl -sf "http://127.0.0.1:${RAG_PORT}/health" >/dev/null; then
+    HEALTH_OK=1
+    break
+  fi
+  sleep 3
+done
+if [[ "${HEALTH_OK}" -eq 1 ]]; then
   echo "==> OK: http://127.0.0.1:${RAG_PORT}/health"
 else
-  echo "==> Service started but health check failed. Logs:"
-  ${SUDO} journalctl -u news-rag -n 40 --no-pager
+  echo "==> Health check failed after ~120s. Status + logs:"
+  ${SUDO} systemctl status news-rag --no-pager -l || true
+  ${SUDO} journalctl -u news-rag -n 80 --no-pager
+  echo ""
+  echo "Try manually: curl -v http://127.0.0.1:${RAG_PORT}/health"
   exit 1
 fi
 
