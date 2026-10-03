@@ -113,6 +113,7 @@
     </form>
   </div>
 
+  <p id="status" class="meta hidden" style="margin-top:1rem;padding:0.75rem 1rem;background:#eff6ff;border-radius:8px;border:1px solid #bfdbfe;"></p>
   <p id="error" class="err hidden"></p>
 
   <div id="result" class="hidden">
@@ -137,6 +138,7 @@
     const metaEl = document.getElementById("meta");
     const debugLogEl = document.getElementById("debugLog");
     const sourcesEl = document.getElementById("sources");
+    const statusEl = document.getElementById("status");
 
     function providerLabel(data) {
       const configured = (data.llm_provider || "").toLowerCase();
@@ -224,6 +226,21 @@
             renderInsightSections(container, only.insight_sections, only.summary || data.insight_summary || "");
             return;
           }
+          const bodyText = (only.text || "").trim();
+          if (bodyText && !(Array.isArray(only.bullets) && only.bullets.length)) {
+            const p = document.createElement("p");
+            p.className = "summary-text";
+            p.innerHTML = formatMarkdown(bodyText);
+            container.appendChild(p);
+            const sum = (only.summary || data.insight_summary || "").trim();
+            if (sum) {
+              const block = document.createElement("div");
+              block.className = "summary-section";
+              block.innerHTML = "<h3>Summary</h3><p class=\"summary-text\">" + formatMarkdown(sum) + "</p>";
+              container.appendChild(block);
+            }
+            return;
+          }
           if (Array.isArray(only.bullets) && only.bullets.length) {
             data = {
               ...data,
@@ -301,6 +318,14 @@
       resultEl.classList.add("hidden");
       submit.disabled = true;
       submit.textContent = "Synthesizing Insight...";
+      statusEl.classList.remove("hidden");
+      let elapsed = 0;
+      const tick = setInterval(() => {
+        elapsed += 1;
+        statusEl.textContent =
+          `Working… ${elapsed}s — loading embeddings, Qdrant, and Gemini on the server. ` +
+          `First question after restart can take 3–6 minutes on a small instance; please wait.`;
+      }, 1000);
 
       const body = {
         question: document.getElementById("question").value.trim(),
@@ -324,6 +349,12 @@
           throw new Error(msg || response.statusText);
         }
         const insightText = (data.insight || data.answer || "").trim();
+        const hasSections = Array.isArray(data.sections) && data.sections.length > 0;
+        if (!insightText && !hasSections && !(data.insight_bullets && data.insight_bullets.length)) {
+          throw new Error(
+            "Server returned an empty answer. On the server run: sudo journalctl -u news-rag -n 40 --no-pager"
+          );
+        }
         renderInsight(insightEl, data, insightText);
         
         const sourceLabel = providerLabel(data);
@@ -358,6 +389,8 @@
         errorEl.textContent = err.message || String(err);
         errorEl.classList.remove("hidden");
       } finally {
+        clearInterval(tick);
+        statusEl.classList.add("hidden");
         submit.disabled = false;
         submit.textContent = "Get Insight";
       }

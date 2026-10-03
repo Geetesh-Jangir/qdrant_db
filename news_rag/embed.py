@@ -11,6 +11,11 @@ from news_rag.config import QUERY_PREFIX, get_settings
 logger = logging.getLogger(__name__)
 
 _encoder: Any | None = None
+_embeddings_ready: bool = False
+
+
+def embeddings_ready() -> bool:
+    return _embeddings_ready
 
 
 def _build_encoder() -> Any:
@@ -35,8 +40,10 @@ def _build_encoder() -> Any:
 
 
 def embed_query(text: str) -> list[float]:
-    global _encoder
+    global _encoder, _embeddings_ready
     if _encoder is None:
         _encoder = _build_encoder()
     query = text if text.startswith(QUERY_PREFIX) else QUERY_PREFIX + text
-    return _encoder.embed_query(query)
+    vec = _encoder.embed_query(query)
+    _embeddings_ready = True
+    return vec

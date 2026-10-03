@@ -96,6 +96,10 @@ class Settings(BaseSettings):
     retrieve_min_vector_score: float = 0.35
     tool_timeout_sec: float = 25.0
     judge_min_score: float = 0.65
+    rag_warmup_embeddings: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("RAG_WARMUP_EMBEDDINGS", "rag_warmup_embeddings"),
+    )
 
     def embedding_cache_path(self) -> Path:
         path = _ROOT / self.embedding_cache_dir

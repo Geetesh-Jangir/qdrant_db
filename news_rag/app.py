@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import logging
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-import logging
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
@@ -28,13 +30,38 @@ from news_rag.fund_brief import generate_fund_brief
 from news_rag.ask_engine import run_ask_engine
 from news_rag.guardrails import check_guardrails, refusal_response
 from news_rag.retrieve import retrieve_for_question
+from news_rag.embed import embeddings_ready
 from news_rag.sector_fund_ranking import sector_ranking_data_available
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="News RAG", version="1.0.0")
+
+def _warmup_embeddings_background() -> None:
+    settings = get_settings()
+    if not settings.rag_warmup_embeddings:
+        return
+
+    def _run() -> None:
+        try:
+            from news_rag.embed import embed_query
+
+            embed_query("warmup")
+            logger.info("embedding warmup finished")
+        except Exception as exc:
+            logger.warning("embedding warmup failed: %s", exc)
+
+    threading.Thread(target=_run, name="embedding-warmup", daemon=True).start()
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    _warmup_embeddings_background()
+    yield
+
+
+app = FastAPI(title="News RAG", version="1.0.0", lifespan=_lifespan)
 
 
 @app.exception_handler(Exception)
@@ -46,6 +73,8 @@ async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse
         return JSONResponse(status_code=exc.status_code, content={"detail": detail})
     logger.exception("unhandled_request_error")
     return JSONResponse(status_code=500, content={"detail": str(exc)[:800]})
+
+
 if _STATIC.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
 
@@ -218,6 +247,7 @@ def health() -> dict:
         "llm_provider": llm_provider(settings),
         "llm_model": llm_model(settings),
         "sector_ranking_index": sector_ranking_data_available(),
+        "embeddings_ready": embeddings_ready(),
     }
 
 
