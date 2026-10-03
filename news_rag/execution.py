@@ -9,11 +9,12 @@ from typing import Any, TYPE_CHECKING
 from news_rag.fund_search import resolve_fund_from_question
 from news_rag.macro_plans import skip_scheme_resolution
 from news_rag.tools import resolve_fund_for_need
-from news_rag.query_analyzer import refine_news_scope
+from news_rag.query_analyzer import portfolio_scope_fallback, refine_news_scope
 from news_rag.query_plan import DataNeed, QueryPlan, ScopeRefinement, SubQuery
 from news_rag.tools import (
     run_fund_holdings,
     run_fund_nav,
+    run_fund_portfolio_news,
     run_fund_sectors,
     run_metals_spot,
     run_news_search,
@@ -91,7 +92,11 @@ def build_fund_context(plan: QueryPlan, question: str, *, query_log: QueryLogger
 
     for sq in plan.sub_queries:
         for need in sq.data_needs:
-            if need.tool not in ("fund_nav", "fund_holdings", "fund_sectors"):
+            if need.tool not in ("fund_nav", "fund_holdings", "fund_sectors", "fund_portfolio_news"):
+                continue
+            if need.tool == "fund_portfolio_news":
+                if need.fund_ref and need.fund_ref in ctx.by_sub_id:
+                    ctx.by_sub_id[sq.id] = ctx.by_sub_id[need.fund_ref]
                 continue
             if sq.id in ctx.by_sub_id:
                 continue
@@ -143,7 +148,9 @@ def execute_sub_query(
 
     detail = _detail_for_sub(sq, ctx)
     run.fund_detail = detail
-    if not detail and any(n.tool in ("fund_nav", "fund_holdings", "fund_sectors") for n in sq.data_needs):
+    if not detail and any(
+        n.tool in ("fund_nav", "fund_holdings", "fund_sectors", "fund_portfolio_news") for n in sq.data_needs
+    ):
         return run
 
     portfolio_holdings: list[dict] = []
@@ -166,6 +173,13 @@ def execute_sub_query(
             run.tool_results["metals_spot"] = run_metals_spot()
         elif need.tool == "stock_snapshot":
             run.tool_results["stock_snapshot"] = run_stock_snapshot(need)
+        elif need.tool == "fund_portfolio_news" and detail:
+            run.tool_results["fund_portfolio_news"] = run_fund_portfolio_news(
+                detail,
+                need,
+                question=question,
+                query_log=query_log,
+            )
 
     for need in news_needs:
         if need.depends_on_portfolio and detail and not portfolio_holdings:
@@ -190,6 +204,8 @@ def execute_sub_query(
                 holdings=portfolio_holdings,
                 query_log=query_log,
             )
+            if not scope.news_entities and portfolio_holdings:
+                scope = portfolio_scope_fallback(portfolio_holdings, portfolio_sectors)
             scope = _merge_topic_hints(scope, sq.text, need.semantic_query or "", question)
         elif need.scope == "event_only":
             scope = ScopeRefinement(search_mode="event_only", news_topics=[need.semantic_query or sq.text])
@@ -200,7 +216,7 @@ def execute_sub_query(
                 news_topics=[need.semantic_query] if need.semantic_query else [],
             )
             scope = _merge_topic_hints(scope, sq.text, need.semantic_query or "", question)
-        run.tool_results["news_search"] = run_news_search(
+        news_result = run_news_search(
             need,
             scope=scope,
             question=question,
@@ -211,6 +227,22 @@ def execute_sub_query(
             direction=direction,
             query_log=query_log,
         )
+        prev = run.tool_results.get("news_search") or {}
+        prev_rows = (prev.get("data") or {}).get("articles") or []
+        new_rows = (news_result.get("data") or {}).get("articles") or []
+        if prev_rows:
+            by_url: dict[str, dict] = {}
+            for art in prev_rows + new_rows:
+                url = str(art.get("url") or "").strip()
+                key = url or str(art.get("title") or "")
+                if key:
+                    by_url[key] = art
+            merged = list(by_url.values())
+            news_result = {
+                **news_result,
+                "data": {**(news_result.get("data") or {}), "articles": merged},
+            }
+        run.tool_results["news_search"] = news_result
 
     return run
 

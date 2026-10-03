@@ -22,6 +22,7 @@ ALLOWED_TOOLS = frozenset(
         "fund_nav",
         "fund_holdings",
         "fund_sectors",
+        "fund_portfolio_news",
         "sector_funds",
         "news_search",
         "metals_spot",

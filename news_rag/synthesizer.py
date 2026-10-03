@@ -265,7 +265,7 @@ def _compact_articles_for_context(articles: list[dict]) -> list[dict]:
     settings = get_settings()
     cap = max(800, min(settings.snippet_chars, 2500))
     out: list[dict] = []
-    for row in articles[:5]:
+    for row in articles[:10]:
         snippet = clean_scraped_snippet(str(row.get("snippet") or ""))
         if len(snippet) > cap:
             snippet = snippet[:cap].rsplit(" ", 1)[0]

@@ -119,6 +119,42 @@ def run_stock_snapshot(need: DataNeed) -> dict[str, Any]:
     return _ok(profile, elapsed)
 
 
+def run_fund_portfolio_news(
+    detail: dict[str, Any],
+    need: DataNeed,
+    *,
+    question: str,
+    query_log: QueryLogger | None = None,
+    **filter_kwargs: Any,
+) -> dict[str, Any]:
+    """Layered retrieval: top holdings, sectors, then macro."""
+    from news_rag.fund_portfolio_news import retrieve_layered_fund_news
+
+    started = time.perf_counter()
+    holdings = extract_top_holdings(detail, limit=max(need.top_n, 10))
+    sectors = extract_top_sectors(detail, limit=8)
+    fund_name = str(detail.get("fund_short_name") or detail.get("fund_name") or "")
+    window = need.window_days or 30
+    articles = retrieve_layered_fund_news(
+        holdings=holdings,
+        sectors=sectors,
+        question=question,
+        fund_name=fund_name,
+        window_days=window,
+        query_log=query_log,
+    )
+    elapsed = (time.perf_counter() - started) * 1000
+    return _ok(
+        {
+            "articles": articles,
+            "fund_name": fund_name,
+            "holdings_count": len(holdings),
+            "sectors_count": len(sectors),
+        },
+        elapsed,
+    )
+
+
 def run_news_search(
     need: DataNeed,
     *,

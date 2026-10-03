@@ -60,6 +60,20 @@ def test_extract_nav_without_fund_word() -> None:
     assert "PPFAS" in (detail.get("fund_short_name") or "")
 
 
+def test_invested_hdfc_large_cap_not_large_mid() -> None:
+    q = (
+        "I have invested in the HDFC large cap fund, "
+        "what insights do you have for me for this fund?"
+    )
+    detail, ambiguous, _ = resolve_fund_from_question(q)
+    assert not ambiguous
+    assert detail is not None
+    name = (detail.get("fund_short_name") or "").lower()
+    assert "large cap" in name or "large cap fund" in name
+    assert "mid" not in name
+    assert detail.get("isin") == "INF179K01BE2"
+
+
 def test_invested_hdfc_defence_not_pronoun_tail() -> None:
     q = (
         "I have invested in the HDFC Defence fund, "

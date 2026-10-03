@@ -143,9 +143,7 @@ def retrieve_scoped_news(
     for url, row in by_url.items():
         if not allow_recap and row.get("event_type") == "price_recap":
             continue
-        if scope.news_topics and mode in ("event_only", "event_plus_entities") and not _topic_match(
-            row, scope.news_topics
-        ):
+        if scope.news_topics and mode == "event_only" and not _topic_match(row, scope.news_topics):
             continue
         raw_text = str(row.get("scraped_text") or row.get("snippet") or "")
         snippet = _trim_snippet(raw_text, settings.snippet_chars)
@@ -173,7 +171,7 @@ def retrieve_scoped_news(
     ranked.sort(key=lambda item: (item["_rrf_score"], item["max_impact"]), reverse=True)
     final: list[dict] = []
     for item in ranked:
-        if len(final) >= 5:
+        if len(final) >= 8:
             break
         final.append(item)
 

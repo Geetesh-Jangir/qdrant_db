@@ -35,29 +35,30 @@ if TYPE_CHECKING:
     from news_rag.execution import SubQueryRun
     from news_rag.query_log import QueryLogger
 
-UNIFIED_SYSTEM = """You are a mutual-fund and India-markets research analyst. Answer the user's FULL question using ONLY the JSON context.
+UNIFIED_SYSTEM = """You are a mutual-fund analyst writing for everyday Indian investors. Use ONLY the JSON context.
+
+Tone: simple, clear, professional — like a good morning note, not a research PDF.
 
 Output format (required):
 
 BULLETS:
-- 4-7 short analyst bullets (max ~40 words each).
-- Cover every part of the question that the context can support (prices, reasons, sectors, funds, stocks, NAV).
-- Rewrite snippets in your own words. Never paste scrape text, datelines, or "..." fragments.
-- Do NOT include publication dates, weekdays, "Min Read", loan/ad banners, or IST timestamps in bullets.
-- Name funds from sector_fund_rankings or fund_nav when present. Name holdings only from holdings list.
+- 7-9 bullets when the context supports it (fewer only if data is thin).
+- First bullets: fund NAV/returns and portfolio shape (holdings/sectors) when present.
+- Then news bullets: label each as Holding, Sector, or Macro. One idea per bullet (max ~35 words).
+- Paraphrase every story; never paste raw scrape text, half-sentences, or datelines.
+- Name holdings only from the holdings list. Do not invent companies or numbers.
 
 SUMMARY:
-2-4 sentences tying the pieces together. No buy/sell advice. No invented numbers.
+3-5 sentences in a short story: (1) how the fund has moved, (2) what news means for its largest names/sectors, (3) macro backdrop if relevant, (4) calm disclaimer — not advice.
 
-If articles are thin, say so and still use NAV, metals, and fund rankings that ARE in context.
-Do not name publishers."""
+If news is thin, say so plainly and lean on NAV and weights. Do not name publishers."""
 
 UNIFIED_BY_SOURCE = {
     "macro_metals": """Focus: WHY gold/silver fell (rupee, dollar/rates, MCX, import demand, profit-booking from range highs).
 Use metals recap numbers. Use ONLY bullion-relevant article snippets — never defence deals, crude-only, or random equity M&A as reasons for bullion.
 Then which mutual-fund sleeves (rankings) are most exposed. 'My portfolio' is hypothetical — do not claim you read the user's book.""",
     "preset_crude_energy": """Focus: barrel/crude news, energy/OMC/power transmission, then funds with high petroleum/power weights from rankings. Indirect hits (airlines, auto) only if snippets support them.""",
-    "preset_fund_insights": """Focus: this named fund — NAV/returns first, then holdings/sectors, then news that actually names those companies. If news is generic, say the link is indirect.""",
+    "preset_fund_insights": """Focus: one named fund. Order: performance → top holdings → sector weights → 5-7 news bullets from articles (holding-linked first, then sector, then macro). Explain in plain English why each story matters for THIS portfolio. No raw quotes. Summary = short narrative arc, not a list.""",
     "preset_market_pulse": """Focus: what stored India-market news shows is moving NOW (macro, sectors, big events). 'What to focus on' = prominent themes in the store, not stock tips.""",
     "preset_sector_tape": """Focus: last-month sector tape — constructive vs pressured sectors with WHY from snippets. If the store is thin, group remaining headlines honestly rather than inventing a full league table.""",
 }
@@ -123,7 +124,7 @@ def aggregate_runs(
             rows = (tr["fund_sectors"].get("data") or {}).get("rows") or []
             if rows:
                 sectors = rows
-        news = (tr.get("news_search") or {}).get("data") or {}
+        news = (tr.get("fund_portfolio_news") or tr.get("news_search") or {}).get("data") or {}
         for art in news.get("articles") or []:
             url = str(art.get("url") or "").strip()
             if url:
@@ -232,8 +233,13 @@ def _polish_bullets(bullets: list[str]) -> list[str]:
 def _bullets_need_rewrite(bullets: list[str]) -> bool:
     if not bullets:
         return True
+    from news_rag.fund_insight_compose import _is_weak_news_line
+
     pasted = sum(1 for b in bullets if looks_like_raw_scrape(b))
-    return pasted >= max(1, len(bullets) // 2)
+    if pasted >= max(1, len(bullets) // 2):
+        return True
+    weak = sum(1 for b in bullets if _is_weak_news_line(b))
+    return weak >= max(1, len(bullets) // 3)
 
 
 def compose_unified_answer(
@@ -299,9 +305,12 @@ def compose_unified_answer(
                 bullets2 = _polish_bullets(bullets2)
                 if bullets2 and not _bullets_need_rewrite(bullets2):
                     bullets, summary = bullets2, summary2 or summary
+            max_b = settings.insight_max_bullets + 2
+            if plan_source == "preset_fund_insights":
+                max_b = max(max_b, 10)
             bullets = clamp_bullets(
                 bullets,
-                max_count=settings.insight_max_bullets + 2,
+                max_count=max_b,
                 max_chars=settings.insight_bullet_max_chars,
             )
             summary = clamp_summary(summary, max_words=settings.insight_summary_max_words)
@@ -317,10 +326,32 @@ def compose_unified_answer(
                     source="unified_deterministic",
                 )
             if bullets or summary:
+                used_deterministic_news = False
+                if plan_source == "preset_fund_insights":
+                    arts = agg.get("articles") or []
+                    newsish = sum(
+                        1
+                        for b in bullets
+                        if any(tag in b for tag in ("Holding", "Sector", "Macro", "holding", "sector"))
+                    )
+                    if len(arts) >= 2 and newsish < 2:
+                        if query_log is not None:
+                            query_log.write(
+                                "unified_compose llm_thin_news fallback=deterministic_fund_insight"
+                            )
+                        bullets, summary = _deterministic_unified(
+                            question, agg, plan_source=plan_source
+                        )
+                        used_deterministic_news = True
                 display = format_insight_display(bullets, summary)
                 if query_log is not None:
                     query_log.write(f"unified_compose source=llm provider={res.provider}")
-                return ComposedAnswer(bullets=bullets, summary=summary, display=display, source="unified_llm")
+                return ComposedAnswer(
+                    bullets=bullets,
+                    summary=summary,
+                    display=display,
+                    source="unified_deterministic" if used_deterministic_news else "unified_llm",
+                )
         except Exception as exc:
             if query_log is not None:
                 query_log.write(f"unified_compose_llm_error={exc}")
@@ -433,37 +464,26 @@ def _deterministic_unified(
         return bullets[:7], summary
 
     if plan_source == "preset_fund_insights":
-        perf = _nav_performance_bullet(agg.get("nav"))
-        if perf:
-            bullets.append(perf)
-        if holdings:
-            names = ", ".join(
-                f"**{r.get('name')}** ({float(r.get('percentage', 0)):.1f}%)"
-                for r in holdings[:5]
-                if r.get("name")
-            )
-            if names:
-                bullets.append(f"**Largest holdings:** {names}.")
-        if sectors:
-            names = ", ".join(
-                f"**{r.get('sector')}** ({float(r.get('percentage', 0)):.1f}%)"
-                for r in sectors[:4]
-                if r.get("sector")
-            )
-            if names:
-                bullets.append(f"**Sectors:** {names}.")
-        news_bits = _news_theme_bullets(articles, 3)
-        if news_bits:
-            bullets.extend(news_bits)
-        else:
-            bullets.append(
-                "**Holdings news:** No tightly matching headlines in this window; use NAV/weights as the factual core."
-            )
-        name = (agg.get("nav") or {}).get("fund_name") or "This fund"
-        summary = (
-            f"{name} insights here are NAV, current weights, and any stored news on those names — not a recommendation."
+        from news_rag.fund_insight_compose import (
+            compose_fund_insight_bullets,
+            compose_fund_insight_summary,
         )
-        return bullets[:7], summary
+
+        bullets = compose_fund_insight_bullets(
+            nav=agg.get("nav"),
+            holdings=holdings,
+            sectors=sectors,
+            articles=articles,
+            min_news=5,
+            max_news=7,
+        )
+        summary = compose_fund_insight_summary(
+            nav=agg.get("nav"),
+            holdings=holdings,
+            sectors=sectors,
+            articles=articles,
+        )
+        return bullets[:10], summary
 
     if plan_source == "preset_market_pulse":
         news_bits = _news_theme_bullets(articles, 5)

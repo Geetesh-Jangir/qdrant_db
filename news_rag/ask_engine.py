@@ -110,8 +110,9 @@ def run_ask_engine(
 
     for run in runs:
         sq = run.sub_query
-        news = (run.tool_results.get("news_search") or {}).get("data") or {}
-        all_articles.extend(news.get("articles") or [])
+        for tool_key in ("fund_portfolio_news", "news_search"):
+            news = (run.tool_results.get(tool_key) or {}).get("data") or {}
+            all_articles.extend(news.get("articles") or [])
         sub_query_meta.append({"id": sq.id, "text": sq.text, "style": sq.answer_style})
 
     insight_summary = ""

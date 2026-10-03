@@ -115,7 +115,15 @@ def reconcile_plan_with_catalog(
 
     for sq in plan.sub_queries:
         for need in sq.data_needs:
-            if need.tool not in ("fund_nav", "fund_holdings", "fund_sectors"):
+            if need.tool not in ("fund_nav", "fund_holdings", "fund_sectors", "fund_portfolio_news"):
+                continue
+            if need.tool == "fund_portfolio_news" and need.fund_ref:
+                if need.fund_ref in resolved_by_id:
+                    need.fund_raw = str(
+                        resolved_by_id[need.fund_ref].get("fund_short_name")
+                        or resolved_by_id[need.fund_ref].get("isin")
+                        or ""
+                    )
                 continue
             if need.fund_ref and need.fund_ref in resolved_by_id:
                 need.fund_raw = str(
@@ -224,6 +232,7 @@ def decompose_query(
 
     preset = try_preset_plan(q)
     if preset is not None:
+        preset = reconcile_plan_with_catalog(preset, q, query_log=query_log)
         if query_log is not None:
             query_log.write(f"PLAN source={preset.source} preset=true skip_normalize=true")
         return preset
@@ -273,7 +282,7 @@ def refine_news_scope(
     )
     settings = get_settings()
     if not llm_api_key_configured(settings):
-        return _fallback_scope_from_portfolio(holdings)
+        return portfolio_scope_fallback(holdings, sectors)
 
     try:
         res = call_json_llm(
@@ -293,11 +302,19 @@ def refine_news_scope(
         return scope
     except Exception as exc:
         logger.warning("scope refiner failed: %s", exc)
-        return _fallback_scope_from_portfolio(holdings)
+        return portfolio_scope_fallback(holdings, sectors)
+
+
+def portfolio_scope_fallback(
+    holdings: list[dict[str, Any]],
+    sectors: list[dict[str, Any]] | None = None,
+) -> ScopeRefinement:
+    """Deterministic portfolio news scope: top holdings (+ optional sector labels for query text)."""
+    entities = [str(h.get("name") or "").strip() for h in holdings[:10] if h.get("name")]
+    if entities:
+        return ScopeRefinement(news_entities=entities, news_topics=[], search_mode="event_plus_entities")
+    return ScopeRefinement(news_entities=[], news_topics=[], search_mode="event_only")
 
 
 def _fallback_scope_from_portfolio(holdings: list[dict[str, Any]]) -> ScopeRefinement:
-    """When scope LLM is unavailable: search top holdings only (no keyword topic map)."""
-    entities = [str(h.get("name") or "").strip() for h in holdings[:8] if h.get("name")]
-    mode: str = "entities_only" if entities else "event_only"
-    return ScopeRefinement(news_entities=entities, news_topics=[], search_mode=mode)
+    return portfolio_scope_fallback(holdings, None)

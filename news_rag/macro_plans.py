@@ -185,12 +185,39 @@ def try_crude_energy_plan(question: str) -> QueryPlan | None:
     )
 
 
+def _fund_insights_focus(question: str) -> str:
+    """full | holdings | sectors — narrow tool set when user asks for one slice only."""
+    lower = (question or "").lower()
+    holdings_only = bool(
+        re.search(
+            r"\b(top\s+holdings?|holdings?\s+only|portfolio\s+stocks?|what\s+stocks?|which\s+stocks?|"
+            r"underlying\s+stocks?|companies\s+held)\b",
+            lower,
+        )
+    )
+    sectors_only = bool(
+        re.search(
+            r"\b(sector\s+allocation|sector\s+breakdown|sector\s+exposure|sectors?\s+only|"
+            r"what\s+sectors?|industry\s+allocation)\b",
+            lower,
+        )
+    )
+    if sectors_only and not holdings_only:
+        return "sectors"
+    if holdings_only and not sectors_only:
+        return "holdings"
+    return "full"
+
+
 def try_fund_insights_plan(question: str) -> QueryPlan | None:
     if not is_fund_insights_question(question):
         return None
     fund_raw = _fund_phrase_for_insights(question) or "HDFC Defence Fund"
-    return QueryPlan(
-        sub_queries=[
+    focus = _fund_insights_focus(question)
+    sub_queries: list[SubQuery] = []
+
+    if focus != "sectors":
+        sub_queries.append(
             SubQuery(
                 id="Q1",
                 text=f"{fund_raw} performance",
@@ -199,7 +226,36 @@ def try_fund_insights_plan(question: str) -> QueryPlan | None:
                 data_needs=[
                     DataNeed(tool="fund_nav", fund_raw=fund_raw, scope="with_returns"),
                 ],
-            ),
+            )
+        )
+
+    if focus == "sectors":
+        sub_queries.append(
+            SubQuery(
+                id="Q1",
+                text=f"{fund_raw} sector allocation",
+                answer_style="short_list",
+                needs_reasoning=False,
+                data_needs=[
+                    DataNeed(tool="fund_nav", fund_raw=fund_raw, scope="latest_only"),
+                    DataNeed(tool="fund_sectors", fund_raw=fund_raw, scope="top_n", top_n=8),
+                ],
+            )
+        )
+    elif focus == "holdings":
+        sub_queries.append(
+            SubQuery(
+                id="Q2",
+                text=f"{fund_raw} top holdings",
+                answer_style="short_list",
+                needs_reasoning=False,
+                data_needs=[
+                    DataNeed(tool="fund_holdings", fund_ref="Q1", scope="top_n", top_n=10),
+                ],
+            )
+        )
+    else:
+        sub_queries.append(
             SubQuery(
                 id="Q2",
                 text=f"{fund_raw} holdings and sectors",
@@ -209,25 +265,28 @@ def try_fund_insights_plan(question: str) -> QueryPlan | None:
                     DataNeed(tool="fund_holdings", fund_ref="Q1", scope="top_n", top_n=8),
                     DataNeed(tool="fund_sectors", fund_ref="Q1", scope="top_n", top_n=6),
                 ],
-            ),
-            SubQuery(
-                id="Q3",
-                text=f"Recent news on {fund_raw} holdings",
-                answer_style="exposure_note",
-                needs_reasoning=True,
-                data_needs=[
-                    DataNeed(tool="fund_holdings", fund_ref="Q1", scope="top_n", top_n=8),
-                    DataNeed(
-                        tool="news_search",
-                        semantic_query=f"{fund_raw} defence aerospace holdings India news",
-                        depends_on_portfolio=True,
-                        window_days=30,
-                    ),
-                ],
-            ),
-        ],
-        source="preset_fund_insights",
+            )
+        )
+
+    sub_queries.append(
+        SubQuery(
+            id="Q3",
+            text=f"News on {fund_raw} holdings, sectors, and macro",
+            answer_style="exposure_note",
+            needs_reasoning=True,
+            data_needs=[
+                DataNeed(
+                    tool="fund_portfolio_news",
+                    fund_ref="Q1",
+                    scope="top_n",
+                    top_n=10,
+                    window_days=30,
+                ),
+            ],
+        ),
     )
+
+    return QueryPlan(sub_queries=sub_queries, source="preset_fund_insights")
 
 
 def try_market_pulse_plan(question: str) -> QueryPlan | None:

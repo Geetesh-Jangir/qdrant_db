@@ -33,6 +33,7 @@ _SCHEME_NAME_TO_ISIN: dict[str, str] = {
     "icici pru bluechip": "INF109K01BL4",
     "icici prudential bluechip": "INF109K01BL4",
     "hdfc top 100": "INF179K01BE2",
+    "hdfc large cap": "INF179K01BE2",
     "hdfc mid cap opportunities": "INF179K01CR2",
 }
 
@@ -362,7 +363,7 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
     if not fund_name and not isin:
         for m in _AMC_SCAN.finditer(q):
             amc = m.group(1).strip()
-            rest = m.group(2).strip()
+            rest = _extend_amc_phrase_tail(q, m.end(), m.group(2).strip())
             candidate = _clean_fund_phrase(f"{amc} {rest}")
             if _is_plausible_scheme_phrase(candidate):
                 fund_name = candidate
@@ -375,6 +376,37 @@ _AMC_SCAN = re.compile(
     r"invesco|edelweiss|franklin|hsbc|absl|aditya\s+birla)\s+([\w\s&'-]{2,48}?)(?:\s+fund)?\b",
     re.I,
 )
+
+_CATEGORY_STEMS = frozenset({"large", "mid", "small", "flexi", "multi", "micro"})
+
+
+def _extend_amc_phrase_tail(question: str, pos_after_match: int, rest: str) -> str:
+    """AMC regex often stops at 'large' before 'cap' — read the suffix from the question."""
+    r = (rest or "").strip()
+    if not r:
+        return r
+    remainder = (question[pos_after_match:] or "").lstrip()
+    if not remainder:
+        return r
+    parts = _normalize_fund_text(r).split()
+    last = parts[-1] if parts else ""
+    if last in _CATEGORY_STEMS and re.match(r"^cap\b", remainder, re.I):
+        r = f"{r} cap"
+        remainder = remainder[3:].lstrip()
+    if re.match(r"^&\s*mid\s+cap\b", remainder, re.I):
+        r = f"{r} & mid cap"
+    return r.strip()
+
+
+def _phrase_specificity_score(phrase: str) -> float:
+    norm = _normalize_fund_text(phrase)
+    tokens = [t for t in norm.split() if t]
+    score = float(len(tokens) * 10 + len(norm))
+    if "cap" in tokens:
+        score += 15.0
+    if phrase.upper().startswith("INF"):
+        score += 100.0
+    return score
 
 
 def collect_fund_phrase_candidates(question: str) -> list[str]:
@@ -400,6 +432,7 @@ def collect_fund_phrase_candidates(question: str) -> list[str]:
     for m in _AMC_SCAN.finditer(q):
         amc = m.group(1).strip()
         rest = m.group(2).strip()
+        rest = _extend_amc_phrase_tail(q, m.end(), rest)
         rest = re.sub(
             r"\b(in|over|during|for|within)\s+(?:the\s+)?(?:last|past)\s+.+$",
             "",
@@ -421,6 +454,7 @@ def collect_fund_phrase_candidates(question: str) -> list[str]:
     if name:
         add(name)
 
+    out.sort(key=_phrase_specificity_score, reverse=True)
     return out
 
 
@@ -432,15 +466,22 @@ def resolve_fund_from_question(
         return None, False, []
     if is_market_fund_discovery_question(question):
         return None, False, []
+    best_detail: dict[str, Any] | None = None
+    best_score = -1.0
     for phrase in collect_fund_phrase_candidates(question):
         if phrase.upper().startswith("INF"):
             detail, amb, close = lookup_extracted_fund(isin=phrase.upper())
         else:
             detail, amb, close = lookup_extracted_fund(name=phrase)
-        if detail and not amb:
-            return detail, False, []
         if amb:
             return None, True, close
+        if detail and not amb:
+            spec = _phrase_specificity_score(phrase)
+            if spec > best_score:
+                best_score = spec
+                best_detail = detail
+    if best_detail is not None:
+        return best_detail, False, []
     return resolve_fund_for_query(question)
 
 
@@ -1019,6 +1060,15 @@ class FundIndex:
             for cat_token in ("large", "mid", "small", "flexi", "multi"):
                 if cat_token in q_tokens and cat_token in c_tokens:
                     score += 8.0
+            # "large cap" without "mid" must not map to Large & Mid Cap.
+            if "large" in q_tokens and "cap" in q_tokens and "mid" not in q_tokens:
+                if "mid" in c_norm and ("large" in c_norm or "&" in c_name or "and" in c_norm):
+                    score -= 45.0
+            if "mid" in q_tokens and "cap" in q_tokens and "large" not in q_tokens:
+                if "large" in c_norm and "mid" in c_norm:
+                    score -= 35.0
+            if "mid" not in q_tokens and re.search(r"\bmid\b", c_norm) and "large" in q_tokens:
+                score -= 25.0
 
             if "us" in c_tokens and "us" not in q_tokens and "international" not in norm_name:
                 score -= 40.0
