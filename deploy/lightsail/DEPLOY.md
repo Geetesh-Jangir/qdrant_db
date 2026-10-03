@@ -117,7 +117,7 @@ After any push from your PC:
 ```bash
 cd /opt/news-rag
 git pull origin huge-corpus
-python scripts/verify_rag_deploy_data.py
+python3 scripts/verify_rag_deploy_data.py
 sudo systemctl restart news-rag
 curl -s http://127.0.0.1:8081/health
 ```

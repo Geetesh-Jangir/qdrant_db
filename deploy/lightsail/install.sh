@@ -60,7 +60,11 @@ python scripts/download_embedding_model.py
 mkdir -p data/rag_query_logs data/embedding_models data/fund_holdings_aggregate
 
 if [[ -f scripts/verify_rag_deploy_data.py ]]; then
-  if ! python scripts/verify_rag_deploy_data.py; then
+  VERIFY_PY="python3"
+  if [[ -x .venv/bin/python ]]; then
+    VERIFY_PY=".venv/bin/python"
+  fi
+  if ! "${VERIFY_PY}" scripts/verify_rag_deploy_data.py; then
     echo "!! Fund/metals data missing — run: git pull origin ${NEWS_RAG_BRANCH} (branch huge-corpus)"
     exit 1
   fi
