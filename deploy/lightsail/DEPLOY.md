@@ -116,6 +116,6 @@ python3 -c "import news_rag.app"   # shows import errors immediately
 |-------|-----|
 | Site timeout in browser | Lightsail **HTTP 80** open; use `http://` not `https://` |
 | `python` not found | Use `python3` or `.venv/bin/python` |
-| `Permission denied` on `.venv` | `sudo chown -R ubuntu:ubuntu /opt/news-rag` |
+| `Permission denied` on `.venv` or `rag_query_logs` | `sudo chown -R ubuntu:ubuntu /opt/news-rag && sudo systemctl restart news-rag` |
 | `sector_to_isin_weights` missing | `git pull origin huge-corpus` |
 | Empty / no news answers | Ingest into Qdrant Cloud (`python -m news_pipeline` or CI) |

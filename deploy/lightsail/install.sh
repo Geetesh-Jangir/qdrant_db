@@ -66,6 +66,9 @@ export PYTHONPATH="${NEWS_RAG_DIR}"
 .venv/bin/python scripts/download_embedding_model.py
 
 mkdir -p data/rag_query_logs data/embedding_models data/fund_holdings_aggregate
+if id "${SERVICE_USER}" &>/dev/null; then
+  ${SUDO} chown -R "${SERVICE_USER}:${SERVICE_USER}" "${NEWS_RAG_DIR}"
+fi
 
 if [[ -f scripts/verify_rag_deploy_data.py ]]; then
   if ! .venv/bin/python scripts/verify_rag_deploy_data.py; then
@@ -86,6 +89,10 @@ fi
 if grep -q 'YOUR_CLUSTER.cloud.qdrant.io' .env 2>/dev/null; then
   echo "!! Edit .env (QDRANT_URL, QDRANT_API_KEY, GEMINI_API_KEY), then rerun install.sh"
   exit 1
+fi
+
+if id "${SERVICE_USER}" &>/dev/null; then
+  ${SUDO} chown -R "${SERVICE_USER}:${SERVICE_USER}" "${NEWS_RAG_DIR}"
 fi
 
 UNIT=/etc/systemd/system/news-rag.service
