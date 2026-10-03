@@ -258,6 +258,20 @@ def sectors_from_article_industries(articles: list[dict]) -> list[str]:
 
 _index: SectorFundRankingIndex | None = None
 _index_lock = threading.Lock()
+def sector_ranking_index_path() -> Path:
+    settings = get_settings()
+    return _repo_path(settings.sector_to_isin_weights_json)
+
+
+def sector_ranking_data_available() -> bool:
+    return sector_ranking_index_path().is_file()
+
+
+def clear_sector_fund_ranking_index_cache() -> None:
+    """Call after uploading sector_to_isin_weights.json (no restart required)."""
+    global _index
+    with _index_lock:
+        _index = None
 
 
 def get_sector_fund_ranking_index() -> SectorFundRankingIndex:
@@ -265,10 +279,14 @@ def get_sector_fund_ranking_index() -> SectorFundRankingIndex:
     with _index_lock:
         if _index is not None:
             return _index
-        settings = get_settings()
-        path = _repo_path(settings.sector_to_isin_weights_json)
+        path = sector_ranking_index_path()
         if not path.is_file():
-            raise FileNotFoundError(f"Sector fund ranking file missing: {path}")
+            logger.warning(
+                "Sector fund ranking file missing at %s — rankings disabled until file is copied",
+                path,
+            )
+            _index = SectorFundRankingIndex({"sectors": {}})
+            return _index
         doc = json.loads(path.read_text(encoding="utf-8"))
         _index = SectorFundRankingIndex(doc)
         logger.info(

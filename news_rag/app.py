@@ -28,6 +28,7 @@ from news_rag.fund_brief import generate_fund_brief
 from news_rag.ask_engine import run_ask_engine
 from news_rag.guardrails import check_guardrails, refusal_response
 from news_rag.retrieve import retrieve_for_question
+from news_rag.sector_fund_ranking import sector_ranking_data_available
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
@@ -216,6 +217,7 @@ def health() -> dict:
         "collection": settings.qdrant_collection,
         "llm_provider": llm_provider(settings),
         "llm_model": llm_model(settings),
+        "sector_ranking_index": sector_ranking_data_available(),
     }
 
 
