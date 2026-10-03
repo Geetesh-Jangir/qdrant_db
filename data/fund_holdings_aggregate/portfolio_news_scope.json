@@ -1,0 +1,744 @@
+{
+  "holding_min_pct": 2.0,
+  "sector_min_pct": 3.0,
+  "funds": [
+    {
+      "isin": "INF03VN01563",
+      "fund_short_name": "WhiteOak Mid Cap Fund",
+      "current_value": 12784.86,
+      "portfolio_weight_pct": 20.0878
+    },
+    {
+      "isin": "INF174K01245",
+      "fund_short_name": "Kotak Contra Fund",
+      "current_value": 11800.03,
+      "portfolio_weight_pct": 18.5405
+    },
+    {
+      "isin": "INF205K01247",
+      "fund_short_name": "Invesco Large & Mid Cap Fund",
+      "current_value": 25641.9,
+      "portfolio_weight_pct": 40.2891
+    },
+    {
+      "isin": "INF966L01AA0",
+      "fund_short_name": "Quant Small Cap Fund",
+      "current_value": 13417.99,
+      "portfolio_weight_pct": 21.0826
+    }
+  ],
+  "holdings": [
+    {
+      "instrument_name": "Eternal Limited",
+      "industry": "Retailing",
+      "max_pct_in_any_fund": 8.2489,
+      "by_fund_pct": {
+        "INF205K01247": 8.2489
+      }
+    },
+    {
+      "instrument_name": "InterGlobe Aviation Limited",
+      "industry": "Transport Services",
+      "max_pct_in_any_fund": 7.5798,
+      "by_fund_pct": {
+        "INF205K01247": 7.5798
+      }
+    },
+    {
+      "instrument_name": "ICICI Bank Limited",
+      "industry": "Banks",
+      "max_pct_in_any_fund": 7.4995,
+      "by_fund_pct": {
+        "INF205K01247": 7.4995
+      }
+    },
+    {
+      "instrument_name": "HFCL Limited",
+      "industry": "Telecom - Services",
+      "max_pct_in_any_fund": 6.6963,
+      "by_fund_pct": {
+        "INF966L01AA0": 6.6963
+      }
+    },
+    {
+      "instrument_name": "Max Healthcare Institute Limited",
+      "industry": "Healthcare Services",
+      "max_pct_in_any_fund": 6.6433,
+      "by_fund_pct": {
+        "INF205K01247": 6.6433
+      }
+    },
+    {
+      "instrument_name": "ICICI BANK LTD.",
+      "industry": "Banks",
+      "max_pct_in_any_fund": 6.1555,
+      "by_fund_pct": {
+        "INF174K01245": 6.1555
+      }
+    },
+    {
+      "instrument_name": "Sai Life Sciences Limited",
+      "industry": "Pharmaceuticals & Biotechnology",
+      "max_pct_in_any_fund": 5.0479,
+      "by_fund_pct": {
+        "INF205K01247": 5.0479
+      }
+    },
+    {
+      "instrument_name": "Prestige Estates Projects Limited",
+      "industry": "Realty",
+      "max_pct_in_any_fund": 4.9607,
+      "by_fund_pct": {
+        "INF205K01247": 4.9607
+      }
+    },
+    {
+      "instrument_name": "ABB India Limited",
+      "industry": "Electrical Equipment",
+      "max_pct_in_any_fund": 4.6326,
+      "by_fund_pct": {
+        "INF205K01247": 4.6326
+      }
+    },
+    {
+      "instrument_name": "RBL Bank Limited",
+      "industry": "Banks",
+      "max_pct_in_any_fund": 4.5094,
+      "by_fund_pct": {
+        "INF966L01AA0": 4.5094
+      }
+    },
+    {
+      "instrument_name": "Adani Enterprises Limited",
+      "industry": "Metals & Minerals Trading",
+      "max_pct_in_any_fund": 4.296,
+      "by_fund_pct": {
+        "INF966L01AA0": 4.296
+      }
+    },
+    {
+      "instrument_name": "HDFC BANK LTD.",
+      "industry": "Banks",
+      "max_pct_in_any_fund": 3.9199,
+      "by_fund_pct": {
+        "INF174K01245": 3.9199
+      }
+    },
+    {
+      "instrument_name": "Trent Limited",
+      "industry": "Retailing",
+      "max_pct_in_any_fund": 3.6669,
+      "by_fund_pct": {
+        "INF205K01247": 3.6669
+      }
+    },
+    {
+      "instrument_name": "STATE BANK OF INDIA.",
+      "industry": "Banks",
+      "max_pct_in_any_fund": 3.3699,
+      "by_fund_pct": {
+        "INF174K01245": 3.3699
+      }
+    },
+    {
+      "instrument_name": "Adani Power Limited",
+      "industry": "Power",
+      "max_pct_in_any_fund": 3.3372,
+      "by_fund_pct": {
+        "INF966L01AA0": 3.3372
+      }
+    },
+    {
+      "instrument_name": "Aegis Logistics Limited",
+      "industry": "Gas",
+      "max_pct_in_any_fund": 3.2093,
+      "by_fund_pct": {
+        "INF966L01AA0": 3.2093
+      }
+    },
+    {
+      "instrument_name": "The Federal Bank Limited",
+      "industry": "Banks",
+      "max_pct_in_any_fund": 3.1637,
+      "by_fund_pct": {
+        "INF03VN01563": 2.6629,
+        "INF205K01247": 3.1637
+      }
+    },
+    {
+      "instrument_name": "Max Financial Services Limited",
+      "industry": "Insurance",
+      "max_pct_in_any_fund": 3.109,
+      "by_fund_pct": {
+        "INF03VN01563": 3.109
+      }
+    },
+    {
+      "instrument_name": "Welspun Corp Limited",
+      "industry": "Industrial Products",
+      "max_pct_in_any_fund": 2.9777,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.9777
+      }
+    },
+    {
+      "instrument_name": "Aditya Infotech Limited",
+      "industry": "Industrial Manufacturing",
+      "max_pct_in_any_fund": 2.9597,
+      "by_fund_pct": {
+        "INF205K01247": 2.9597
+      }
+    },
+    {
+      "instrument_name": "Anand Rathi Wealth Limited",
+      "industry": "Capital Markets",
+      "max_pct_in_any_fund": 2.9426,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.9426
+      }
+    },
+    {
+      "instrument_name": "L&T Finance Limited",
+      "industry": "Finance",
+      "max_pct_in_any_fund": 2.9384,
+      "by_fund_pct": {
+        "INF205K01247": 2.9384
+      }
+    },
+    {
+      "instrument_name": "Coforge Limited",
+      "industry": "IT - Software",
+      "max_pct_in_any_fund": 2.908,
+      "by_fund_pct": {
+        "INF03VN01563": 2.908
+      }
+    },
+    {
+      "instrument_name": "SHRIRAM FINANCE LIMITED",
+      "industry": "Finance",
+      "max_pct_in_any_fund": 2.8947,
+      "by_fund_pct": {
+        "INF174K01245": 2.8947
+      }
+    },
+    {
+      "instrument_name": "Piramal Finance Ltd",
+      "industry": "Finance",
+      "max_pct_in_any_fund": 2.8049,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.8049
+      }
+    },
+    {
+      "instrument_name": "RELIANCE INDUSTRIES LTD.",
+      "industry": "Petroleum Products",
+      "max_pct_in_any_fund": 2.7381,
+      "by_fund_pct": {
+        "INF174K01245": 2.7381
+      }
+    },
+    {
+      "instrument_name": "Bharti Hexacom Limited",
+      "industry": "Telecom - Services",
+      "max_pct_in_any_fund": 2.7163,
+      "by_fund_pct": {
+        "INF03VN01563": 2.7163
+      }
+    },
+    {
+      "instrument_name": "Glenmark Pharmaceuticals Limited",
+      "industry": "Pharmaceuticals & Biotechnology",
+      "max_pct_in_any_fund": 2.6886,
+      "by_fund_pct": {
+        "INF205K01247": 2.6886
+      }
+    },
+    {
+      "instrument_name": "PB Fintech Limited",
+      "industry": "Financial Technology (Fintech)",
+      "max_pct_in_any_fund": 2.627,
+      "by_fund_pct": {
+        "INF03VN01563": 2.627
+      }
+    },
+    {
+      "instrument_name": "Hero MotoCorp Ltd.",
+      "industry": "Automobiles",
+      "max_pct_in_any_fund": 2.6177,
+      "by_fund_pct": {
+        "INF174K01245": 2.6177
+      }
+    },
+    {
+      "instrument_name": "Sona BLW Precision Forgings Limited",
+      "industry": "Auto Components",
+      "max_pct_in_any_fund": 2.6169,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.6169
+      }
+    },
+    {
+      "instrument_name": "Larsen and Toubro Ltd.",
+      "industry": "Construction",
+      "max_pct_in_any_fund": 2.5362,
+      "by_fund_pct": {
+        "INF174K01245": 2.5362
+      }
+    },
+    {
+      "instrument_name": "BSE Limited",
+      "industry": "Capital Markets",
+      "max_pct_in_any_fund": 2.5312,
+      "by_fund_pct": {
+        "INF205K01247": 2.5312
+      }
+    },
+    {
+      "instrument_name": "AU Small Finance Bank Limited",
+      "industry": "Banks",
+      "max_pct_in_any_fund": 2.5299,
+      "by_fund_pct": {
+        "INF205K01247": 2.5299
+      }
+    },
+    {
+      "instrument_name": "Manappuram Finance Ltd",
+      "industry": "Finance",
+      "max_pct_in_any_fund": 2.5039,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.5039
+      }
+    },
+    {
+      "instrument_name": "Adani Green Energy Limited",
+      "industry": "Power",
+      "max_pct_in_any_fund": 2.486,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.486
+      }
+    },
+    {
+      "instrument_name": "Cholamandalam Investment and Finance Company Limited",
+      "industry": "Finance",
+      "max_pct_in_any_fund": 2.4479,
+      "by_fund_pct": {
+        "INF205K01247": 2.4479
+      }
+    },
+    {
+      "instrument_name": "IndusInd Bank Limited ^^^",
+      "industry": "Banks",
+      "max_pct_in_any_fund": 2.4155,
+      "by_fund_pct": {
+        "INF205K01247": 2.4155
+      }
+    },
+    {
+      "instrument_name": "SWIGGY LTD",
+      "industry": "Retailing",
+      "max_pct_in_any_fund": 2.4038,
+      "by_fund_pct": {
+        "INF174K01245": 2.4038
+      }
+    },
+    {
+      "instrument_name": "Capri Global Capital Limited",
+      "industry": "Finance",
+      "max_pct_in_any_fund": 2.3982,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.3982
+      }
+    },
+    {
+      "instrument_name": "BHARTI AIRTEL LTD.",
+      "industry": "Telecom - Services",
+      "max_pct_in_any_fund": 2.3579,
+      "by_fund_pct": {
+        "INF174K01245": 2.3579
+      }
+    },
+    {
+      "instrument_name": "NTPC LTD",
+      "industry": "Power",
+      "max_pct_in_any_fund": 2.3496,
+      "by_fund_pct": {
+        "INF174K01245": 2.3496
+      }
+    },
+    {
+      "instrument_name": "Arvind Limited",
+      "industry": "Textiles & Apparels",
+      "max_pct_in_any_fund": 2.3137,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.3137
+      }
+    },
+    {
+      "instrument_name": "Amber Enterprises India Limited",
+      "industry": "Consumer Durables",
+      "max_pct_in_any_fund": 2.3133,
+      "by_fund_pct": {
+        "INF205K01247": 2.3133
+      }
+    },
+    {
+      "instrument_name": "Aster DM Healthcare Limited",
+      "industry": "Healthcare Services",
+      "max_pct_in_any_fund": 2.2693,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.2693
+      }
+    },
+    {
+      "instrument_name": "Manipal Health Enterprises Ltd",
+      "industry": "Healthcare Services",
+      "max_pct_in_any_fund": 2.2105,
+      "by_fund_pct": {
+        "INF205K01247": 2.2105
+      }
+    },
+    {
+      "instrument_name": "Fortis Healthcare India Ltd",
+      "industry": "Healthcare Services",
+      "max_pct_in_any_fund": 2.1979,
+      "by_fund_pct": {
+        "INF174K01245": 2.1979
+      }
+    },
+    {
+      "instrument_name": "Poly Medicure Limited",
+      "industry": "Healthcare Equipment & Supplies",
+      "max_pct_in_any_fund": 2.1561,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.1561
+      }
+    },
+    {
+      "instrument_name": "Pfizer Ltd",
+      "industry": "Pharmaceuticals & Biotechnology",
+      "max_pct_in_any_fund": 2.1417,
+      "by_fund_pct": {
+        "INF966L01AA0": 2.1417
+      }
+    },
+    {
+      "instrument_name": "Mphasis Ltd",
+      "industry": "IT - Software",
+      "max_pct_in_any_fund": 2.1215,
+      "by_fund_pct": {
+        "INF174K01245": 2.1215
+      }
+    },
+    {
+      "instrument_name": "Tech Mahindra Ltd.",
+      "industry": "IT - Software",
+      "max_pct_in_any_fund": 2.1181,
+      "by_fund_pct": {
+        "INF174K01245": 2.1181
+      }
+    },
+    {
+      "instrument_name": "Maruti Suzuki India Limited",
+      "industry": "Automobiles",
+      "max_pct_in_any_fund": 2.0894,
+      "by_fund_pct": {
+        "INF174K01245": 2.0894
+      }
+    },
+    {
+      "instrument_name": "POONAWALLA FINCORP LIMITED",
+      "industry": "Finance",
+      "max_pct_in_any_fund": 2.0634,
+      "by_fund_pct": {
+        "INF174K01245": 2.0634
+      }
+    },
+    {
+      "instrument_name": "Global Health Limited",
+      "industry": "Healthcare Services",
+      "max_pct_in_any_fund": 2.0358,
+      "by_fund_pct": {
+        "INF205K01247": 2.0358
+      }
+    },
+    {
+      "instrument_name": "Laurus Labs Limited",
+      "industry": "Pharmaceuticals & Biotechnology",
+      "max_pct_in_any_fund": 2.0151,
+      "by_fund_pct": {
+        "INF03VN01563": 2.0151
+      }
+    }
+  ],
+  "sectors": [
+    {
+      "sector_label": "Banks",
+      "canonical_name": "Banks",
+      "max_pct_in_any_fund": 20.95,
+      "by_fund_pct": {
+        "INF03VN01563": 6.47,
+        "INF174K01245": 20.95,
+        "INF205K01247": 15.61,
+        "INF966L01AA0": 8.11
+      }
+    },
+    {
+      "sector_label": "Retailing",
+      "canonical_name": "Retailing",
+      "max_pct_in_any_fund": 13.81,
+      "by_fund_pct": {
+        "INF03VN01563": 6.65,
+        "INF174K01245": 3.09,
+        "INF205K01247": 13.81
+      }
+    },
+    {
+      "sector_label": "Healthcare Services",
+      "canonical_name": "Healthcare Services",
+      "max_pct_in_any_fund": 13.67,
+      "by_fund_pct": {
+        "INF03VN01563": 3.61,
+        "INF174K01245": 7.72,
+        "INF205K01247": 13.67,
+        "INF966L01AA0": 3.73
+      }
+    },
+    {
+      "sector_label": "Finance",
+      "canonical_name": "Finance",
+      "max_pct_in_any_fund": 10.08,
+      "by_fund_pct": {
+        "INF03VN01563": 6.77,
+        "INF174K01245": 10.08,
+        "INF205K01247": 5.39,
+        "INF966L01AA0": 8.88
+      }
+    },
+    {
+      "sector_label": "Pharmaceuticals & Biotechnology",
+      "canonical_name": "Pharmaceuticals & Biotechnology",
+      "max_pct_in_any_fund": 10.07,
+      "by_fund_pct": {
+        "INF03VN01563": 10.07,
+        "INF174K01245": 5.28,
+        "INF205K01247": 8.63,
+        "INF966L01AA0": 7.15
+      }
+    },
+    {
+      "sector_label": "Transport Services",
+      "canonical_name": "Transport Services",
+      "max_pct_in_any_fund": 7.58,
+      "by_fund_pct": {
+        "INF205K01247": 7.58
+      }
+    },
+    {
+      "sector_label": "Realty",
+      "canonical_name": "Realty",
+      "max_pct_in_any_fund": 7.32,
+      "by_fund_pct": {
+        "INF03VN01563": 4.99,
+        "INF205K01247": 7.32
+      }
+    },
+    {
+      "sector_label": "Telecom - Services",
+      "canonical_name": "Telecom - Services",
+      "max_pct_in_any_fund": 6.82,
+      "by_fund_pct": {
+        "INF174K01245": 4.03,
+        "INF966L01AA0": 6.82
+      }
+    },
+    {
+      "sector_label": "It - Software",
+      "canonical_name": "It - Software",
+      "max_pct_in_any_fund": 6.21,
+      "by_fund_pct": {
+        "INF03VN01563": 4.15,
+        "INF174K01245": 6.21
+      }
+    },
+    {
+      "sector_label": "Power",
+      "canonical_name": "Power",
+      "max_pct_in_any_fund": 5.87,
+      "by_fund_pct": {
+        "INF966L01AA0": 5.87
+      }
+    },
+    {
+      "sector_label": "Capital Markets",
+      "canonical_name": "Capital Markets",
+      "max_pct_in_any_fund": 5.55,
+      "by_fund_pct": {
+        "INF03VN01563": 5.55
+      }
+    },
+    {
+      "sector_label": "Auto Components",
+      "canonical_name": "Auto Components",
+      "max_pct_in_any_fund": 5.28,
+      "by_fund_pct": {
+        "INF03VN01563": 3.18,
+        "INF174K01245": 3.44,
+        "INF966L01AA0": 5.28
+      }
+    },
+    {
+      "sector_label": "Electrical Equipment",
+      "canonical_name": "Electrical Equipment",
+      "max_pct_in_any_fund": 5.09,
+      "by_fund_pct": {
+        "INF03VN01563": 5.09,
+        "INF205K01247": 4.63
+      }
+    },
+    {
+      "sector_label": "Industrial Products",
+      "canonical_name": "Industrial Products",
+      "max_pct_in_any_fund": 4.85,
+      "by_fund_pct": {
+        "INF03VN01563": 3.49,
+        "INF966L01AA0": 4.85
+      }
+    },
+    {
+      "sector_label": "Automobiles",
+      "canonical_name": "Automobiles",
+      "max_pct_in_any_fund": 4.71,
+      "by_fund_pct": {
+        "INF174K01245": 4.71
+      }
+    },
+    {
+      "sector_label": "Construction",
+      "canonical_name": "Construction",
+      "max_pct_in_any_fund": 3.67,
+      "by_fund_pct": {
+        "INF174K01245": 3.67,
+        "INF966L01AA0": 3.61
+      }
+    },
+    {
+      "sector_label": "Consumer Durables",
+      "canonical_name": "Consumer Durables",
+      "max_pct_in_any_fund": 3.64,
+      "by_fund_pct": {
+        "INF205K01247": 3.64
+      }
+    },
+    {
+      "sector_label": "Insurance",
+      "canonical_name": "Insurance",
+      "max_pct_in_any_fund": 3.3,
+      "by_fund_pct": {
+        "INF03VN01563": 3.3
+      }
+    },
+    {
+      "sector_label": "Financial Technology (fintech)",
+      "canonical_name": "Financial Technology (fintech)",
+      "max_pct_in_any_fund": 3.25,
+      "by_fund_pct": {
+        "INF03VN01563": 3.25
+      }
+    },
+    {
+      "sector_label": "Cement And Cement Products",
+      "canonical_name": "Cement & Cement Products",
+      "max_pct_in_any_fund": 3.15,
+      "by_fund_pct": {
+        "INF174K01245": 3.15
+      }
+    }
+  ],
+  "skipped_sectors_no_query": [
+    "Gas",
+    "Metals & Minerals Trading",
+    "Textiles & Apparels"
+  ],
+  "skipped_holdings_non_equity": [
+    "Clearing Corporation of India Ltd (INF03VN01563)",
+    "TREPS 01-Sep-2026 DEPO 10 (INF966L01AA0)"
+  ],
+  "skipped_holdings_not_in_aggregate": [],
+  "entity_names_searched": [
+    "ABB India Limited",
+    "AU Small Finance Bank Limited",
+    "Adani Enterprises Limited",
+    "Adani Green Energy Limited",
+    "Adani Power Limited",
+    "Aditya Infotech Limited",
+    "Aegis Logistics Limited",
+    "Amber Enterprises India Limited",
+    "Anand Rathi Wealth Limited",
+    "Arvind Limited",
+    "Aster DM Healthcare Limited",
+    "Auto Components",
+    "Automobiles",
+    "BHARTI AIRTEL LTD.",
+    "BSE Limited",
+    "Banks",
+    "Bharti Hexacom Limited",
+    "Capital Markets",
+    "Capri Global Capital Limited",
+    "Cement & Cement Products",
+    "Cholamandalam Investment and Finance Company Limited",
+    "Coforge Limited",
+    "Construction",
+    "Consumer Durables",
+    "Electrical Equipment",
+    "Eternal Limited",
+    "Finance",
+    "Financial Technology (fintech)",
+    "Fortis Healthcare India Ltd",
+    "Glenmark Pharmaceuticals Limited",
+    "Global Health Limited",
+    "HDFC BANK LTD.",
+    "HFCL Limited",
+    "Healthcare Services",
+    "Hero MotoCorp Ltd.",
+    "ICICI BANK LTD.",
+    "ICICI Bank Limited",
+    "IndusInd Bank Limited ^^^",
+    "Industrial Products",
+    "Insurance",
+    "InterGlobe Aviation Limited",
+    "It - Software",
+    "L&T Finance Limited",
+    "Larsen and Toubro Ltd.",
+    "Laurus Labs Limited",
+    "Manappuram Finance Ltd",
+    "Manipal Health Enterprises Ltd",
+    "Maruti Suzuki India Limited",
+    "Max Financial Services Limited",
+    "Max Healthcare Institute Limited",
+    "Mphasis Ltd",
+    "NTPC LTD",
+    "PB Fintech Limited",
+    "POONAWALLA FINCORP LIMITED",
+    "Pfizer Ltd",
+    "Pharmaceuticals & Biotechnology",
+    "Piramal Finance Ltd",
+    "Poly Medicure Limited",
+    "Power",
+    "Prestige Estates Projects Limited",
+    "RBL Bank Limited",
+    "RELIANCE INDUSTRIES LTD.",
+    "Realty",
+    "Retailing",
+    "SHRIRAM FINANCE LIMITED",
+    "STATE BANK OF INDIA.",
+    "SWIGGY LTD",
+    "Sai Life Sciences Limited",
+    "Sona BLW Precision Forgings Limited",
+    "Tech Mahindra Ltd.",
+    "Telecom - Services",
+    "The Federal Bank Limited",
+    "Transport Services",
+    "Trent Limited",
+    "Welspun Corp Limited"
+  ]
+}

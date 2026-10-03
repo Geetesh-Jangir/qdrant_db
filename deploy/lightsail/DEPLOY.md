@@ -97,33 +97,18 @@ sudo journalctl -u news-rag -f
 | `curl raw.githubusercontent.com` 404 | Repo is private — use `git clone`, not raw URLs |
 | Health OK on 8081 but not on 80 | Run nginx steps in §5 |
 | Empty answers | Fill Qdrant via `python -m news_pipeline` or GitHub Actions pipeline |
-| `sector_to_isin_weights.json` missing | Large fund JSONs are **not** in git — copy from your PC (see below) |
+| `sector_to_isin_weights.json` missing | Run `git pull origin huge-corpus` (file is in repo); check `sector_ranking_index` in `/health` |
 
-## Fund ranking data (not in GitHub)
+## Fund ranking data
 
-`data/fund_holdings_aggregate/*.json` is gitignored. For **sector fund rankings** and richer fund search, copy from the machine where you build holdings:
-
-**On the server (once):**
+Whitelisted files under `data/fund_holdings_aggregate/` (including `sector_to_isin_weights.json`) are **in git** on branch `huge-corpus`. After you push from your PC, on the server:
 
 ```bash
-mkdir -p /opt/news-rag/data/fund_holdings_aggregate
-sudo chown -R ubuntu:ubuntu /opt/news-rag/data
-```
-
-**From your Windows PC** (PowerShell; fix paths and key):
-
-```powershell
-scp -i "C:\path\to\LightsailDefaultKey.pem" `
-  "d:\rupeestop work\db_design_with_qdrant_locally\data\fund_holdings_aggregate\sector_to_isin_weights.json" `
-  ubuntu@13.201.90.23:/opt/news-rag/data/fund_holdings_aggregate/
-```
-
-Optional (fund name search / briefs): also copy `regular-growth-by-amc.md` and/or `allisin_sectors_with_holdings.json` into the same folder.
-
-Then on the server:
-
-```bash
+cd /opt/news-rag
+git pull origin huge-corpus
+ls -lh data/fund_holdings_aggregate/sector_to_isin_weights.json
 sudo systemctl restart news-rag
-curl -s http://127.0.0.1:8081/health
-# sector_ranking_index should be true
+curl -s http://127.0.0.1:8081/health   # expect sector_ranking_index: true
 ```
+
+Larger local-only holdings files stay gitignored. To refresh deploy data, update files locally, commit, push, then `git pull` on Lightsail.
