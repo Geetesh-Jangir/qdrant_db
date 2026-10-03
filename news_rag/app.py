@@ -118,28 +118,29 @@ def _check_token(authorization: str | None, x_app_token: str | None) -> None:
         raise HTTPException(status_code=401, detail="Invalid or missing app token")
 
 
+_HTML_NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+def _html_page(filename: str) -> FileResponse:
+    page = _STATIC / filename
+    if not page.is_file():
+        raise HTTPException(status_code=404, detail=f"{filename} missing")
+    return FileResponse(page, headers=_HTML_NO_CACHE)
+
+
 @app.get("/")
 def index() -> FileResponse:
-    page = _STATIC / "index.html"
-    if not page.is_file():
-        raise HTTPException(status_code=404, detail="index.html missing")
-    return FileResponse(page)
+    return _html_page("index.html")
 
 
 @app.get("/fund")
 def fund_page() -> FileResponse:
-    page = _STATIC / "fund.html"
-    if not page.is_file():
-        raise HTTPException(status_code=404, detail="fund.html missing")
-    return FileResponse(page)
+    return _html_page("fund.html")
 
 
 @app.get("/fund-search")
 def fund_search_page() -> FileResponse:
-    page = _STATIC / "fund_search.html"
-    if not page.is_file():
-        raise HTTPException(status_code=404, detail="fund_search.html missing")
-    return FileResponse(page)
+    return _html_page("fund_search.html")
 
 
 @app.get("/api/funds/search")

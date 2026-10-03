@@ -100,7 +100,7 @@
     <a href="fund">Fund News Brief</a>
     <a href="fund-search">Fund Search & Explorer</a>
   </div>
-  <script src="static/rag-api.js"></script>
+  <script src="static/rag-api.js?v=4"></script>
 
   <h1>News Insight</h1>
   <p class="sub">Ask questions about Indian stocks, sectors, and macroeconomic developments. Answers are synthesized from your verified news store.</p>
@@ -139,6 +139,12 @@
     const debugLogEl = document.getElementById("debugLog");
     const sourcesEl = document.getElementById("sources");
     const statusEl = document.getElementById("status");
+
+    if (typeof parseRagJsonResponse !== "function") {
+      errorEl.textContent =
+        "Page scripts did not load (try Ctrl+Shift+R or open in a private window).";
+      errorEl.classList.remove("hidden");
+    }
 
     function providerLabel(data) {
       const configured = (data.llm_provider || "").toLowerCase();
