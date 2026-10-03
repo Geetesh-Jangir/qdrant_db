@@ -11,12 +11,14 @@ data/rag_query_logs/
 data/qdrant_inspect/
 data/news_scrape_cache/
 data/embedding_models/
-# Holdings data: ignore by default; whitelist files needed on Lightsail (git pull deploy).
-data/fund_holdings_aggregate/*
-!data/fund_holdings_aggregate/sector_to_isin_weights.json
-!data/fund_holdings_aggregate/sector_isin_percentages.json
-!data/fund_holdings_aggregate/regular-growth-by-amc.md
-!data/fund_holdings_aggregate/aggregated_holdings_map.json
-!data/fund_holdings_aggregate/portfolio_news_scope.json
-!data/fund_holdings_aggregate/aggregated_sectors.json
 data/nav_cache/
+
+# fund_holdings_aggregate: commit everything needed for Lightsail except huge local builds
+data/fund_holdings_aggregate/allisin_sectors_with_holdings.json
+data/fund_holdings_aggregate/fund_sectors_and_holdings_aggregate.json
+data/fund_holdings_aggregate/*.jsonl
+data/fund_holdings_aggregate/allisin.txt
+data/fund_holdings_aggregate/*.rating_patch.*
+
+# Optional large embedding cache for fund fuzzy match (run scripts/build_fund_name_embeddings.py)
+data/fund_name_embeddings.json

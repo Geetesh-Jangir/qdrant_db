@@ -99,16 +99,25 @@ sudo journalctl -u news-rag -f
 | Empty answers | Fill Qdrant via `python -m news_pipeline` or GitHub Actions pipeline |
 | `sector_to_isin_weights.json` missing | Run `git pull origin huge-corpus` (file is in repo); check `sector_ranking_index` in `/health` |
 
-## Fund ranking data
+## Data files (in git — no SCP)
 
-Whitelisted files under `data/fund_holdings_aggregate/` (including `sector_to_isin_weights.json`) are **in git** on branch `huge-corpus`. After you push from your PC, on the server:
+On branch `huge-corpus`, these ship with the repo:
+
+| Path | Purpose |
+|------|---------|
+| `data/fund_holdings_aggregate/sector_to_isin_weights.json` | Sector → fund rankings |
+| `data/fund_holdings_aggregate/regular-growth-by-amc.md` | Fund name / ISIN index |
+| `data/fund_holdings_aggregate/*.json` (except huge `allisin_sectors_with_holdings.json`) | Holdings maps, scopes |
+| `data/metals_prices.json` | Offline metals tape fallback |
+
+**Not in git** (too large or machine-local): `allisin_sectors_with_holdings.json`, `data/embedding_models/` (use `download_embedding_model.py`), `.env`, Qdrant corpus.
+
+After any push from your PC:
 
 ```bash
 cd /opt/news-rag
 git pull origin huge-corpus
-ls -lh data/fund_holdings_aggregate/sector_to_isin_weights.json
+python scripts/verify_rag_deploy_data.py
 sudo systemctl restart news-rag
-curl -s http://127.0.0.1:8081/health   # expect sector_ranking_index: true
+curl -s http://127.0.0.1:8081/health
 ```
-
-Larger local-only holdings files stay gitignored. To refresh deploy data, update files locally, commit, push, then `git pull` on Lightsail.
