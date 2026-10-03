@@ -140,3 +140,7 @@ Workflow env already sets: `FRESH_START_EACH_RUN=false`, `FRESH_START_CLEAR_QDRA
 3. Run **Cloud RAG smoke** to verify read + DeepSeek (needs data in collection).
 
 RAG is not a long-running service on GitHub Actions; for a public UI host RAG on a VM/PaaS with the same env vars as local.
+
+### Lightsail (News RAG only — recommended)
+
+See **[deploy/lightsail/DEPLOY.md](../deploy/lightsail/DEPLOY.md)** — new Ubuntu instance, `git clone` your repo, `install.sh`, nginx on port **80** → app on **8081**.

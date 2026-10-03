@@ -1,0 +1,32 @@
+# Add on the SAME Lightsail instance as Rupeestop-AI (no second VM).
+#
+# Option A (recommended): subdomain → separate server block, e.g. news-rag.yourdomain.com
+# Point DNS A record to the same Lightsail static IP as your main app.
+#
+# Option B: path prefix on main domain (needs FastAPI root_path — use subdomain if unsure).
+
+# --- Option A: subdomain ---
+server {
+    listen 443 ssl http2;
+    server_name news-rag.YOUR_DOMAIN.com;
+
+    # Reuse the same ssl_certificate paths as your Rupeestop-AI nginx config, e.g.:
+    # ssl_certificate /etc/letsencrypt/live/YOUR_DOMAIN/fullchain.pem;
+    # ssl_certificate_key /etc/letsencrypt/live/YOUR_DOMAIN/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 120s;
+    }
+}
+
+# After editing:
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Rupeestop-AI can keep its existing server {} on port 443 for the main hostname.
+# This block only adds news-rag.YOUR_DOMAIN.com on the same nginx process.

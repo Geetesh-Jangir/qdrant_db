@@ -1,0 +1,50 @@
+# Deploy News RAG to existing Lightsail VM (same instance as Rupeestop-AI).
+#
+# Required secrets: LIGHTSAIL_HOST, LIGHTSAIL_USER, LIGHTSAIL_SSH_KEY
+# Optional: LIGHTSAIL_DEPLOY_PATH (default /opt/news-rag), LIGHTSAIL_SSH_PORT (default 22)
+
+name: Lightsail deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Git branch to deploy
+        required: false
+        default: main
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.LIGHTSAIL_HOST }}
+          username: ${{ secrets.LIGHTSAIL_USER }}
+          key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+          port: ${{ secrets.LIGHTSAIL_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            DEPLOY_PATH="${{ secrets.LIGHTSAIL_DEPLOY_PATH }}"
+            if [ -z "$DEPLOY_PATH" ]; then DEPLOY_PATH="/opt/news-rag"; fi
+            BRANCH="${{ github.event.inputs.branch }}"
+            if [ -z "$BRANCH" ]; then BRANCH="main"; fi
+            if [ ! -d "$DEPLOY_PATH/.git" ]; then
+              echo "Repo not found at $DEPLOY_PATH — run deploy/lightsail/install.sh on the server first."
+              exit 1
+            fi
+            cd "$DEPLOY_PATH"
+            git fetch origin
+            git checkout "$BRANCH"
+            git pull origin "$BRANCH"
+            source .venv/bin/activate
+            pip install -q -r requirements.txt -r news_rag/requirements.txt
+            export PYTHONPATH="$DEPLOY_PATH"
+            python scripts/download_embedding_model.py
+            sudo systemctl restart news-rag
+            sleep 2
+            curl -sf http://127.0.0.1:8081/health

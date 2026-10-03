@@ -96,10 +96,11 @@
 </head>
 <body>
   <div class="nav">
-    <a href="/">Ask a Question</a>
-    <a href="/fund">Fund News Brief</a>
-    <a href="/fund-search">Fund Search & Explorer</a>
+    <a href=".">Ask a Question</a>
+    <a href="fund">Fund News Brief</a>
+    <a href="fund-search">Fund Search & Explorer</a>
   </div>
+  <script src="static/rag-api.js"></script>
 
   <h1>News Insight</h1>
   <p class="sub">Ask questions about Indian stocks, sectors, and macroeconomic developments. Answers are synthesized from your verified news store.</p>
@@ -141,6 +142,8 @@
       const configured = (data.llm_provider || "").toLowerCase();
       const writer = String(data.insight_source || "").toLowerCase();
       const base = writer.includes("gemini") ? "gemini" : writer.includes("deepseek") ? "deepseek" : configured;
+      if (data.insight_source === "ask_engine") return "Structured ask engine (planned tools + grounded synthesis)";
+      if (data.insight_source === "guardrail") return "Policy guardrail (no data fetch)";
       if (data.insight_source === "fund_data") return "From fund data (no AI, no news search)";
       if (data.insight_source === "impact_sector_ranking") return "Top funds by sector exposure (indexed rankings + news)";
       if (data.insight_source === "impact_single_fund") return "Fund impact breakdown (holdings/sectors + news)";
@@ -164,8 +167,76 @@
       return formatted;
     }
 
+    function renderInsightSections(container, sections, summary) {
+      container.innerHTML = "";
+      for (const sec of sections) {
+        const h3 = document.createElement("h3");
+        h3.textContent = sec.heading || "Insight";
+        container.appendChild(h3);
+        const ul = document.createElement("ul");
+        for (const item of sec.bullets || []) {
+          const li = document.createElement("li");
+          li.innerHTML = formatMarkdown(item);
+          ul.appendChild(li);
+        }
+        container.appendChild(ul);
+      }
+      if (summary) {
+        const block = document.createElement("div");
+        block.className = "summary-section";
+        const h3s = document.createElement("h3");
+        h3s.textContent = "Summary";
+        h3s.style.margin = "0 0 0.35rem";
+        block.appendChild(h3s);
+        const p = document.createElement("p");
+        p.className = "summary-text";
+        p.innerHTML = formatMarkdown(summary);
+        block.appendChild(p);
+        container.appendChild(block);
+      }
+    }
+
+    function renderSections(container, sections) {
+      container.innerHTML = "";
+      for (const sec of sections) {
+        const block = document.createElement("div");
+        block.className = "summary-section";
+        block.style.marginBottom = "0.75rem";
+        const style = sec.style || "block";
+        const label = document.createElement("div");
+        label.className = "card-meta";
+        label.textContent = (sec.id || "") + (style ? " · " + style : "");
+        block.appendChild(label);
+        const body = document.createElement("p");
+        body.className = "summary-text";
+        body.innerHTML = formatMarkdown(sec.text || "");
+        block.appendChild(body);
+        container.appendChild(block);
+      }
+    }
+
     function renderInsight(container, data, fallbackText) {
       container.innerHTML = "";
+      if (Array.isArray(data.sections) && data.sections.length === 1) {
+        const only = data.sections[0];
+        if (only && only.style === "unified_answer") {
+          if (Array.isArray(only.insight_sections) && only.insight_sections.length) {
+            renderInsightSections(container, only.insight_sections, only.summary || data.insight_summary || "");
+            return;
+          }
+          if (Array.isArray(only.bullets) && only.bullets.length) {
+            data = {
+              ...data,
+              insight_bullets: only.bullets,
+              insight_summary: only.summary || data.insight_summary || "",
+            };
+          }
+        }
+      }
+      if (Array.isArray(data.sections) && data.sections.length > 1) {
+        renderSections(container, data.sections);
+        return;
+      }
       let bullets = Array.isArray(data.insight_bullets) ? data.insight_bullets : [];
       let summary = (data.insight_summary || "").trim();
 
@@ -236,7 +307,7 @@
       };
 
       try {
-        const response = await fetch("/api/ask", {
+        const response = await fetch(ragUrl("api/ask"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),

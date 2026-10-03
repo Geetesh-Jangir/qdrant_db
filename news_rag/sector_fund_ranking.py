@@ -30,6 +30,8 @@ _SECTOR_ALIASES: dict[str, tuple[str, ...]] = {
     "pharma": ("Pharmaceuticals & Biotechnology", "Healthcare Services"),
     "oil": ("Petroleum Products",),
     "crude": ("Petroleum Products",),
+    "barrel": ("Petroleum Products",),
+    "brent": ("Petroleum Products",),
     "energy": ("Power", "Petroleum Products"),
     "real estate": ("Realty",),
     "metal": ("Ferrous Metals", "Non - Ferrous Metals"),

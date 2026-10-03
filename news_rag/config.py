@@ -68,7 +68,9 @@ class Settings(BaseSettings):
     embedding_cache_dir: str = "data/embedding_models"
     rag_query_log_dir: str = "data/rag_query_logs"
 
-    portfolio_json: str = "investor_data/mohit/portfolio.json"
+    # Investor portfolio file is NOT used by /api/ask (hypothetical "my portfolio" in questions only).
+    # Optional legacy hook for fund-brief; leave empty unless you explicitly opt in via PORTFOLIO_JSON.
+    portfolio_json: str = ""
     funds_by_amc_md: str = "data/fund_holdings_aggregate/regular-growth-by-amc.md"
     allisin_sectors_holdings_json: str = "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json"
     portfolio_allisin_holdings_json: str = "data/fund_holdings_aggregate/portfolio_allisin_holdings.json"
@@ -79,6 +81,21 @@ class Settings(BaseSettings):
     aggregated_holdings_csv: str = "data/fund_holdings_aggregate/aggregated_holdings.csv"
     sector_to_isin_weights_json: str = "data/fund_holdings_aggregate/sector_to_isin_weights.json"
     impact_ranking_regular_growth_only: bool = True
+
+    rag_use_ask_engine: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("RAG_USE_ASK_ENGINE", "rag_use_ask_engine"),
+    )
+    rag_unified_compose: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("RAG_UNIFIED_COMPOSE", "rag_unified_compose"),
+    )
+    fund_fuzzy_accept: float = 88.0
+    fund_fuzzy_reject: float = 75.0
+    fund_fuzzy_ambiguous_gap: float = 5.0
+    retrieve_min_vector_score: float = 0.35
+    tool_timeout_sec: float = 25.0
+    judge_min_score: float = 0.65
 
     def embedding_cache_path(self) -> Path:
         path = _ROOT / self.embedding_cache_dir

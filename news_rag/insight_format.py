@@ -122,3 +122,21 @@ def format_insight_display(bullets: list[str], summary: str) -> str:
         parts.append("")
         parts.append(summary)
     return "\n".join(parts)
+
+
+def format_insight_sections_display(
+    sections: list[dict],
+    summary: str = "",
+) -> str:
+    parts: list[str] = []
+    for sec in sections:
+        heading = (sec.get("heading") or "").strip()
+        if heading:
+            parts.append(f"## {heading}")
+        for item in sec.get("bullets") or []:
+            if item:
+                parts.append(f"- {item}")
+        parts.append("")
+    if summary:
+        parts.append(summary.strip())
+    return "\n".join(parts).strip()

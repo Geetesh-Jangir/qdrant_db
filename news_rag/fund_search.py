@@ -177,11 +177,80 @@ def _scheme_alias_isin(norm_name: str) -> str | None:
 def is_market_fund_discovery_question(question: str) -> bool:
     """Top-N / which-funds market queries — do not bind a single scheme from question text."""
     lower = (question or "").lower()
+    if is_macro_metals_question(question):
+        return True
+    if re.search(r"\b(barrel+s?|brent|wti|crude)\b", lower) and re.search(
+        r"\b(sector|energy|funds?|affect)\b", lower
+    ):
+        return True
+    if re.search(
+        r"\b(hot in the market|how'?s the market|how is the market|what to focus on|market doing)\b",
+        lower,
+    ):
+        return True
+    if re.search(r"\bsectors?\b", lower) and re.search(
+        r"\b(positive|postive|negative|last month|past month)\b", lower
+    ):
+        return True
     if re.search(r"\b(most\s+affected|highest\s+exposure|worst\s+hit|most\s+impacted)\b", lower):
         return True
     if re.search(r"\b(?:which|what)\s+funds?\b", lower) and re.search(r"\btop\s*\d+", lower):
         return True
     if re.search(r"\btop\s*\d+\s+funds\b", lower):
+        return True
+    return False
+
+
+def is_macro_metals_question(question: str) -> bool:
+    """Gold/silver macro or market-wide — 'my portfolio' is rhetorical, not investor book lookup."""
+    lower = (question or "").lower()
+    if not re.search(r"\b(gold|silver|bullion)\b", lower):
+        return False
+    # Explicit single-scheme facts
+    if re.search(r"\b(isin|inf[a-z0-9]{9})\b", lower, re.I):
+        return False
+    if re.search(r"\b(nav|holdings?|sectors?)\s+(?:of|for)\s+", lower):
+        if re.search(
+            r"\b(hdfc|icici|axis|kotak|mirae|sbi|nippon|edelweiss|motilal|bandhan)\b",
+            lower,
+        ):
+            return False
+    macro = (
+        r"\bportfolio\b",
+        r"\bdownfall\b",
+        r"\bdeclin(e|ing)\b",
+        r"\b(sudden\s+)?fall(?:ing|en)?\b",
+        r"\bdrop(?:ped|ping)?\b",
+        r"\breason\b",
+        r"\bwhat could\b",
+        r"\bwhy\b",
+        r"\bwhich\s+stocks?\b",
+        r"\bstocks?\b.*\baffect",
+        r"\baffect.*\b(mutual\s+)?funds?\b",
+        r"\b(mutual\s+)?funds?\b.*\baffect",
+        r"\bgold\s+and\s+silver\b",
+        r"\bsilver\s+and\s+gold\b",
+        r"\bmcx\b",
+        r"\bspot\s+price",
+        r"\bprecious\s+metal",
+    )
+    if any(re.search(p, lower) for p in macro):
+        return True
+    if re.search(r"\bany\s+mutual\s+funds?\b", lower):
+        return True
+    return False
+
+
+def _is_bullion_phrase_not_scheme(phrase: str) -> bool:
+    norm = _normalize_fund_text(phrase)
+    if not norm:
+        return False
+    if re.fullmatch(
+        r"(gold and silver|silver and gold|gold silver|gold|silver|my portfolio|it|any mutual funds?|barrell? prices?)",
+        norm,
+    ):
+        return True
+    if "gold" in norm and "silver" in norm and "fof" not in norm and "fund" not in norm:
         return True
     return False
 
@@ -198,6 +267,8 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
         r"(?:latest|current)\s+(?:nav|net asset value)\s+(?:of|for)\s+(.+?)(?:\?|$)",
         r"(?:nav|net asset value)\s+(?:of|for)\s+(.+?)(?:\?|$)",
         r"(?:show|get|tell me|what is|what's)\s+(?:the\s+)?(?:latest|current)?\s*nav\s+(?:of|for)\s+(.+?)(?:\?|$)",
+        r"(?:how\s+(?:is|has|was))\s+(.+?)\s+(?:fund\s+)?(?:working|performing|done)\b",
+        r"(?:tell me|explain)\s+(?:how\s+)?(.+?)\s+(?:fund\s+)?(?:is\s+)?(?:working|performing)\b",
         r"(?:top\s+\d+\s+)?holdings?\s+(?:in|of|for)\s+(.+?)(?:\?|$)",
         r"(?:top\s+\d+\s+)?sectors?\s+(?:in|of|for)\s+(.+?)(?:\?|$)",
         r"sector\s+(?:allocation|breakdown|exposure)\s+(?:of|for|in)\s+(.+?)(?:\?|$)",
@@ -207,6 +278,7 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
         r"\bfor\s+(.+?fund)\b",
         r"\b(?:in|of)\s+(.+?fund)\b",
         r"\bfor\s+(.+?)(?:\?|$)",
+        r"\b((?:hdfc|icici|sbi|axis|kotak|nippon|mirae|uti|ppfas|parag|whiteoak|bandhan|quant|dsp|tata)\s+[\w\s&'-]{2,40}?)(?:\s+fund)?\b",
     ]
     fund_name = ""
     for pat in patterns:
@@ -245,10 +317,92 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
                     "nippon",
                     "mirae",
                     "uti",
+                    "defence",
+                    "defense",
+                    "banking",
+                    "technology",
+                    "pharma",
+                    "infra",
+                    "thematic",
+                    "equity",
+                    "debt",
+                    "hybrid",
                 )
             ):
                 fund_name = candidate
     return isin, fund_name
+
+
+_AMC_SCAN = re.compile(
+    r"\b(hdfc|icici|sbi|axis|kotak|nippon|mirae|uti|ppfas|parag|whiteoak|bandhan|quant|dsp|tata|motilal|"
+    r"invesco|edelweiss|franklin|hsbc|absl|aditya\s+birla)\s+([\w\s&'-]{2,48}?)(?:\s+fund)?\b",
+    re.I,
+)
+
+
+def collect_fund_phrase_candidates(question: str) -> list[str]:
+    """Ordered fund name / ISIN guesses from question text (no LLM)."""
+    q = (question or "").strip()
+    if not q:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+
+    def add(phrase: str) -> None:
+        cleaned = _clean_fund_phrase(phrase)
+        if len(cleaned) < 3:
+            return
+        key = _normalize_fund_text(cleaned)
+        if key in seen:
+            return
+        seen.add(key)
+        out.append(cleaned)
+
+    isin, name = extract_fund_phrase_from_question(q)
+    if isin:
+        add(isin)
+    if name and not _is_bullion_phrase_not_scheme(name):
+        add(name)
+
+    for m in _AMC_SCAN.finditer(q):
+        amc = m.group(1).strip()
+        rest = m.group(2).strip()
+        rest = re.sub(
+            r"\b(in|over|during|for|within)\s+(?:the\s+)?(?:last|past)\s+.+$",
+            "",
+            rest,
+            flags=re.I,
+        ).strip()
+        rest = re.sub(
+            r"\b(?:is|are|was|working|performing|done)\b.*$",
+            "",
+            rest,
+            flags=re.I,
+        ).strip()
+        if rest:
+            add(f"{amc} {rest}")
+
+    return out
+
+
+def resolve_fund_from_question(
+    question: str,
+) -> tuple[dict[str, Any] | None, bool, list[str]]:
+    """Resolve a fund from natural language, including shorthand (e.g. 'hdfc defence')."""
+    if is_macro_metals_question(question):
+        return None, False, []
+    if is_market_fund_discovery_question(question):
+        return None, False, []
+    for phrase in collect_fund_phrase_candidates(question):
+        if phrase.upper().startswith("INF"):
+            detail, amb, close = lookup_extracted_fund(isin=phrase.upper())
+        else:
+            detail, amb, close = lookup_extracted_fund(name=phrase)
+        if detail and not amb:
+            return detail, False, []
+        if amb:
+            return None, True, close
+    return resolve_fund_for_query(question)
 
 
 def resolve_fund_for_query(
@@ -266,6 +420,11 @@ def resolve_fund_for_query(
         ext_isin, ext_name = extract_fund_phrase_from_question(question)
         if ext_isin or ext_name:
             attempts.append((ext_isin, ext_name))
+        for phrase in collect_fund_phrase_candidates(question):
+            if phrase.upper().startswith("INF"):
+                attempts.append((phrase.upper(), ""))
+            else:
+                attempts.append(("", phrase))
 
     seen: set[tuple[str, str]] = set()
     last_ambiguous = False
@@ -841,6 +1000,30 @@ class FundIndex:
                 scored_candidates.append((80.0, entry))
 
         if not scored_candidates:
+            from news_rag.fund_match import embedding_best_match, fuzzy_rank_entries, load_fund_embedding_cache
+
+            settings = get_settings()
+            fuzzy_hits = fuzzy_rank_entries(clean_name, pool)
+            if fuzzy_hits:
+                top_score, top_entry, _method = fuzzy_hits[0]
+                accept = settings.fund_fuzzy_accept
+                reject = settings.fund_fuzzy_reject
+                gap = settings.fund_fuzzy_ambiguous_gap
+                if top_score >= accept:
+                    second = fuzzy_hits[1][0] if len(fuzzy_hits) > 1 else 0.0
+                    if len(fuzzy_hits) > 1 and abs(top_score - second) < gap:
+                        close = [str(e[1].get("fund_short_name") or "") for e in fuzzy_hits[:5]]
+                        return None, True, [n for n in close if n]
+                    detail = self.get_fund_detail(str(top_entry["isin"]))
+                    return detail, False, []
+                if reject <= top_score < accept:
+                    cache = load_fund_embedding_cache()
+                    if cache:
+                        emb_score, emb_entry = embedding_best_match(clean_name, pool, cache)
+                        if emb_entry is not None and emb_score >= 0.55:
+                            detail = self.get_fund_detail(str(emb_entry["isin"]))
+                            if detail:
+                                return detail, False, []
             return None, False, []
 
         scored_candidates.sort(key=lambda x: (-x[0], str(x[1].get("fund_short_name") or "")))

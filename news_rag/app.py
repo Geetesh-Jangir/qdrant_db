@@ -22,7 +22,9 @@ from news_rag.llm_client import (
     reset_llm_request_state,
 )
 from news_rag.query_log import new_fund_brief_logger, new_query_logger
-from news_rag.fund_brief import generate_fund_brief, list_portfolio_funds
+from news_rag.fund_brief import generate_fund_brief
+from news_rag.ask_engine import run_ask_engine
+from news_rag.guardrails import check_guardrails, refusal_response
 from news_rag.retrieve import retrieve_for_question
 
 _STATIC = Path(__file__).resolve().parent / "static"
@@ -140,24 +142,6 @@ def get_nav_history(
         raise HTTPException(status_code=500, detail=f"Failed to fetch NAV history: {exc!s}") from exc
 
 
-@app.get("/api/portfolio-funds")
-def portfolio_funds(
-    authorization: str | None = Header(default=None),
-    x_app_token: str | None = Header(default=None),
-) -> dict:
-    _check_token(authorization, x_app_token)
-    settings = get_settings()
-    if not (settings.portfolio_json or "").strip():
-        raise HTTPException(status_code=400, detail="PORTFOLIO_JSON not configured")
-    try:
-        funds = list_portfolio_funds(settings)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"funds": funds}
-
-
 @app.post("/api/fund-brief")
 def fund_brief(
     body: FundBriefRequest,
@@ -257,6 +241,39 @@ def ask(
 
     article_count = 0
     try:
+        if settings.rag_use_ask_engine:
+            guard = check_guardrails(body.question)
+            if guard.outcome != "pass":
+                result = refusal_response(guard)
+                meta = query_log.finish(outcome="refused", article_count=0, insight_source="guardrail")
+                _attach_llm_meta(result, meta)
+                return result
+            result = run_ask_engine(
+                body.question,
+                date_from=body.date_from,
+                date_to=body.date_to,
+                min_impact=body.min_impact,
+                source=body.source,
+                direction=body.direction,
+                query_log=query_log,
+            )
+            article_count = len(result.get("sources") or [])
+            outcome = str(result.get("outcome") or "ok")
+            if result.get("refused"):
+                outcome = "refused"
+            meta = query_log.finish(
+                outcome=outcome,
+                article_count=article_count,
+                insight_source=str(result.get("insight_source") or ""),
+                extra={
+                    "question": body.question.strip(),
+                    "intent": result.get("intent"),
+                    "sub_queries": result.get("sub_queries"),
+                },
+            )
+            _attach_llm_meta(result, meta)
+            return result
+
         parsed, articles = retrieve_for_question(
             body.question,
             stock=body.stock,

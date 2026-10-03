@@ -75,6 +75,10 @@ class QueryLogger:
     def log_request(self, payload: dict[str, Any]) -> None:
         self.write("request " + _kv(payload))
 
+    def log_stage(self, stage: str, **fields: Any) -> None:
+        self.write(stage.upper() + " " + _kv(fields))
+        self.note(stage, **fields)
+
     def log_parsed(self, parsed: Any) -> None:
         fund = parsed.fund_resolved or {}
         router = getattr(parsed, "router_result", None)

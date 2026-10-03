@@ -781,6 +781,7 @@
     .source-card-meta { color: #64748b; font-size: 0.75rem; }
   </style>
 
+  <script src="static/rag-api.js"></script>
   <script>
     const searchInput = document.getElementById("searchInput");
     const clearBtn = document.getElementById("clearBtn");
@@ -1205,7 +1206,7 @@
       btnGetInsight.textContent = "Synthesizing Brief...";
 
       try {
-        const res = await fetch("/api/fund-brief", {
+        const res = await fetch(ragUrl("api/fund-brief"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ isin: currentIsin }),

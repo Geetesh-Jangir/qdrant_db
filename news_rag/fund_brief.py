@@ -1,4 +1,4 @@
-"""Fund-level and portfolio-level brief from stored news (read-only Qdrant)."""
+"""Fund-level brief from stored news (read-only Qdrant). No investor portfolio file."""
 
 from __future__ import annotations
 
@@ -16,10 +16,8 @@ from lib.portfolio_scope import (
     HOLDING_MIN_PCT,
     SECTOR_MIN_PCT,
     PortfolioScope,
-    build_portfolio_scope,
     instrument_to_qdrant_names,
     qdrant_filter_names,
-    resolve_allisin_holdings_path,
 )
 from news_pipeline.config import Settings as PipelineSettings
 from news_pipeline.jev.client import JevClient, JevError, read_noul
@@ -61,30 +59,6 @@ def _resolve_path(settings: Settings, relative: str) -> Path:
     return _repo_root() / relative
 
 
-def load_scope(settings: Settings) -> PortfolioScope:
-    portfolio_raw = (settings.portfolio_json or "").strip()
-    if not portfolio_raw:
-        raise ValueError("PORTFOLIO_JSON not configured")
-    configured_allisin = _resolve_path(settings, settings.allisin_sectors_holdings_json)
-    if configured_allisin.is_file():
-        allisin_path = configured_allisin
-    else:
-        allisin_path = resolve_allisin_holdings_path(
-            _repo_root(),
-            full_relative=settings.allisin_sectors_holdings_json,
-            subset_relative=settings.portfolio_allisin_holdings_json,
-        )
-    return build_portfolio_scope(
-        portfolio_path=_resolve_path(settings, portfolio_raw),
-        allisin_path=allisin_path,
-        holding_min=settings.portfolio_holding_min_pct,
-        sector_min=settings.portfolio_sector_min_pct,
-        aggregated_holdings_map_path=_resolve_path(settings, settings.aggregated_holdings_map),
-        aggregated_holdings_csv_path=_resolve_path(settings, settings.aggregated_holdings_csv),
-        require_aggregated_equity=True,
-    )
-
-
 def load_scope_for_fund(isin: str, settings: Settings) -> PortfolioScope:
     """Load scope dynamically for any fund in the mutual fund index."""
     from news_rag.fund_search import get_fund_index
@@ -102,13 +76,6 @@ def load_scope_for_fund(isin: str, settings: Settings) -> PortfolioScope:
     entry = index.get_fund_detail(isin)
     
     if not isinstance(entry, dict) or entry.get("error"):
-        if (settings.portfolio_json or "").strip():
-            try:
-                scope = load_scope(settings)
-                if any(f.isin == isin for f in scope.funds):
-                    return scope
-            except Exception:
-                pass
         raise ValueError(f"ISIN '{isin}' not found in fund database")
 
     fund_name = entry.get("fund_short_name") or entry.get("fund_name") or isin
@@ -195,20 +162,6 @@ def load_scope_for_fund(isin: str, settings: Settings) -> PortfolioScope:
         skipped_holdings_not_in_aggregate=[],
         entity_names_for_news=sorted(entity_names),
     )
-
-
-def list_portfolio_funds(settings: Settings) -> list[dict[str, Any]]:
-    scope = load_scope(settings)
-    total = sum(f.current_value for f in scope.funds) or 1.0
-    return [
-        {
-            "isin": f.isin,
-            "fund_short_name": f.fund_short_name,
-            "current_value": f.current_value,
-            "portfolio_weight_pct": round(100.0 * f.current_value / total, 2),
-        }
-        for f in scope.funds
-    ]
 
 
 def _trim_snippet(text: str, limit: int) -> str:
@@ -1021,15 +974,12 @@ def compose_fund_insight(
             pass
 
     fund_blocks = [_format_event_block(event, section="this_fund") for event in fund_events]
-    portfolio_blocks = [_format_event_block(event, section="other_funds") for event in portfolio_events]
     user_content = (
         f"Selected fund: {fund_short_name}\n"
         f"Time window: {window_label}\n\n"
         + nav_context_str
         + f"This fund events ({len(fund_blocks)}):\n"
         + ("\n\n".join(fund_blocks) if fund_blocks else "(none)\n")
-        + f"\n\nOther funds in portfolio ({len(portfolio_blocks)}):\n"
-        + ("\n\n".join(portfolio_blocks) if portfolio_blocks else "(none)\n")
     )
 
     result = call_insight_llm(
@@ -1150,28 +1100,15 @@ def generate_fund_brief(
         fund_only=True,
         limit=limit,
     )
-    portfolio_events = build_events(
-        articles,
-        scope=scope,
-        isin=isin,
-        name_map=name_map,
-        fund_only=False,
-        limit=limit,
-    )
+    portfolio_events: list[dict] = []
     if query_log is not None:
-        query_log.write(
-            f"events_built fund_events={len(fund_events)} portfolio_events={len(portfolio_events)} limit={limit}"
-        )
-    combined = fund_events + portfolio_events
-    kept = jev_filter_events(combined, query_log=query_log)
+        query_log.write(f"events_built fund_events={len(fund_events)} limit={limit}")
+    kept = jev_filter_events(fund_events, query_log=query_log)
     kept_ids = {id(event) for event in kept}
     fund_events = [event for event in fund_events if id(event) in kept_ids]
-    portfolio_events = [event for event in portfolio_events if id(event) in kept_ids]
     if query_log is not None:
-        query_log.write(
-            f"events_after_jev fund_events={len(fund_events)} portfolio_events={len(portfolio_events)}"
-        )
-    if not fund_events and not portfolio_events:
+        query_log.write(f"events_after_jev fund_events={len(fund_events)}")
+    if not fund_events:
         return _empty_brief(
             fund,
             isin,
