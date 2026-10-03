@@ -1,123 +1,112 @@
-# Option A: News RAG only on a new Lightsail instance
+# Deploy News RAG on Lightsail (`ask-question`)
 
-Single app: **Qdrant Cloud** + **uvicorn** `news_rag.app:app`. No Rupeestop merge.
+Standalone **News RAG** (Option A): Qdrant Cloud + Gemini + this repo. No Rupeestop merge.
 
-## 1. Push this repo to your GitHub
+**GitHub:** `https://github.com/Geetesh-Jangir/qdrant_db` — branch **`huge-corpus`**
 
-From your PC (example remote — use your repo URL and branch):
+---
 
-```bash
-cd "d:\rupeestop work\db_design_with_qdrant_locally"
-git remote -v
-git push origin huge-corpus
-```
+## 1. Create instance (AWS Lightsail)
 
-Commit includes `data/fund_holdings_aggregate/` (needed for fund ranking). Do **not** commit `.env`.
+| Setting | Value |
+|---------|--------|
+| Name | **ask-question** (or any name) |
+| OS | Ubuntu 22.04 or 24.04 |
+| Plan | **2 GB RAM** or more (512 MB–1 GB works with swap but is slow) |
+| Firewall | **SSH 22**, **HTTP 80** |
 
-## 2. Create Lightsail instance
+Note the **public IPv4**. Browser URL: `http://PUBLIC_IP/`
 
-- Ubuntu 22.04+ (2 GB RAM minimum; 4 GB easier for `pip` + embeddings)
-- Open ports: **22**, **80** (and **443** later if you add TLS)
-- Note the **public IPv4**
+---
 
-## 3. SSH and clone (private repo = use PAT when Git asks for password)
+## 2. Bootstrap on the server (browser SSH)
 
-```bash
-sudo apt-get update
-sudo apt-get install -y git python3-venv python3-pip nginx curl build-essential
-
-export NEWS_RAG_REPO=https://github.com/YOUR_USER/YOUR_REPO.git
-export NEWS_RAG_BRANCH=huge-corpus
-export NEWS_RAG_DIR=/opt/news-rag
-
-sudo mkdir -p /opt
-sudo git clone -b "$NEWS_RAG_BRANCH" "$NEWS_RAG_REPO" "$NEWS_RAG_DIR"
-sudo chown -R ubuntu:ubuntu "$NEWS_RAG_DIR"
-```
-
-## 4. Configure secrets
+**Step A — clone + swap** (works for public or private repo; use a [GitHub PAT](https://github.com/settings/tokens) as the password when `git` asks):
 
 ```bash
+sudo apt-get update && sudo apt-get install -y git curl
+sudo git clone --depth 1 -b huge-corpus https://github.com/Geetesh-Jangir/qdrant_db.git /opt/news-rag
+sudo chown -R ubuntu:ubuntu /opt/news-rag
 cd /opt/news-rag
-cp deploy/lightsail/.env.production.example .env
-nano .env
+bash deploy/lightsail/server-bootstrap.sh
 ```
 
-Required:
+If `/opt/news-rag` already exists, skip `git clone` and only run `bash deploy/lightsail/server-bootstrap.sh` from that directory.
+
+**Step B — secrets**
+
+```bash
+nano /opt/news-rag/.env
+```
+
+Required (no `YOUR_CLUSTER` placeholder):
 
 ```env
 QDRANT_URL=https://xxxx.cloud.qdrant.io
 QDRANT_API_KEY=...
+QDRANT_COLLECTION=news_articles
 RAG_LLM_PROVIDER=gemini
 GEMINI_API_KEY=...
+GEMINI_MODEL=gemini-3.5-flash-lite
+PYTHONPATH=/opt/news-rag
 ```
 
-Optional: `APP_TOKEN=` (if set, API needs `X-App-Token` header)
+Save: **Ctrl+O**, **Enter**, **Ctrl+X**.
 
-## 5. Install app + systemd + nginx
+**Step C — install app, systemd, nginx**
 
 ```bash
 cd /opt/news-rag
 sudo NEWS_RAG_DIR=/opt/news-rag bash deploy/lightsail/install.sh
-sudo cp deploy/lightsail/nginx-rag-only.conf /etc/nginx/sites-available/news-rag
-sudo ln -sf /etc/nginx/sites-available/news-rag /etc/nginx/sites-enabled/news-rag
-sudo rm -f /etc/nginx/sites-enabled/default
-sudo nginx -t && sudo systemctl reload nginx
 ```
 
-## 6. Verify
+---
+
+## 3. Verify
 
 ```bash
+python3 /opt/news-rag/scripts/verify_rag_deploy_data.py
 curl -s http://127.0.0.1:8081/health
 curl -s http://127.0.0.1/health
 ```
 
-Browser: `http://YOUR_PUBLIC_IP/` (UI at `/`, API at `/api/ask`)
+Expect `"ok":true` and `"sector_ranking_index":true`.
 
-## Updates after you push code
+Open **`http://PUBLIC_IP/`** → ask a question → **Get Insight** (first ask may take 1–3 minutes).
+
+---
+
+## 4. Updates (after you push from your PC)
 
 ```bash
 cd /opt/news-rag
 git pull origin huge-corpus
 source .venv/bin/activate
 pip install -r requirements.txt -r news_rag/requirements.txt
-export PYTHONPATH=/opt/news-rag
-python scripts/download_embedding_model.py
+deactivate
 sudo systemctl restart news-rag
 ```
+
+---
+
+## Data in git (no SCP)
+
+Fund ranking JSON, `regular-growth-by-amc.md`, and `data/metals_prices.json` are committed on `huge-corpus`.  
+**Not in git:** `.env`, `data/embedding_models/` (downloaded by `install.sh`), Qdrant news corpus.
+
+---
 
 ## Troubleshooting
 
 ```bash
-sudo journalctl -u news-rag -f
+sudo journalctl -u news-rag -n 50 --no-pager
+sudo systemctl status nginx news-rag --no-pager
 ```
 
 | Issue | Fix |
 |-------|-----|
-| `curl raw.githubusercontent.com` 404 | Repo is private — use `git clone`, not raw URLs |
-| Health OK on 8081 but not on 80 | Run nginx steps in §5 |
-| Empty answers | Fill Qdrant via `python -m news_pipeline` or GitHub Actions pipeline |
-| `sector_to_isin_weights.json` missing | Run `git pull origin huge-corpus` (file is in repo); check `sector_ranking_index` in `/health` |
-
-## Data files (in git — no SCP)
-
-On branch `huge-corpus`, these ship with the repo:
-
-| Path | Purpose |
-|------|---------|
-| `data/fund_holdings_aggregate/sector_to_isin_weights.json` | Sector → fund rankings |
-| `data/fund_holdings_aggregate/regular-growth-by-amc.md` | Fund name / ISIN index |
-| `data/fund_holdings_aggregate/*.json` (except huge `allisin_sectors_with_holdings.json`) | Holdings maps, scopes |
-| `data/metals_prices.json` | Offline metals tape fallback |
-
-**Not in git** (too large or machine-local): `allisin_sectors_with_holdings.json`, `data/embedding_models/` (use `download_embedding_model.py`), `.env`, Qdrant corpus.
-
-After any push from your PC:
-
-```bash
-cd /opt/news-rag
-git pull origin huge-corpus
-python3 scripts/verify_rag_deploy_data.py
-sudo systemctl restart news-rag
-curl -s http://127.0.0.1:8081/health
-```
+| Site timeout in browser | Lightsail **HTTP 80** open; use `http://` not `https://` |
+| `python` not found | Use `python3` or `.venv/bin/python` |
+| `Permission denied` on `.venv` | `sudo chown -R ubuntu:ubuntu /opt/news-rag` |
+| `sector_to_isin_weights` missing | `git pull origin huge-corpus` |
+| Empty / no news answers | Ingest into Qdrant Cloud (`python -m news_pipeline` or CI) |

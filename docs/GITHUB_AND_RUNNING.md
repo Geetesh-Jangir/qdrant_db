@@ -91,6 +91,19 @@ After a run, download **Artifacts** (run logs / RAG log) from the Actions run pa
 
 ---
 
+## Lightsail production (`ask-question`)
+
+Full steps: **[deploy/lightsail/DEPLOY.md](../deploy/lightsail/DEPLOY.md)**.
+
+Short path after creating the instance (HTTP **80** + SSH **22** open):
+
+1. SSH → `git clone` to `/opt/news-rag` (branch `huge-corpus`)
+2. `bash deploy/lightsail/server-bootstrap.sh`
+3. `nano /opt/news-rag/.env` (Qdrant + Gemini keys)
+4. `sudo NEWS_RAG_DIR=/opt/news-rag bash deploy/lightsail/install.sh`
+
+---
+
 ## Repository secrets (Settings → Secrets and variables → Actions)
 
 ### Required for **full pipeline** (both cloud pipeline workflows)

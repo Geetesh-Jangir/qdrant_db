@@ -1,4 +1,4 @@
-# Deploy News RAG to existing Lightsail VM (same instance as Rupeestop-AI).
+# Deploy News RAG to Lightsail (e.g. instance ask-question).
 #
 # Required secrets: LIGHTSAIL_HOST, LIGHTSAIL_USER, LIGHTSAIL_SSH_KEY
 # Optional: LIGHTSAIL_DEPLOY_PATH (default /opt/news-rag), LIGHTSAIL_SSH_PORT (default 22)
@@ -11,7 +11,7 @@ on:
       branch:
         description: Git branch to deploy
         required: false
-        default: main
+        default: huge-corpus
         type: string
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
             DEPLOY_PATH="${{ secrets.LIGHTSAIL_DEPLOY_PATH }}"
             if [ -z "$DEPLOY_PATH" ]; then DEPLOY_PATH="/opt/news-rag"; fi
             BRANCH="${{ github.event.inputs.branch }}"
-            if [ -z "$BRANCH" ]; then BRANCH="main"; fi
+            if [ -z "$BRANCH" ]; then BRANCH="huge-corpus"; fi
             if [ ! -d "$DEPLOY_PATH/.git" ]; then
               echo "Repo not found at $DEPLOY_PATH — run deploy/lightsail/install.sh on the server first."
               exit 1
@@ -45,6 +45,11 @@ jobs:
             pip install -q -r requirements.txt -r news_rag/requirements.txt
             export PYTHONPATH="$DEPLOY_PATH"
             python scripts/download_embedding_model.py
+            python3 scripts/verify_rag_deploy_data.py
+            sudo cp deploy/lightsail/nginx-rag-only.conf /etc/nginx/sites-available/news-rag
+            sudo ln -sf /etc/nginx/sites-available/news-rag /etc/nginx/sites-enabled/news-rag
+            sudo rm -f /etc/nginx/sites-enabled/default
+            sudo nginx -t && sudo systemctl reload nginx
             sudo systemctl restart news-rag
             sleep 2
             curl -sf http://127.0.0.1:8081/health
