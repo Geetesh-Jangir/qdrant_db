@@ -12,6 +12,7 @@ from historical_data.stocks_service import get_stock_profile
 from news_rag.answer_contract import AnswerContract, check_answer_alignment, plan_answer_contract
 from news_rag.config import get_settings
 from news_rag.fund_facts import try_fund_fact_answer
+from news_rag.impact_answer import try_impact_answer
 from news_rag.fund_search import extract_top_holdings, extract_top_sectors
 from news_rag.insight_format import (
     clamp_bullets,
@@ -173,6 +174,29 @@ def generate_answer(
                 preview=str(fact.get("insight") or "")[:500],
             )
         return fact
+
+    router = parsed.router_result
+    if router is not None:
+        impact = try_impact_answer(
+            parsed,
+            articles,
+            router,
+            question=parsed.question,
+            published_from=parsed.published_from,
+            published_to=parsed.published_to,
+            query_log=query_log,
+        )
+        if impact is not None:
+            if query_log is not None:
+                query_log.write(
+                    f"answer_path impact deterministic=true insight_source={impact.get('insight_source')}"
+                )
+                query_log.log_insight_output(
+                    insight_source=str(impact.get("insight_source") or ""),
+                    char_count=len(impact.get("insight") or ""),
+                    preview=str(impact.get("insight") or "")[:500],
+                )
+            return impact
 
     if not llm_api_key_configured(settings):
         raise RuntimeError(missing_llm_key_message(settings))

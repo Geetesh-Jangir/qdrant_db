@@ -58,8 +58,9 @@ def answer_fund_holdings(parsed: ParsedQuery, detail: dict[str, Any]) -> dict[st
         for row in rows
         if row.get("name")
     ]
-    display = format_insight_display(bullets, "")
-    return _payload(parsed, display, bullets, "", "fund_data")
+    summary = f"Largest equity holdings in **{name}** (Regular Growth), by portfolio weight."
+    display = format_insight_display(bullets, summary)
+    return _payload(parsed, display, bullets, summary, "fund_data")
 
 
 def answer_fund_nav(parsed: ParsedQuery, detail: dict[str, Any]) -> dict[str, Any]:

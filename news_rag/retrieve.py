@@ -8,9 +8,10 @@ from typing import TYPE_CHECKING
 from news_rag.config import get_settings
 from news_rag.embed import embed_query
 from news_rag.entity_index import corpus_entity_names
-from news_rag.fund_search import extract_top_holdings, extract_top_sectors, lookup_extracted_fund
+from news_rag.fund_search import extract_top_holdings, extract_top_sectors, resolve_fund_for_query
 from news_rag.parse import (
     ParsedQuery,
+    classify_query_intent,
     extract_stock_hint,
     parse_time_window,
     resolve_entities,
@@ -22,6 +23,8 @@ from news_rag.qdrant_reader import (
     describe_filters_for_log,
     filter_spec,
 )
+from news_rag.fund_search import is_market_fund_discovery_question
+from news_rag.impact_gating import should_use_sector_ranking_index
 from news_rag.query_router import RouterResult, route_query
 
 if TYPE_CHECKING:
@@ -66,28 +69,66 @@ def retrieve_for_question(
     fund_detail = None
     is_ambiguous = False
     close_matches: list[str] = []
-    if not router.fund.is_empty():
-        fund_detail, is_ambiguous, close_matches = lookup_extracted_fund(
-            isin=router.fund.isin,
-            name=router.fund.name,
-        )
-        if query_log is not None:
-            resolved_name = ""
-            resolved_isin = ""
-            if fund_detail:
-                resolved_isin = str(fund_detail.get("isin") or "")
-                resolved_name = str(
-                    fund_detail.get("fund_short_name") or fund_detail.get("fund_name") or ""
-                )
-            query_log.log_fund_lookup(
-                extracted_isin=router.fund.isin,
-                extracted_name=router.fund.name,
-                resolved=fund_detail is not None,
-                ambiguous=is_ambiguous,
-                close_matches=close_matches,
-                fund_isin=resolved_isin,
-                fund_name=resolved_name,
+    fund_detail, is_ambiguous, close_matches = resolve_fund_for_query(
+        question,
+        isin=router.fund.isin,
+        name=router.fund.name,
+    )
+    if (
+        is_market_fund_discovery_question(question)
+        and router.intent == "impact_funds"
+        and router.fund.is_empty()
+    ):
+        fund_detail = None
+        is_ambiguous = False
+        close_matches = []
+
+    if fund_detail and not is_ambiguous:
+        if router.fund.is_empty():
+            router.fund.isin = str(fund_detail.get("isin") or "")
+            router.fund.name = str(
+                fund_detail.get("fund_short_name") or fund_detail.get("fund_name") or ""
             )
+        if router.intent == "impact_funds" and should_use_sector_ranking_index(router):
+            intent_pre = router.intent
+            fund_detail = None
+        else:
+            repaired = classify_query_intent(question, "", [], fund_detail)
+            if repaired in _FUND_FACT_INTENTS or repaired in (
+                "fund_event_impact",
+                "fund_news",
+                "fund_info",
+            ):
+                if router.intent in ("general", "fund_news", "fund_info", "sector", "macro") or (
+                    repaired in _FUND_FACT_INTENTS and router.intent not in _FUND_FACT_INTENTS
+                ):
+                    intent_pre = repaired
+                else:
+                    intent_pre = router.intent
+            else:
+                intent_pre = router.intent
+    else:
+        intent_pre = router.intent
+
+    intent = intent_pre
+
+    if query_log is not None:
+        resolved_name = ""
+        resolved_isin = ""
+        if fund_detail:
+            resolved_isin = str(fund_detail.get("isin") or "")
+            resolved_name = str(
+                fund_detail.get("fund_short_name") or fund_detail.get("fund_name") or ""
+            )
+        query_log.log_fund_lookup(
+            extracted_isin=router.fund.isin,
+            extracted_name=router.fund.name,
+            resolved=fund_detail is not None,
+            ambiguous=is_ambiguous,
+            close_matches=close_matches,
+            fund_isin=resolved_isin,
+            fund_name=resolved_name,
+        )
 
     # 3. Determine time window
     effective_days = router.window_days if router.window_days and not (date_from or date_to) else settings.default_window_days
@@ -99,7 +140,6 @@ def retrieve_for_question(
     )
 
     sub_questions = router.asked if router.asked else split_multi_questions(question)
-    intent = router.intent
 
     # Fund facts: no stock hints, no corpus index, no Qdrant — data comes from fund API/JSON only.
     if intent in _FUND_FACT_INTENTS:
@@ -123,6 +163,31 @@ def retrieve_for_question(
             query_log.write(
                 f"retrieve_branch intent={intent} mode=fund_facts "
                 f"skip_corpus=true skip_qdrant=true fund_resolved={bool(fund_detail)}"
+            )
+        return parsed, []
+
+    # Sector discovery: rankings use sector_to_isin_weights; news fetched in impact_answer.
+    if intent == "impact_funds" and should_use_sector_ranking_index(router):
+        parsed = ParsedQuery(
+            question=question.strip(),
+            published_from=published_from,
+            published_to=published_to,
+            window_label=window_label,
+            stock_hint="",
+            entity_resolved=[],
+            entity_match_note="impact_sector_discovery",
+            intent=intent,
+            fund_resolved=None,
+            sub_questions=sub_questions,
+            router_result=router,
+            fund_ambiguous=False,
+            close_funds=[],
+        )
+        if query_log is not None:
+            query_log.log_parsed(parsed)
+            query_log.write(
+                "retrieve_branch intent=impact_funds mode=sector_discovery "
+                "skip_qdrant_in_retrieve=true sector_index_in_answer=true"
             )
         return parsed, []
 
@@ -178,11 +243,27 @@ def retrieve_for_question(
 
     # Case 1: Fund News / Fund Event Impact
     if fund_detail and intent in ("fund_event_impact", "fund_news"):
+        from news_rag.impact_event import event_search_tokens
+
         top_h = extract_top_holdings(fund_detail, limit=15)
         top_s = extract_top_sectors(fund_detail, limit=4)
         comp_matched = [h["name"] for h in top_h if h["name"] in corpus]
         sec_matched = [s["sector"] for s in top_s if s["sector"] in corpus]
         fund_entities = comp_matched + sec_matched
+
+        if intent == "fund_event_impact":
+            lower_ef = f"{question} {router.event_focus}".lower()
+            for extra in ("Petroleum Products", "Banks", "Automobiles"):
+                if extra in corpus and extra not in fund_entities:
+                    if any(
+                        k in lower_ef
+                        for k in ("crude", "oil", "rbi", "repo", "rate", "auto", "bank")
+                    ):
+                        fund_entities.append(extra)
+            for tok in event_search_tokens(question, router.event_focus):
+                if tok == "crude" and "Petroleum Products" in corpus:
+                    if "Petroleum Products" not in fund_entities:
+                        fund_entities.append("Petroleum Products")
 
         vector_query_text = f"{question.strip()} {router.event_focus} {' '.join(comp_matched[:4])}".strip()
         t_embed = time.perf_counter()

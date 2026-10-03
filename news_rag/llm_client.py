@@ -14,16 +14,35 @@ _gemini_skip_for_request: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "gemini_skip_for_request",
     default=False,
 )
+_gemini_cooldown_until: float = 0.0
+_GEMINI_COOLDOWN_SEC = 300.0
 
 
 def reset_llm_request_state() -> None:
     _gemini_skip_for_request.set(False)
 
 
+def gemini_in_cooldown() -> bool:
+    return time.monotonic() < _gemini_cooldown_until
+
+
+def gemini_blocked(settings: Settings | None = None) -> bool:
+    """True when Gemini should not be called (cooldown / quota in this request)."""
+    settings = settings or get_settings()
+    if llm_provider(settings) != "gemini":
+        return False
+    return gemini_in_cooldown() or _gemini_skip_for_request.get()
+
+
 def _mark_gemini_quota_exceeded(query_log: QueryLogger | None, body: str) -> None:
+    global _gemini_cooldown_until
     _gemini_skip_for_request.set(True)
+    _gemini_cooldown_until = time.monotonic() + _GEMINI_COOLDOWN_SEC
     if query_log is not None:
-        query_log.write("gemini_quota_exceeded skip_further_gemini_calls=true")
+        query_log.write(
+            f"gemini_quota_exceeded skip_further_gemini_calls=true "
+            f"cooldown_sec={_GEMINI_COOLDOWN_SEC:.0f}"
+        )
 
 from news_rag.config import Settings, get_settings
 from news_rag.llm_text import extract_assistant_text, extract_gemini_text
@@ -88,14 +107,17 @@ def missing_llm_key_message(settings: Settings | None = None) -> str:
 
 
 def _effective_provider(settings: Settings) -> str:
-    if _gemini_skip_for_request.get() and (settings.deepseek_api_key or "").strip():
-        return "deepseek"
-    return llm_provider(settings)
+    primary = llm_provider(settings)
+    if primary == "gemini" and gemini_blocked(settings):
+        if (settings.deepseek_api_key or "").strip():
+            return "deepseek"
+    return primary
 
 
 def _is_gemini_quota_response(status: int, body: str) -> bool:
-    if status != 429:
-        return False
+    """Any HTTP 429 from Gemini is treated as rate-limit / quota (body text varies)."""
+    if status == 429:
+        return True
     lower = (body or "").lower()
     return "quota" in lower or "rate limit" in lower or "resource_exhausted" in lower
 
@@ -124,8 +146,8 @@ def call_insight_llm(
                 if query_log is not None:
                     query_log.write(f"gemini_failed_falling_back_to_deepseek error={exc}")
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
-                    if _is_gemini_quota_response(exc.response.status_code, exc.response.text):
-                        _mark_gemini_quota_exceeded(query_log, exc.response.text)
+                    if _is_gemini_quota_response(exc.response.status_code, exc.response.text or ""):
+                        _mark_gemini_quota_exceeded(query_log, exc.response.text or "")
                 return _call_deepseek(
                     settings,
                     system_prompt,
@@ -135,6 +157,13 @@ def call_insight_llm(
                     temperature=0.25,
                     query_log=query_log,
                 )
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                if exc.response.status_code == 429:
+                    raise RuntimeError(
+                        "Gemini returned HTTP 429 (rate limit or daily quota). "
+                        "Wait a few minutes, avoid rapid repeated asks, "
+                        "or set DEEPSEEK_API_KEY for automatic fallback while RAG_LLM_PROVIDER=gemini."
+                    ) from exc
             raise
     else:
         try:
@@ -204,6 +233,13 @@ def call_json_llm(
                     response_json=True,
                     query_log=query_log,
                 )
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                if exc.response.status_code == 429:
+                    raise RuntimeError(
+                        "Gemini returned HTTP 429 (rate limit or daily quota). "
+                        "Wait a few minutes, avoid rapid repeated asks, "
+                        "or set DEEPSEEK_API_KEY for automatic fallback while RAG_LLM_PROVIDER=gemini."
+                    ) from exc
             raise
     else:
         try:

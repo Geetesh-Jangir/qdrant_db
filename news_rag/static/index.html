@@ -142,6 +142,8 @@
       const writer = String(data.insight_source || "").toLowerCase();
       const base = writer.includes("gemini") ? "gemini" : writer.includes("deepseek") ? "deepseek" : configured;
       if (data.insight_source === "fund_data") return "From fund data (no AI, no news search)";
+      if (data.insight_source === "impact_sector_ranking") return "Top funds by sector exposure (indexed rankings + news)";
+      if (data.insight_source === "impact_single_fund") return "Fund impact breakdown (holdings/sectors + news)";
       if (base === "gemini") return "Synthesized by Gemini";
       if (base === "deepseek") return "Synthesized by DeepSeek";
       if (data.insight_source === "no_articles") return "No LLM synthesis (no matching news)";

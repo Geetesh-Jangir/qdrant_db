@@ -28,6 +28,11 @@ class Settings(BaseSettings):
 
     # Insight LLM: set RAG_LLM_PROVIDER=gemini or deepseek (default gemini).
     rag_llm_provider: str = "gemini"
+    # Agent-1: cheap JSON router after fast paths (flash-lite). Set false for rules-only.
+    rag_use_llm_router: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("RAG_USE_LLM_ROUTER", "rag_use_llm_router"),
+    )
 
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
@@ -72,6 +77,8 @@ class Settings(BaseSettings):
     portfolio_sector_min_pct: float = 3.0
     aggregated_holdings_map: str = "data/fund_holdings_aggregate/aggregated_holdings_map.json"
     aggregated_holdings_csv: str = "data/fund_holdings_aggregate/aggregated_holdings.csv"
+    sector_to_isin_weights_json: str = "data/fund_holdings_aggregate/sector_to_isin_weights.json"
+    impact_ranking_regular_growth_only: bool = True
 
     def embedding_cache_path(self) -> Path:
         path = _ROOT / self.embedding_cache_dir

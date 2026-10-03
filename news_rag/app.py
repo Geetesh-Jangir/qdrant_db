@@ -267,7 +267,14 @@ def ask(
             direction=body.direction,
             query_log=query_log,
         )
-        if not llm_api_key_configured(settings):
+        _no_llm_intents = {
+            "fund_nav",
+            "fund_holdings",
+            "fund_sectors",
+            "impact_funds",
+            "fund_event_impact",
+        }
+        if parsed.intent not in _no_llm_intents and not llm_api_key_configured(settings):
             message = missing_llm_key_message(settings)
             query_log.log_error("config", message)
             query_log.finish(outcome="error", article_count=len(articles))
@@ -279,6 +286,8 @@ def ask(
             outcome = "no_articles"
         elif src == "fund_data":
             outcome = "fund_data"
+        elif src in ("impact_sector_ranking", "impact_single_fund"):
+            outcome = "impact_data"
         elif src.endswith("_rewritten") or (
             isinstance(result.get("contract"), dict) and result["contract"].get("aligned") is False
         ):
@@ -298,11 +307,33 @@ def ask(
         )
         _attach_llm_meta(result, meta)
         return result
+    except httpx.HTTPStatusError as exc:
+        provider = llm_provider(get_settings())
+        query_log.log_error("llm", str(exc))
+        query_log.finish(outcome="llm_error", article_count=article_count)
+        if exc.response is not None and exc.response.status_code == 429:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Gemini rate limit (HTTP 429). Wait a few minutes, use fund/impact questions "
+                    "(no LLM), set DEEPSEEK_API_KEY for fallback, or set RAG_LLM_PROVIDER=deepseek."
+                ),
+            ) from exc
+        raise HTTPException(status_code=502, detail=f"{provider} request failed: {exc}") from exc
     except httpx.HTTPError as exc:
         provider = llm_provider(get_settings())
         query_log.log_error("llm", str(exc))
         query_log.finish(outcome="llm_error", article_count=article_count)
         raise HTTPException(status_code=502, detail=f"{provider} request failed: {exc}") from exc
+    except RuntimeError as exc:
+        msg = str(exc)
+        if "429" in msg or "Gemini" in msg or "quota" in msg.lower():
+            query_log.log_error("llm", msg)
+            query_log.finish(outcome="llm_error", article_count=article_count)
+            raise HTTPException(status_code=503, detail=msg) from exc
+        query_log.log_error("unhandled", msg)
+        query_log.finish(outcome="error", article_count=article_count)
+        raise HTTPException(status_code=500, detail=msg) from exc
     except Exception as exc:
         query_log.log_error("unhandled", str(exc))
         query_log.finish(outcome="error", article_count=article_count)

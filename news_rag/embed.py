@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import logging
-
-from langchain_huggingface import HuggingFaceEmbeddings
+from typing import Any
 
 from lib.embedding_cache import model_snapshot_exists, prepare_embedding_cache
 from news_rag.config import QUERY_PREFIX, get_settings
 
 logger = logging.getLogger(__name__)
 
-_encoder: HuggingFaceEmbeddings | None = None
+_encoder: Any | None = None
 
 
-def _build_encoder() -> HuggingFaceEmbeddings:
+def _build_encoder() -> Any:
+    from langchain_huggingface import HuggingFaceEmbeddings
     settings = get_settings()
     cache = prepare_embedding_cache(settings.embedding_cache_path())
     model = settings.embedding_model

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 TIME_PATTERNS: list[tuple[re.Pattern[str], int]] = [
     (re.compile(r"\blast\s+(\d+)\s+days?\b", re.I), 0),

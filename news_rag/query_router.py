@@ -1,4 +1,10 @@
-"""Agent 1: Query Router — fast cheap-LLM query parser and intent classifier."""
+"""Agent 1: Query Router — rules first, optional LLM (set RAG_USE_LLM_ROUTER=true).
+
+Pipeline order:
+  1. Fast paths (fund facts, named-fund event impact, sector top-N discovery) — no LLM.
+  2. Cheap JSON LLM router (gemini-3.5-flash-lite or RAG_ROUTER_MODEL) when RAG_USE_LLM_ROUTER=true.
+  3. Heuristic fallback if LLM off, no API key, or call fails.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +14,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from news_rag.config import get_settings
-from news_rag.llm_client import call_json_llm, router_model
+from news_rag.fund_search import extract_fund_phrase_from_question, lookup_extracted_fund, resolve_fund_for_query
+from news_rag.llm_client import call_json_llm, llm_api_key_configured, router_model
+from news_rag.parse import classify_query_intent
 from news_rag.llm_text import parse_json_from_text
 from news_rag.query_log import QueryLogger
 
@@ -21,7 +29,8 @@ SUPPORTED INTENTS:
 - "fund_nav": User asks specifically about the NAV (Net Asset Value), current price, or return history of a mutual fund scheme (e.g., "What is the latest NAV of Parag Parikh Flexi Cap?", "NAV for INF879O01027", "How has WhiteOak Mid Cap fund NAV performed in the last 7 days?").
 - "fund_holdings": User asks specifically for the top holdings, underlying stocks, or equity portfolio of a mutual fund (e.g., "What are the top holdings of HDFC Top 100?", "Which companies does Nippon India Growth fund own?").
 - "fund_sectors": User asks specifically for the sector allocation, sector breakdown, or industry exposure of a mutual fund (e.g., "What is the sector allocation of Axis Bluechip?", "Sector breakdown for Mirae Large Cap").
-- "fund_event_impact": User asks how a specific external event, policy, interest rate hike, crude price surge, tariff, or macro trend impacts a mutual fund (e.g., "How does rising crude oil impact Parag Parikh Flexi Cap?", "Will RBI repo rate cut help SBI Bluechip fund?").
+- "fund_event_impact": User asks how a specific external event, policy, interest rate hike, crude price surge, tariff, or macro trend impacts a **named** mutual fund (e.g., "How does rising crude oil impact Parag Parikh Flexi Cap?", "Will RBI repo rate cut help SBI Bluechip fund?"). The fund name or ISIN must be present.
+- "impact_funds": User asks which mutual funds are **most affected / top N funds** by an event or sector **without** naming one fund (e.g., "Top 5 funds affected by RBI rate hike", "Which funds are worst hit by automotive sector news?", "Top 10 funds exposed to banking after repo cut"). NOT for scheme names like "HDFC Top 100 Fund" — that is a single fund name, use fund_event_impact or fund_news instead.
 - "fund_news": User asks general questions about recent news, overall performance, or what is happening with a specific mutual fund (e.g., "What is the latest news on Parag Parikh Flexi Cap?", "Why is Nippon Growth fund underperforming?").
 - "single_stock": User asks about a specific company or stock (e.g., "Why is Infosys falling?", "Latest news on HDFC Bank", "What did Tata Motors announce today?").
 - "sector": User asks about an entire industry or sector (e.g., "How is the Indian IT sector performing?", "Auto sales numbers in India this month", "Pharma sector USFDA inspection updates").
@@ -40,7 +49,7 @@ EXTRACTION INSTRUCTIONS:
 
 OUTPUT FORMAT: Return ONLY valid JSON matching this schema:
 {
-  "intent": "fund_nav" | "fund_holdings" | "fund_sectors" | "fund_event_impact" | "fund_news" | "single_stock" | "sector" | "macro" | "bullion" | "concept" | "multi" | "general",
+  "intent": "fund_nav" | "fund_holdings" | "fund_sectors" | "fund_event_impact" | "impact_funds" | "fund_news" | "single_stock" | "sector" | "macro" | "bullion" | "concept" | "multi" | "general",
   "fund": {
     "isin": "INF...",
     "name": "..."
@@ -56,6 +65,7 @@ VALID_INTENTS = frozenset({
     "fund_holdings",
     "fund_sectors",
     "fund_event_impact",
+    "impact_funds",
     "fund_news",
     "single_stock",
     "sector",
@@ -139,6 +149,13 @@ class RouterResult:
 _ISIN_IN_TEXT = re.compile(r"\b(INF[A-Z0-9]{9})\b", re.I)
 
 
+_SCHEME_SHAPE = re.compile(
+    r"\b(flexi|large|mid|small|multi|micro|cap|elss|index|etf|ppfas|parag|blue\s*chip|"
+    r"hdfc|icici|sbi|axis|kotak|nippon|mirae|uti|whiteoak|quant|bandhan)\b",
+    re.I,
+)
+
+
 def try_fast_fund_fact_route(question: str) -> RouterResult | None:
     """Rule-based router for fund NAV / holdings / sectors — no LLM."""
     q = (question or "").strip()
@@ -150,39 +167,34 @@ def try_fast_fund_fact_route(question: str) -> RouterResult | None:
 
     isin_m = _ISIN_IN_TEXT.search(q)
     isin = isin_m.group(1).upper() if isin_m else ""
+    ext_isin, ext_name = extract_fund_phrase_from_question(q)
+    if not isin and ext_isin:
+        isin = ext_isin
 
-    fund_name = ""
     intent: str | None = None
+    sector_terms = ("sector allocation", "sector breakdown", "sector exposure", "sectors", "sector")
+    holdings_terms = ("holdings", "holding", "stocks held", "portfolio stocks", "top stocks", "underlying stocks")
+    nav_terms = ("nav", "net asset value")
 
-    if re.search(r"\b(sector|sectors)\b", lower) and re.search(r"\bfund\b", lower):
+    if any(t in lower for t in sector_terms):
         intent = "fund_sectors"
-        m = re.search(
-            r"(?:sectors?\s+(?:in|of|for)\s+|allocation\s+(?:of|for)\s+)(.+?)(?:\?|$)",
-            q,
-            re.I,
-        )
-        if m:
-            fund_name = m.group(1).strip().rstrip("?")
-    elif re.search(r"\b(holdings?|stocks held|portfolio stocks)\b", lower) and re.search(
-        r"\bfund\b", lower
-    ):
+    elif any(t in lower for t in holdings_terms):
         intent = "fund_holdings"
-        m = re.search(r"(?:holdings?\s+(?:of|in|for)\s+|(?:of|in|for)\s+)(.+?fund.*?)(?:\?|$)", q, re.I)
-        if m:
-            fund_name = m.group(1).strip().rstrip("?")
-    elif re.search(r"\bnav\b", lower) and re.search(r"\bfund\b", lower):
+    elif any(re.search(rf"\b{re.escape(t)}\b", lower) for t in nav_terms):
         intent = "fund_nav"
-        m = re.search(r"(?:nav\s+(?:of|for)\s+|(?:of|for)\s+)(.+?)(?:\?|$)", q, re.I)
-        if m:
-            fund_name = m.group(1).strip().rstrip("?")
 
     if not intent:
         return None
 
+    fund_name = ext_name
     if not fund_name and not isin:
-        m2 = re.search(r"\b(in|of)\s+(.+?fund)\b", q, re.I)
+        m2 = re.search(r"\b(in|of|for)\s+(.+?)(?:\?|$)", q, re.I)
         if m2:
             fund_name = m2.group(2).strip().rstrip("?")
+
+    has_scheme = bool(isin) or bool(fund_name) or _SCHEME_SHAPE.search(q)
+    if not has_scheme:
+        return None
 
     if not fund_name and not isin:
         return None
@@ -195,6 +207,75 @@ def try_fast_fund_fact_route(question: str) -> RouterResult | None:
         window_days=None,
         asked=[q],
         raw_json={"fast_route": True},
+        duration_sec=0.0,
+    )
+
+
+def _enrich_router_fund_from_question(result: RouterResult, question: str) -> RouterResult:
+    """Fill missing/wrong fund fields using question text + index lookup."""
+    detail, amb, _close = resolve_fund_for_query(
+        question,
+        isin=result.fund.isin,
+        name=result.fund.name,
+    )
+    if not detail or amb:
+        ext_isin, ext_name = extract_fund_phrase_from_question(question)
+        if not result.fund.isin and ext_isin:
+            result.fund.isin = ext_isin
+        if not result.fund.name and ext_name:
+            result.fund.name = ext_name
+        return result
+    result.fund.isin = str(detail.get("isin") or result.fund.isin or "")
+    result.fund.name = str(
+        detail.get("fund_short_name") or detail.get("fund_name") or result.fund.name or ""
+    )
+    return result
+
+
+def heuristic_router_fallback(question: str) -> RouterResult:
+    """Rule-based router when LLM router is off or Gemini is unavailable."""
+    from news_rag.impact_gating import (
+        _event_focus_from_text,
+        _extract_fund_phrase,
+        try_fast_fund_event_impact_route,
+        try_fast_impact_funds_route,
+    )
+
+    q = (question or "").strip()
+    for factory in (
+        try_fast_fund_fact_route,
+        try_fast_fund_event_impact_route,
+        try_fast_impact_funds_route,
+    ):
+        hit = factory(q)
+        if hit is not None:
+            return hit
+
+    isin, fund_name = _extract_fund_phrase(q)
+    fund_detail, ambiguous, _close = lookup_extracted_fund(isin=isin, name=fund_name)
+    intent = classify_query_intent(
+        q,
+        "",
+        [],
+        fund_detail if fund_detail and not ambiguous else None,
+    )
+    fund = RouterFund()
+    if fund_detail and not ambiguous:
+        fund = RouterFund(
+            isin=str(fund_detail.get("isin") or isin or ""),
+            name=str(fund_detail.get("fund_short_name") or fund_detail.get("fund_name") or fund_name),
+        )
+    elif isin or fund_name:
+        fund = RouterFund(isin=isin, name=fund_name)
+
+    return RouterResult(
+        intent=intent,
+        fund=fund,
+        companies=[],
+        event_focus=_event_focus_from_text(q.lower()),
+        window_days=None,
+        asked=[q],
+        raw_json={"heuristic_router": True},
         duration_sec=0.0,
     )
 
@@ -214,41 +295,73 @@ def route_query(
             )
         return fast
 
-    settings = get_settings()
-    user_content = f"User Question: {question.strip()}"
+    from news_rag.impact_gating import try_fast_fund_event_impact_route, try_fast_impact_funds_route
 
-    res = call_json_llm(
-        system_prompt=ROUTER_SYSTEM_PROMPT,
-        user_content=user_content,
-        model_override=router_model(settings),
-        max_tokens=settings.router_max_tokens,
-        temperature=0.0,
-        query_log=query_log,
-    )
+    fund_event_fast = try_fast_fund_event_impact_route(question)
+    if fund_event_fast is not None:
+        if query_log is not None:
+            query_log.write(
+                f"router_fast_path intent={fund_event_fast.intent} "
+                f"event_focus={fund_event_fast.event_focus!r} "
+                f"fund_isin={fund_event_fast.fund.isin} fund_name={fund_event_fast.fund.name!r}"
+            )
+        return fund_event_fast
+
+    impact_fast = try_fast_impact_funds_route(question)
+    if impact_fast is not None:
+        if query_log is not None:
+            query_log.write(
+                f"router_fast_path intent={impact_fast.intent} event_focus={impact_fast.event_focus!r} "
+                f"ranking_mode=sector_discovery"
+            )
+        return impact_fast
+
+    settings = get_settings()
+    if not settings.rag_use_llm_router or not llm_api_key_configured(settings):
+        result = heuristic_router_fallback(question)
+        if query_log is not None:
+            query_log.write(
+                f"router_heuristic intent={result.intent} fund_isin={result.fund.isin} "
+                f"fund_name={result.fund.name!r} event_focus={result.event_focus!r} "
+                f"llm_router_skipped=true rag_use_llm_router={settings.rag_use_llm_router} "
+                f"llm_key_configured={llm_api_key_configured(settings)}"
+            )
+        return result
+
+    user_content = f"User Question: {question.strip()}"
+    chosen_router_model = router_model(settings)
+    if query_log is not None:
+        query_log.write(f"router_llm_start model={chosen_router_model}")
+
+    try:
+        res = call_json_llm(
+            system_prompt=ROUTER_SYSTEM_PROMPT,
+            user_content=user_content,
+            model_override=chosen_router_model,
+            max_tokens=settings.router_max_tokens,
+            temperature=0.0,
+            query_log=query_log,
+        )
+    except Exception as exc:
+        if query_log is not None:
+            query_log.write(f"router_llm_failed fallback=heuristic error={exc}")
+        return heuristic_router_fallback(question)
 
     parsed_json = parse_json_from_text(res.raw_text)
     if not parsed_json:
         logger.warning("Query router returned unparseable JSON: %r", res.raw_text)
         if query_log is not None:
             query_log.write(f"router_error unparseable_json text={res.raw_text[:300]}")
-        # Default fallback without full sentence fund scoring
-        return RouterResult(
-            intent="general",
-            fund=RouterFund(),
-            companies=[],
-            event_focus="",
-            window_days=None,
-            asked=[question.strip()],
-            raw_json={},
-            duration_sec=res.duration_sec,
-        )
+        return heuristic_router_fallback(question)
 
     result = RouterResult.from_dict(parsed_json, duration_sec=res.duration_sec)
+    result = _enrich_router_fund_from_question(result, question.strip())
+    result.raw_json = {**(result.raw_json or {}), "llm_router": True, "router_model": chosen_router_model}
     if query_log is not None:
         query_log.write(
-            f"router_result intent={result.intent} fund_isin={result.fund.isin} "
-            f"fund_name={result.fund.name} companies={result.companies} "
-            f"event_focus={result.event_focus} window_days={result.window_days} "
-            f"duration={result.duration_sec:.2f}s"
+            f"router_llm_result intent={result.intent} model={chosen_router_model} "
+            f"fund_isin={result.fund.isin} fund_name={result.fund.name} "
+            f"companies={result.companies} event_focus={result.event_focus} "
+            f"window_days={result.window_days} duration={result.duration_sec:.2f}s"
         )
     return result

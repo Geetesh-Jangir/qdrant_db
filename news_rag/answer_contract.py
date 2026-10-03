@@ -154,14 +154,19 @@ def plan_answer_contract(
         f"\nRetrieved Articles ({total_articles}):\n{articles_text}"
     )
 
-    res = call_json_llm(
-        system_prompt=CONTRACT_PLAN_SYSTEM_PROMPT,
-        user_content=user_content,
-        model_override=contract_model(settings),
-        max_tokens=settings.contract_max_tokens,
-        temperature=0.0,
-        query_log=query_log,
-    )
+    try:
+        res = call_json_llm(
+            system_prompt=CONTRACT_PLAN_SYSTEM_PROMPT,
+            user_content=user_content,
+            model_override=contract_model(settings),
+            max_tokens=settings.contract_max_tokens,
+            temperature=0.0,
+            query_log=query_log,
+        )
+    except Exception as exc:
+        if query_log is not None:
+            query_log.write(f"contract_planner_llm_fallback error={exc}")
+        return _default_contract_for_intent(router_result, total_articles, 0.0)
 
     parsed = parse_json_from_text(res.raw_text)
     if not parsed:
@@ -199,14 +204,19 @@ def check_answer_alignment(
         f"Draft Answer Text:\n{draft.strip()}"
     )
 
-    res = call_json_llm(
-        system_prompt=ALIGNMENT_CHECK_SYSTEM_PROMPT,
-        user_content=user_content,
-        model_override=contract_model(settings),
-        max_tokens=400,
-        temperature=0.0,
-        query_log=query_log,
-    )
+    try:
+        res = call_json_llm(
+            system_prompt=ALIGNMENT_CHECK_SYSTEM_PROMPT,
+            user_content=user_content,
+            model_override=contract_model(settings),
+            max_tokens=400,
+            temperature=0.0,
+            query_log=query_log,
+        )
+    except Exception as exc:
+        if query_log is not None:
+            query_log.write(f"alignment_check_llm_skipped error={exc}")
+        return AlignmentResult(aligned=True, missing=[], extra=[], raw_json={}, duration_sec=0.0)
 
     parsed = parse_json_from_text(res.raw_text)
     if not parsed:

@@ -24,6 +24,33 @@ _ISIN_ALIASES: dict[str, str] = {
     "INF063A01050": "INF179KA1RZ8",  # HDFC Small Cap Regular Growth
 }
 
+# Colloquial / legacy scheme names → Regular Growth ISIN in our universe.
+_SCHEME_NAME_TO_ISIN: dict[str, str] = {
+    "sbi bluechip": "INF200K01180",
+    "sbi blue chip": "INF200K01180",
+    "axis bluechip": "INF846K01164",
+    "axis blue chip": "INF846K01164",
+    "icici pru bluechip": "INF109K01BL4",
+    "icici prudential bluechip": "INF109K01BL4",
+    "hdfc top 100": "INF179K01BE2",
+    "hdfc mid cap opportunities": "INF179K01CR2",
+}
+
+_ISIN_IN_TEXT = re.compile(r"\b(INF[A-Z0-9]{9})\b", re.I)
+
+_TOKEN_ALIASES: dict[str, str] = {
+    "pru": "prudential",
+    "ppfas": "parag",
+    "parag": "parag",
+    "parikh": "parikh",
+    "whiteoak": "whiteoak",
+    "white": "whiteoak",
+    "oak": "whiteoak",
+    "lm": "large",
+    "l": "large",
+    "m": "mid",
+}
+
 
 def resolve_canonical_isin(isin: str) -> str:
     clean = (isin or "").strip().upper()
@@ -65,6 +92,13 @@ _AMC_HINT_TOKENS: dict[str, tuple[str, ...]] = {
     "samco": ("samco",),
     "groww": ("groww",),
     "zerodha": ("zerodha", "smallcase"),
+    "whiteoak": ("whiteoak", "white oak"),
+    "lic": ("lic", "life insurance"),
+    "mahindra": ("mahindra",),
+    "sundaram": ("sundaram",),
+    "union": ("union",),
+    "nj": ("nj",),
+    "trust": ("trust",),
 }
 
 
@@ -99,12 +133,207 @@ def _normalize_fund_text(text: str) -> str:
     t = re.sub(r"\bflexicap\b", "flexi cap", t)
     t = re.sub(r"\bmulticap\b", "multi cap", t)
     t = re.sub(r"\bmicrocap\b", "micro cap", t)
-    t = re.sub(r"\bbluechip\b", "blue chip", t)
+    if not re.search(r"\bus\s+blue", t):
+        t = re.sub(r"\bblue\s*chip\b|\bbluechip\b", "large cap", t)
     t = re.sub(r"\btop\s*100\b", "large cap", t)
     t = re.sub(r"\btop\s*200\b", "large mid cap", t)
+    t = re.sub(r"\bopportunities\b", "", t)
     t = re.sub(r"\b&\b", " and ", t)
     t = re.sub(r"\bppfas\b", "parag parikh ppfas", t)
+    t = re.sub(r"\s+", " ", t).strip()
     return t
+
+
+def _expand_query_token(token: str) -> set[str]:
+    out = {token}
+    alias = _TOKEN_ALIASES.get(token)
+    if alias:
+        out.add(alias)
+    if len(token) >= 4:
+        out.add(token[:4])
+    return out
+
+
+def _clean_fund_phrase(phrase: str) -> str:
+    p = (phrase or "").strip().rstrip("?").strip()
+    p = re.sub(
+        r"\b(-\s*)?(regular|direct)\s+plan\b.*$",
+        "",
+        p,
+        flags=re.I,
+    ).strip()
+    p = re.sub(r"\b(growth|idcw|dividend)\s*(?:option|plan)?\s*$", "", p, flags=re.I).strip()
+    p = re.sub(r"^(?:the|a|an)\s+", "", p, flags=re.I)
+    return p
+
+
+def _scheme_alias_isin(norm_name: str) -> str | None:
+    key = _normalize_fund_text(norm_name)
+    key = re.sub(r"\s+-\s+.*$", "", key).strip()
+    key = re.sub(r"\s+fund\s*$", "", key).strip()
+    return _SCHEME_NAME_TO_ISIN.get(key)
+
+
+def is_market_fund_discovery_question(question: str) -> bool:
+    """Top-N / which-funds market queries — do not bind a single scheme from question text."""
+    lower = (question or "").lower()
+    if re.search(r"\b(most\s+affected|highest\s+exposure|worst\s+hit|most\s+impacted)\b", lower):
+        return True
+    if re.search(r"\b(?:which|what)\s+funds?\b", lower) and re.search(r"\btop\s*\d+", lower):
+        return True
+    if re.search(r"\btop\s*\d+\s+funds\b", lower):
+        return True
+    return False
+
+
+def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
+    """Best-effort scheme name / ISIN from natural-language question (no LLM)."""
+    q = (question or "").strip()
+    if not q:
+        return "", ""
+    isin_m = _ISIN_IN_TEXT.search(q)
+    isin = isin_m.group(1).upper() if isin_m else ""
+
+    patterns = [
+        r"(?:latest|current)\s+(?:nav|net asset value)\s+(?:of|for)\s+(.+?)(?:\?|$)",
+        r"(?:nav|net asset value)\s+(?:of|for)\s+(.+?)(?:\?|$)",
+        r"(?:show|get|tell me|what is|what's)\s+(?:the\s+)?(?:latest|current)?\s*nav\s+(?:of|for)\s+(.+?)(?:\?|$)",
+        r"(?:top\s+\d+\s+)?holdings?\s+(?:in|of|for)\s+(.+?)(?:\?|$)",
+        r"(?:top\s+\d+\s+)?sectors?\s+(?:in|of|for)\s+(.+?)(?:\?|$)",
+        r"sector\s+(?:allocation|breakdown|exposure)\s+(?:of|for|in)\s+(.+?)(?:\?|$)",
+        r"\bimpact\s+of\s+.+?\s+on\s+(.+?)(?:\?|$)",
+        r"\baffect(?:ing)?\s+(?:the\s+)?(.+?)(?:\?|$)",
+        r"\bon\s+(.+?fund)\b",
+        r"\bfor\s+(.+?fund)\b",
+        r"\b(?:in|of)\s+(.+?fund)\b",
+        r"\bfor\s+(.+?)(?:\?|$)",
+    ]
+    fund_name = ""
+    for pat in patterns:
+        m = re.search(pat, q, re.I)
+        if m:
+            fund_name = _clean_fund_phrase(m.group(1))
+            if len(fund_name) >= 3:
+                break
+    if not fund_name and not isin:
+        # Scheme-like tail after common lead-ins (no trailing "fund" required).
+        m = re.search(
+            r"(?:about|on|for|in|of)\s+([A-Za-z0-9][\w\s&'.-]{4,}?)(?:\?|$)",
+            q,
+            re.I,
+        )
+        if m:
+            candidate = _clean_fund_phrase(m.group(1))
+            norm = _normalize_fund_text(candidate)
+            if any(
+                tok in norm
+                for tok in (
+                    "cap",
+                    "flexi",
+                    "large",
+                    "mid",
+                    "small",
+                    "elss",
+                    "index",
+                    "ppfas",
+                    "parag",
+                    "hdfc",
+                    "icici",
+                    "sbi",
+                    "axis",
+                    "kotak",
+                    "nippon",
+                    "mirae",
+                    "uti",
+                )
+            ):
+                fund_name = candidate
+    return isin, fund_name
+
+
+def resolve_fund_for_query(
+    question: str,
+    *,
+    isin: str = "",
+    name: str = "",
+) -> tuple[dict[str, Any] | None, bool, list[str]]:
+    """Resolve fund using router fields, then question text, then alias / scan."""
+    discovery = is_market_fund_discovery_question(question)
+    attempts: list[tuple[str, str]] = []
+    if (isin or "").strip() or (name or "").strip():
+        attempts.append(((isin or "").strip(), (name or "").strip()))
+    if not discovery:
+        ext_isin, ext_name = extract_fund_phrase_from_question(question)
+        if ext_isin or ext_name:
+            attempts.append((ext_isin, ext_name))
+
+    seen: set[tuple[str, str]] = set()
+    last_ambiguous = False
+    last_close: list[str] = []
+    for i, n in attempts:
+        key = (i.upper(), _normalize_fund_text(n))
+        if key in seen:
+            continue
+        seen.add(key)
+        detail, amb, close = lookup_extracted_fund(isin=i, name=n)
+        if detail and not amb:
+            return detail, False, []
+        if amb:
+            last_ambiguous = True
+            last_close = close
+
+    alias_isin = _scheme_alias_isin(name or question)
+    if alias_isin and not discovery:
+        detail, amb, close = lookup_extracted_fund(isin=alias_isin, name="")
+        if detail and not amb:
+            return detail, False, []
+
+    if discovery:
+        return None, False, []
+
+    scan_detail, scan_amb, scan_close = _lookup_fund_scan_question(question)
+    if scan_detail and not scan_amb:
+        return scan_detail, False, []
+    if scan_amb:
+        return None, True, scan_close
+    if last_ambiguous:
+        return None, True, last_close
+    return None, False, []
+
+
+def _lookup_fund_scan_question(question: str) -> tuple[dict[str, Any] | None, bool, list[str]]:
+    """Try sliding token windows from the question against the fund index."""
+    index = get_fund_index()
+    index._ensure_loaded()
+    norm_q = _normalize_fund_text(question)
+    words = [w for w in re.findall(r"\b[a-z0-9]+\b", norm_q) if len(w) >= 2]
+    stop = {
+        "what", "which", "how", "show", "tell", "give", "latest", "current", "top",
+        "nav", "holdings", "holding", "sectors", "sector", "allocation", "news",
+        "impact", "affect", "affecting", "will", "does", "the", "and", "for", "in",
+        "of", "on", "me", "is", "are", "from", "with", "recent", "positive",
+        "negative", "benefit", "worst", "hit", "funds", "fund", "mutual", "scheme",
+    }
+    tokens = [w for w in words if w not in stop]
+    if len(tokens) < 2:
+        return None, False, []
+
+    best: tuple[float, dict[str, Any]] | None = None
+    for width in range(min(8, len(tokens)), 1, -1):
+        for start in range(0, len(tokens) - width + 1):
+            phrase = " ".join(tokens[start : start + width])
+            if len(phrase) < 5:
+                continue
+            detail, amb, _close = lookup_extracted_fund(isin="", name=phrase)
+            if detail and not amb:
+                score = float(width) * 10.0 + len(phrase)
+                if best is None or score > best[0]:
+                    best = (score, detail)
+        if best is not None:
+            break
+    if best:
+        return best[1], False, []
+    return None, False, []
 
 
 def _infer_category_and_type(name: str) -> tuple[str, str]:
@@ -536,6 +765,12 @@ class FundIndex:
         if not clean_name:
             return None, False, []
 
+        alias_isin = _scheme_alias_isin(clean_name)
+        if alias_isin:
+            detail = self.get_fund_detail(alias_isin)
+            if detail:
+                return detail, False, []
+
         # 2. Search on extracted name only
         norm_name = _normalize_fund_text(clean_name)
         stop_words = {
@@ -560,7 +795,18 @@ class FundIndex:
             c_norm = _normalize_fund_text(c_name)
             c_tokens = set(re.findall(r"\b[a-z0-9]+\b", c_norm))
 
-            matched = [t for t in q_tokens if t in c_tokens]
+            matched: list[str] = []
+            for t in q_tokens:
+                expanded = _expand_query_token(t)
+                if expanded & c_tokens:
+                    matched.append(t)
+                elif any(
+                    any(ct.startswith(ex) or ex.startswith(ct) for ct in c_tokens)
+                    for ex in expanded
+                    if len(ex) >= 4
+                ):
+                    matched.append(t)
+
             coverage = len(matched) / len(q_tokens) if q_tokens else 0.0
 
             score = coverage * 100.0
@@ -573,10 +819,17 @@ class FundIndex:
                 if cat_token in q_tokens and cat_token in c_tokens:
                     score += 8.0
 
+            if "us" in c_tokens and "us" not in q_tokens and "international" not in norm_name:
+                score -= 40.0
+            if "global" in c_norm and not any(
+                x in norm_name for x in ("global", "international", "us", "world", "overseas")
+            ):
+                score -= 25.0
+
             if amc_hints and not _entry_matches_amc(entry, amc_hints):
                 continue
 
-            if coverage >= 0.55 or (norm_name in c_norm):
+            if coverage >= 0.45 or (norm_name in c_norm):
                 scored_candidates.append((score, entry))
 
         if not scored_candidates:
