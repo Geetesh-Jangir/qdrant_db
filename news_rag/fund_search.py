@@ -167,6 +167,65 @@ def _clean_fund_phrase(phrase: str) -> str:
     return p
 
 
+_GARBAGE_SCHEME_PHRASE = re.compile(
+    r"^(?:me|my|this|that|it|any)(?:\s+(?:for\s+)?(?:me\s+)?(?:for\s+)?(?:this|that|the)\s+fund)?$",
+    re.I,
+)
+
+
+def _is_plausible_scheme_phrase(phrase: str) -> bool:
+    """Reject pronoun tails like 'me for this fund' that fuzzy-match unrelated schemes."""
+    cleaned = _clean_fund_phrase(phrase)
+    if len(cleaned) < 3:
+        return False
+    if cleaned.upper().startswith("INF"):
+        return True
+    norm = _normalize_fund_text(cleaned)
+    if not norm:
+        return False
+    if _GARBAGE_SCHEME_PHRASE.fullmatch(norm):
+        return False
+    tokens = [w for w in re.findall(r"\b[a-z0-9]+\b", norm) if len(w) >= 2]
+    if not tokens:
+        return False
+    if _amc_hints_from_tokens(tokens):
+        return True
+    scheme_markers = (
+        "cap",
+        "flexi",
+        "large",
+        "mid",
+        "small",
+        "elss",
+        "index",
+        "etf",
+        "ppfas",
+        "parag",
+        "defence",
+        "defense",
+        "banking",
+        "technology",
+        "pharma",
+        "infra",
+        "thematic",
+        "equity",
+        "debt",
+        "hybrid",
+        "bluechip",
+        "focused",
+        "contra",
+        "value",
+        "liquid",
+        "gilt",
+    )
+    if any(m in norm for m in scheme_markers):
+        return True
+    # Bare AMC name only (e.g. "hdfc defence") is OK when at least two tokens.
+    if len(tokens) >= 2 and not re.match(r"^(me|my|this|that|it)\b", norm):
+        return True
+    return False
+
+
 def _scheme_alias_isin(norm_name: str) -> str | None:
     key = _normalize_fund_text(norm_name)
     key = re.sub(r"\s+-\s+.*$", "", key).strip()
@@ -264,6 +323,7 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
     isin = isin_m.group(1).upper() if isin_m else ""
 
     patterns = [
+        r"\binvested\s+in\s+(?:the\s+)?(.+?)(?:\s+fund)?(?:\s*,|\?|$)",
         r"(?:latest|current)\s+(?:nav|net asset value)\s+(?:of|for)\s+(.+?)(?:\?|$)",
         r"(?:nav|net asset value)\s+(?:of|for)\s+(.+?)(?:\?|$)",
         r"(?:show|get|tell me|what is|what's)\s+(?:the\s+)?(?:latest|current)?\s*nav\s+(?:of|for)\s+(.+?)(?:\?|$)",
@@ -274,10 +334,9 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
         r"sector\s+(?:allocation|breakdown|exposure)\s+(?:of|for|in)\s+(.+?)(?:\?|$)",
         r"\bimpact\s+of\s+.+?\s+on\s+(.+?)(?:\?|$)",
         r"\baffect(?:ing)?\s+(?:the\s+)?(.+?)(?:\?|$)",
-        r"\bon\s+(.+?fund)\b",
-        r"\bfor\s+(.+?fund)\b",
+        r"\bon\s+((?:the\s+)?(?:[a-z][\w\s&'.-]{2,40}?\s+)?fund)\b",
+        r"\bfor\s+((?:the\s+)?(?:[a-z][\w\s&'.-]{2,40}?\s+)?fund)\b",
         r"\b(?:in|of)\s+(.+?fund)\b",
-        r"\bfor\s+(.+?)(?:\?|$)",
         r"\b((?:hdfc|icici|sbi|axis|kotak|nippon|mirae|uti|ppfas|parag|whiteoak|bandhan|quant|dsp|tata)\s+[\w\s&'-]{2,40}?)(?:\s+fund)?\b",
     ]
     fund_name = ""
@@ -285,8 +344,9 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
         m = re.search(pat, q, re.I)
         if m:
             fund_name = _clean_fund_phrase(m.group(1))
-            if len(fund_name) >= 3:
+            if len(fund_name) >= 3 and _is_plausible_scheme_phrase(fund_name):
                 break
+            fund_name = ""
     if not fund_name and not isin:
         # Scheme-like tail after common lead-ins (no trailing "fund" required).
         m = re.search(
@@ -297,39 +357,16 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
         if m:
             candidate = _clean_fund_phrase(m.group(1))
             norm = _normalize_fund_text(candidate)
-            if any(
-                tok in norm
-                for tok in (
-                    "cap",
-                    "flexi",
-                    "large",
-                    "mid",
-                    "small",
-                    "elss",
-                    "index",
-                    "ppfas",
-                    "parag",
-                    "hdfc",
-                    "icici",
-                    "sbi",
-                    "axis",
-                    "kotak",
-                    "nippon",
-                    "mirae",
-                    "uti",
-                    "defence",
-                    "defense",
-                    "banking",
-                    "technology",
-                    "pharma",
-                    "infra",
-                    "thematic",
-                    "equity",
-                    "debt",
-                    "hybrid",
-                )
-            ):
+            if _is_plausible_scheme_phrase(candidate):
                 fund_name = candidate
+    if not fund_name and not isin:
+        for m in _AMC_SCAN.finditer(q):
+            amc = m.group(1).strip()
+            rest = m.group(2).strip()
+            candidate = _clean_fund_phrase(f"{amc} {rest}")
+            if _is_plausible_scheme_phrase(candidate):
+                fund_name = candidate
+                break
     return isin, fund_name
 
 
@@ -350,19 +387,15 @@ def collect_fund_phrase_candidates(question: str) -> list[str]:
 
     def add(phrase: str) -> None:
         cleaned = _clean_fund_phrase(phrase)
-        if len(cleaned) < 3:
+        if len(cleaned) < 3 or not _is_plausible_scheme_phrase(cleaned):
+            return
+        if _is_bullion_phrase_not_scheme(cleaned):
             return
         key = _normalize_fund_text(cleaned)
         if key in seen:
             return
         seen.add(key)
         out.append(cleaned)
-
-    isin, name = extract_fund_phrase_from_question(q)
-    if isin:
-        add(isin)
-    if name and not _is_bullion_phrase_not_scheme(name):
-        add(name)
 
     for m in _AMC_SCAN.finditer(q):
         amc = m.group(1).strip()
@@ -381,6 +414,12 @@ def collect_fund_phrase_candidates(question: str) -> list[str]:
         ).strip()
         if rest:
             add(f"{amc} {rest}")
+
+    isin, name = extract_fund_phrase_from_question(q)
+    if isin:
+        add(isin)
+    if name:
+        add(name)
 
     return out
 
@@ -922,6 +961,9 @@ class FundIndex:
                     return detail, False, []
 
         if not clean_name:
+            return None, False, []
+
+        if not _is_plausible_scheme_phrase(clean_name):
             return None, False, []
 
         alias_isin = _scheme_alias_isin(clean_name)

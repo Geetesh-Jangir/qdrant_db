@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import re
 
-from news_rag.fund_search import extract_fund_phrase_from_question, is_macro_metals_question
+from news_rag.fund_search import (
+    collect_fund_phrase_candidates,
+    extract_fund_phrase_from_question,
+    is_macro_metals_question,
+)
 from news_rag.query_plan import DataNeed, QueryPlan, SubQuery
 
 PRESET_SOURCES = frozenset(
@@ -63,14 +67,23 @@ def is_sector_tape_question(question: str) -> bool:
     )
 
 
+def _fund_phrase_for_insights(question: str) -> str:
+    candidates = collect_fund_phrase_candidates(question)
+    if candidates:
+        return candidates[0]
+    _isin, name = extract_fund_phrase_from_question(question)
+    if _isin:
+        return _isin
+    return (name or "").strip()
+
+
 def is_fund_insights_question(question: str) -> bool:
     lower = (question or "").lower()
     if is_macro_metals_question(question) or is_crude_energy_question(question):
         return False
     if is_market_pulse_question(question) or is_sector_tape_question(question):
         return False
-    _, name = extract_fund_phrase_from_question(question)
-    if not name:
+    if not _fund_phrase_for_insights(question):
         return False
     return bool(
         re.search(
@@ -175,8 +188,7 @@ def try_crude_energy_plan(question: str) -> QueryPlan | None:
 def try_fund_insights_plan(question: str) -> QueryPlan | None:
     if not is_fund_insights_question(question):
         return None
-    _, name = extract_fund_phrase_from_question(question)
-    fund_raw = (name or "").strip() or "HDFC Defence Fund"
+    fund_raw = _fund_phrase_for_insights(question) or "HDFC Defence Fund"
     return QueryPlan(
         sub_queries=[
             SubQuery(

@@ -8,6 +8,7 @@ from news_rag.fund_search import (
     get_fund_index,
     lookup_extracted_fund,
     resolve_fund_for_query,
+    resolve_fund_from_question,
 )
 
 
@@ -57,6 +58,22 @@ def test_extract_nav_without_fund_word() -> None:
     assert not amb
     assert detail is not None
     assert "PPFAS" in (detail.get("fund_short_name") or "")
+
+
+def test_invested_hdfc_defence_not_pronoun_tail() -> None:
+    q = (
+        "I have invested in the HDFC Defence fund, "
+        "what insights do you have for me for this fund?"
+    )
+    _isin, name = extract_fund_phrase_from_question(q)
+    assert "defence" in (name or "").lower()
+    assert "hdfc" in (name or "").lower()
+    detail, ambiguous, _ = resolve_fund_from_question(q)
+    assert not ambiguous
+    assert detail is not None
+    assert detail.get("isin") == "INF179KC1GL9"
+    bad, amb2, _ = lookup_extracted_fund(name="me for this fund")
+    assert bad is None and not amb2
 
 
 def test_fast_route_nav_without_fund_keyword() -> None:
