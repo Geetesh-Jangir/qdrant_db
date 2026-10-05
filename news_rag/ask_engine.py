@@ -1,31 +1,46 @@
-"""Production ask pipeline: guardrails → plan → execute → render.
-
-Does not read investor portfolio JSON; hypothetical "my portfolio" in questions is treated as macro context only.
-"""
+"""LLM-only ask pipeline: plan → resolve names → parallel tools → digests → compose → score."""
 
 from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-from news_rag.config import get_settings
+from news_rag.ask_composer import compose_final_answer
+from news_rag.ask_execution import execute_ask_plan, run_affected_funds_after_news
+from news_rag.ask_plan import AskPlan
 from news_rag.json_util import safe_json_dumps
-from news_rag.execution import execute_plan
-from news_rag.final_composer import aggregate_runs, compose_unified_answer, should_unify_compose
-from news_rag.macro_plans import PRESET_SOURCES
-from news_rag.guardrails import check_guardrails, refusal_response
-from news_rag.output_judge import NO_DATA_MSG, judge_answer
-from news_rag.query_analyzer import decompose_query
-from news_rag.query_plan import QueryPlan
-from news_rag.synthesizer import build_subquery_section, merge_insight
+from news_rag.news_digest import digest_news_parallel
+from news_rag.output_judge import judge_answer
+from news_rag.holdings_market import (
+    build_holdings_market_snapshots,
+    holdings_top_n_from_question,
+    news_window_days_from_plan,
+    should_fetch_holdings_market,
+)
+from news_rag.plan_enrich import enrich_ask_plan
+from news_rag.query_analyzer import ADVICE_NOTE, plan_query
 
 if TYPE_CHECKING:
     from news_rag.query_log import QueryLogger
 
 
-def _sources_from_articles(all_articles: list[dict]) -> list[dict]:
+def _build_insight_text(
+    headline: str,
+    narrative: str,
+    bullets: list[str],
+    closing_summary: str = "",
+) -> str:
+    parts = [p for p in (headline, narrative) if (p or "").strip()]
+    if bullets:
+        parts.append("\n".join(f"• {b}" for b in bullets))
+    if (closing_summary or "").strip():
+        parts.append(closing_summary.strip())
+    return "\n\n".join(parts).strip()
+
+
+def _sources_from_articles(articles: list[dict]) -> list[dict]:
     seen: set[str] = set()
     rows: list[dict] = []
-    for a in all_articles:
+    for a in articles:
         url = str(a.get("url") or "").strip()
         if not url or url in seen:
             continue
@@ -36,9 +51,37 @@ def _sources_from_articles(all_articles: list[dict]) -> list[dict]:
                 "url": url,
                 "source": a.get("source"),
                 "published_at": a.get("published_at"),
+                "direction": a.get("direction"),
+                "max_impact": a.get("max_impact"),
             }
         )
     return rows
+
+
+def _all_articles(bundle) -> list[dict]:
+    arts: list[dict] = []
+    seen: set[str] = set()
+    pools = list(bundle.articles_by_focus.values()) + list(bundle.articles_by_layer.values())
+    for layer_arts in pools:
+        for a in layer_arts:
+            url = str(a.get("url") or "").strip()
+            if url and url in seen:
+                continue
+            if url:
+                seen.add(url)
+            arts.append(a)
+    return arts
+
+
+def _intent_from_plan(plan: AskPlan) -> str:
+    tools = {t.tool for t in plan.tools}
+    if "fund_nav" in tools:
+        return "fund_nav"
+    if "fund_top_stocks" in tools or "fund_top_sectors" in tools:
+        return "fund_holdings"
+    if any(t in tools for t in ("holdings_news", "sector_news", "macro_news")):
+        return "general"
+    return "general"
 
 
 def run_ask_engine(
@@ -52,30 +95,50 @@ def run_ask_engine(
     query_log: QueryLogger | None = None,
 ) -> dict[str, Any]:
     q = (question or "").strip()
+    pipeline_errors: list[dict[str, str]] = []
+
     if query_log is not None:
         query_log.write(f"QUESTION: {q[:500]}")
 
-    guard = check_guardrails(q)
-    if guard.outcome != "pass":
+    try:
+        plan: AskPlan = plan_query(q, query_log=query_log)
+    except Exception as exc:
         if query_log is not None:
-            query_log.write(f"GUARDRAIL refuse reason={guard.reason}")
-        resp = refusal_response(guard)
-        if query_log is not None:
-            query_log.log_insight_output(
-                insight_source="guardrail",
-                char_count=len(resp.get("insight") or ""),
-                preview=str(resp.get("insight") or ""),
-            )
-        return resp
+            query_log.write(f"PLANNER_EXCEPTION {exc}")
+        pipeline_errors.append({"stage": "planner", "tool": "", "message": str(exc)})
+        return _error_response(q, pipeline_errors, query_log)
 
+    if plan.decline_entirely:
+        msg = plan.decline_message or "This question is outside our financial data scope."
+        if query_log is not None:
+            query_log.write(f"PLANNER decline_entirely message={msg[:200]}")
+        return {
+            "insight": msg,
+            "insight_summary": msg,
+            "insight_bullets": [],
+            "sources": [],
+            "intent": "general",
+            "insight_source": "planner",
+            "outcome": "refused",
+            "refused": True,
+            "sections": [],
+            "sub_queries": [],
+            "pipeline_errors": pipeline_errors,
+            "output_score": None,
+            "output_scores": {},
+        }
+
+    if plan.declined_parts and query_log is not None:
+        query_log.write(f"PLANNER declined_parts={plan.declined_parts}")
+
+    plan = enrich_ask_plan(q, plan)
     if query_log is not None:
-        query_log.write("GUARDRAIL pass")
+        query_log.write(
+            f"PLAN_ENRICH tools={','.join(t.tool for t in plan.tools)} "
+            f"focuses={','.join(t.search_focus for t in plan.tools if t.search_focus)}"
+        )
 
-    plan: QueryPlan = decompose_query(q, query_log=query_log)
-    if not plan.sub_queries:
-        return _empty_response()
-
-    fund_ctx, runs = execute_plan(
+    bundle = execute_ask_plan(
         plan,
         q,
         date_from=date_from,
@@ -86,9 +149,15 @@ def run_ask_engine(
         query_log=query_log,
     )
 
-    if fund_ctx.ambiguous:
-        close = fund_ctx.close_matches or []
-        msg = f"Your query matched multiple funds: {', '.join(close[:5])}. Please specify the full name or ISIN."
+    for pe in bundle.pipeline_errors:
+        pipeline_errors.append({"stage": pe.stage, "tool": pe.tool, "message": pe.message})
+
+    if bundle.names.ambiguous:
+        close = bundle.names.close_matches or []
+        msg = (
+            f"Your query matched multiple funds: {', '.join(close[:5])}. "
+            "Please specify the full name or ISIN."
+        )
         return {
             "insight": msg,
             "insight_summary": msg,
@@ -98,125 +167,147 @@ def run_ask_engine(
             "insight_source": "ask_engine",
             "outcome": "clarification",
             "refused": False,
-            "sections": [{"id": "Q0", "style": "clarification", "text": msg, "bullets": []}],
-            "sub_queries": [],
+            "sections": [{"id": "A1", "style": "clarification", "text": msg, "bullets": []}],
+            "sub_queries": [{"text": plan.answer_parts}],
+            "pipeline_errors": pipeline_errors,
+            "output_score": None,
+            "output_scores": {},
+            "fund_candidates": close[:8],
         }
 
-    sections: list[dict[str, Any]] = []
-    sub_query_meta: list[dict[str, Any]] = []
-    all_articles: list[dict] = []
-    settings = get_settings()
-    unify = should_unify_compose(plan, settings)
+    plan_tool_names = {t.tool for t in plan.tools}
+    all_articles_for_market = _all_articles(bundle)
+    holdings_market: list[dict] = []
+    if should_fetch_holdings_market(q, plan_tool_names, bool(bundle.holdings_rows)):
+        window_days = news_window_days_from_plan(plan.tools)
+        top_n = holdings_top_n_from_question(q, default=3)
+        holdings_market = build_holdings_market_snapshots(
+            bundle.holdings_rows,
+            all_articles_for_market,
+            top_n=top_n,
+            window_days=window_days,
+            question=q,
+            dedicated_news=True,
+            query_log=query_log,
+        )
 
-    for run in runs:
-        sq = run.sub_query
-        for tool_key in ("fund_portfolio_news", "news_search"):
-            news = (run.tool_results.get(tool_key) or {}).get("data") or {}
-            all_articles.extend(news.get("articles") or [])
-        sub_query_meta.append({"id": sq.id, "text": sq.text, "style": sq.answer_style})
+    digests, sectors_for_funds = digest_news_parallel(
+        bundle.articles_by_layer,
+        bundle.articles_by_focus,
+        fund_nav_data=bundle.fund_nav_data,
+        holdings_rows=bundle.holdings_rows,
+        sector_rows=bundle.sector_rows,
+        holdings_market=holdings_market or None,
+        sentiment=plan.sentiment,
+        question=q,
+        query_log=query_log,
+    )
+    for d in digests:
+        if d.error:
+            pipeline_errors.append({"stage": "digest", "tool": d.layer, "message": d.error})
 
-    insight_summary = ""
-    if unify:
-        if query_log is not None:
-            query_log.write("ASK_ENGINE unified_compose=true")
-        agg = aggregate_runs(runs, q, plan_source=plan.source)
-        composed = compose_unified_answer(q, agg, plan_source=plan.source, query_log=query_log)
-        sections = [
-            {
-                "id": "A1",
-                "style": "unified_answer",
-                "text": composed.display,
-                "bullets": composed.bullets,
-                "summary": composed.summary,
-                "insight_sections": composed.insight_sections,
-            }
-        ]
-        insight = composed.display
-        bullets = composed.bullets
-        insight_summary = composed.summary
-        needs_judge = plan.source not in PRESET_SOURCES
-    else:
-        for run in runs:
-            sq = run.sub_query
-            section = build_subquery_section(
-                sq, run.tool_results, user_question=q, query_log=query_log
-            )
-            sections.append(section)
-            if query_log is not None:
-                query_log.write(
-                    f"SECTION {sq.id} style={sq.answer_style} chars={len(section.get('text') or '')}"
-                )
-        insight = merge_insight(sections)
-        insight_summary = insight
-        needs_judge = any(sq.needs_reasoning for sq in plan.sub_queries)
-        bullets = []
-        for sec in sections:
-            bullets.extend(sec.get("bullets") or [])
+    run_affected_funds_after_news(plan, bundle, sectors_for_funds, query_log=query_log)
 
-    context_summary = safe_json_dumps({"sections": sections}, limit=8000)
+    composed = compose_final_answer(
+        q,
+        plan,
+        bundle,
+        digests,
+        holdings_market=holdings_market or None,
+        query_log=query_log,
+    )
+    if composed.error:
+        pipeline_errors.append({"stage": "composer", "tool": "", "message": composed.error})
 
-    if needs_judge and insight:
-        jr = judge_answer(q, insight, context_summary, query_log=query_log)
-        if not jr.passed:
-            jr2 = judge_answer(q, insight, context_summary + "\nretry=1", query_log=query_log)
-            if not jr2.passed:
-                if unify:
-                    insight = NO_DATA_MSG
-                    insight_summary = ""
-                    bullets = []
-                    sections = [{"id": "A1", "style": "unified_answer", "text": NO_DATA_MSG, "bullets": []}]
-                else:
-                    for sec in sections:
-                        if sec.get("needs_llm"):
-                            sec["text"] = NO_DATA_MSG
-                    insight = merge_insight(sections)
+    headline = composed.headline or composed.summary
+    narrative = composed.narrative or ""
+    closing = composed.closing_summary or ""
+    bullets = list(composed.bullets)
+    insight = composed.display or _build_insight_text(headline, narrative, bullets, closing)
 
-    intent = "multi" if len(plan.sub_queries) > 1 else _primary_intent(plan)
+    sections = [
+        {
+            "id": "A1",
+            "style": "unified_answer",
+            "text": insight,
+            "headline": headline,
+            "narrative": narrative,
+            "closing_summary": closing,
+            "bullets": bullets,
+            "summary": headline,
+            "highlight_terms": composed.highlight_terms,
+        }
+    ]
 
-    outcome = "ok" if any((s.get("text") or "").strip() for s in sections) else "no_data"
+    context_summary = safe_json_dumps(
+        {"plan": plan.answer_parts, "tools": list(bundle.tool_results.keys()), "digests": len(digests)},
+        limit=8000,
+    )
+    jr = judge_answer(q, insight, context_summary, query_log=query_log)
+    scores = jr.scores or {}
+    output_score = None
+    if scores:
+        vals = [scores.get(k, 0) for k in ("answers_query", "grounded", "no_advice") if k in scores]
+        if vals:
+            output_score = round(sum(vals) / len(vals), 3)
+
+    if query_log is not None:
+        query_log.write(f"JUDGE display_only scores={scores} aggregate={output_score}")
+        query_log.log_stage("output_score", scores=scores, aggregate=output_score, passed=jr.passed)
+
+    all_articles = _all_articles(bundle)
+    outcome = "ok" if (insight or "").strip() else "no_data"
 
     result: dict[str, Any] = {
         "insight": insight,
-        "insight_summary": insight_summary or insight,
+        "insight_summary": headline or composed.summary or insight,
+        "insight_headline": headline,
+        "insight_narrative": narrative,
+        "insight_closing_summary": closing,
         "insight_bullets": bullets,
+        "highlight_terms": composed.highlight_terms,
         "sources": _sources_from_articles(all_articles),
-        "intent": intent,
+        "intent": _intent_from_plan(plan),
         "insight_source": "ask_engine",
         "outcome": outcome,
         "refused": False,
         "sections": sections,
-        "sub_queries": sub_query_meta,
+        "sub_queries": [{"text": plan.answer_parts, "declined": plan.declined_parts}],
+        "pipeline_errors": pipeline_errors,
+        "output_score": output_score,
+        "output_scores": scores,
+        "advice_note": ADVICE_NOTE if plan.declined_parts else "",
     }
     if query_log is not None:
-        query_log.write(f"RESULT outcome={outcome}")
+        query_log.write(f"RESULT outcome={outcome} errors={len(pipeline_errors)}")
         query_log.log_insight_output(
             insight_source="ask_engine",
-            char_count=len(insight),
-            preview=insight[:500],
+            char_count=len(insight or ""),
+            preview=(insight or "")[:500],
         )
     return result
 
 
-def _empty_response() -> dict[str, Any]:
+def _error_response(
+    question: str,
+    pipeline_errors: list[dict[str, str]],
+    query_log: QueryLogger | None,
+) -> dict[str, Any]:
+    msg = pipeline_errors[-1]["message"] if pipeline_errors else "Ask pipeline failed."
+    if query_log is not None:
+        query_log.write(f"RESULT outcome=error {msg}")
     return {
-        "insight": NO_DATA_MSG,
-        "insight_summary": NO_DATA_MSG,
+        "insight": msg,
+        "insight_summary": msg,
         "insight_bullets": [],
         "sources": [],
         "intent": "general",
-        "insight_source": "no_data",
-        "outcome": "no_data",
+        "insight_source": "error",
+        "outcome": "error",
+        "refused": False,
         "sections": [],
         "sub_queries": [],
+        "pipeline_errors": pipeline_errors,
+        "output_score": None,
+        "output_scores": {},
     }
-
-
-def _primary_intent(plan: QueryPlan) -> str:
-    tools = [n.tool for sq in plan.sub_queries for n in sq.data_needs]
-    if "fund_nav" in tools:
-        return "fund_nav"
-    if "fund_holdings" in tools:
-        return "fund_holdings"
-    if "fund_sectors" in tools:
-        return "fund_sectors"
-    return "general"

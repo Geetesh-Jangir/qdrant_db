@@ -3,13 +3,11 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+from news_rag.ask_composer import ComposedAnswer
+from news_rag.ask_plan import AskPlan, EntityMention, PlannedTool
 from news_rag.fund_search import is_macro_metals_question, resolve_fund_from_question
-from news_rag.guardrails import check_guardrails
-from news_rag.macro_plans import (
-    try_preset_plan,
-    try_macro_metals_plan,
-)
-from news_rag.query_analyzer import decompose_query
+from news_rag.macro_plans import try_macro_metals_plan, try_preset_plan
+from news_rag.output_judge import JudgeResult
 
 
 QUERIES = {
@@ -27,17 +25,49 @@ QUERIES = {
 }
 
 
-class TestFiveHarnessQueries(unittest.TestCase):
-    def test_guardrails_pass_all(self):
-        for q in QUERIES.values():
-            self.assertEqual(check_guardrails(q).outcome, "pass", q)
+def _plan_for_question(question: str) -> AskPlan:
+    lower = question.lower()
+    if "gold" in lower or "silver" in lower:
+        return AskPlan(
+            answer_parts="gold silver move",
+            tools=[PlannedTool(tool="metals_spot"), PlannedTool(tool="macro_news", semantic_query="gold silver India")],
+        )
+    if "barrell" in lower or "crude" in lower or "energy" in lower:
+        return AskPlan(
+            answer_parts="crude sectors",
+            sentiment="any",
+            tools=[
+                PlannedTool(tool="sector_news", semantic_query="crude oil India sectors energy"),
+                PlannedTool(tool="macro_news", semantic_query="crude oil India"),
+            ],
+            affected_funds="after_news",
+        )
+    if "defence" in lower or "defense" in lower:
+        return AskPlan(
+            answer_parts="HDFC Defence insights",
+            entities=[
+                EntityMention("HDFC Defence", "fund_scheme", "HDFC Defence Fund"),
+            ],
+            tools=[
+                PlannedTool(tool="fund_nav", fund_entity_index=0),
+                PlannedTool(tool="holdings_news", fund_entity_index=0, semantic_query="defence sector India"),
+            ],
+        )
+    if "hot in the market" in lower or "market doing" in lower:
+        return AskPlan(
+            answer_parts="market pulse",
+            tools=[PlannedTool(tool="macro_news", semantic_query="India equity market themes")],
+        )
+    return AskPlan(
+        answer_parts="sector tape",
+        tools=[PlannedTool(tool="sector_news", semantic_query="India sectors performance last month")],
+    )
 
-    def test_preset_sources(self):
+
+class TestFiveHarnessQueries(unittest.TestCase):
+    def test_preset_helpers_still_exist(self):
         self.assertEqual(try_preset_plan(QUERIES["metals"]).source, "macro_metals")
         self.assertEqual(try_preset_plan(QUERIES["crude"]).source, "preset_crude_energy")
-        self.assertEqual(try_preset_plan(QUERIES["defence"]).source, "preset_fund_insights")
-        self.assertEqual(try_preset_plan(QUERIES["pulse"]).source, "preset_market_pulse")
-        self.assertEqual(try_preset_plan(QUERIES["sectors"]).source, "preset_sector_tape")
 
     def test_no_scheme_ambiguity_on_macro(self):
         for key in ("metals", "crude", "pulse", "sectors"):
@@ -45,26 +75,26 @@ class TestFiveHarnessQueries(unittest.TestCase):
             self.assertIsNone(detail, key)
             self.assertFalse(amb, key)
 
-    def test_decompose_uses_presets(self):
-        for key, source in (
-            ("metals", "macro_metals"),
-            ("crude", "preset_crude_energy"),
-            ("defence", "preset_fund_insights"),
-            ("pulse", "preset_market_pulse"),
-            ("sectors", "preset_sector_tape"),
-        ):
-            plan = decompose_query(QUERIES[key])
-            self.assertIn(source, plan.source, key)
-
     def test_is_macro_metals(self):
         self.assertTrue(is_macro_metals_question(QUERIES["metals"]))
         self.assertIsNotNone(try_macro_metals_plan(QUERIES["metals"]))
 
-    @patch("news_rag.bullion_retrieve.retrieve_bullion_macro_news", return_value=[])
-    @patch("news_rag.tools.retrieve_scoped_news", return_value=[])
+    @patch("news_rag.ask_engine.judge_answer")
+    @patch("news_rag.ask_engine.digest_news_parallel")
+    @patch("news_rag.ask_engine.compose_final_answer")
+    @patch("news_rag.ask_engine.plan_query", side_effect=lambda q, **_: _plan_for_question(q))
+    @patch("news_rag.tools.run_layered_news", return_value={"ok": True, "data": {"articles": []}, "elapsed_ms": 1})
     @patch("news_rag.tools.run_metals_spot")
-    def test_ask_engine_not_clarification(self, mock_metals, _news, _bullion):
+    def test_ask_engine_not_clarification(self, mock_metals, _layer, _plan, mock_compose, mock_digest, mock_judge):
         mock_metals.return_value = {"ok": True, "data": {"gold_7d_change_pct": -2.0}, "error": "", "elapsed_ms": 1}
+        mock_digest.return_value = ([], [])
+        mock_compose.return_value = ComposedAnswer(
+            headline="**Gold** and **silver** moves",
+            narrative="Market context summary",
+            summary="ok",
+            display="Market context summary",
+        )
+        mock_judge.return_value = JudgeResult(passed=True, scores={"answers_query": 0.9}, attempt=1, raw={})
         from news_rag.ask_engine import run_ask_engine
 
         for key in ("metals", "crude", "pulse", "sectors"):
@@ -78,8 +108,20 @@ class TestFiveHarnessQueries(unittest.TestCase):
             self.assertEqual(len(sections), 1, key)
             self.assertEqual(sections[0].get("style"), "unified_answer", key)
 
-    @patch("news_rag.tools.retrieve_scoped_news", return_value=[])
-    def test_defence_insights_unified(self, _news):
+    @patch("news_rag.ask_engine.judge_answer")
+    @patch("news_rag.ask_engine.digest_news_parallel")
+    @patch("news_rag.ask_engine.compose_final_answer")
+    @patch("news_rag.ask_engine.plan_query", side_effect=lambda q, **_: _plan_for_question(q))
+    @patch("news_rag.tools.run_layered_news", return_value={"ok": True, "data": {"articles": []}, "elapsed_ms": 1})
+    def test_defence_insights_unified(self, _layer, _plan, mock_compose, mock_digest, mock_judge):
+        mock_digest.return_value = ([], [])
+        mock_compose.return_value = ComposedAnswer(
+            headline="HDFC Defence NAV and news",
+            narrative="Fund context from data.",
+            summary="HDFC Defence NAV and news",
+            display="HDFC Defence NAV and news",
+        )
+        mock_judge.return_value = JudgeResult(passed=True, scores={}, attempt=1, raw={})
         from news_rag.ask_engine import run_ask_engine
 
         out = run_ask_engine(QUERIES["defence"])

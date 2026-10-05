@@ -20,7 +20,9 @@ NO_DATA_MSG = "We do not have information related to this query in our data."
 JUDGE_FALLBACK_PROMPT = """Score the draft answer against the question and context (0.0 to 1.0 each).
 Return JSON only:
 {"answers_query":0.9,"grounded":0.9,"on_topic":0.9,"no_advice":1.0,"no_extra":0.9,"pass":true}
-pass is true only if ALL scores >= 0.65 and no_extra >= 0.7."""
+The planner may request NAV, holdings, and news — those are NOT "extra".
+no_extra penalizes only unrelated facts the user did not ask for and the planner did not request.
+pass is informational only; the answer is always shown to the user."""
 
 
 @dataclass

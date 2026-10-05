@@ -17,8 +17,27 @@ logger = logging.getLogger(__name__)
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
+_SPELLING_FOLDS: tuple[tuple[str, str], ...] = (
+    ("defense", "defence"),
+    ("color", "colour"),
+    ("organize", "organise"),
+)
+
+
+def fold_fund_spelling(text: str) -> str:
+    """Normalize US/UK spelling variants before catalog lookup."""
+    s = (text or "").strip()
+    lower = s.lower()
+    for us, uk in _SPELLING_FOLDS:
+        if us in lower:
+            lower = lower.replace(us, uk)
+    if lower != s.lower():
+        return lower
+    return s
+
+
 def _normalize_fund_text(text: str) -> str:
-    s = (text or "").lower()
+    s = fold_fund_spelling(text or "").lower()
     s = re.sub(r"[^\w\s]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s

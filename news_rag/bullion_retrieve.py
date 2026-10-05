@@ -41,12 +41,62 @@ def _pack_row(row: dict, settings, *, vector_score: float = 0.0) -> dict:
     }
 
 
+def retrieve_bullion_metal_news(
+    metal: str,
+    semantic_query: str,
+    *,
+    question: str = "",
+    window_days: int | None = None,
+    query_log: QueryLogger | None = None,
+) -> list[dict]:
+    """Vector + scroll retrieval for a single bullion macro entity (gold or silver)."""
+    key = (metal or "").strip().lower()
+    if key == "gold":
+        macro_entities = (MACRO_GOLD,)
+    elif key == "silver":
+        macro_entities = (MACRO_SILVER,)
+    else:
+        return retrieve_bullion_macro_news(
+            semantic_query,
+            question=question,
+            window_days=window_days,
+            query_log=query_log,
+        )
+    return _retrieve_bullion_for_entities(
+        macro_entities,
+        semantic_query,
+        question=question,
+        window_days=window_days,
+        query_log=query_log,
+        log_label=f"bullion_{key}",
+    )
+
+
 def retrieve_bullion_macro_news(
     semantic_query: str,
     *,
     question: str = "",
     window_days: int | None = None,
     query_log: QueryLogger | None = None,
+) -> list[dict]:
+    return _retrieve_bullion_for_entities(
+        MACRO_BULLION_ENTITIES,
+        semantic_query,
+        question=question,
+        window_days=window_days,
+        query_log=query_log,
+        log_label="bullion_macro_news",
+    )
+
+
+def _retrieve_bullion_for_entities(
+    macro_entities: tuple[str, ...],
+    semantic_query: str,
+    *,
+    question: str = "",
+    window_days: int | None = None,
+    query_log: QueryLogger | None = None,
+    log_label: str = "bullion",
 ) -> list[dict]:
     settings = get_settings()
     effective_days = window_days if window_days else settings.default_window_days
@@ -74,7 +124,7 @@ def retrieve_bullion_macro_news(
         "min_relevance": settings.min_relevance,
     }
 
-    for macro_name in MACRO_BULLION_ENTITIES:
+    for macro_name in macro_entities:
         filt = build_filter(entity_names=[macro_name], **base)
         t_scroll = time.perf_counter()
         scroll_rows = reader.scroll_filtered(filt, 15)
@@ -151,5 +201,5 @@ def retrieve_bullion_macro_news(
             f"BULLION_RETRIEVE macro_tagged={sum(1 for x in final if x.get('_macro_tagged'))} "
             f"kept={len(final)}"
         )
-        query_log.log_articles_block("bullion_macro_news", final, snippet_limit=400)
+        query_log.log_articles_block(log_label, final, snippet_limit=400)
     return final

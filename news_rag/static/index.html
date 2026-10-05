@@ -64,9 +64,9 @@
     }
     .summary-text { font-size: 0.96rem; color: #1e293b; line-height: 1.7; margin: 0 !important; }
     
-    .hl {
-      font-weight: 600; color: #1e40af; background: #eff6ff;
-      padding: 2px 6px; border-radius: 4px; border: 1px solid #dbeafe;
+    .emph {
+      font-weight: 700;
+      color: inherit;
     }
     
     .meta {
@@ -92,6 +92,43 @@
     
     .err { color: #dc2626; background: #fef2f2; border: 1px solid #fecaca; padding: 0.75rem 1rem; border-radius: 8px; margin-top: 1rem; }
     .hidden { display: none; }
+
+    .insight-headline {
+      font-size: 1.12rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.55;
+      margin: 0 0 1rem;
+    }
+    .insight-body {
+      font-size: 0.98rem;
+      color: #334155;
+      line-height: 1.75;
+      margin: 0 0 1rem;
+    }
+    .insight-bullets {
+      margin: 0.25rem 0 0;
+      padding-left: 1.35rem;
+      list-style-type: disc;
+    }
+    .insight-bullets li {
+      margin-bottom: 0.75rem;
+      font-size: 0.97rem;
+      color: #1e293b;
+      line-height: 1.65;
+      padding-left: 0.15rem;
+    }
+    .insight-bullets li::marker {
+      color: #2563eb;
+    }
+    .insight-closing {
+      font-size: 0.96rem;
+      color: #334155;
+      line-height: 1.75;
+      margin: 1.25rem 0 0;
+      padding-top: 1rem;
+      border-top: 1px solid #e2e8f0;
+    }
   </style>
 </head>
 <body>
@@ -162,17 +199,83 @@
       return writer ? `Synthesized (${data.insight_source})` : "Summary";
     }
 
-    function formatMarkdown(text) {
-      if (!text) return "";
-      let formatted = String(text)
+    function escapeHtml(text) {
+      return String(text)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
-      // Bold highlights
-      formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="hl">$1</strong>');
-      // Italics
-      formatted = formatted.replace(/(^|[^*])\*(.+?)\*(?!\*)/g, '$1<em>$2</em>');
+    }
+
+    function formatMarkdown(text) {
+      if (!text) return "";
+      let formatted = escapeHtml(text);
+      formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="emph">$1</strong>');
+      formatted = formatted.replace(/(^|[^*])\*(.+?)\*(?!\*)/g, "$1<em>$2</em>");
       return formatted;
+    }
+
+    function proseToBullets(text) {
+      const t = String(text || "").trim();
+      if (!t) return [];
+      const lines = t.split(/\n+/).map((l) => l.replace(/^[-*•]\s+/, "").trim()).filter(Boolean);
+      if (lines.length >= 2) return lines;
+      return t.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter((s) => s.length >= 25);
+    }
+
+    function renderUnifiedInsight(container, data) {
+      container.innerHTML = "";
+      const sec = data.sections && data.sections[0];
+      let headline =
+        data.insight_headline ||
+        (sec && sec.headline) ||
+        (data.insight_summary || "").trim();
+      let narrative = data.insight_narrative || (sec && sec.narrative) || "";
+      let closing =
+        data.insight_closing_summary ||
+        (sec && sec.closing_summary) ||
+        "";
+      let bullets = data.insight_bullets || (sec && sec.bullets) || [];
+
+      if (!bullets.length && (data.insight || narrative)) {
+        bullets = proseToBullets(data.insight || narrative);
+        if (bullets.length > 1) {
+          narrative = "";
+        }
+      }
+
+      if (headline) {
+        const h = document.createElement("p");
+        h.className = "insight-headline";
+        h.innerHTML = formatMarkdown(headline);
+        container.appendChild(h);
+      }
+      if (narrative && narrative !== headline && !bullets.length) {
+        const p = document.createElement("p");
+        p.className = "insight-body";
+        p.innerHTML = formatMarkdown(narrative.trim());
+        container.appendChild(p);
+      }
+      if (bullets.length) {
+        const ul = document.createElement("ul");
+        ul.className = "insight-bullets";
+        for (const item of bullets) {
+          const li = document.createElement("li");
+          li.innerHTML = formatMarkdown(item);
+          ul.appendChild(li);
+        }
+        container.appendChild(ul);
+      } else if (!headline) {
+        const p = document.createElement("p");
+        p.className = "insight-body";
+        p.innerHTML = formatMarkdown(data.insight || "No insight returned.");
+        container.appendChild(p);
+      }
+      if (closing && closing.trim()) {
+        const p = document.createElement("p");
+        p.className = "insight-closing";
+        p.innerHTML = formatMarkdown(closing.trim());
+        container.appendChild(p);
+      }
     }
 
     function renderInsightSections(container, sections, summary) {
@@ -224,10 +327,31 @@
     }
 
     function renderInsight(container, data, fallbackText) {
+      const hasStructured =
+        data.insight_headline ||
+        data.insight_narrative ||
+        (data.insight_bullets && data.insight_bullets.length) ||
+        (data.sections && data.sections[0] && (data.sections[0].bullets || []).length);
+      if (hasStructured || (data.insight || fallbackText)) {
+        renderUnifiedInsight(container, {
+          ...data,
+          insight: data.insight || fallbackText,
+        });
+        return;
+      }
       container.innerHTML = "";
       if (Array.isArray(data.sections) && data.sections.length === 1) {
         const only = data.sections[0];
         if (only && only.style === "unified_answer") {
+          if (only.headline || only.narrative) {
+            renderUnifiedInsight(container, {
+              insight_headline: only.headline,
+              insight_narrative: only.narrative,
+              insight_bullets: only.bullets,
+              highlight_terms: only.highlight_terms,
+            });
+            return;
+          }
           if (Array.isArray(only.insight_sections) && only.insight_sections.length) {
             renderInsightSections(container, only.insight_sections, only.summary || data.insight_summary || "");
             return;
@@ -274,28 +398,18 @@
       }
 
       if (bullets.length && summary) {
-        const h3 = document.createElement("h3");
-        h3.textContent = "Key Takeaways";
-        container.appendChild(h3);
+        const p = document.createElement("p");
+        p.className = "insight-headline";
+        p.innerHTML = formatMarkdown(summary);
+        container.appendChild(p);
         const ul = document.createElement("ul");
+        ul.className = "insight-bullets";
         for (const item of bullets) {
           const li = document.createElement("li");
           li.innerHTML = formatMarkdown(item);
           ul.appendChild(li);
         }
         container.appendChild(ul);
-
-        const section = document.createElement("div");
-        section.className = "summary-section";
-        const h3Summary = document.createElement("h3");
-        h3Summary.textContent = "Summary & Market Context";
-        h3Summary.style.margin = "0 0 0.35rem";
-        section.appendChild(h3Summary);
-        const p = document.createElement("p");
-        p.className = "summary-text";
-        p.innerHTML = formatMarkdown(summary);
-        section.appendChild(p);
-        container.appendChild(section);
       } else if (bullets.length) {
         const ul = document.createElement("ul");
         for (const item of bullets) {
@@ -362,9 +476,20 @@
           );
         }
         renderInsight(insightEl, data, insightText);
-        
+
+        const pipeErrs = data.pipeline_errors || [];
+        if (pipeErrs.length) {
+          errorEl.textContent =
+            "Pipeline issues: " +
+            pipeErrs.map((e) => `[${e.stage}${e.tool ? "/" + e.tool : ""}] ${e.message}`).join(" · ");
+          errorEl.classList.remove("hidden");
+        }
+
         const sourceLabel = providerLabel(data);
-        metaEl.textContent = `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources shown to you · intent ${data.intent || "?"}`;
+        const scorePart =
+          data.output_score != null ? ` · quality score ${data.output_score}` : "";
+        metaEl.textContent =
+          `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources · intent ${data.intent || "?"}${scorePart}`;
         if (data.query_log_file) {
           debugLogEl.textContent = "Debug log: " + data.query_log_file
             + (data.query_summary_json ? " · JSON: " + data.query_summary_json : "");

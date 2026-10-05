@@ -15,7 +15,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from historical_data.nav_service import get_fund_nav_history
-from news_rag.answer import empty_answer, generate_answer
 from news_rag.config import get_settings
 from news_rag.fund_search import get_fund_index
 from news_rag.llm_client import (
@@ -28,8 +27,6 @@ from news_rag.llm_client import (
 from news_rag.query_log import new_fund_brief_logger, new_query_logger
 from news_rag.fund_brief import generate_fund_brief
 from news_rag.ask_engine import run_ask_engine
-from news_rag.guardrails import check_guardrails, refusal_response
-from news_rag.retrieve import retrieve_for_question
 from news_rag.embed import embeddings_ready
 from news_rag.sector_fund_ranking import sector_ranking_data_available
 
@@ -289,42 +286,14 @@ def ask(
 
     article_count = 0
     try:
-        if settings.rag_use_ask_engine:
-            guard = check_guardrails(body.question)
-            if guard.outcome != "pass":
-                result = refusal_response(guard)
-                meta = query_log.finish(outcome="refused", article_count=0, insight_source="guardrail")
-                _attach_llm_meta(result, meta)
-                return result
-            result = run_ask_engine(
-                body.question,
-                date_from=body.date_from,
-                date_to=body.date_to,
-                min_impact=body.min_impact,
-                source=body.source,
-                direction=body.direction,
-                query_log=query_log,
-            )
-            article_count = len(result.get("sources") or [])
-            outcome = str(result.get("outcome") or "ok")
-            if result.get("refused"):
-                outcome = "refused"
-            meta = query_log.finish(
-                outcome=outcome,
-                article_count=article_count,
-                insight_source=str(result.get("insight_source") or ""),
-                extra={
-                    "question": body.question.strip(),
-                    "intent": result.get("intent"),
-                    "sub_queries": result.get("sub_queries"),
-                },
-            )
-            _attach_llm_meta(result, meta)
-            return result
+        if not llm_api_key_configured(settings):
+            message = missing_llm_key_message(settings)
+            query_log.log_error("config", message)
+            query_log.finish(outcome="error", article_count=0)
+            raise HTTPException(status_code=500, detail=message)
 
-        parsed, articles = retrieve_for_question(
+        result = run_ask_engine(
             body.question,
-            stock=body.stock,
             date_from=body.date_from,
             date_to=body.date_to,
             min_impact=body.min_impact,
@@ -332,42 +301,22 @@ def ask(
             direction=body.direction,
             query_log=query_log,
         )
-        _no_llm_intents = {
-            "fund_nav",
-            "fund_holdings",
-            "fund_sectors",
-            "impact_funds",
-            "fund_event_impact",
-        }
-        if parsed.intent not in _no_llm_intents and not llm_api_key_configured(settings):
-            message = missing_llm_key_message(settings)
-            query_log.log_error("config", message)
-            query_log.finish(outcome="error", article_count=len(articles))
-            raise HTTPException(status_code=500, detail=message)
-
-        result = generate_answer(parsed, articles, query_log=query_log)
-        src = str(result.get("insight_source") or "")
-        if src == "no_articles":
-            outcome = "no_articles"
-        elif src == "fund_data":
-            outcome = "fund_data"
-        elif src in ("impact_sector_ranking", "impact_single_fund"):
-            outcome = "impact_data"
-        elif src.endswith("_rewritten") or (
-            isinstance(result.get("contract"), dict) and result["contract"].get("aligned") is False
-        ):
-            outcome = "alignment_failed"
-        else:
-            outcome = "ok"
+        article_count = len(result.get("sources") or [])
+        outcome = str(result.get("outcome") or "ok")
+        if result.get("refused"):
+            outcome = "refused"
+        if result.get("pipeline_errors") and outcome == "ok":
+            outcome = "partial"
         meta = query_log.finish(
             outcome=outcome,
-            article_count=len(articles),
+            article_count=article_count,
             insight_source=str(result.get("insight_source") or ""),
             extra={
                 "question": body.question.strip(),
                 "intent": result.get("intent"),
-                "sources_in_response": len(result.get("sources") or []),
-                "writer_insight_source": result.get("insight_source"),
+                "sub_queries": result.get("sub_queries"),
+                "output_score": result.get("output_score"),
+                "pipeline_errors": result.get("pipeline_errors"),
             },
         )
         _attach_llm_meta(result, meta)

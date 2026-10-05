@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     sector_to_isin_weights_json: str = "data/fund_holdings_aggregate/sector_to_isin_weights.json"
     impact_ranking_regular_growth_only: bool = True
 
+    # Legacy flag; /api/ask always uses the LLM ask engine.
     rag_use_ask_engine: bool = Field(
         default=True,
         validation_alias=AliasChoices("RAG_USE_ASK_ENGINE", "rag_use_ask_engine"),

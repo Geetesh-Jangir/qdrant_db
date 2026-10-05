@@ -155,6 +155,122 @@ def run_fund_portfolio_news(
     )
 
 
+def _direction_from_sentiment(sentiment: str | None, api_direction: str | None = None) -> str | None:
+    if api_direction and api_direction.strip().lower() in ("positive", "negative"):
+        return api_direction.strip().lower()
+    if sentiment in ("positive", "negative"):
+        return sentiment
+    return None
+
+
+def run_layered_news(
+    *,
+    layer: str,
+    semantic_query: str,
+    question: str,
+    entity_filters: list[str] | None = None,
+    window_days: int | None = None,
+    sentiment: str = "any",
+    search_focus: str = "",
+    query_log: QueryLogger | None = None,
+    **filter_kwargs: Any,
+) -> dict[str, Any]:
+    """holdings_news | sector_news | macro_news retrieval."""
+    started = time.perf_counter()
+    mode = "event_only"
+    entities = list(entity_filters or [])
+    if entities:
+        from news_rag.news_entity_resolve import resolve_corpus_entities
+
+        entities = resolve_corpus_entities(entities)
+    if layer == "holdings_news" and entities:
+        mode = "event_plus_entities"
+    elif layer == "sector_news" and entities:
+        mode = "event_plus_entities"
+    elif layer == "macro_news":
+        mode = "event_only"
+        entities = []
+    scope = ScopeRefinement(
+        news_entities=entities[:10],
+        news_topics=[semantic_query] if semantic_query else [],
+        search_mode=mode,
+    )
+    direction = _direction_from_sentiment(sentiment, filter_kwargs.get("direction"))
+    focus = (search_focus or "").strip().lower()
+    blob = f"{semantic_query} {question}".lower()
+    use_bullion = layer == "macro_news" and (
+        focus in ("gold", "silver")
+        or any(w in blob for w in ("gold", "silver", "bullion", "precious metal"))
+    )
+    if use_bullion and focus in ("gold", "silver"):
+        from news_rag.bullion_retrieve import retrieve_bullion_metal_news
+
+        articles = retrieve_bullion_metal_news(
+            focus,
+            semantic_query or question,
+            question=question,
+            window_days=window_days,
+            query_log=query_log,
+        )
+    elif use_bullion:
+        from news_rag.bullion_retrieve import retrieve_bullion_macro_news
+
+        articles = retrieve_bullion_macro_news(
+            semantic_query or question,
+            question=question,
+            window_days=window_days,
+            query_log=query_log,
+        )
+    else:
+        articles = retrieve_scoped_news(
+            semantic_query or question,
+            scope=scope,
+            question=question,
+            window_days=window_days,
+            direction=direction,
+            query_log=query_log,
+            **{k: v for k, v in filter_kwargs.items() if k != "direction"},
+        )
+    for art in articles:
+        art["_news_layer"] = layer.replace("_news", "")
+        if focus:
+            art["_search_focus"] = focus
+    elapsed = (time.perf_counter() - started) * 1000
+    return _ok({"articles": articles, "layer": layer, "search_focus": focus}, elapsed)
+
+
+def run_affected_funds(
+    *,
+    sector_names: list[str],
+    top_n: int = 10,
+    semantic_query: str = "",
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    idx = get_sector_fund_ranking_index()
+    keys = idx.resolve_sector_keys(sector_names) if sector_names else []
+    if not keys and semantic_query:
+        keys = idx.resolve_from_question(semantic_query) or []
+    ranked = rank_funds_by_sector_exposure(keys, limit=top_n, combine="max")
+    from news_rag.fund_search import get_fund_index
+
+    index = get_fund_index()
+    rankings = []
+    for row in ranked.get("rankings") or []:
+        isin = row.get("isin")
+        detail = index.get_fund_detail(str(isin)) if isin else None
+        name = (
+            (detail or {}).get("fund_short_name")
+            or (detail or {}).get("fund_name")
+            or isin
+        )
+        rankings.append({**row, "fund_name": name})
+    elapsed = (time.perf_counter() - started) * 1000
+    return _ok(
+        {"sector_keys": ranked.get("sector_keys"), "rankings": rankings, "sectors": sector_names},
+        elapsed,
+    )
+
+
 def run_news_search(
     need: DataNeed,
     *,

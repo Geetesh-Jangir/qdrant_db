@@ -19,10 +19,9 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from news_rag.answer import generate_answer
+from news_rag.ask_engine import run_ask_engine
 from news_rag.fund_search import lookup_extracted_fund
 from news_rag.query_router import route_query
-from news_rag.retrieve import retrieve_for_question
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("eval_ask_agents")
@@ -110,8 +109,7 @@ def evaluate_pinned_answer_case(case: dict[str, Any]) -> dict[str, Any]:
     must_not_contain = case.get("must_not_contain", [])
 
     t0 = time.perf_counter()
-    parsed, articles = retrieve_for_question(question)
-    result = generate_answer(parsed, articles)
+    result = run_ask_engine(question)
     duration = time.perf_counter() - t0
 
     answer_text = result.get("insight") or (
