@@ -6,6 +6,7 @@ import re
 import time
 from typing import TYPE_CHECKING
 
+from news_rag.article_pool import article_dedupe_key
 from news_rag.config import get_settings
 from news_rag.embed import embed_query
 from news_rag.parse import parse_time_window
@@ -28,6 +29,37 @@ def _wants_price_recap(question: str) -> bool:
     return any(word in lower for word in ("price", "target", "rating", "upgrade", "downgrade", "recap"))
 
 
+_TOPIC_MATCH_STOP = frozenset(
+    {
+        "india",
+        "indian",
+        "the",
+        "and",
+        "for",
+        "with",
+        "from",
+        "that",
+        "this",
+        "stock",
+        "stocks",
+        "market",
+        "markets",
+        "news",
+        "today",
+        "equity",
+        "macro",
+    }
+)
+
+
+def _topic_tokens(topic: str) -> list[str]:
+    return [
+        t
+        for t in re.findall(r"[a-z0-9]+", (topic or "").lower())
+        if len(t) >= 3 and t not in _TOPIC_MATCH_STOP
+    ]
+
+
 def _topic_match(article: dict, topics: list[str]) -> bool:
     if not topics:
         return True
@@ -35,10 +67,23 @@ def _topic_match(article: dict, topics: list[str]) -> bool:
         [
             str(article.get("title") or ""),
             str(article.get("snippet") or ""),
+            str(article.get("scraped_text") or "")[:500],
             " ".join(str(x) for x in (article.get("sector_names") or [])),
+            " ".join(str(x) for x in (article.get("entity_names") or [])),
         ]
     ).lower()
-    return any(t.lower() in hay for t in topics)
+    for topic in topics:
+        low = (topic or "").lower().strip()
+        if low and low in hay:
+            return True
+        tokens = _topic_tokens(topic)
+        if not tokens:
+            return True
+        hits = sum(1 for tok in tokens if tok in hay)
+        need = max(1, min(3, len(tokens) // 2))
+        if hits >= need:
+            return True
+    return False
 
 
 def retrieve_scoped_news(
@@ -53,12 +98,16 @@ def retrieve_scoped_news(
     source: str | None = None,
     direction: str | None = None,
     query_log: QueryLogger | None = None,
+    ignore_question_time_hints: bool = False,
 ) -> list[dict]:
     settings = get_settings()
     scope = scope or ScopeRefinement()
     effective_days = window_days if window_days else settings.default_window_days
-    published_from, published_to, _label = parse_time_window(
-        question or semantic_query,
+    time_question = question or semantic_query
+    if ignore_question_time_hints and window_days is not None and not date_from and not date_to:
+        time_question = ""
+    published_from, published_to, window_label = parse_time_window(
+        time_question,
         date_from=date_from,
         date_to=date_to,
         default_days=effective_days,
@@ -92,7 +141,7 @@ def retrieve_scoped_news(
     spec = filter_spec(**filter_kwargs)
     if query_log is not None:
         query_log.write(
-            f"RETRIEVE mode={mode} entities={entity_filter} topics={scope.news_topics}"
+            f"RETRIEVE mode={mode} window={window_label} entities={entity_filter} topics={scope.news_topics}"
         )
         query_log.log_filters(spec, post_filters={"scoped": True, "mode": mode})
 
@@ -124,23 +173,23 @@ def retrieve_scoped_news(
     by_url: dict[str, dict] = {}
 
     for rank, row in enumerate(vector_rows):
-        url = row.get("url") or ""
-        if not url:
+        dedupe = article_dedupe_key(row)
+        if not dedupe:
             continue
-        rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
-        by_url[url] = {**row, "_vector_score": row.get("score", 0.0)}
+        rrf_scores[dedupe] = rrf_scores.get(dedupe, 0.0) + (1.0 / (k + rank + 1))
+        by_url[dedupe] = {**row, "_vector_score": row.get("score", 0.0)}
 
     for rank, row in enumerate(impact_rows):
-        url = row.get("url") or ""
-        if not url:
+        dedupe = article_dedupe_key(row)
+        if not dedupe:
             continue
-        rrf_scores[url] = rrf_scores.get(url, 0.0) + (1.0 / (k + rank + 1))
-        if url not in by_url:
-            by_url[url] = {**row, "_vector_score": 0.0}
+        rrf_scores[dedupe] = rrf_scores.get(dedupe, 0.0) + (1.0 / (k + rank + 1))
+        if dedupe not in by_url:
+            by_url[dedupe] = {**row, "_vector_score": 0.0}
 
     entity_set = {str(n).lower() for n in (entity_filter or [])}
     ranked: list[dict] = []
-    for url, row in by_url.items():
+    for dedupe, row in by_url.items():
         if not allow_recap and row.get("event_type") == "price_recap":
             continue
         if scope.news_topics and mode == "event_only" and not _topic_match(row, scope.news_topics):
@@ -151,11 +200,11 @@ def retrieve_scoped_news(
         title_lower = str(row.get("title") or "").lower()
         exact_entity_match = bool(entity_set & article_entities) or any(n in title_lower for n in entity_set)
         impact = int(row.get("max_impact") or 0)
-        base_rrf = rrf_scores.get(url, 0.0)
+        base_rrf = rrf_scores.get(dedupe, 0.0)
         combined_score = base_rrf + (0.05 if exact_entity_match else 0.0) + (0.01 * impact)
         ranked.append(
             {
-                "url": url,
+                "url": row.get("url"),
                 "title": row.get("title"),
                 "source": row.get("source"),
                 "published_at": row.get("published_at"),

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
+from news_rag.article_pool import collect_bundle_articles, sources_from_articles
 from news_rag.ask_composer import compose_final_answer
 from news_rag.ask_execution import execute_ask_plan, run_affected_funds_after_news
 from news_rag.ask_plan import AskPlan
@@ -16,6 +17,7 @@ from news_rag.holdings_market import (
     news_window_days_from_plan,
     should_fetch_holdings_market,
 )
+from news_rag.market_pulse import market_pulse_data_from_bundle, market_pulse_from_plan
 from news_rag.plan_enrich import enrich_ask_plan
 from news_rag.query_analyzer import ADVICE_NOTE, plan_query
 
@@ -37,40 +39,24 @@ def _build_insight_text(
     return "\n\n".join(parts).strip()
 
 
-def _sources_from_articles(articles: list[dict]) -> list[dict]:
-    seen: set[str] = set()
-    rows: list[dict] = []
-    for a in articles:
-        url = str(a.get("url") or "").strip()
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        rows.append(
-            {
-                "title": a.get("title"),
-                "url": url,
-                "source": a.get("source"),
-                "published_at": a.get("published_at"),
-                "direction": a.get("direction"),
-                "max_impact": a.get("max_impact"),
-            }
-        )
-    return rows
-
-
 def _all_articles(bundle) -> list[dict]:
-    arts: list[dict] = []
-    seen: set[str] = set()
-    pools = list(bundle.articles_by_focus.values()) + list(bundle.articles_by_layer.values())
-    for layer_arts in pools:
-        for a in layer_arts:
-            url = str(a.get("url") or "").strip()
-            if url and url in seen:
-                continue
-            if url:
-                seen.add(url)
-            arts.append(a)
-    return arts
+    return collect_bundle_articles(bundle)
+
+
+def _sources_from_articles(articles: list[dict]) -> list[dict]:
+    return sources_from_articles(articles)
+
+
+def _retrieval_window_meta(bundle) -> dict[str, Any] | None:
+    pulse = market_pulse_data_from_bundle(bundle)
+    if not pulse:
+        return None
+    return {
+        "window_days": pulse.get("window_days"),
+        "window_label": pulse.get("window_label"),
+        "published_from": pulse.get("published_from"),
+        "published_to": pulse.get("published_to"),
+    }
 
 
 def _intent_from_plan(plan: AskPlan) -> str:
@@ -191,6 +177,15 @@ def run_ask_engine(
             query_log=query_log,
         )
 
+    pulse_reps: list[dict] | None = None
+    if market_pulse_from_plan(plan):
+        pulse_data = market_pulse_data_from_bundle(bundle)
+        pulse_reps = pulse_data.get("representative_articles") or None
+        if not pulse_reps and pulse_data.get("clusters"):
+            from news_rag.market_pulse import market_pulse_representatives_from_clusters
+
+            pulse_reps = market_pulse_representatives_from_clusters(pulse_data["clusters"])
+
     digests, sectors_for_funds = digest_news_parallel(
         bundle.articles_by_layer,
         bundle.articles_by_focus,
@@ -201,6 +196,7 @@ def run_ask_engine(
         sentiment=plan.sentiment,
         question=q,
         query_log=query_log,
+        market_pulse_representatives=pulse_reps,
     )
     for d in digests:
         if d.error:
@@ -256,7 +252,11 @@ def run_ask_engine(
         query_log.log_stage("output_score", scores=scores, aggregate=output_score, passed=jr.passed)
 
     all_articles = _all_articles(bundle)
+    if query_log is not None:
+        query_log.write(f"SOURCES_POOL articles={len(all_articles)} with_url={sum(1 for a in all_articles if a.get('url'))}")
     outcome = "ok" if (insight or "").strip() else "no_data"
+    if not all_articles and (insight or "").strip():
+        outcome = "no_data"
 
     result: dict[str, Any] = {
         "insight": insight,
@@ -267,6 +267,7 @@ def run_ask_engine(
         "insight_bullets": bullets,
         "highlight_terms": composed.highlight_terms,
         "sources": _sources_from_articles(all_articles),
+        "retrieval_window": _retrieval_window_meta(bundle),
         "intent": _intent_from_plan(plan),
         "insight_source": "ask_engine",
         "outcome": outcome,

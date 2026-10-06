@@ -122,12 +122,20 @@
       color: #2563eb;
     }
     .insight-closing {
-      font-size: 0.96rem;
+      font-size: 1rem;
       color: #334155;
-      line-height: 1.75;
+      line-height: 1.85;
       margin: 1.25rem 0 0;
       padding-top: 1rem;
       border-top: 1px solid #e2e8f0;
+    }
+    .insight-closing-label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin: 0 0 0.5rem;
     }
   </style>
 </head>
@@ -271,6 +279,10 @@
         container.appendChild(p);
       }
       if (closing && closing.trim()) {
+        const label = document.createElement("p");
+        label.className = "insight-closing-label";
+        label.textContent = "In simple terms";
+        container.appendChild(label);
         const p = document.createElement("p");
         p.className = "insight-closing";
         p.innerHTML = formatMarkdown(closing.trim());
@@ -488,8 +500,13 @@
         const sourceLabel = providerLabel(data);
         const scorePart =
           data.output_score != null ? ` · quality score ${data.output_score}` : "";
+        const rw = data.retrieval_window;
+        const windowPart =
+          rw && (rw.window_label || rw.window_days)
+            ? ` · news window ${rw.window_label || "last " + rw.window_days + " days"}`
+            : "";
         metaEl.textContent =
-          `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources · intent ${data.intent || "?"}${scorePart}`;
+          `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources · intent ${data.intent || "?"}${windowPart}${scorePart}`;
         if (data.query_log_file) {
           debugLogEl.textContent = "Debug log: " + data.query_log_file
             + (data.query_summary_json ? " · JSON: " + data.query_summary_json : "");
@@ -499,15 +516,32 @@
         }
 
         sourcesEl.innerHTML = "";
-        for (const row of data.sources || []) {
+        const srcList = data.sources || [];
+        if (!srcList.length) {
+          const empty = document.createElement("p");
+          empty.className = "card-meta";
+          empty.textContent =
+            data.outcome === "no_data"
+              ? "No matching articles were retrieved from our news index for this question (check date range and Qdrant data)."
+              : "No source articles were attached to this answer.";
+          sourcesEl.appendChild(empty);
+        }
+        for (const row of srcList) {
           const div = document.createElement("div");
           div.className = "card";
-          const link = document.createElement("a");
-          link.href = row.url;
-          link.target = "_blank";
-          link.rel = "noopener";
-          link.textContent = row.title || row.url;
-          div.appendChild(link);
+          const titleText = row.title || row.url || "Article";
+          if (row.url) {
+            const link = document.createElement("a");
+            link.href = row.url;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.textContent = titleText;
+            div.appendChild(link);
+          } else {
+            const span = document.createElement("span");
+            span.textContent = titleText;
+            div.appendChild(span);
+          }
           const line = document.createElement("div");
           line.className = "card-meta";
           const pub = row.published_at ? row.published_at.slice(0, 10) : "";

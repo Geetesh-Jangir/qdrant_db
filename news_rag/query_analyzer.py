@@ -84,6 +84,7 @@ TOOLS RULES:
 - Pure NAV (only asking for latest NAV number) → fund_nav only.
 - Top holdings/sectors → fund_top_stocks / fund_top_sectors with top_n from question.
 - Macro/sector impact without a named fund → sector_news + macro_news; sector_funds or affected_funds as needed.
+- Broad "what is happening in the market now/today" (no named fund) → market_pulse OR macro_news; enrichment may replace with market_pulse multi-search including Nifty.
 - Crude/oil/RBI → macro_news + sector_news with strong semantic_query (India markets, sectors).
 - semantic_query: dense keywords for vector search, NOT the user's full sentence.
 - affected_funds=after_news when sectors must be inferred from news first; now when sectors listed in question.

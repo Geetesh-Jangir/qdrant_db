@@ -23,6 +23,7 @@ def _split_news_tools(news_tools: list[PlannedTool]) -> tuple[list[PlannedTool],
     return driver, other
 from news_rag.name_resolution import ResolvedNames, resolve_plan_names
 from news_rag.query_plan import DataNeed
+from news_rag.market_pulse import run_market_pulse
 from news_rag.tools import (
     run_affected_funds,
     run_fund_holdings,
@@ -153,6 +154,17 @@ def _run_one_tool(
                     semantic_query=tool.semantic_query,
                 ),
             )
+        if tool.tool == "market_pulse":
+            return ToolRunResult(
+                tool.tool,
+                key,
+                run_market_pulse(
+                    question,
+                    window_days=tool.window_days,
+                    query_log=query_log,
+                    **filter_kwargs,
+                ),
+            )
         return ToolRunResult(tool.tool, key, {"ok": False, "error": f"unknown tool {tool.tool}", "data": None})
     except Exception as exc:
         return ToolRunResult(tool.tool, key, {"ok": False, "error": str(exc), "data": None}, error=str(exc))
@@ -239,6 +251,15 @@ def _apply_tool_result(bundle: ExecutionBundle, tr: ToolRunResult) -> None:
         bundle.sector_rows = data.get("rows") or []
     if tr.tool == "fund_nav" and tr.result.get("ok"):
         bundle.fund_nav_data = data
+    if tr.tool == "market_pulse" and tr.result.get("ok"):
+        for cl in data.get("clusters") or []:
+            focus = f"pulse_{cl.get('theme_key') or cl.get('id')}"
+            arts = cl.get("articles") or []
+            _merge_articles_into(bundle.articles_by_focus, focus, arts)
+            _merge_articles_into(bundle.articles_by_layer, "macro", arts)
+        for art in data.get("articles") or []:
+            _merge_articles_into(bundle.articles_by_layer, "macro", [art])
+        return
     if tr.tool in _NEWS_TOOL_NAMES and tr.result.get("ok"):
         layer = tr.tool.replace("_news", "")
         arts = data.get("articles") or []
@@ -337,8 +358,16 @@ def execute_ask_plan(
         return bundle
 
     tools_to_run = [t for t in plan.tools if t.tool != "affected_funds" or plan.affected_funds == "now"]
-    fact_tools = [t for t in tools_to_run if t.tool not in _NEWS_TOOL_NAMES]
+    pulse_mode = any(t.tool == "market_pulse" for t in tools_to_run)
+    fact_tools = [
+        t
+        for t in tools_to_run
+        if t.tool not in _NEWS_TOOL_NAMES and t.tool != "market_pulse"
+    ]
     news_tools = [t for t in tools_to_run if t.tool in _NEWS_TOOL_NAMES]
+    pulse_tools = [t for t in tools_to_run if t.tool == "market_pulse"]
+    if pulse_mode:
+        news_tools = [t for t in news_tools if t.tool != "macro_news"]
 
     if query_log is not None:
         query_log.write(
@@ -358,6 +387,19 @@ def execute_ask_plan(
         direction=direction,
         query_log=query_log,
     )
+    if pulse_tools:
+        _run_tools_parallel(
+            pulse_tools,
+            plan,
+            bundle,
+            question,
+            date_from=date_from,
+            date_to=date_to,
+            min_impact=min_impact,
+            source=source,
+            direction=direction,
+            query_log=query_log,
+        )
     _hydrate_names_from_scheme(bundle)
     driver_news, other_news = _split_news_tools(news_tools)
     if news_tools and bundle.names.primary_scheme:

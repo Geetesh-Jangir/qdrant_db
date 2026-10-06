@@ -380,6 +380,28 @@ def parse_date_field(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def infer_window_days_from_question(question: str, *, default_days: int) -> int:
+    """Days to look back from question phrasing; falls back to default_days."""
+    for pattern, fixed_days in TIME_PATTERNS:
+        match = pattern.search(question or "")
+        if not match:
+            continue
+        if fixed_days > 0:
+            return fixed_days
+        groups = match.groups()
+        if groups and groups[0].isdigit():
+            n = int(groups[0])
+            if "week" in match.group(0).lower():
+                return n * 7
+            if "month" in match.group(0).lower():
+                return n * 30
+            return n
+    lower = (question or "").lower()
+    if any(p in lower for p in ("right now", "currently", "at the moment", "market now")):
+        return default_days
+    return default_days
+
+
 def parse_time_window(
     question: str,
     *,
@@ -398,24 +420,7 @@ def parse_time_window(
         label = f"{start.date().isoformat()} to {end.date().isoformat()}"
         return to_iso(start), to_iso(end), label
 
-    days = default_days
-    for pattern, fixed_days in TIME_PATTERNS:
-        match = pattern.search(question)
-        if not match:
-            continue
-        if fixed_days > 0:
-            days = fixed_days
-            break
-        groups = match.groups()
-        if groups and groups[0].isdigit():
-            n = int(groups[0])
-            if "week" in match.group(0).lower():
-                days = n * 7
-            elif "month" in match.group(0).lower():
-                days = n * 30
-            else:
-                days = n
-            break
+    days = infer_window_days_from_question(question, default_days=default_days)
 
     start = now - timedelta(days=days)
     label = f"last {days} days"

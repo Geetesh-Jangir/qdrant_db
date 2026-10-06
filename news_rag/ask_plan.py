@@ -23,6 +23,7 @@ ALLOWED_PLANNER_TOOLS = frozenset(
         "sector_funds",
         "metals_spot",
         "stock_snapshot",
+        "market_pulse",
     }
 )
 

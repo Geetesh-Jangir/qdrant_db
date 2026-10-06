@@ -11,6 +11,8 @@ from news_rag.cross_impact import (
     is_cross_impact_question,
 )
 from news_rag.holdings_market import holdings_top_n_from_question, question_wants_holdings_performance
+from news_rag.market_pulse import MARKET_PULSE_DEFAULT_WINDOW_DAYS, market_pulse_window_days, should_use_market_pulse
+from news_rag.parse import infer_window_days_from_question
 
 _GOLD = re.compile(r"\bgold\b", re.I)
 _SILVER = re.compile(r"\bsilver\b", re.I)
@@ -293,9 +295,35 @@ def _enrich_commodity_only_plan(question: str, plan: AskPlan) -> AskPlan:
     return plan
 
 
+def _configure_market_pulse(plan: AskPlan, question: str) -> AskPlan:
+    """Broad market-now questions: multi-macro pulse (does not change other query types)."""
+    if not should_use_market_pulse(question, plan):
+        return plan
+    window = infer_window_days_from_question(
+        question,
+        default_days=MARKET_PULSE_DEFAULT_WINDOW_DAYS,
+    )
+    window = market_pulse_window_days(question, window)
+    tools = [t for t in plan.tools if t.tool not in ("macro_news", "sector_news")]
+    if not any(t.tool == "market_pulse" for t in tools):
+        tools.append(PlannedTool(tool="market_pulse", window_days=window))
+    else:
+        for t in tools:
+            if t.tool == "market_pulse":
+                t.window_days = window
+    plan.tools = tools
+    plan.raw_json = dict(plan.raw_json or {})
+    plan.raw_json["market_pulse"] = True
+    return plan
+
+
 def enrich_ask_plan(question: str, plan: AskPlan) -> AskPlan:
     """Add separate news tools per commodity and ensure metals + fund exposure tools."""
     q = question or ""
+    plan = _configure_market_pulse(plan, q)
+    if (plan.raw_json or {}).get("market_pulse"):
+        return plan
+
     plan = _ensure_fund_nav_tool(plan)
     plan = _ensure_fund_portfolio_tools(plan)
     plan = _tune_holdings_top_n(plan, q)
