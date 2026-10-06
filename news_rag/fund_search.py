@@ -928,6 +928,14 @@ class FundIndex:
 
         return detail
 
+    def catalog_entry(self, isin: str) -> dict[str, Any] | None:
+        """Local Regular Growth catalog row only — no live fund API."""
+        self._ensure_loaded()
+        raw = (isin or "").strip().upper()
+        if not raw:
+            return None
+        return self._entries_by_isin.get(raw) or self._entries_by_isin.get(resolve_canonical_isin(raw))
+
     def get_fund_detail(self, isin: str) -> dict[str, Any] | None:
         """Get full details (sectors, holdings, info) for an ISIN with caching."""
         self._ensure_loaded()

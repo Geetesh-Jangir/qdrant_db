@@ -53,7 +53,17 @@ SCHEMA:
 
 TOOLS (exact names):
 fund_nav, fund_top_stocks, fund_top_sectors, holdings_news, sector_news, macro_news,
+common_market_news, macro_news_enhanced,
 affected_funds, sector_funds, metals_spot, stock_snapshot
+
+MARKET & MACRO TOOLS (planner must choose — no keyword guessing in code):
+- common_market_news: User wants a broad read on Indian markets right now / today / overall backdrop.
+  No named mutual fund required. entities[] can be empty. Sets window_days 30 (or from question).
+  Do NOT also add macro_news for the same broad question.
+- macro_news_enhanced: User asks about a specific macro driver or theme (RBI, rates, oil, FII flows,
+  inflation, bond yields, rupee, earnings season, geopolitics) without needing full market snapshot.
+  Provide a strong semantic_query (India + topic keywords). Can combine with sector_news for sector angle.
+- macro_news: Single focused vector search — narrow follow-up or one headline topic only.
 
 GUARDRAILS:
 - decline_entirely=true ONLY for non-finance (poems, code, recipes) or empty meaning.
@@ -62,8 +72,8 @@ GUARDRAILS:
 - Never refuse the whole question only because of buy/sell wording.
 
 SENTIMENT:
-- positive: user wants beneficiaries, gainers, sectors that benefit.
-- negative: hurt, worst hit, adversely affected.
+- positive: user wants beneficiaries, gainers, sectors that benefit or get positively affected.
+- negative: hurt, worst hit, adversely affected or face headwinds.
 - any: no side specified — retrieve all directions; explain both sides in the answer.
 
 ENTITIES (critical):
@@ -84,7 +94,26 @@ TOOLS RULES:
 - Pure NAV (only asking for latest NAV number) → fund_nav only.
 - Top holdings/sectors → fund_top_stocks / fund_top_sectors with top_n from question.
 - Macro/sector impact without a named fund → sector_news + macro_news; sector_funds or affected_funds as needed.
-- Broad "what is happening in the market now/today" (no named fund) → market_pulse OR macro_news; enrichment may replace with market_pulse multi-search including Nifty.
+- User asks for sector mutual funds (banking funds, IT funds, pharma funds, best funds in X sector):
+  sector_funds with sector_name set to that sector + top_n from question (default 5–10).
+  For "best performing" / "performed best" / "working well": sentiment=positive so only funds with a positive 1-month NAV are returned.
+  For worst hit / adversely affected funds: sentiment=negative (largest declines).
+  If the user does not ask for gainers or losers: sentiment=any.
+  affected_funds is NOT required when they name the sector explicitly — use sector_funds directly.
+- RBI / macro + banking impact + best banking mutual funds: macro_news_enhanced (RBI, rates) + sector_news
+  (banking credit, NIM) + sector_funds (sector_name banking and financial services, top_n 5).
+- Broad "what is happening in the market now/today" (no named fund) → common_market_news ONLY (not macro_news).
+- Combined market + sector beneficiaries (no named fund), e.g. "what's happening in the market now and which sectors will be positively affected":
+  sentiment=positive (or negative if user asks who is hurt), answer_parts must list BOTH sub-questions explicitly.
+  tools: common_market_news (window_days 30) + sector_news with semantic_query like
+  "India sector gainers beneficiaries export IT banking pharma PSU banks macro" — NOT the user's full sentence.
+  entities[] may be empty. Do NOT add macro_news alongside common_market_news.
+- Combined market + sector + mutual funds (e.g. "tell me what's happening in the market right now and what are the sectors performing well and then which mutual funds are working well"):
+  sentiment=positive (or negative if asked about worst hit/falling, any if neutral).
+  answer_parts must mention market conditions, performing sectors, and corresponding top mutual funds.
+  tools: common_market_news (window_days 30) + sector_news.
+  affected_funds=after_news, affected_funds_top_n=6.
+- "How is RBI / oil / inflation affecting markets?" with no fund → macro_news_enhanced (+ sector_news if sector named).
 - Crude/oil/RBI → macro_news + sector_news with strong semantic_query (India markets, sectors).
 - semantic_query: dense keywords for vector search, NOT the user's full sentence.
 - affected_funds=after_news when sectors must be inferred from news first; now when sectors listed in question.
@@ -141,9 +170,29 @@ def plan_query(
             query_log=query_log,
         )
         parsed = parse_json_from_text(res.raw_text) or {}
+        if not parsed:
+            raise ValueError("planner returned no JSON object")
         plan = AskPlan.from_dict(parsed)
         if not plan.answer_parts:
             plan.answer_parts = q
+        if not plan.tools and not plan.decline_entirely:
+            res2 = call_json_llm(
+                system_prompt=PLANNER_SYSTEM,
+                user_content=(
+                    f"Question:\n{q}\n\n"
+                    "Your previous response had no tools array or it was empty. "
+                    "Return valid JSON with at least one appropriate tool."
+                ),
+                model_override=router_model(settings),
+                max_tokens=max(settings.router_max_tokens, 1200),
+                temperature=0.0,
+                query_log=query_log,
+            )
+            parsed2 = parse_json_from_text(res2.raw_text) or {}
+            if parsed2:
+                plan = AskPlan.from_dict(parsed2)
+                if not plan.answer_parts:
+                    plan.answer_parts = q
         if query_log is not None:
             query_log.write(
                 f"PLANNER ok duration={time.perf_counter() - started:.2f}s "

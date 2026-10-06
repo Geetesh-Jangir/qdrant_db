@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import AliasChoices, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -261,6 +261,15 @@ class Settings(BaseSettings):
     embedding_model: str = "BAAI/bge-small-en-v1.5"
     embedding_dim: int = 384
     embedding_cache_dir: str = "data/embedding_models"
+    huggingface_token: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "HUGGINGFACE_TOKEN",
+            "HF_TOKEN",
+            "HUGGINGFACE_HUB_TOKEN",
+            "HUGGING_FACE_HUB_TOKEN",
+        ),
+    )
 
     holdings_limit: int = 5
     sectors_limit: int = 2

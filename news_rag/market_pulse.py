@@ -10,7 +10,6 @@ from typing import Any, TYPE_CHECKING
 from news_rag.article_pool import article_dedupe_key
 from news_rag.ask_plan import AskPlan
 from news_rag.parse import infer_window_days_from_question
-from news_rag.cross_impact import is_cross_impact_question
 from news_rag.query_plan import ScopeRefinement
 
 if TYPE_CHECKING:
@@ -72,74 +71,39 @@ _STOPWORDS = frozenset(
     }
 )
 
-_MARKET_PULSE_RE = re.compile(
-    r"|".join(
-        [
-            r"what(?:'s|s|\s+is)\s+happening",
-            r"what\s+is\s+going\s+on",
-            r"market\s+(?:right\s+)?now",
-            r"(?:right\s+)?now\s+in\s+(?:the\s+)?market",
-            r"today(?:'s)?\s+market",
-            r"current\s+market",
-            r"markets?\s+(?:today|now|currently|lately)",
-            r"macro\s+(?:news|environment|situation|backdrop)",
-            r"overall\s+market",
-            r"stock\s+market\s+(?:today|now|update)",
-            r"how\s+(?:is|are)\s+(?:the\s+)?markets?",
-            r"market\s+(?:update|summary|overview)",
-        ]
-    ),
-    re.I,
+CLUSTERED_MACRO_TOOL_NAMES = frozenset(
+    {"common_market_news", "market_pulse", "macro_news_enhanced"}
 )
 
 
-def is_market_pulse_question(question: str) -> bool:
-    q = (question or "").strip()
-    if not q:
-        return False
-    if _MARKET_PULSE_RE.search(q):
-        return True
-    lower = q.lower()
-    if "nifty" in lower and any(w in lower for w in ("today", "now", "happening", "market")):
-        return True
-    return False
+def common_market_news_from_plan(plan: AskPlan) -> bool:
+    return any(t.tool in ("common_market_news", "market_pulse") for t in plan.tools)
 
 
-def _fund_entity_index(plan: AskPlan) -> int | None:
-    return next(
-        (i for i, e in enumerate(plan.entities) if e.role == "fund_scheme"),
-        None,
-    )
-
-
-def should_use_market_pulse(question: str, plan: AskPlan) -> bool:
-    """Isolated path: no named fund, not cross-impact, broad market intent."""
-    if _fund_entity_index(plan) is not None:
-        return False
-    if is_cross_impact_question(question):
-        return False
-    if not is_market_pulse_question(question):
-        return False
-    # Planner may attach sector-only asks; still allow pulse if clearly market-wide.
-    tools = {t.tool for t in plan.tools}
-    if tools & {"fund_nav", "fund_top_stocks", "holdings_news"}:
-        return False
-    return True
+def macro_news_enhanced_from_plan(plan: AskPlan) -> bool:
+    return any(t.tool == "macro_news_enhanced" for t in plan.tools)
 
 
 def market_pulse_from_plan(plan: AskPlan) -> bool:
-    raw = plan.raw_json if isinstance(plan.raw_json, dict) else {}
-    return bool(raw.get("market_pulse")) or any(t.tool == "market_pulse" for t in plan.tools)
+    """Broad market-now compose/digest path (planner must select common_market_news)."""
+    return common_market_news_from_plan(plan)
+
+
+def clustered_macro_data_from_bundle(bundle: Any) -> dict[str, Any]:
+    for key, val in (getattr(bundle, "tool_results", None) or {}).items():
+        if not val.get("ok"):
+            continue
+        tool_name = str(key).rsplit("_", 1)[0]
+        if tool_name not in CLUSTERED_MACRO_TOOL_NAMES:
+            continue
+        data = val.get("data")
+        if isinstance(data, dict) and ("clusters" in data or "representative_articles" in data):
+            return data
+    return {}
 
 
 def market_pulse_data_from_bundle(bundle: Any) -> dict[str, Any]:
-    for key, val in (getattr(bundle, "tool_results", None) or {}).items():
-        if not str(key).startswith("market_pulse") or not val.get("ok"):
-            continue
-        data = val.get("data")
-        if isinstance(data, dict):
-            return data
-    return {}
+    return clustered_macro_data_from_bundle(bundle)
 
 
 def market_pulse_window_days(question: str, tool_window_days: int | None = None) -> int:
@@ -189,10 +153,9 @@ def _cluster_label(articles: list[dict[str, Any]]) -> str:
             pulse_counts[key] = pulse_counts.get(key, 0) + 1
     if pulse_counts:
         top_key, top_n = max(pulse_counts.items(), key=lambda x: x[1])
-        if top_n >= max(2, len(articles) // 3):
-            human = _PULSE_THEME_LABELS.get(top_key)
-            if human:
-                return human
+        human = _PULSE_THEME_LABELS.get(top_key)
+        if human and top_n >= max(1, len(articles) // 4):
+            return human
     ent_counts: dict[str, int] = {}
     sector_counts: dict[str, int] = {}
     for a in articles:
@@ -204,13 +167,12 @@ def _cluster_label(articles: list[dict[str, Any]]) -> str:
             key = str(s).strip()
             if key:
                 sector_counts[key] = sector_counts.get(key, 0) + 1
-    if ent_counts:
-        top_ent = sorted(ent_counts.items(), key=lambda x: -x[1])[:2]
-        names = " · ".join(n for n, _ in top_ent)
-        return names[:72]
     if sector_counts:
         top = max(sector_counts.items(), key=lambda x: x[1])[0]
-        return f"{top} theme"
+        return str(top)[:72]
+    if ent_counts:
+        top_ent = max(ent_counts.items(), key=lambda x: x[1])[0]
+        return str(top_ent)[:72]
     title = str((articles[0] or {}).get("title") or "Macro theme")[:70]
     return title
 
@@ -371,7 +333,7 @@ def _collect_pulse_pool(
     filter_kwargs: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     pool: dict[str, dict[str, Any]] = {}
-    with ThreadPoolExecutor(max_workers=min(8, len(MACRO_QUERY_SPECS))) as pool_exec:
+    with ThreadPoolExecutor(max_workers=max(1, min(8, len(MACRO_QUERY_SPECS)))) as pool_exec:
         futs = {
             pool_exec.submit(
                 _fetch_one_macro_query,

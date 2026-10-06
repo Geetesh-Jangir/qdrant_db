@@ -66,6 +66,15 @@ class Settings(BaseSettings):
     min_relevance: int = 2
     embedding_model: str = EMBEDDING_MODEL
     embedding_cache_dir: str = "data/embedding_models"
+    huggingface_token: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "HUGGINGFACE_TOKEN",
+            "HF_TOKEN",
+            "HUGGINGFACE_HUB_TOKEN",
+            "HUGGING_FACE_HUB_TOKEN",
+        ),
+    )
     rag_query_log_dir: str = "data/rag_query_logs"
 
     # Investor portfolio file is NOT used by /api/ask (hypothetical "my portfolio" in questions only).

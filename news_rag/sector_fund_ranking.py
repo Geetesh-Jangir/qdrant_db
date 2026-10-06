@@ -18,28 +18,64 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # User / news phrasing → sector keys in sector_to_isin_weights.json
 _SECTOR_ALIASES: dict[str, tuple[str, ...]] = {
-    "automotive": ("Automobiles", "Auto Components"),
-    "automotive sector": ("Automobiles", "Auto Components"),
-    "auto sector": ("Automobiles", "Auto Components"),
-    "automobile": ("Automobiles",),
+    # Information Technology
+    "information technology": ("It - Software", "It - Services", "Software"),
+    "it sector": ("It - Software", "It - Services"),
+    "it": ("It - Software", "It - Services"),
+    "technology": ("It - Software", "It - Services", "Technology Hardware & Equipment"),
+    "tech": ("It - Software", "It - Services"),
+    "software": ("It - Software", "Software"),
+
+    # Banking & Financials
     "banking": ("Banks", "Finance"),
+    "banking & financials": ("Banks", "Finance", "Financial Services"),
+    "banking & financial services": ("Banks", "Finance", "Financial Services"),
+    "financials": ("Banks", "Finance", "Financial Services"),
+    "financial services": ("Banks", "Finance", "Financial Services", "Capital Markets"),
     "bank sector": ("Banks", "Finance"),
     "financial": ("Banks", "Finance", "Capital Markets"),
-    "it sector": ("It - Software",),
-    "software": ("It - Software",),
-    "pharma": ("Pharmaceuticals & Biotechnology", "Healthcare Services"),
-    "oil": ("Petroleum Products",),
-    "crude": ("Petroleum Products",),
-    "barrel": ("Petroleum Products",),
-    "brent": ("Petroleum Products",),
-    "energy": ("Power", "Petroleum Products"),
-    "real estate": ("Realty",),
-    "metal": ("Ferrous Metals", "Non - Ferrous Metals"),
+    "banks": ("Banks", "Finance"),
+    "psu banks": ("Banks",),
+    "public sector banks": ("Banks",),
+    "private banks": ("Banks",),
     "rbi": ("Banks", "Finance"),
     "repo rate": ("Banks", "Finance"),
     "repo": ("Banks", "Finance"),
     "rate hike": ("Banks", "Finance"),
     "monetary policy": ("Banks", "Finance"),
+
+    # Healthcare / Pharma
+    "pharmaceuticals & healthcare": ("Pharmaceuticals & Biotechnology", "Healthcare Services", "Healthcare"),
+    "pharmaceuticals": ("Pharmaceuticals & Biotechnology", "Healthcare"),
+    "pharma": ("Pharmaceuticals & Biotechnology", "Healthcare Services", "Healthcare"),
+    "healthcare": ("Healthcare Services", "Pharmaceuticals & Biotechnology", "Healthcare"),
+    "health care": ("Healthcare Services", "Pharmaceuticals & Biotechnology"),
+
+    # Auto / Automotive
+    "automotive": ("Automobiles", "Auto Components", "Auto Ancillaries"),
+    "automotive sector": ("Automobiles", "Auto Components"),
+    "auto sector": ("Automobiles", "Auto Components"),
+    "automobile": ("Automobiles", "Auto Components"),
+    "automobiles": ("Automobiles", "Auto Components"),
+
+    # Capital Goods / Industrial
+    "capital goods": ("Capital Goods", "Industrial Manufacturing", "Industrial Products"),
+    "capital goods & industrial solutions": ("Capital Goods", "Industrial Manufacturing", "Industrial Products"),
+    "industrial": ("Industrial Manufacturing", "Industrial Products", "Capital Goods"),
+    "industrials": ("Industrial Manufacturing", "Industrial Products", "Capital Goods"),
+    "infrastructure": ("Construction", "Power", "Industrial Products"),
+
+    # Energy / Oil / Metals
+    "oil": ("Petroleum Products", "Energy"),
+    "crude": ("Petroleum Products", "Energy"),
+    "barrel": ("Petroleum Products", "Energy"),
+    "brent": ("Petroleum Products", "Energy"),
+    "energy": ("Power", "Petroleum Products", "Energy"),
+    "power": ("Power", "Energy"),
+    "real estate": ("Realty", "Real Estate"),
+    "realty": ("Realty", "Real Estate"),
+    "metal": ("Ferrous Metals", "Non - Ferrous Metals", "Metals & Mining"),
+    "metals": ("Ferrous Metals", "Non - Ferrous Metals", "Metals & Mining"),
 }
 
 # Do not infer these sector keys from random news entity tags (e.g. Insurance ETF headlines).
@@ -58,6 +94,31 @@ _PASSIVE_NAME_RE = re.compile(
     r"target\s+maturity|fund\s+of\s+fund|fof\b)",
     re.I,
 )
+
+_NON_PURE_SECTOR_VEHICLE_RE = re.compile(
+    r"\b(arbitrage|equity\s+savings|balanced\s+advantage|dynamic\s+asset|multi[-\s]asset|"
+    r"balanced\s+hybrid|conservative\s+hybrid|aggressive\s+hybrid|hybrid\b|"
+    r"income\s+plus\s+arbitrage)\b",
+    re.I,
+)
+
+_DEDICATED_SECTORAL_RE = re.compile(
+    r"(banking\s*(?:&|and)\s*financial|financial\s+services\s+fund|technology\s+fund|"
+    r"pharma(?:ceutical)?|health\s*care\s+fund|infrastructure\s+fund|consumption\s+fund|"
+    r"defen[cs]e\s+fund|energy\s+fund|power\s*(?:&|and)\s*infra|psu\s+equity|"
+    r"manufacturing\s+fund|auto\s+fund|fmcg|metal\s+fund|precious\s+metals|"
+    r"realty|real\s+estate|sectoral|thematic|special\s+situations|"
+    r"export|services\s+fund|digital\s+india|mnc\s+fund|media\s+and\s+entertainment)",
+    re.I,
+)
+
+_PURITY_BUCKET_ORDER = {
+    "dedicated_sectoral": 0,
+    "diversified_equity": 1,
+    "passive": 2,
+    "defensive_neutral": 3,
+    "debt": 4,
+}
 
 _regular_growth_isins: set[str] | None = None
 _regular_growth_lock = threading.Lock()
@@ -233,6 +294,56 @@ def is_passive_fund_name(name: str) -> bool:
     return bool(_PASSIVE_NAME_RE.search(name or ""))
 
 
+def classify_sector_fund_purity(
+    fund_name: str,
+    *,
+    category: str = "",
+    scheme_type: str = "",
+) -> Literal[
+    "dedicated_sectoral",
+    "diversified_equity",
+    "defensive_neutral",
+    "passive",
+    "debt",
+]:
+    """Whether a scheme is a pure sector/thematic product vs incidental sector exposure."""
+    name = fund_name or ""
+    cat_cf = (category or "").casefold()
+    st_cf = (scheme_type or "").casefold()
+    if st_cf == "debt" or cat_cf == "debt" or any(
+        k in name.casefold()
+        for k in (
+            "liquid fund",
+            "overnight",
+            "money market",
+            "ultra short",
+            "low duration",
+            "short duration",
+            "corporate bond",
+            "gilt",
+            "dynamic bond",
+            "credit risk",
+            "target maturity",
+            "fixed horizon",
+        )
+    ):
+        return "debt"
+    if is_passive_fund_name(name) or "index" in cat_cf or st_cf.startswith("index"):
+        return "passive"
+    if (
+        _NON_PURE_SECTOR_VEHICLE_RE.search(name)
+        or "hybrid" in cat_cf
+        or "arbitrage" in cat_cf
+        or "multi asset" in cat_cf
+    ):
+        return "defensive_neutral"
+    if "sector" in cat_cf or "thematic" in cat_cf:
+        return "dedicated_sectoral"
+    if _DEDICATED_SECTORAL_RE.search(name):
+        return "dedicated_sectoral"
+    return "diversified_equity"
+
+
 def _sector_label_in_text(sector_key: str, text: str) -> bool:
     """Match sector labels in user text without 'Auto' ⊂ 'automotive' false positives."""
     sk = (sector_key or "").strip()
@@ -321,10 +432,11 @@ def rank_funds_by_sector_exposure(
             "severity": severity,
         }
 
-    # Scan many candidates; list active diversified funds first, then index/ETFs.
+    # Catalog lookups are local; keep a wide scan so high-weight ETFs do not crowd out sector funds.
+    scan_limit = min(max(limit * 20, 120), 400)
     raw_rows = idx.top_funds_for_sectors(
         sector_keys,
-        limit=max(limit * 25, 120),
+        limit=scan_limit,
         min_weight_pct=min_weight_pct,
         combine=combine,
         isin_allowlist=allowlist,
@@ -333,43 +445,69 @@ def rank_funds_by_sector_exposure(
 
     index = get_fund_index()
 
-    def _fname(isin: str) -> str:
-        hits = index.search(isin, limit=3)
-        for h in hits:
-            if str(h.get("isin") or "").upper() == isin.upper():
-                return str(h.get("fund_short_name") or isin)
-        d = index.get_fund_detail(isin)
-        if d:
-            return str(d.get("fund_short_name") or d.get("fund_name") or isin)
-        return isin
+    def _catalog(isin: str) -> dict[str, Any]:
+        return index.catalog_entry(isin) or {}
 
-    active_rows: list[tuple[str, float, dict[str, float]]] = []
-    passive_rows: list[tuple[str, float, dict[str, float]]] = []
+    buckets: dict[str, list[tuple[str, float, dict[str, float]]]] = {
+        k: [] for k in _PURITY_BUCKET_ORDER
+    }
     for isin, base_score, per_sector in raw_rows:
-        fname = _fname(isin)
-        if is_passive_fund_name(fname):
-            passive_rows.append((isin, base_score, per_sector))
-        else:
-            active_rows.append((isin, base_score, per_sector))
+        detail = _catalog(isin)
+        fname = str(detail.get("fund_short_name") or detail.get("fund_name") or isin)
+        purity = classify_sector_fund_purity(
+            fname,
+            category=str(detail.get("category") or ""),
+            scheme_type=str(detail.get("scheme_type") or ""),
+        )
+        buckets[purity].append((isin, base_score, per_sector))
 
-    chosen = active_rows[:limit]
-    if len(chosen) < limit:
-        chosen.extend(passive_rows[: limit - len(chosen)])
+    ordered_rows: list[tuple[str, float, dict[str, float], str]] = []
+    defensive_rows: list[tuple[str, float, dict[str, float], str]] = []
+    for purity in sorted(_PURITY_BUCKET_ORDER, key=lambda k: _PURITY_BUCKET_ORDER[k]):
+        for isin, base_score, per_sector in buckets[purity]:
+            row = (isin, base_score, per_sector, purity)
+            if purity == "defensive_neutral":
+                defensive_rows.append(row)
+            else:
+                ordered_rows.append(row)
+
+    chosen = ordered_rows[:limit]
     rankings = []
-    for isin, base_score, per_sector in chosen:
+    for isin, base_score, per_sector, purity in chosen:
+        detail = _catalog(isin)
+        fname = str(detail.get("fund_short_name") or detail.get("fund_name") or isin)
         rankings.append(
             {
                 "isin": isin,
                 "sector_weight_pct": round(base_score, 4),
                 "impact_score": round(base_score * severity, 4),
                 "sector_breakdown": {k: round(v, 4) for k, v in per_sector.items()},
-                "passive_sector_product": is_passive_fund_name(_fname(isin)),
+                "fund_name": fname,
+                "passive_sector_product": is_passive_fund_name(fname),
+                "sector_purity": purity,
+                "category": detail.get("category") or "",
+                "scheme_type": detail.get("scheme_type") or "",
+            }
+        )
+    defensive_alternatives = []
+    for isin, base_score, per_sector, purity in defensive_rows[:5]:
+        detail = _catalog(isin)
+        defensive_alternatives.append(
+            {
+                "isin": isin,
+                "fund_name": str(detail.get("fund_short_name") or detail.get("fund_name") or isin),
+                "sector_weight_pct": round(base_score, 4),
+                "sector_breakdown": {k: round(v, 4) for k, v in per_sector.items()},
+                "sector_purity": purity,
+                "category": detail.get("category") or "",
             }
         )
     return {
         "sector_keys": sector_keys,
         "rankings": rankings,
+        "defensive_alternatives": defensive_alternatives,
         "ranking_universe": universe,
         "ranking_source": "sector_to_isin_weights",
         "severity": severity,
+        "prefer_dedicated_sectoral": True,
     }

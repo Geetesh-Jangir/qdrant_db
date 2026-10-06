@@ -23,7 +23,8 @@ def _split_news_tools(news_tools: list[PlannedTool]) -> tuple[list[PlannedTool],
     return driver, other
 from news_rag.name_resolution import ResolvedNames, resolve_plan_names
 from news_rag.query_plan import DataNeed
-from news_rag.market_pulse import run_market_pulse
+from news_rag.macro_news_enhanced import run_macro_news_enhanced
+from news_rag.market_pulse import CLUSTERED_MACRO_TOOL_NAMES, run_market_pulse
 from news_rag.tools import (
     run_affected_funds,
     run_fund_holdings,
@@ -137,7 +138,15 @@ def _run_one_tool(
                 semantic_query=tool.semantic_query,
                 top_n=tool.top_n,
             )
-            return ToolRunResult(tool.tool, key, run_sector_funds(need))
+            return ToolRunResult(
+                tool.tool,
+                key,
+                run_sector_funds(
+                    need,
+                    direction=direction or plan.sentiment or "any",
+                    question=question,
+                ),
+            )
         if tool.tool == "metals_spot":
             return ToolRunResult(tool.tool, key, run_metals_spot())
         if tool.tool == "stock_snapshot":
@@ -152,14 +161,27 @@ def _run_one_tool(
                     sector_names=sectors,
                     top_n=plan.affected_funds_top_n,
                     semantic_query=tool.semantic_query,
+                    direction=direction or plan.sentiment or "any",
                 ),
             )
-        if tool.tool == "market_pulse":
+        if tool.tool in ("common_market_news", "market_pulse"):
             return ToolRunResult(
                 tool.tool,
                 key,
                 run_market_pulse(
                     question,
+                    window_days=tool.window_days,
+                    query_log=query_log,
+                    **filter_kwargs,
+                ),
+            )
+        if tool.tool == "macro_news_enhanced":
+            return ToolRunResult(
+                tool.tool,
+                key,
+                run_macro_news_enhanced(
+                    question,
+                    semantic_query=tool.semantic_query,
                     window_days=tool.window_days,
                     query_log=query_log,
                     **filter_kwargs,
@@ -251,9 +273,10 @@ def _apply_tool_result(bundle: ExecutionBundle, tr: ToolRunResult) -> None:
         bundle.sector_rows = data.get("rows") or []
     if tr.tool == "fund_nav" and tr.result.get("ok"):
         bundle.fund_nav_data = data
-    if tr.tool == "market_pulse" and tr.result.get("ok"):
+    if tr.tool in CLUSTERED_MACRO_TOOL_NAMES and tr.result.get("ok"):
+        prefix = "pulse" if tr.tool in ("common_market_news", "market_pulse") else "macro_enh"
         for cl in data.get("clusters") or []:
-            focus = f"pulse_{cl.get('theme_key') or cl.get('id')}"
+            focus = f"{prefix}_{cl.get('theme_key') or cl.get('id')}"
             arts = cl.get("articles") or []
             _merge_articles_into(bundle.articles_by_focus, focus, arts)
             _merge_articles_into(bundle.articles_by_layer, "macro", arts)
@@ -358,14 +381,14 @@ def execute_ask_plan(
         return bundle
 
     tools_to_run = [t for t in plan.tools if t.tool != "affected_funds" or plan.affected_funds == "now"]
-    pulse_mode = any(t.tool == "market_pulse" for t in tools_to_run)
+    clustered_macro = [t for t in tools_to_run if t.tool in CLUSTERED_MACRO_TOOL_NAMES]
+    pulse_mode = any(t.tool in ("common_market_news", "market_pulse") for t in clustered_macro)
     fact_tools = [
         t
         for t in tools_to_run
-        if t.tool not in _NEWS_TOOL_NAMES and t.tool != "market_pulse"
+        if t.tool not in _NEWS_TOOL_NAMES and t.tool not in CLUSTERED_MACRO_TOOL_NAMES
     ]
     news_tools = [t for t in tools_to_run if t.tool in _NEWS_TOOL_NAMES]
-    pulse_tools = [t for t in tools_to_run if t.tool == "market_pulse"]
     if pulse_mode:
         news_tools = [t for t in news_tools if t.tool != "macro_news"]
 
@@ -387,9 +410,9 @@ def execute_ask_plan(
         direction=direction,
         query_log=query_log,
     )
-    if pulse_tools:
+    if clustered_macro:
         _run_tools_parallel(
-            pulse_tools,
+            clustered_macro,
             plan,
             bundle,
             question,
@@ -452,20 +475,27 @@ def run_affected_funds_after_news(
     bundle: ExecutionBundle,
     digest_sectors: list[str],
     *,
+    direction: str | None = None,
     query_log: QueryLogger | None = None,
 ) -> None:
     if plan.affected_funds != "after_news":
         return
-    sectors = digest_sectors or plan.affected_funds_sectors
+    sectors = [s for s in (digest_sectors or plan.affected_funds_sectors or []) if str(s).strip()][:3]
+    target_dir = direction or plan.sentiment or "any"
     try:
         res = run_affected_funds(
             sector_names=sectors,
             top_n=plan.affected_funds_top_n,
             semantic_query=plan.answer_parts,
+            direction=target_dir,
         )
         bundle.tool_results["affected_funds_post"] = res
         if query_log is not None:
-            query_log.log_stage("affected_funds_after_news", sectors=sectors[:8])
+            query_log.log_stage(
+                "affected_funds_after_news",
+                sectors=sectors[:8],
+                direction=target_dir,
+            )
     except Exception as exc:
         bundle.pipeline_errors.append(
             PipelineError(stage="affected_funds", tool="affected_funds", message=str(exc))

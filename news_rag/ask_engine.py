@@ -17,7 +17,11 @@ from news_rag.holdings_market import (
     news_window_days_from_plan,
     should_fetch_holdings_market,
 )
-from news_rag.market_pulse import market_pulse_data_from_bundle, market_pulse_from_plan
+from news_rag.market_pulse import (
+    clustered_macro_data_from_bundle,
+    market_pulse_from_plan,
+    market_pulse_representatives_from_clusters,
+)
 from news_rag.plan_enrich import enrich_ask_plan
 from news_rag.query_analyzer import ADVICE_NOTE, plan_query
 
@@ -48,7 +52,7 @@ def _sources_from_articles(articles: list[dict]) -> list[dict]:
 
 
 def _retrieval_window_meta(bundle) -> dict[str, Any] | None:
-    pulse = market_pulse_data_from_bundle(bundle)
+    pulse = clustered_macro_data_from_bundle(bundle)
     if not pulse:
         return None
     return {
@@ -65,6 +69,10 @@ def _intent_from_plan(plan: AskPlan) -> str:
         return "fund_nav"
     if "fund_top_stocks" in tools or "fund_top_sectors" in tools:
         return "fund_holdings"
+    if "common_market_news" in tools or "market_pulse" in tools:
+        return "market_pulse"
+    if "macro_news_enhanced" in tools:
+        return "macro"
     if any(t in tools for t in ("holdings_news", "sector_news", "macro_news")):
         return "general"
     return "general"
@@ -179,11 +187,9 @@ def run_ask_engine(
 
     pulse_reps: list[dict] | None = None
     if market_pulse_from_plan(plan):
-        pulse_data = market_pulse_data_from_bundle(bundle)
+        pulse_data = clustered_macro_data_from_bundle(bundle)
         pulse_reps = pulse_data.get("representative_articles") or None
         if not pulse_reps and pulse_data.get("clusters"):
-            from news_rag.market_pulse import market_pulse_representatives_from_clusters
-
             pulse_reps = market_pulse_representatives_from_clusters(pulse_data["clusters"])
 
     digests, sectors_for_funds = digest_news_parallel(
@@ -202,7 +208,7 @@ def run_ask_engine(
         if d.error:
             pipeline_errors.append({"stage": "digest", "tool": d.layer, "message": d.error})
 
-    run_affected_funds_after_news(plan, bundle, sectors_for_funds, query_log=query_log)
+    run_affected_funds_after_news(plan, bundle, sectors_for_funds, direction=direction, query_log=query_log)
 
     composed = compose_final_answer(
         q,

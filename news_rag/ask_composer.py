@@ -20,22 +20,52 @@ from news_rag.market_pulse import (
 from news_rag.news_digest import LayerDigest
 from news_rag.llm_text import parse_json_from_text
 
-PLAIN_LANGUAGE_RULES = """PLAIN LANGUAGE (required — write for someone new to investing):
-- Use short sentences. Prefer everyday words over jargon.
-- When you use a term, explain it once in simple words in the same sentence, e.g.:
-  "Nifty (India's main stock index)", "RBI (India's central bank)", "FII (foreign investors)",
-  "liquidity (cash available in the banking system)", "repo rate (the rate at which banks borrow from RBI)".
-- Say what happened in plain English, then what it means for people's money and mutual funds.
-- You may use more bullets and a longer closing_summary if it helps clarity; do not sacrifice understanding for brevity.
-- Avoid: salience, allocation, headwinds, tailwinds, repricing, risk-off, beta, unless you immediately explain them."""
+INSTITUTIONAL_ANALYST_RULES = """ROLE: Senior Financial Analyst & Mutual Fund Strategist — crisp, institutional-grade intelligence.
 
-MARKET_PULSE_COMPOSER_ADDENDUM = """MARKET PULSE mode (broad "what's happening in the market" question):
+AUDIENCE: Informed investors. Executive, high-density tone. No elementary glossaries or parenthetical definitions
+(e.g. do NOT explain inflation, repo, or basis points in parentheses).
+
+FUND CATEGORY PURITY (critical):
+- When the user asks for a sector's mutual funds (banking, IT, pharma, etc.), recommend ONLY dedicated Sectoral/Thematic
+  equity funds in the main answer. Use ranked_funds where sector_purity=dedicated_sectoral first.
+- Do NOT present Arbitrage, Multi-Asset, Hybrid, or Debt funds as sector peers because they hold stocks in that sector.
+- If context.defensive_alternatives is non-empty, add at most ONE bullet under
+  **Defensive / Market-Neutral Alternatives** — label them as arbitrage or hybrid vehicles, not pure sector funds.
+
+PERFORMANCE & DIRECTION:
+- ranked_funds are already filtered. If direction is positive, every listed fund has a positive 1-month NAV. Present those as the performers. Do not replace them with funds that fell.
+- If ranking_note says no fund posted a positive 1-month return, say that plainly. Do not label negative-NAV sector funds as the best performers.
+- If direction is negative, discuss the weakest 1-month NAV names in ranked_funds.
+- If direction is any, use ranked_funds as the strongest 1-month results and state whether those returns are gains or declines.
+- Weave fund_name, sector allocation %, 1-month and 1-week NAV % into analytical sentences.
+
+STRUCTURE (avoid redundancy across bullets):
+1. **Summary Insight** — one punchy takeaway in the headline or first bullet.
+2. **Macro Backdrop & RBI Policy** — one cohesive bullet (inflation, rates, global yields).
+3. **Sectoral Impact & Credit Dynamics** — transmission to margins, borrowing, demand where relevant.
+4. **Fund Performance & Relative Outperformers** — verified funds with metrics and rationale.
+
+BOLDING: **institutions**, **fund names**, **sector names**, **key % returns**, and primary drivers."""
+
+MARKET_PULSE_COMPOSER_ADDENDUM = """MARKET PULSE mode (broad "what's happening in the market" and sector impact questions):
 - Primary input: market_pulse_representatives (up to 8 themes; each has articles_in_theme + one representative article) and digests[focus=market_pulse] if present.
+- STRUCTURE YOUR BULLETS BY TOPIC / SECTOR:
+  * 1–2 bullets for the market backdrop only (what the articles actually say: rates, yields, crude, currency).
+  * Then ONLY sectors listed in context sectors_positive that a representative article or digest item explicitly supports. Usually 1–3 sectors. Do not add Information Technology, Pharma, PSU banks, or Capital Goods unless that sector is in sectors_positive and the news states why it benefits.
+  * Do not pad the list to look complete. If the news supports one sector, write one sector bullet.
+  * At most one pressure bullet, and only if that sector is in sectors_negative.
+- MUTUAL FUNDS IN FOCUS (when the user asks which mutual funds are working well, or ranked_funds is non-empty):
+  * You MUST name the funds in ranked_funds. Use the exact fund_name, sector weight, 1-month NAV %, and 1-week NAV %.
+  * If those returns are positive, present them as the funds working well in the news-backed sectors.
+  * If ranking_note says returns are not positive, still name the funds and state the actual negative NAV. Do not drop the names. Do not call a decline a gain.
+  * No buy/sell language.
+- HEADLINE: Answer the market backdrop and only the sectors the news actually supports. If ranked_funds is present, name at least one fund in the headline or the fund bullets.
 - Synthesize insights in plain English. Do NOT paste long article titles or URLs. Do NOT list themes as a comma-separated headline.
-- Write at least 6 bullets when market_pulse_representatives has 6+ themes (otherwise one per theme provided). Order by articles_in_theme (highest first).
-- Each bullet: **theme** → what happened (facts from snippet) → why it matters for Indian mutual fund investors / which sectors (banks, IT, defence, etc.).
-- Mention article coverage when useful ("11 similar stories on bond yields") but focus on impact, not metadata.
-- closing_summary: tie themes together in 120–200 words; no generic "stay calm" investing lectures; only facts from representatives/digest.
+- Write as many bullets as the news supports. Do not force six themes or extra sectors.
+- NEVER end bullets with dangling fragments like 'So for your fund'. Always complete every thought.
+- closing_summary: tie the market backdrop, sector winners/losers, and fund takeaways together in 120–200 words; strictly NO generic 'stay calm / long-term investing' lectures; only factual synthesis from representatives and sector insights.
+- Use context sectors_positive / sectors_negative from digest when ranking beneficiary sectors.
+- NEVER use bullets that are only two company names joined by · (cluster labels). NEVER list random 52-week-low stock lists or brokerage pick roundups unless tied to a sector thesis.
 - If news_article_count is 0, say honestly that our news store had no articles for this window."""
 
 if TYPE_CHECKING:
@@ -45,33 +75,30 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-COMPOSER_SYSTEM = """You write answers for a mutual-fund and markets app. Your reader may NOT know finance jargon.
+COMPOSER_SYSTEM = """You deliver mutual-fund and Indian market intelligence for an institutional-style research app.
 
-Format: a clear headline, easy-to-read bullet points, then a friendly closing paragraph.
+Format: headline, dense bullet points with bold lead-ins, then a closing synthesis paragraph.
 
 Return JSON only:
 {
-  "headline": "One simple line; wrap the **fund or topic** in **asterisks**",
+  "headline": "One line answering the user; bold **fund**, **sector**, or **macro** anchors",
   "narrative": "Always leave \"\"",
   "bullets": [
-    "Use as many bullets as needed (often 6–10) for clarity. One idea per bullet.",
-    "Bold **fund names**, **company names**, **NAV** (say 'price per unit' if helpful), **₹** amounts, and **%** changes.",
-    "End each bullet with 'So for your fund…' or 'This matters because…' in plain language."
+    "Often 5–10 bullets. One thesis per bullet. Bold lead-in: **Macro Backdrop & RBI Policy** —, **Sectoral Impact** —, **Fund Performance** —.",
+    "Bold **fund names**, **sectors**, **institutions**, **₹** amounts, and **%** NAV changes from context only.",
+    "Complete every sentence; no fragments like 'So for your fund' or trailing ellipses."
   ],
-  "closing_summary": "150–280 words. Tell the story like you're explaining to a friend: what changed, why, and what to keep in mind. No bullet points in closing.",
+  "closing_summary": "120–200 words. Integrate macro, sector transmission, and fund takeaways. No bullets. FORBIDDEN: generic calm/long-term lectures ('stay calm', 'fluctuations are normal', 'let fund managers navigate').",
   "advice_declined_note": ""
 }
 
 Story & clarity:
-- Bullets should read in order: big picture → details → what it means for money in mutual funds.
-- Never start with labels like \"Sector:\" or \"Macro:\".
-- Explain % weight as \"about X% of the fund is in this company\" when useful.
-- News: what happened + why it matters for someone holding that fund or sector.
-- Order: fund price/returns first (if any), then important holdings, then sectors, then wider market news.
+- Order: summary/macro → sector impact → fund metrics (if any) → news-backed detail.
+- Holdings: % weight only when explaining a named fund's composition.
 - Do NOT write per-holding bullets when holdings_market is in context — the system adds those.
 - No ellipses (... or …). News only from digests/context. No buy/sell advice. No markdown headings (#).
 
-""" + PLAIN_LANGUAGE_RULES
+""" + INSTITUTIONAL_ANALYST_RULES
 
 
 _MAX_BOLD_PER_HEADLINE = 10
@@ -83,20 +110,31 @@ _DIGEST_INJECT_MAX_PULSE = 6
 _GENERIC_CLOSING_MARKERS = (
     "stay calm",
     "long-term perspective",
+    "long-term financial goals",
     "hasty decisions",
     "$100 a barrel",
     "crude oil prices climb",
     "weather these ups and downs",
+    "weather the ups and downs",
     "normal part of investing",
+    "normal part of market",
+    "fluctuations are a normal",
     "everyday mutual fund investors",
     "short-term market turbulence",
+    "short-term headlines",
     "best approach is to stay",
+    "let professional fund managers",
+    "fund managers navigate",
+    "instead of reacting",
+    "broad diversification helps",
+    "diversification helps cushion",
+    "focus on your long-term",
 )
 
 
 def _is_generic_investing_closing(text: str) -> bool:
     low = (text or "").lower()
-    return sum(1 for m in _GENERIC_CLOSING_MARKERS if m in low) >= 2
+    return any(m in low for m in _GENERIC_CLOSING_MARKERS)
 
 
 def _pulse_headline(clusters: list[dict[str, Any]]) -> str:
@@ -148,8 +186,8 @@ _GENERIC_MARKET_FLUFF = (
     "very carefully",
     "stock market right now",
 )
-_CLOSING_MIN_WORDS = 120
-_CLOSING_MAX_WORDS = 300
+_CLOSING_MIN_WORDS = 60
+_CLOSING_MAX_WORDS = 160
 
 
 def _word_count(text: str) -> int:
@@ -354,6 +392,10 @@ _LAYER_PREFIX_RE = re.compile(
     r"^(\*\*)?(?:holding|sector|macro|market)(?:\s*news)?(\*\*)?\s*(?:—\s*news\s*insight)?\s*[:\-—]\s*",
     re.I,
 )
+_HANGING_TRAIL_RE = re.compile(
+    r"\s*(?:So\s+for\s+(?:your|the)\s+fund|So\s+for\s+(?:your|the)\s+portfolio|This\s+matters\s+because|So\s+for\s+your)\s*[.:—\-…]*\s*$",
+    re.I,
+)
 
 
 def _strip_bullet_prefix(text: str) -> str:
@@ -364,6 +406,9 @@ def _strip_bullet_prefix(text: str) -> str:
             break
         t = t[m.end() :].strip()
     t = re.sub(r"^NAV:\s*", "", t, flags=re.I)
+    t = _HANGING_TRAIL_RE.sub("", t).strip()
+    if t and t[-1] not in ".!?":
+        t += "."
     return t.strip()
 
 
@@ -446,8 +491,8 @@ def _clean_prose_fragment(text: str, max_chars: int = 140) -> str:
     return pick
 
 
-def _dedupe_pulse_bullets(bullets: list[str]) -> list[str]:
-    """Keep one bullet per cluster label; do not truncate to first sentence."""
+def _dedupe_pulse_bullets(bullets: list[str], limit: int = 8) -> list[str]:
+    """Keep one bullet per cluster/sector label; do not truncate to first sentence."""
     out: list[str] = []
     seen_labels: set[str] = set()
     for raw in bullets:
@@ -463,14 +508,14 @@ def _dedupe_pulse_bullets(bullets: list[str]) -> list[str]:
         if len(b) > 680:
             b = b[:680].rsplit(" ", 1)[0] + "."
         out.append(b)
-    return out[:6]
+    return out[:limit]
 
 
 def _dedupe_bullets(bullets: list[str]) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
     for raw in bullets:
-        b = _strip_bullet_prefix(_clean_prose_fragment(raw, max_chars=500) or raw)
+        b = _strip_bullet_prefix(raw)
         b = re.sub(r"\.{2,}|…+", "", b)
         if not b:
             continue
@@ -870,9 +915,95 @@ def _build_news_backed_pulse_bullets(
     return bullets[:6]
 
 
+def _sector_fund_payload(bundle: ExecutionBundle) -> tuple[str, str, list]:
+    for k, val in bundle.tool_results.items():
+        if "sector_funds" in k and val.get("ok"):
+            data = val.get("data") or {}
+            return (
+                str(data.get("direction") or ""),
+                str(data.get("ranking_note") or ""),
+                list(data.get("rankings") or []),
+            )
+    return "", "", []
+
+
+def _claims_negative_fund_as_best(bullet: str) -> bool:
+    low = bullet.lower()
+    if "fund" not in low:
+        return False
+    if not re.search(r"-\d+(?:\.\d+)?%", bullet):
+        return False
+    return any(w in low for w in ("resilien", "outperform", "best", "relative", "fund performance"))
+
+
+def _extract_ranked_funds_from_bundle(bundle: ExecutionBundle) -> list[dict[str, Any]]:
+    for k in ("affected_funds_post", "affected_funds_0", "sector_funds_0"):
+        val = bundle.tool_results.get(k)
+        if val and val.get("ok"):
+            data = val.get("data") or {}
+            rf = data.get("rankings")
+            if isinstance(rf, list) and rf:
+                return rf
+    for k, val in bundle.tool_results.items():
+        if ("affected_funds" in k or "sector_funds" in k) and val.get("ok"):
+            data = val.get("data") or {}
+            rf = data.get("rankings")
+            if isinstance(rf, list) and rf:
+                return rf
+    return []
+
+
+def _build_ranked_fund_bullets(
+    ranked_funds: list[dict[str, Any]],
+    limit: int = 3,
+    sentiment: str = "any",
+) -> list[str]:
+    bullets: list[str] = []
+    for f in ranked_funds:
+        name = str(f.get("fund_name") or f.get("isin") or "").strip()
+        if not name:
+            continue
+        weight = f.get("sector_weight_pct")
+        sectors = f.get("matched_sectors") or []
+        ret_1m = f.get("return_1m_pct")
+        ret_1w = f.get("return_1w_pct")
+
+        if sentiment == "negative":
+            if not ((ret_1m is not None and ret_1m < 0) or (ret_1w is not None and ret_1w < 0)):
+                continue
+
+        sec_name = sectors[0] if sectors else "the target sector"
+        purity = str(f.get("sector_purity") or "").strip()
+        if purity == "defensive_neutral":
+            continue
+        weight_clause = (
+            f"with **{weight}%** allocated to **{sec_name}**"
+            if weight is not None
+            else f"with meaningful **{sec_name}** exposure"
+        )
+        nav_clause = ""
+        if ret_1m is not None and ret_1w is not None:
+            s1m = "+" if ret_1m > 0 else ""
+            s1w = "+" if ret_1w > 0 else ""
+            nav_clause = (
+                f", recording a **{s1m}{ret_1m}%** one-month and **{s1w}{ret_1w}%** one-week NAV change"
+            )
+        elif ret_1m is not None:
+            s1m = "+" if ret_1m > 0 else ""
+            nav_clause = f", with a **{s1m}{ret_1m}%** one-month NAV change"
+        elif ret_1w is not None:
+            s1w = "+" if ret_1w > 0 else ""
+            nav_clause = f", with a **{s1w}{ret_1w}%** one-week NAV change"
+        bullets.append(f"**{name}** {weight_clause}{nav_clause}.")
+        if len(bullets) >= limit:
+            break
+    return bullets
+
+
 def _market_pulse_clusters_from_bundle(bundle: ExecutionBundle) -> list[dict[str, Any]]:
     for _key, val in bundle.tool_results.items():
-        if not str(_key).startswith("market_pulse") or not val.get("ok"):
+        tool_name = str(_key).rsplit("_", 1)[0]
+        if tool_name not in ("common_market_news", "market_pulse", "macro_news_enhanced") or not val.get("ok"):
             continue
         data = val.get("data") or {}
         clusters = data.get("clusters")
@@ -950,6 +1081,183 @@ def _inject_holdings_market_bullets(
     return _polish_bullet_list(merged)
 
 
+_STOCK_NOISE_MARKERS = (
+    "52-week low",
+    "52 week low",
+    "brokerage firms continue",
+    "brokerage continue to issue",
+    "bse 500 stocks",
+    "among 24 bse",
+    "strategic picks across nbfcs",
+)
+
+_SECTOR_BENEFICIARY_HINTS = (
+    "information technology",
+    " it ",
+    "banking",
+    "financial",
+    "pharma",
+    "healthcare",
+    "defence",
+    "defense",
+    "capital goods",
+    "export",
+    "psu",
+    "public sector",
+    "beneficiar",
+    "top beneficiary",
+    "gainer",
+)
+
+
+def _is_entity_pair_cluster_bullet(bullet: str) -> bool:
+    text = (bullet or "").strip()
+    if " · " not in text:
+        return False
+    lead = text.split("—", 1)[0].split("-", 1)[0]
+    if "sector" in lead.lower() or "macro" in lead.lower() or "market" in lead.lower():
+        return False
+    parts = [p.strip() for p in text.split(" · ") if p.strip()]
+    if len(parts) < 2:
+        return False
+    if any("limited" in p.lower() or " ltd" in p.lower() for p in parts[:2]):
+        return True
+    return len(parts[0]) < 55 and len(parts[1]) < 55
+
+
+def _is_stock_noise_bullet(bullet: str) -> bool:
+    low = (bullet or "").lower()
+    return any(m in low for m in _STOCK_NOISE_MARKERS)
+
+
+def _is_pressure_sector_bullet(bullet: str) -> bool:
+    low = (bullet or "").lower()
+    return any(
+        p in low
+        for p in (
+            "under pressure",
+            "sectors under pressure",
+            "headwind",
+            "face pressure",
+            "slipped to",
+            "feeling the squeeze",
+            "squeeze margins",
+            "fuel costs squeeze",
+        )
+    )
+
+
+def _count_sector_beneficiary_bullets(bullets: list[str]) -> int:
+    n = 0
+    for b in bullets:
+        if _is_pressure_sector_bullet(b) or _is_entity_pair_cluster_bullet(b) or _is_stock_noise_bullet(b):
+            continue
+        low = b.lower()
+        if any(h in low for h in _SECTOR_BENEFICIARY_HINTS):
+            n += 1
+    return n
+
+
+def _meaning_for_sector(sector: str, items: list[dict[str, Any]]) -> str:
+    key = sector.lower()
+    for item in items:
+        theme = str(item.get("theme") or item.get("headline") or "").lower()
+        meaning = str(item.get("meaning") or "").strip()
+        if meaning and (key in theme or any(tok in meaning.lower() for tok in key.split()[:2])):
+            return _clean_prose_fragment(meaning, max_chars=220)
+    return ""
+
+
+def _inject_positive_sectors_from_digest(
+    bullets: list[str],
+    digests: list[LayerDigest] | None,
+) -> list[str]:
+    mp = next((d for d in digests or [] if (d.focus or "") == "market_pulse"), None)
+    if not mp:
+        return bullets
+    out = list(bullets)
+    items = mp.items or []
+    need = 3
+    for rank, sector in enumerate((mp.sectors_positive or [])[:3], start=1):
+        if need <= 0:
+            break
+        meaning = _meaning_for_sector(sector, items)
+        if not meaning:
+            continue
+        line = f"**{sector}** — {meaning}"
+        if any(sector.lower() in b.lower() for b in out):
+            continue
+        out.append(line)
+        need -= 1
+    return out
+
+
+def _apply_positive_sector_postprocess(
+    bullets: list[str],
+    digests: list[LayerDigest] | None,
+    *,
+    sentiment: str,
+    pulse_mode: bool,
+) -> list[str]:
+    if not pulse_mode or sentiment != "positive":
+        return bullets
+    cleaned: list[str] = []
+    for b in bullets:
+        if _is_entity_pair_cluster_bullet(b) or _is_stock_noise_bullet(b):
+            continue
+        cleaned.append(b)
+    pressure = [b for b in cleaned if _is_pressure_sector_bullet(b)]
+    non_pressure = [b for b in cleaned if b not in pressure]
+    bullets = non_pressure + pressure[:1]
+    bullets = _inject_positive_sectors_from_digest(bullets, digests)
+    bullets = _drop_unbacked_sector_bullets(bullets, digests)
+    return _dedupe_pulse_bullets(bullets)
+
+
+def _sector_allowed(bullet_lower: str, allowed: list[str]) -> bool:
+    for name in allowed:
+        if name in bullet_lower:
+            return True
+        for tok in re.findall(r"[a-z]{5,}", name):
+            stem = tok[:-3] if tok.endswith("ing") and len(tok) > 6 else tok
+            if len(stem) >= 4 and stem in bullet_lower:
+                return True
+    return False
+
+
+def _drop_unbacked_sector_bullets(
+    bullets: list[str],
+    digests: list[LayerDigest] | None,
+) -> list[str]:
+    """Drop sector-winner bullets that the digest did not mark as explicitly positive."""
+    mp = next((d for d in digests or [] if (d.focus or "") == "market_pulse"), None)
+    allowed = [str(s).lower() for s in ((mp.sectors_positive if mp else None) or []) if str(s).strip()][:3]
+    if not allowed:
+        return bullets
+    hints = (
+        "information technology",
+        "pharmaceutical",
+        "healthcare",
+        "public sector bank",
+        "capital goods",
+        "defence",
+        "defense",
+        "banking",
+        "financial",
+    )
+    kept: list[str] = []
+    for b in bullets:
+        low = b.lower()
+        if "fund" in low:
+            kept.append(b)
+            continue
+        sectorish = "beneficiary" in low or any(h in low for h in hints)
+        if sectorish and not _sector_allowed(low, allowed):
+            continue
+        kept.append(b)
+    return kept
+
+
 def _inject_digest_insights(
     bullets: list[str],
     digests: list[LayerDigest],
@@ -1009,6 +1317,7 @@ def _finalize_compose(
     market_pulse_clusters: list[dict[str, Any]] | None = None,
     question: str = "",
     answer_parts: str = "",
+    sentiment: str = "any",
 ) -> tuple[str, str, list[str]]:
     nav = _nav_payload(bundle)
     nav_line = _format_nav_bullet(nav) if nav else None
@@ -1035,13 +1344,11 @@ def _finalize_compose(
         bullets = list(backed)
     elif market_pulse_clusters:
         bullets = [b for b in bullets if not _is_generic_market_fluff(b)]
-        if len(bullets) < 4:
-            bullets = _inject_market_pulse_bullets(bullets, market_pulse_clusters)
     bullets = _inject_holdings_market_bullets(bullets, holdings_market)
     nav = _nav_payload(bundle)
     fund_name = str((nav or {}).get("fund_name") or "")
     pulse_mode = bool(market_pulse_clusters)
-    if digests and not (pulse_mode and backed):
+    if digests and not pulse_mode:
         bullets = _inject_digest_insights(
             bullets,
             digests,
@@ -1052,7 +1359,7 @@ def _finalize_compose(
     if pulse_mode:
         bullets = [b for b in bullets if not _is_generic_market_fluff(b)]
         bullets = _dedupe_pulse_bullets(bullets) if bullets else []
-        target = min(8, len(market_pulse_clusters or []) or 6)
+        target = max(6, min(8, len(market_pulse_clusters or [])))
         if digests and len(bullets) < target:
             mp_digest = next((d for d in digests if (d.focus or "") == "market_pulse"), None)
             if mp_digest:
@@ -1066,8 +1373,42 @@ def _finalize_compose(
                         bullets.append(line)
                     if len(bullets) >= target:
                         break
-        if len(bullets) < 4 and backed:
-            bullets = _polish_bullet_list(backed, market_pulse=True)
+        bullets = _apply_positive_sector_postprocess(
+            bullets, digests, sentiment=sentiment, pulse_mode=True
+        )
+        ranked_funds = _extract_ranked_funds_from_bundle(bundle)
+        if ranked_funds:
+            lower_q = (question + " " + answer_parts).lower()
+            wants_funds = any(
+                w in lower_q
+                for w in ("fund", "funds", "mutual fund", "mutual funds", "scheme", "schemes")
+            )
+            blob_bullets = " ".join(bullets).lower()
+            has_fund_bullets = any(
+                m in blob_bullets
+                for m in (
+                    "top fund",
+                    "fund in focus",
+                    "fund performance",
+                    "relative outperform",
+                )
+            )
+            if not has_fund_bullets:
+                for b in bullets:
+                    b_lower = b.lower()
+                    for rf in ranked_funds:
+                        fname = str(rf.get("fund_name") or "").lower()
+                        if fname and len(fname) > 5 and fname in b_lower:
+                            has_fund_bullets = True
+                            break
+                    if has_fund_bullets:
+                        break
+            
+            if wants_funds and not has_fund_bullets:
+                fund_bullets = _build_ranked_fund_bullets(ranked_funds, limit=3, sentiment=sentiment)
+                for fb in fund_bullets:
+                    if fb not in bullets:
+                        bullets.append(fb)
     else:
         if market_pulse_clusters:
             bullets = [b for b in bullets if not _is_generic_market_fluff(b)]
@@ -1085,6 +1426,16 @@ def _finalize_compose(
             question=question,
             answer_parts=answer_parts,
         )[:_MAX_INSIGHT_BULLETS]
+    fund_direction, fund_note, fund_rows = _sector_fund_payload(bundle)
+    lower_q = (question + " " + answer_parts).lower()
+    wants_funds = any(
+        w in lower_q for w in ("fund", "funds", "mutual fund", "mutual funds", "scheme", "schemes")
+    )
+    if wants_funds and fund_direction == "positive" and not fund_rows and fund_note:
+        bullets = [b for b in bullets if not _claims_negative_fund_as_best(b)]
+        line = f"**Fund Performance** — {fund_note}"
+        if line not in bullets:
+            bullets.append(line)
     narrative = ""
 
     if not pulse_mode:
@@ -1182,16 +1533,12 @@ def _deterministic_fallback(
             for sent in _split_into_sentences(d.summary)[:2]:
                 bullets.append(sent)
 
-    sf = next((v for k, v in bundle.tool_results.items() if "sector_funds" in k and v.get("ok")), None)
-    if sf:
-        ranks = (sf.get("data") or {}).get("rankings") or []
-        names = [str(r.get("fund_name") or "") for r in ranks[:5] if r.get("fund_name")]
-        if names:
-            narrative_parts.append(
-                "Funds with meaningful precious-metals exposure include "
-                + ", ".join(names[:3])
-                + (f" and others ({len(names)} ranked)." if len(names) > 3 else ".")
-            )
+    ranked_funds = _extract_ranked_funds_from_bundle(bundle)
+    if ranked_funds:
+        fund_bullets = _build_ranked_fund_bullets(ranked_funds, limit=3, sentiment=plan.sentiment)
+        for fb in fund_bullets:
+            if fb not in bullets:
+                bullets.append(fb)
 
     note = ""
     if plan.declined_parts:
@@ -1273,10 +1620,52 @@ def compose_final_answer(
                 "layer": d.layer,
                 "summary": d.summary,
                 "items": d.items,
+                "sectors_positive": d.sectors_positive,
+                "sectors_negative": d.sectors_negative,
             }
             for d in digests
         ],
+        "sectors_positive": list(dict.fromkeys(s for d in digests for s in (d.sectors_positive or [])))[:3],
+        "sectors_negative": list(dict.fromkeys(s for d in digests for s in (d.sectors_negative or []))),
     }
+    ranked_funds = _extract_ranked_funds_from_bundle(bundle)
+    context["ranked_funds"] = [
+        {
+            "fund_name": r.get("fund_name"),
+            "isin": r.get("isin"),
+            "sector_weight_pct": r.get("sector_weight_pct"),
+            "matched_sectors": r.get("matched_sectors"),
+            "return_1w_pct": r.get("return_1w_pct"),
+            "return_1m_pct": r.get("return_1m_pct"),
+            "latest_nav": r.get("latest_nav"),
+            "sector_purity": r.get("sector_purity"),
+            "category": r.get("category"),
+        }
+        for r in ranked_funds[:3]
+    ]
+    defensive: list[dict[str, Any]] = []
+    for k, val in bundle.tool_results.items():
+        if not val.get("ok"):
+            continue
+        if "sector_funds" not in k and "affected_funds" not in k:
+            continue
+        data = val.get("data") or {}
+        alt = data.get("defensive_alternatives")
+        if isinstance(alt, list):
+            defensive.extend(alt)
+    context["defensive_alternatives"] = defensive[:4]
+    for k, val in bundle.tool_results.items():
+        if not val.get("ok"):
+            continue
+        if "sector_funds" not in k and "affected_funds" not in k:
+            continue
+        data = val.get("data") or {}
+        if data.get("ranking_note") or data.get("ranking_basis"):
+            context["fund_ranking_basis"] = data.get("ranking_basis") or context.get("fund_ranking_basis") or ""
+            context["ranking_note"] = data.get("ranking_note") or ""
+            context["fund_rank_direction"] = data.get("direction") or ""
+            if "affected_funds" in k:
+                break
     if not llm_api_key_configured(get_settings()):
         return _deterministic_fallback(plan, bundle, digests)
 
@@ -1340,6 +1729,12 @@ def compose_final_answer(
         )
     elif market_pulse_from_plan(plan):
         system_prompt = f"{COMPOSER_SYSTEM}\n\n{MARKET_PULSE_COMPOSER_ADDENDUM}"
+        if plan.sentiment == "positive":
+            system_prompt += (
+                "\n\nName only sectors in sectors_positive that the articles support. "
+                "Do not invent extra beneficiary sectors. "
+                "If ranked_funds is non-empty, include a bullet for each of the top funds with the fund name and NAV %."
+            )
 
     user = f"Question:\n{question}\n\nContext:\n{safe_json_dumps(context, limit=14000)}"
     try:
@@ -1362,6 +1757,7 @@ def compose_final_answer(
             market_pulse_clusters=pulse_clusters,
             question=question,
             answer_parts=plan.answer_parts,
+            sentiment=plan.sentiment,
         )
         closing_raw = str(
             parsed.get("closing_summary") or parsed.get("closing") or parsed.get("summary_paragraph") or ""

@@ -258,7 +258,7 @@ def build_holdings_market_snapshots(
     rows = holdings_rows[:top_n]
     snapshots: list[dict[str, Any]] = [None] * len(rows)  # type: ignore[list-item]
 
-    with ThreadPoolExecutor(max_workers=min(4, len(rows))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(4, len(rows)))) as pool:
         futs = {
             pool.submit(
                 _snapshot_one,

@@ -11,7 +11,7 @@ from news_rag.cross_impact import (
     is_cross_impact_question,
 )
 from news_rag.holdings_market import holdings_top_n_from_question, question_wants_holdings_performance
-from news_rag.market_pulse import MARKET_PULSE_DEFAULT_WINDOW_DAYS, market_pulse_window_days, should_use_market_pulse
+from news_rag.market_pulse import MARKET_PULSE_DEFAULT_WINDOW_DAYS, market_pulse_window_days
 from news_rag.parse import infer_window_days_from_question
 
 _GOLD = re.compile(r"\bgold\b", re.I)
@@ -25,6 +25,11 @@ _PURE_NAV = re.compile(
     r"^\s*(?:what(?:'s| is)\s+(?:the\s+)?nav|(?:latest|current)\s+nav|nav\s+(?:of|for))\b",
     re.I,
 )
+_SECTOR_PERF_FUNDS = re.compile(
+    r"\b(best|top|highest|outperform|performed\s+best|performing\s+best)\b",
+    re.I,
+)
+_SECTOR_FUND_PHRASE = re.compile(r"\b(mutual\s+funds?|sector\s+funds?|banking\s+funds?)\b", re.I)
 
 
 def _has_gold(text: str) -> bool:
@@ -47,6 +52,49 @@ def _fund_label(plan: AskPlan, idx: int) -> str:
         ent = plan.entities[idx]
         return (ent.cleaned_phrase or ent.raw or "").strip()
     return (plan.answer_parts or "mutual fund").strip()
+
+
+def _sector_name_hint_from_question(question: str) -> str:
+    lower = (question or "").lower()
+    if "banking" in lower or "financial services" in lower or "financials" in lower:
+        return "banking and financial services"
+    if "information technology" in lower or re.search(r"\bit\s+funds?\b", lower):
+        return "information technology"
+    if "pharma" in lower or "healthcare" in lower:
+        return "pharmaceuticals and healthcare"
+    if "defence" in lower or "defense" in lower:
+        return "defence"
+    if "auto" in lower or "automotive" in lower:
+        return "automotive"
+    return ""
+
+
+def _ensure_sector_performance_funds(plan: AskPlan, question: str) -> AskPlan:
+    """When the user asks for best sector mutual funds, ensure sector_funds runs with a sector hint."""
+    names = {t.tool for t in plan.tools}
+    hint = _sector_name_hint_from_question(question)
+    if "sector_funds" in names:
+        if hint:
+            for t in plan.tools:
+                if t.tool == "sector_funds" and not (t.sector_name or "").strip():
+                    t.sector_name = hint
+                    if not (t.semantic_query or "").strip():
+                        t.semantic_query = hint
+        return plan
+    q = question or ""
+    if not hint or not _SECTOR_PERF_FUNDS.search(q) or not _SECTOR_FUND_PHRASE.search(q):
+        return plan
+    tools = list(plan.tools)
+    tools.append(
+        PlannedTool(
+            tool="sector_funds",
+            sector_name=hint,
+            semantic_query=hint,
+            top_n=max(plan.affected_funds_top_n or 0, 5),
+        )
+    )
+    plan.tools = tools
+    return plan
 
 
 def _is_pure_nav_question(question: str) -> bool:
@@ -295,33 +343,71 @@ def _enrich_commodity_only_plan(question: str, plan: AskPlan) -> AskPlan:
     return plan
 
 
-def _configure_market_pulse(plan: AskPlan, question: str) -> AskPlan:
-    """Broad market-now questions: multi-macro pulse (does not change other query types)."""
-    if not should_use_market_pulse(question, plan):
+def _normalize_planner_market_tools(plan: AskPlan, question: str) -> AskPlan:
+    """Planner-chosen market tools only — default windows, drop redundant macro_news."""
+    q = question or ""
+    has_common = any(t.tool == "common_market_news" for t in plan.tools)
+    if not has_common:
         return plan
-    window = infer_window_days_from_question(
-        question,
-        default_days=MARKET_PULSE_DEFAULT_WINDOW_DAYS,
+    window = market_pulse_window_days(
+        q,
+        infer_window_days_from_question(q, default_days=MARKET_PULSE_DEFAULT_WINDOW_DAYS),
     )
-    window = market_pulse_window_days(question, window)
-    tools = [t for t in plan.tools if t.tool not in ("macro_news", "sector_news")]
-    if not any(t.tool == "market_pulse" for t in tools):
-        tools.append(PlannedTool(tool="market_pulse", window_days=window))
-    else:
-        for t in tools:
-            if t.tool == "market_pulse":
+    kept: list[PlannedTool] = []
+    has_sector_news = False
+    for t in plan.tools:
+        if t.tool == "macro_news" and has_common:
+            continue
+        if t.tool == "common_market_news":
+            if not t.window_days:
                 t.window_days = window
-    plan.tools = tools
+            if not t.semantic_query:
+                t.semantic_query = "India equity markets Nifty RBI flows macro drivers"
+        if t.tool == "sector_news":
+            has_sector_news = True
+            if not t.window_days:
+                t.window_days = window
+            if not t.semantic_query:
+                t.semantic_query = (
+                    "India sector gainers beneficiaries macro impact IT banking pharma exports PSU banks"
+                )
+        kept.append(t)
+
+    wants_funds = any(
+        w in (question or "").lower()
+        for w in ("mutual fund", "mutual funds", "which fund", "which funds", "what fund", "what funds", "schemes")
+    )
+    if wants_funds and plan.affected_funds == "none":
+        plan.affected_funds = "after_news"
+        if not plan.affected_funds_top_n:
+            plan.affected_funds_top_n = 6
+
+    plan.tools = kept
     plan.raw_json = dict(plan.raw_json or {})
-    plan.raw_json["market_pulse"] = True
+    plan.raw_json["common_market_news"] = True
+    return plan
+
+
+def _normalize_macro_enhanced_tools(plan: AskPlan, question: str) -> AskPlan:
+    q = question or ""
+    for t in plan.tools:
+        if t.tool != "macro_news_enhanced":
+            continue
+        if not t.window_days:
+            t.window_days = market_pulse_window_days(q, MARKET_PULSE_DEFAULT_WINDOW_DAYS)
+        if not t.semantic_query:
+            t.semantic_query = (plan.answer_parts or q)[:200]
     return plan
 
 
 def enrich_ask_plan(question: str, plan: AskPlan) -> AskPlan:
     """Add separate news tools per commodity and ensure metals + fund exposure tools."""
     q = question or ""
-    plan = _configure_market_pulse(plan, q)
-    if (plan.raw_json or {}).get("market_pulse"):
+    plan = _normalize_planner_market_tools(plan, q)
+    plan = _normalize_macro_enhanced_tools(plan, q)
+
+    market_tools = {t.tool for t in plan.tools}
+    if plan.tools and market_tools <= {"common_market_news", "sector_news", "affected_funds"}:
         return plan
 
     plan = _ensure_fund_nav_tool(plan)
@@ -338,4 +424,5 @@ def enrich_ask_plan(question: str, plan: AskPlan) -> AskPlan:
         plan = _ensure_fund_news_tools(plan, q)
         plan = _enrich_commodity_only_plan(q, plan)
 
+    plan = _ensure_sector_performance_funds(plan, q)
     return plan

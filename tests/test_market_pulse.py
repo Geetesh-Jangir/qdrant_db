@@ -1,19 +1,15 @@
-from news_rag.ask_plan import AskPlan
+from news_rag.ask_plan import AskPlan, PlannedTool
 from news_rag.market_pulse import (
     cluster_articles_by_theme,
-    is_market_pulse_question,
-    should_use_market_pulse,
+    common_market_news_from_plan,
+    market_pulse_from_plan,
 )
 
 
-def test_is_market_pulse_question():
-    assert is_market_pulse_question("What's happening in the market right now?")
-    assert not is_market_pulse_question("HDFC Large Cap NAV")
-
-
-def test_should_use_market_pulse_no_fund():
-    plan = AskPlan(tools=[], entities=[], answer_parts="market now")
-    assert should_use_market_pulse("market update today", plan)
+def test_common_market_news_from_plan():
+    plan = AskPlan(tools=[PlannedTool(tool="common_market_news")])
+    assert common_market_news_from_plan(plan)
+    assert market_pulse_from_plan(plan)
 
 
 def test_cluster_prefers_larger_groups():

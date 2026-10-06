@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 
 from lib.embedding_cache import model_snapshot_exists, prepare_embedding_cache
+from lib.hf_auth import configure_huggingface_token, huggingface_model_kwargs
 from news_pipeline.config import QUERY_PREFIX, Settings
 from news_pipeline.run_log import get_run_logger
 
@@ -15,12 +16,13 @@ class Encoder:
     def __init__(self, settings: Settings) -> None:
         from langchain_huggingface import HuggingFaceEmbeddings
 
+        configure_huggingface_token(settings.huggingface_token)
         cache = prepare_embedding_cache(settings.path(settings.embedding_cache_dir))
         self._chars = settings.embed_chars
         self._model = HuggingFaceEmbeddings(
             model_name=settings.embedding_model,
             cache_folder=str(cache),
-            model_kwargs={"device": "cpu"},
+            model_kwargs=huggingface_model_kwargs(device="cpu", token=settings.huggingface_token),
             encode_kwargs={"normalize_embeddings": True},
         )
         self._batch = settings.embed_batch

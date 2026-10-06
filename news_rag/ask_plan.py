@@ -24,6 +24,8 @@ ALLOWED_PLANNER_TOOLS = frozenset(
         "metals_spot",
         "stock_snapshot",
         "market_pulse",
+        "common_market_news",
+        "macro_news_enhanced",
     }
 )
 
@@ -31,6 +33,7 @@ ALLOWED_PLANNER_TOOLS = frozenset(
 _TOOL_ALIASES = {
     "fund_holdings": "fund_top_stocks",
     "fund_sectors": "fund_top_sectors",
+    "market_pulse": "common_market_news",
 }
 
 

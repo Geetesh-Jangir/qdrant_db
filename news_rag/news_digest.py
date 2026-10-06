@@ -38,6 +38,11 @@ Return ONLY JSON:
   "sectors_positive": ["sector names if any"],
   "sectors_negative": ["sector names if any"]
 }
+CRITICAL: Be extremely strict about sector assignment. 
+- Only add a sector to sectors_positive if the news explicitly states it benefits, rises, or has a positive outlook.
+- Only add a sector to sectors_negative if the news explicitly states it faces headwinds, falls, takes a hit, or has a negative outlook.
+- Do not list a sector just because it's mentioned. It must have a clear directional impact.
+
 If articles are empty, say no matching news was found. Do not invent macro reasons without article support.
 
 PLAIN LANGUAGE: Write for a reader new to markets. Explain jargon in the same sentence (e.g. Nifty = main Indian stock index).
@@ -63,10 +68,16 @@ Return ONLY JSON:
       "meaning": "2-3 sentences: what happened, market impact, which mutual fund sectors are affected"
     }
   ],
-  "sectors_positive": [],
-  "sectors_negative": []
+  "sectors_positive": ["names of sectors explicitly stated to benefit or be positively affected, e.g. Information Technology, Banking"],
+  "sectors_negative": ["names of sectors explicitly stated to face headwinds or be adversely affected, e.g. Real Estate, Automobiles"]
 }
-Use only facts from the provided representatives. One item per theme. No buy/sell advice."""
+CRITICAL SECTOR ASSIGNMENT:
+- sectors_positive: ONLY sectors that are explicitly rising, gaining, or benefiting from the news.
+- sectors_negative: ONLY sectors that are explicitly falling, taking a hit, worst affected, or facing headwinds.
+- Do NOT guess or infer impacts without clear evidence in the snippet.
+- If a sentiment filter is provided, ensure your sector categorizations strictly align with it.
+
+Use only facts from the provided representatives. Identify all beneficiary and negatively affected sectors accurately. One item per theme. No buy/sell advice."""
 
 
 @dataclass
@@ -84,6 +95,7 @@ def digest_market_pulse_representatives(
     question: str,
     representatives: list[dict[str, Any]],
     *,
+    sentiment: str = "",
     query_log: QueryLogger | None = None,
 ) -> LayerDigest:
     if not representatives:
@@ -110,7 +122,8 @@ def digest_market_pulse_representatives(
             ],
         )
     user = (
-        f"Question: {question}\n\n"
+        f"Question: {question}\n"
+        f"Sentiment filter requested: {sentiment}\n\n"
         f"Representative articles (one per top theme, sorted by coverage):\n"
         f"{json.dumps(representatives, ensure_ascii=False)}"
     )
@@ -239,30 +252,21 @@ def digest_news_parallel(
     query_log: QueryLogger | None = None,
     market_pulse_representatives: list[dict[str, Any]] | None = None,
 ) -> tuple[list[LayerDigest], list[str]]:
+    digests: list[LayerDigest] = []
     if market_pulse_representatives:
         batch = digest_market_pulse_representatives(
             question,
             market_pulse_representatives,
+            sentiment=sentiment,
             query_log=query_log,
         )
-        sectors: list[str] = []
-        sectors.extend(batch.sectors_positive)
-        sectors.extend(batch.sectors_negative)
-        seen: set[str] = set()
-        unique = []
-        for s in sectors:
-            key = s.lower().strip()
-            if key and key not in seen:
-                seen.add(key)
-                unique.append(s)
-        return [batch], unique
+        digests.append(batch)
 
     fund_ctx = {
         "nav": fund_nav_data,
         "holdings": holdings_rows[:8],
         "sectors": sector_rows[:8],
     }
-    digests: list[LayerDigest] = []
     jobs: list[tuple[str, str, list[dict]]] = []
     if articles_by_focus:
         pulse_jobs: list[tuple[str, str, list[dict]]] = []
@@ -271,22 +275,38 @@ def digest_news_parallel(
             if not arts:
                 continue
             if str(focus_key).startswith("pulse_"):
-                pulse_jobs.append(("macro", focus_key, arts))
+                if not market_pulse_representatives:
+                    pulse_jobs.append(("macro", focus_key, arts))
             else:
                 layer = "macro" if focus_key in ("gold", "silver", "macro") else focus_key
                 other_jobs.append((layer, focus_key, arts))
         pulse_jobs.sort(key=lambda j: -len(j[2]))
         jobs.extend(pulse_jobs[:5])
         jobs.extend(other_jobs)
-    if not jobs:
+    if not jobs and not market_pulse_representatives:
         for layer in ("holding", "sector", "macro"):
             arts = articles_by_layer.get(layer) or []
             if arts:
                 jobs.append((layer, layer, arts))
     if not jobs:
-        return digests, []
+        sectors_for_funds: list[str] = []
+        for d in digests:
+            if sentiment == "positive":
+                sectors_for_funds.extend(d.sectors_positive)
+            elif sentiment == "negative":
+                sectors_for_funds.extend(d.sectors_negative)
+            else:
+                sectors_for_funds.extend(d.sectors_negative + d.sectors_positive)
+        seen: set[str] = set()
+        unique: list[str] = []
+        for s in sectors_for_funds:
+            key = s.lower().strip()
+            if key and key not in seen:
+                seen.add(key)
+                unique.append(s)
+        return digests, unique
 
-    with ThreadPoolExecutor(max_workers=min(6, len(jobs))) as pool:
+    with ThreadPoolExecutor(max_workers=max(1, min(6, len(jobs)))) as pool:
         futs = {
             pool.submit(
                 _digest_one_layer,
@@ -310,7 +330,7 @@ def digest_news_parallel(
                 if query_log is not None:
                     query_log.write(f"DIGEST_FAIL focus={focus} {exc}")
 
-    sectors_for_funds: list[str] = []
+    sectors_for_funds = []
     for d in digests:
         if sentiment == "positive":
             sectors_for_funds.extend(d.sectors_positive)
@@ -318,8 +338,8 @@ def digest_news_parallel(
             sectors_for_funds.extend(d.sectors_negative)
         else:
             sectors_for_funds.extend(d.sectors_negative + d.sectors_positive)
-    seen: set[str] = set()
-    unique: list[str] = []
+    seen = set()
+    unique = []
     for s in sectors_for_funds:
         key = s.lower().strip()
         if key and key not in seen:
