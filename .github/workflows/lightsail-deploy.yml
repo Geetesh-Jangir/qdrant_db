@@ -11,7 +11,7 @@ on:
       branch:
         description: Git branch to deploy
         required: false
-        default: huge-corpus
+        default: ask-a-question
         type: string
 
 jobs:
@@ -32,7 +32,7 @@ jobs:
             DEPLOY_PATH="${{ secrets.LIGHTSAIL_DEPLOY_PATH }}"
             if [ -z "$DEPLOY_PATH" ]; then DEPLOY_PATH="/opt/news-rag"; fi
             BRANCH="${{ github.event.inputs.branch }}"
-            if [ -z "$BRANCH" ]; then BRANCH="huge-corpus"; fi
+            if [ -z "$BRANCH" ]; then BRANCH="ask-a-question"; fi
             if [ ! -d "$DEPLOY_PATH/.git" ]; then
               echo "Repo not found at $DEPLOY_PATH — run deploy/lightsail/install.sh on the server first."
               exit 1

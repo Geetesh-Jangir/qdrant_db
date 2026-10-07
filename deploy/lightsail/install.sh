@@ -8,7 +8,7 @@ set -euo pipefail
 
 NEWS_RAG_DIR="${NEWS_RAG_DIR:-/opt/news-rag}"
 NEWS_RAG_REPO="${NEWS_RAG_REPO:-https://github.com/Geetesh-Jangir/qdrant_db.git}"
-NEWS_RAG_BRANCH="${NEWS_RAG_BRANCH:-huge-corpus}"
+NEWS_RAG_BRANCH="${NEWS_RAG_BRANCH:-ask-a-question}"
 RAG_PORT="${RAG_PORT:-8081}"
 SERVICE_USER="${SERVICE_USER:-ubuntu}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -65,7 +65,7 @@ pip install -r news_rag/requirements.txt
 export PYTHONPATH="${NEWS_RAG_DIR}"
 .venv/bin/python scripts/download_embedding_model.py
 
-mkdir -p data/rag_query_logs data/embedding_models data/fund_holdings_aggregate
+mkdir -p data/rag_query_logs data/embedding_models data/fund_holdings_aggregate data/nav_cache
 if id "${SERVICE_USER}" &>/dev/null; then
   ${SUDO} chown -R "${SERVICE_USER}:${SERVICE_USER}" "${NEWS_RAG_DIR}"
 fi

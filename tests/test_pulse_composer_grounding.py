@@ -14,6 +14,8 @@ def test_composer_prompt_is_not_a_fixed_bullet_template():
     assert "format_chosen" in COMPOSER_SYSTEM
     assert "Everyday words" in COMPOSER_SYSTEM
     assert "how that hits a sector" in COMPOSER_SYSTEM
+    assert "article body" in COMPOSER_SYSTEM
+    assert "day the article was published" in COMPOSER_SYSTEM
 
 
 def test_finalize_keeps_model_narrative_and_bullets():
@@ -49,3 +51,7 @@ def test_finalize_drops_exact_duplicates_and_invented_percentages():
     assert narrative == "Banks gained on the policy."
     assert bullets == ["Banks rose today.", "IT exports held up."]
     assert _strip_ungrounded_numbers("Still down between **-1.2%** and **-0.4%**.", set()) == "Still down."
+    assert "-1.2%" in _strip_ungrounded_numbers("The fund is -1.2%.", {"1.2"})
+    cleaned = _strip_ungrounded_numbers("The fund is -9.9 per cent.", {"1.2"})
+    assert "9.9" not in cleaned
+    assert "per cent" not in cleaned.lower()

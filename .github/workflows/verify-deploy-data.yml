@@ -1,0 +1,30 @@
+# Ensures required RAG data files stay in the repo (Lightsail git pull deploy).
+
+name: Verify deploy data
+
+on:
+  push:
+    branches: [ask-a-question, huge-corpus, main]
+  pull_request:
+    paths:
+      - "data/**"
+      - "scripts/verify_rag_deploy_data.py"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Required data files
+        run: python scripts/verify_rag_deploy_data.py
+
+      - name: Unit tests (fund pipeline)
+        run: |
+          pip install -q -r requirements.txt -r news_rag/requirements.txt pytest
+          PYTHONPATH=. python -m pytest tests/test_market_sector_fund_pipeline.py -q --tb=short

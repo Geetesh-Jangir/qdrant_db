@@ -97,13 +97,77 @@ def test_universe_search_is_callable_from_the_agent():
     assert result["ok"] is True
 
 
-def test_funds_holding_stock_does_not_invent_a_fund_list():
-    payload = funds_holding_stock("Infosys Limited", limit=3)
+def test_funds_holding_stock_keeps_the_count_when_the_scan_finds_nothing():
+    with patch("news_rag.stock_fund_ranking.default_holder_candidates", return_value=[{"isin": "INFTEST", "fund_name": "Test"}]), patch(
+        "news_rag.stock_fund_ranking.scan_schemes_holding_stock", return_value=[]
+    ):
+        payload = funds_holding_stock("Infosys Limited", limit=3)
     assert payload["fund_count"]
     assert payload["industry"]
     assert payload["funds"] == []
     assert payload["fund_list_available"] is False
-    assert "unavailable" in payload["note"].lower()
+    assert "did not find named schemes" in payload["note"].lower()
+
+
+def test_holder_compare_drops_a_fund_with_no_weight():
+    from news_rag.ask_agent import _rows_for_compare
+
+    bundle = ExecutionBundle(names=ResolvedNames())
+    bundle.tool_results["screen_funds_0"] = {
+        "ok": True,
+        "data": {
+            "stock_name": "ICICI Bank",
+            "rankings": [
+                {"fund_name": "Holder A", "isin": "INFA", "weight_pct": 6.43, "holding_name": "ICICI Bank Ltd."},
+                {"fund_name": "Holder B", "isin": "INFB", "weight_pct": 4.2, "holding_name": "ICICI Bank Ltd."},
+                {"fund_name": "Quantum Nifty 50 ETF", "isin": "INFQ", "return_1m_pct": 7.47},
+            ],
+        },
+    }
+    rows = _rows_for_compare(bundle, PlannedTool(tool="compare_funds", stock_name="ICICI Bank", top_n=2))
+    assert [row["fund_name"] for row in rows] == ["Holder A", "Holder B"]
+
+
+def test_fund_gap_screens_the_amc_in_the_question():
+    from news_rag.ask_agent import _fill_fund_ranking_gap
+
+    bundle = ExecutionBundle(names=ResolvedNames())
+    plan = AskPlan()
+    with patch(
+        "news_rag.tools.run_screen_funds",
+        return_value={"ok": True, "data": {"rankings": [{"fund_name": "HDFC Flexi", "isin": "INFX", "return_1m_pct": 1.0}]}},
+    ) as mocked, patch(
+        "news_rag.tools.screen_hints_from_question",
+        return_value={"sector_name": "", "category": "", "amc": "HDFC", "stock_name": ""},
+    ):
+        _fill_fund_ranking_gap(
+            "give me any name of the funds provided by HDFC",
+            plan,
+            bundle,
+            [{"entities_found": ["Banks"]}],
+            date_from=None,
+            date_to=None,
+            min_impact=None,
+            source=None,
+            direction=None,
+            query_log=None,
+        )
+    assert mocked.call_args.kwargs["amc"] == "HDFC"
+    assert mocked.call_args.kwargs["sector_name"] == ""
+    assert any(key.startswith("screen_funds") for key in bundle.tool_results)
+
+
+def test_fund_name_question_is_detected_and_sectors_are_capped():
+    from news_rag.ask_agent import _sectors_from_observations, question_wants_fund_names
+
+    assert question_wants_fund_names(
+        "whats happening in the market and what are the funds which are most benefited now?"
+    )
+    assert not question_wants_fund_names("whats happening in the market right now?")
+    sectors = _sectors_from_observations(
+        [{"entities_found": ["Banks", "Infrastructure", "Textiles", "Pharma", "Power"]}]
+    )
+    assert sectors == ["Banks", "Infrastructure", "Textiles", "Pharma"]
 
 
 def test_ui_keeps_narrative_when_bullets_exist():

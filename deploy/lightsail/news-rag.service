@@ -12,6 +12,7 @@ User=ubuntu
 Group=ubuntu
 WorkingDirectory=/opt/news-rag
 Environment=PYTHONPATH=/opt/news-rag
+Environment=MALLOC_ARENA_MAX=2
 EnvironmentFile=-/opt/news-rag/.env
 ExecStart=/opt/news-rag/.venv/bin/uvicorn news_rag.app:app --host 127.0.0.1 --port 8081
 TimeoutStartSec=300

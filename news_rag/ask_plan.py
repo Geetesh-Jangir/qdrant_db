@@ -21,6 +21,7 @@ ALLOWED_PLANNER_TOOLS = frozenset(
         "macro_news",
         "affected_funds",
         "sector_funds",
+        "screen_funds",
         "metals_spot",
         "stock_snapshot",
         "market_pulse",
@@ -95,6 +96,9 @@ class PlannedTool:
     target: str = ""
     theme: str = ""
     fund_entity_indexes: list[int] = field(default_factory=list)
+    return_window: str = ""
+    compare_on: str = ""
+    direction: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PlannedTool:
@@ -140,6 +144,9 @@ class PlannedTool:
             target=str(data.get("target") or "").strip(),
             theme=str(data.get("theme") or "").strip(),
             fund_entity_indexes=_int_list(data.get("fund_entity_indexes")),
+            return_window=str(data.get("return_window") or "").strip(),
+            compare_on=str(data.get("compare_on") or "").strip(),
+            direction=str(data.get("direction") or "").strip().lower(),
         )
 
 

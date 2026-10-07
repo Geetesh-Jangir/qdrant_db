@@ -38,9 +38,9 @@ Return JSON only. No markdown fences.
 
 {
   "headline": "The direct answer in one or two sentences.",
-  "narrative": "Short paragraphs, separated by a blank line. Each paragraph is one thing that is happening and how it lands.",
-  "bullets": ["Who is affected, then the impact, in plain words."],
-  "closing_summary": "One or two short sentences a fund investor can remember. Empty string if it would repeat the bullets.",
+  "narrative": "A short account of what is happening. Blank line between paragraphs. Provide the context that supports the overall output.",
+  "bullets": ["Numbered points (1, 2, 3...) or clear bullets explicitly answering the user's queries. If asked for affected sectors, list each sector clearly, followed by exactly why and how it is affected based on the news."],
+  "closing_summary": "A comprehensive concluding summary that contains every vital piece of information. Tell what is going on and how things are working in detail. Do not artificially limit this to two sentences.",
   "advice_declined_note": "",
   "format_chosen": "narrative|bullets|mixed|comparison|figure",
   "themes": [{"name": "", "direction": "positive|negative|mixed|unclear", "why_it_matters": ""}],
@@ -51,34 +51,23 @@ Return JSON only. No markdown fences.
 
 HOW TO WRITE
 - Write for someone who does not follow markets every day. Short sentences. Everyday words.
-- If you use a term such as repo rate, PMI, or basis points, say what it means in the same sentence.
+- Headline: one or two sentences that answer the question.
+- Narrative: what is happening. Provide the necessary context to support the conclusions.
+- Bullets: Try to answer things using bullet points or numbers (1, 2, 3...). If asked about affected sectors, you must list each affected sector, name it clearly, and say how that hits a sector.
+- If the question has several parts, cover each part methodically. Answer the things that are explicitly asked in the query and use the evidence that supports the output.
+- Closing: at most two sentences. Answer the question in plain words. Do not repeat every figure already written in the bullets.
 - Do not say Context, payload, clusters, evidence, or channel.
-- Answer the question that was asked. A market overview, a named fund, a sector, a stock, a comparison, and an impact question are different jobs.
 
-SHAPE
-- headline: one or two short sentences that answer the question.
-- narrative: a few short paragraphs, separated by a blank line. Each paragraph is one force in the news. First sentence: what happened. Next sentence: who it helps or hurts, and how. Example shape: banks are lending more, so bank profits can rise; higher interest rates make new loans costlier.
-- bullets: the scan list for who is positively or negatively affected. Each bullet names the sector or fund, then the impact. Do not retell the narrative.
-- closing_summary: one or two short sentences. Do not repeat the bullets. No fixed label such as Macro Backdrop.
-
-IMPACT
-- Every paragraph and every bullet must do both jobs: what the news says, and how that hits a sector, a company, or a fund.
-- A negative or positive tag on an article is that article's mood. It is not the list of who benefits. Name the industries, companies, and sector tags the articles themselves name, and say how the news hits them.
-- If one search came back empty, answer from the articles you do have. Do not say that no sector was named when those articles name industries or companies.
-- When several articles are one event, merge them. When they disagree, say so in plain words.
-- Let the affected names be whatever the evidence supports. Do not invent a sector label for a company or a geopolitical story.
-- If fund names were not retrieved, say that in one sentence. Do not spend the answer on the missing data.
-
-RELATIONSHIPS
-- Direct: the fund holds the stock, or a sector weight is in the data. Cite the weight.
-- Indirect: a rate, a currency, a cost, or demand in the news connects them. Name that chain in plain words. If the chain is not in the data, do not invent it.
-- If both exist, say which one matters more for this fund.
+ARTICLE TEXT
+- Base the answer on the article body, not the title. The title is only a label.
+- Do not name the newspaper, the website, or the day the article was published.
+- A date that is the event itself, such as an RBI meeting or the month of a data release, may stay.
 
 FACTS
-- Numbers, names, and directions come only from the data. Copy them. Do not round them into a new figure.
-- Do not show titles, URLs, bylines, dates, impact scores, or mood.
-- Use the scheme type on each fund. An arbitrage, hybrid, or debt scheme is not a dedicated equity sector fund.
-- A negative return is a pullback. Do not describe it as strength.
+- Numbers, names, and directions come only from the data. Copy them exactly.
+- Name a fund only when that tool row matches the ask. A holding needs a weight. A positive screen needs a positive return for the window. An exposure screen needs the sector weight. When sector_picks are present, name a fund only from the rankings for those sectors, and you may use each pick's reason. Put the window return next to the name. Do not name a fund whose return is missing or points the other way. Do not claim a fund is affected when no ranking row names it.
+- If the question did not ask what is happening in the market, do not add a market story.
+- If the question asked for funds and no fund rows came back, say that in one sentence.
 - No buy, sell, hold, target price, or prediction. If advice was declined, put that only in advice_declined_note.
 - Bold a fund, company, sector, or figure when it is the point of the sentence.
 """
@@ -1417,6 +1406,13 @@ def _numeric_core(raw: str) -> str:
     return s
 
 
+def _number_is_grounded(core: str, allowed: set[str]) -> bool:
+    if not core:
+        return False
+    unsigned = core[1:] if core.startswith("-") else core
+    return core in allowed or unsigned in allowed or f"-{unsigned}" in allowed
+
+
 def _cores_in_text(blob: str) -> set[str]:
     cores: set[str] = set()
     for match in _ANY_NUMBER_RE.finditer(blob or ""):
@@ -1427,7 +1423,8 @@ def _cores_in_text(blob: str) -> set[str]:
 
 
 def _tidy_prose(text: str) -> str:
-    text = re.sub(r"\*{2,}\s*\*{2,}", "", text or "")
+    text = re.sub(r"(?<!\d)\s*per\s*cent\b", "", text or "", flags=re.I)
+    text = re.sub(r"\*{2,}\s*\*{2,}", "", text)
     text = re.sub(r"\bbetween\s+and\b", "", text, flags=re.I)
     text = re.sub(r"\(\s*\)", "", text)
     text = re.sub(r"\s+,", ",", text)
@@ -1440,15 +1437,15 @@ def _tidy_prose(text: str) -> str:
 def _strip_ungrounded_numbers(text: str, allowed: set[str]) -> str:
     def drop_pct(match: re.Match[str]) -> str:
         core = _numeric_core(match.group(1))
-        return match.group(0) if core in allowed else ""
+        return match.group(0) if _number_is_grounded(core, allowed) else ""
 
     def drop_money(match: re.Match[str]) -> str:
         core = _numeric_core(match.group(1))
-        return match.group(0) if core in allowed else ""
+        return match.group(0) if _number_is_grounded(core, allowed) else ""
 
     def drop_decimal(match: re.Match[str]) -> str:
         core = _numeric_core(match.group(1))
-        return match.group(0) if core in allowed else ""
+        return match.group(0) if _number_is_grounded(core, allowed) else ""
 
     cleaned = _PCT_OR_BPS_RE.sub(drop_pct, text or "")
     cleaned = _MONEY_RE.sub(drop_money, cleaned)
@@ -1496,7 +1493,7 @@ def _finalize_compose(
             continue
         value = str(item.get("value") or "")
         core = _numeric_core(re.sub(r"[^\d.,+-]", "", value))
-        if value and core and core not in allowed:
+        if value and core and not _number_is_grounded(core, allowed):
             headline = headline.replace(value, "")
             narrative = narrative.replace(value, "")
             bullets = [b.replace(value, "") for b in bullets]
@@ -1676,7 +1673,7 @@ def _articles_for_llm(articles: list[dict[str, Any]], *, limit: int = 8) -> list
     rows: list[dict[str, Any]] = []
     for article in ranked:
         title = str(article.get("title") or "").strip()
-        body = article_body_for_llm(article, limit=650)
+        body = article_body_for_llm(article, limit=2000)
         if not title and not body:
             continue
         sectors = article.get("sector_names") or article.get("sectors") or []
@@ -1717,7 +1714,6 @@ def _composer_tool_results(bundle: ExecutionBundle) -> dict[str, Any]:
                         "title": rep.get("title"),
                         "direction": rep.get("direction"),
                         "sectors": rep.get("sectors"),
-                        "body": str(rep.get("body") or "")[:500],
                     }
                 )
             clusters = []
@@ -1741,7 +1737,7 @@ def _composer_tool_results(bundle: ExecutionBundle) -> dict[str, Any]:
         copy = {
             field: value
             for field, value in data.items()
-            if field not in ("articles", "clusters", "representative_articles", "queries")
+            if field not in ("articles", "clusters", "representative_articles", "queries", "source", "published_at", "url")
         }
         articles = data.get("articles") or []
         copy["article_count"] = len(articles) if isinstance(articles, list) else 0
@@ -1910,10 +1906,11 @@ def compose_final_answer(
     evidence_text = f"{articles_json}\n{context_json}"
     judge_note = str(getattr(plan, "judge_note", "") or "").strip()
     user = (
-        "Write the final answer from the articles and Context. "
-        "Use short paragraphs and plain words. "
-        "Each paragraph and each bullet must say what the news shows and how it affects a sector, company, or fund. "
-        "Do not retell an article, and do not repeat the same point in the narrative and the bullets. "
+        "Write the final answer from the article bodies and Context. "
+        "Use the body, not the title. "
+        "Do not name a publisher or the day an article was published. "
+        "Each bullet starts with the sector, company, or fund name, then how that hits it. "
+        "Do not repeat the same point in the narrative, the bullets, and the closing. "
         "Use question_reading, relationships_to_check, and information_gaps when they are present. "
         "Numbers must be copied from Context.\n\n"
         f"Question:\n{question}\n\n"
@@ -1967,7 +1964,7 @@ def compose_final_answer(
         for item in numbers_cited:
             value = str(item.get("value") or "")
             core = _numeric_core(re.sub(r"[^\d.,+-]", "", value))
-            if core and core in allowed:
+            if core and _number_is_grounded(core, allowed):
                 kept_numbers.append(item)
         closing_raw = str(
             parsed.get("closing_summary") or parsed.get("closing") or parsed.get("summary_paragraph") or ""

@@ -32,6 +32,7 @@ from news_rag.tools import (
     run_fund_sectors,
     run_layered_news,
     run_metals_spot,
+    run_screen_funds,
     run_sector_funds,
     run_stock_snapshot,
 )
@@ -159,7 +160,23 @@ def _run_one_tool(
                 key,
                 run_sector_funds(
                     need,
-                    direction=plan.sentiment or "any",
+                    direction=tool.direction or plan.sentiment or "any",
+                    question=question,
+                    return_window=tool.return_window or None,
+                ),
+            )
+        if tool.tool == "screen_funds":
+            return ToolRunResult(
+                tool.tool,
+                key,
+                run_screen_funds(
+                    sector_name=tool.sector_name,
+                    category=tool.category,
+                    amc=tool.amc,
+                    stock_name=tool.stock_name,
+                    direction=tool.direction or plan.sentiment or "any",
+                    return_window=tool.return_window or None,
+                    top_n=tool.top_n or 5,
                     question=question,
                 ),
             )
@@ -175,10 +192,12 @@ def _run_one_tool(
                 key,
                 run_affected_funds(
                     sector_names=sectors,
-                    top_n=plan.affected_funds_top_n,
+                    top_n=tool.top_n or plan.affected_funds_top_n,
                     semantic_query=tool.semantic_query,
-                    direction=plan.sentiment or "any",
-                    count_explicit=bool((plan.raw_json or {}).get("fund_count_explicit")),
+                    direction=tool.direction or plan.sentiment or "any",
+                    count_explicit=bool((plan.raw_json or {}).get("fund_count_explicit")) or bool(tool.top_n),
+                    return_window=tool.return_window or None,
+                    question=question,
                 ),
             )
         if tool.tool in ("common_market_news", "market_pulse"):

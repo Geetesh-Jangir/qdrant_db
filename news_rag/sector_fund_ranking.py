@@ -34,6 +34,7 @@ _SECTOR_ALIASES: dict[str, tuple[str, ...]] = {
     "financial services": ("Banks", "Finance", "Financial Services", "Capital Markets"),
     "bank sector": ("Banks", "Finance"),
     "financial": ("Banks", "Finance", "Capital Markets"),
+    "finance": ("Banks", "Finance", "Financial Services"),
     "banks": ("Banks", "Finance"),
     "psu banks": ("Banks",),
     "public sector banks": ("Banks",),

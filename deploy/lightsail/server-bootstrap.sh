@@ -5,7 +5,7 @@
 set -euo pipefail
 
 NEWS_RAG_REPO="${NEWS_RAG_REPO:-https://github.com/Geetesh-Jangir/qdrant_db.git}"
-NEWS_RAG_BRANCH="${NEWS_RAG_BRANCH:-huge-corpus}"
+NEWS_RAG_BRANCH="${NEWS_RAG_BRANCH:-ask-a-question}"
 NEWS_RAG_DIR="${NEWS_RAG_DIR:-/opt/news-rag}"
 
 echo "==> Bootstrap News RAG (ask-question / Option A)"

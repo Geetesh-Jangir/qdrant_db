@@ -2,7 +2,7 @@
 
 Standalone **News RAG** (Option A): Qdrant Cloud + Gemini + this repo. No Rupeestop merge.
 
-**GitHub:** `https://github.com/Geetesh-Jangir/qdrant_db` — branch **`huge-corpus`**
+**GitHub:** `https://github.com/Geetesh-Jangir/qdrant_db` — branch **`ask-a-question`** (or `huge-corpus` for older deploys)
 
 ---
 
@@ -25,7 +25,7 @@ Note the **public IPv4**. Browser URL: `http://PUBLIC_IP/`
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git curl
-sudo git clone --depth 1 -b huge-corpus https://github.com/Geetesh-Jangir/qdrant_db.git /opt/news-rag
+sudo git clone --depth 1 -b ask-a-question https://github.com/Geetesh-Jangir/qdrant_db.git /opt/news-rag
 sudo chown -R ubuntu:ubuntu /opt/news-rag
 cd /opt/news-rag
 bash deploy/lightsail/server-bootstrap.sh
@@ -70,7 +70,7 @@ curl -s http://127.0.0.1:8081/health
 curl -s http://127.0.0.1/health
 ```
 
-Expect `"ok":true` and `"sector_ranking_index":true`.
+Expect `"ok":true`, `"sector_ranking_index":true`, and `"holdings_archive":true`.
 
 Open **`http://PUBLIC_IP/`** → ask a question → **Get Insight** (first ask may take 1–3 minutes).
 
@@ -80,7 +80,7 @@ Open **`http://PUBLIC_IP/`** → ask a question → **Get Insight** (first ask m
 
 ```bash
 cd /opt/news-rag
-git pull origin huge-corpus
+git pull origin ask-a-question
 source .venv/bin/activate
 pip install -r requirements.txt -r news_rag/requirements.txt
 deactivate
@@ -91,8 +91,11 @@ sudo systemctl restart news-rag
 
 ## Data in git (no SCP)
 
-Fund ranking JSON, `regular-growth-by-amc.md`, and `data/metals_prices.json` are committed on `huge-corpus`.  
-**Not in git:** `.env`, `data/embedding_models/` (downloaded by `install.sh`), Qdrant news corpus.
+Committed files power fund screens, sector weights, stock aliases (e.g. BHEL), and metals context. Full list: **`data/DEPLOY_DATA.md`**.
+
+**Not in git:** `.env`, `data/embedding_models/` (downloaded by `install.sh`), `data/nav_cache/` (runtime), Qdrant news corpus.
+
+**Runtime APIs (outbound HTTPS from the instance):** Qdrant Cloud, Gemini/DeepSeek, and RupeeStop NAV/holdings for live fund detail when you ask about specific stocks.
 
 ---
 
@@ -117,5 +120,5 @@ python3 -c "import news_rag.app"   # shows import errors immediately
 | Site timeout in browser | Lightsail **HTTP 80** open; use `http://` not `https://` |
 | `python` not found | Use `python3` or `.venv/bin/python` |
 | `Permission denied` on `.venv` or `rag_query_logs` | `sudo chown -R ubuntu:ubuntu /opt/news-rag && sudo systemctl restart news-rag` |
-| `sector_to_isin_weights` missing | `git pull origin huge-corpus` |
+| `sector_to_isin_weights` missing | `git pull origin ask-a-question` |
 | Empty / no news answers | Ingest into Qdrant Cloud (`python -m news_pipeline` or CI) |

@@ -29,6 +29,7 @@ from news_rag.fund_brief import generate_fund_brief
 from news_rag.ask_engine import run_ask_engine
 from news_rag.embed import embeddings_ready
 from news_rag.sector_fund_ranking import sector_ranking_data_available
+from news_rag.stock_fund_ranking import holdings_archive_available
 
 _STATIC = Path(__file__).resolve().parent / "static"
 
@@ -239,13 +240,16 @@ def fund_brief(
 @app.get("/health")
 def health() -> dict:
     settings = get_settings()
+    holdings_map = holdings_archive_available()
     return {
         "ok": True,
         "collection": settings.qdrant_collection,
         "llm_provider": llm_provider(settings),
         "llm_model": llm_model(settings),
         "sector_ranking_index": sector_ranking_data_available(),
+        "holdings_archive": holdings_map,
         "embeddings_ready": embeddings_ready(),
+        "llm_key_configured": llm_api_key_configured(settings),
     }
 
 

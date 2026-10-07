@@ -38,10 +38,11 @@ _PREDICTIVE_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 _FINANCIAL_SIGNAL = re.compile(
-    r"\b(nav|mutual\s+fund|fund|holding|sector|stock|share|crude|oil|gold|silver|"
-    r"barrel|brent|energy|market|nifty|sensex|"
+    r"\b(nav|mutual\s+funds?|funds?|holdings?|sectors?|stocks?|shares?|crude|oil|gold|silver|"
+    r"barrel|brent|energy|markets?|nifty|sensex|"
     r"rbi|repo|inflation|isin|inf[0-9a-z]{9}|portfolio|equity|"
-    r"commodity|macro|earnings|dividend|sip|expense\s+ratio|aum)\b",
+    r"commodity|macro|earnings|dividend|sip|expense\s+ratio|aum|"
+    r"(?:large|mid|small|flexi|multi)\s*cap|etf)\b",
     re.I,
 )
 

@@ -186,9 +186,9 @@ def test_select_funds_positive_does_not_list_drawdowns(mock_nav):
     picked, all_drawdown, note = select_funds_by_nav(
         rows, direction="positive", top_n=5, count_explicit=False
     )
-    assert len(picked) == 1
+    assert picked == []
     assert all_drawdown is True
-    assert "resilient" in note.lower() or "drawdown" in note.lower()
+    assert "positive" in note.lower()
 
 
 @patch("news_rag.tools.get_fund_nav_history", side_effect=_mock_nav_history)
@@ -258,3 +258,351 @@ def test_finalize_compose_does_not_duplicate_when_llm_wrote_fund_bullets():
     assert narrative == "The tape is mixed."
     assert any("ICICI Prudential Technology Fund" in b for b in bullets)
     assert not any("Nippon India Power" in b for b in bullets)
+
+
+def _week_up_month_down(isin: str):
+    if isin == "MIX":
+        return {
+            "success": True,
+            "latest_nav": 40.0,
+            "latest_date": "2026-03-30",
+            "stats": {"1W": {"change_pct": 1.1}, "1M": {"change_pct": -2.4}},
+        }
+    return {"success": False}
+
+
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_week_up_month_down)
+def test_positive_week_keeps_a_fund_that_is_down_on_the_month(mock_nav):
+    rows = [{"isin": "MIX", "fund_name": "Week Up", "sector_weight_pct": 12.0}]
+    week, _, _note = select_funds_by_nav(
+        rows, direction="positive", top_n=3, count_explicit=True, return_window="1W"
+    )
+    month, all_drawdown, note = select_funds_by_nav(
+        rows, direction="positive", top_n=3, count_explicit=True, return_window="1M"
+    )
+    assert [row["fund_name"] for row in week] == ["Week Up"]
+    assert week[0]["return_1w_pct"] == 1.1
+    assert month == []
+    assert all_drawdown is True
+    assert "positive" in note.lower()
+
+
+@patch("news_rag.scoped_retrieve.retrieve_scoped_news")
+@patch("news_rag.tools.rank_funds_by_sector_exposure")
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_mock_nav_history)
+@patch(
+    "news_rag.tools._catalog_candidates",
+    return_value=[{"isin": "INF1", "fund_name": "Large One", "category": "Large Cap"}],
+)
+def test_large_cap_screen_does_not_call_news(mock_catalog, mock_nav, mock_rank, mock_news):
+    from news_rag.tools import run_screen_funds
+
+    result = run_screen_funds(category="Large Cap", direction="positive", return_window="1M", top_n=3)
+    mock_news.assert_not_called()
+    mock_rank.assert_not_called()
+    assert result["ok"] is True
+    assert result["data"]["rankings"][0]["fund_name"] == "Large One"
+
+
+def test_compare_of_two_screened_funds_returns_names_and_window_return():
+    from news_rag.tools import run_compare_funds
+
+    result = run_compare_funds(
+        rows=[
+            {"isin": "INFA", "fund_name": "Alpha", "return_1w_pct": 1.2, "latest_nav": 10},
+            {"isin": "INFB", "fund_name": "Beta", "return_1w_pct": 0.4, "latest_nav": 12},
+        ],
+        compare_on="nav",
+        return_window="1W",
+        top_n=2,
+    )
+    funds = result["data"]["funds"]
+    assert [row["fund_name"] for row in funds] == ["Alpha", "Beta"]
+    assert [row["return_pct"] for row in funds] == [1.2, 0.4]
+    assert funds[0]["return_window"] == "1W"
+    assert "holdings" not in funds[0]
+
+
+@patch("news_rag.tools.rank_funds_by_sector_exposure")
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_mock_nav_history)
+@patch(
+    "news_rag.tools._catalog_candidates",
+    return_value=[{"isin": "INF1", "fund_name": "HDFC Large", "amc": "HDFC Mutual Fund"}],
+)
+def test_amc_only_screen_does_not_require_a_sector_ranking(mock_catalog, mock_nav, mock_rank):
+    from news_rag.ask_agent import AGENT_SYSTEM
+    from news_rag.tools import run_screen_funds, screen_hints_from_question
+
+    hints = screen_hints_from_question("give me any name of the funds provided by HDFC")
+    assert hints["amc"].lower() == "hdfc"
+    assert hints["sector_name"] == ""
+    assert "does not need a news search" in AGENT_SYSTEM
+    result = run_screen_funds(amc="HDFC", direction="any", top_n=1, question="funds from HDFC")
+    mock_rank.assert_not_called()
+    assert result["data"]["rankings"][0]["fund_name"] == "HDFC Large"
+
+
+def test_short_large_cap_name_question_is_not_refused():
+    from news_rag.guardrails import check_guardrails
+
+    result = check_guardrails("give me any two large cap funds name?")
+    assert result.outcome == "pass"
+
+
+def _dated_nav(isin: str):
+    if isin == "STALE":
+        return {
+            "success": True,
+            "latest_nav": 262.0,
+            "latest_date": "2026-04-30",
+            "stats": {"1W": {"change_pct": 1.0}, "1M": {"change_pct": 7.47}},
+        }
+    if isin == "FRESH":
+        return {
+            "success": True,
+            "latest_nav": 168.0,
+            "latest_date": "2026-10-06",
+            "stats": {"1W": {"change_pct": 0.2}, "1M": {"change_pct": 0.14}},
+        }
+    return {"success": False}
+
+
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_dated_nav)
+def test_stale_nav_is_dropped(mock_nav):
+    rows = [
+        {"isin": "STALE", "fund_name": "Quantum Nifty 50 ETF"},
+        {"isin": "FRESH", "fund_name": "Taurus Large Cap"},
+    ]
+    picked, _draw, _note = select_funds_by_nav(
+        rows, direction="positive", top_n=5, count_explicit=True, return_window="1M"
+    )
+    assert [row["fund_name"] for row in picked] == ["Taurus Large Cap"]
+
+
+@patch("news_rag.tools.run_affected_funds")
+@patch("news_rag.affected_sectors.pick_affected_sectors")
+@patch(
+    "news_rag.tools._articles_for_affected_question",
+    return_value=[{"body": "Banks gain as a rate hike lifts margins. Real estate is hurt."}],
+)
+def test_crude_affected_question_ranks_banks_not_petroleum(mock_articles, mock_pick, mock_rank):
+    from news_rag.tools import run_screen_funds
+
+    mock_pick.return_value = [
+        {"name": "Banks", "direction": "positive", "reason": "A rate hike lifts bank margins."}
+    ]
+    mock_rank.return_value = {
+        "ok": True,
+        "data": {
+            "rankings": [
+                {
+                    "fund_name": "Bank Fund",
+                    "isin": "INFB",
+                    "return_1m_pct": 1.2,
+                    "matched_sectors": ["Banks"],
+                }
+            ]
+        },
+    }
+    result = run_screen_funds(
+        category="Large Cap",
+        direction="positive",
+        top_n=2,
+        question="which funds are positively affected by the crude price increase?",
+    )
+    assert mock_rank.call_args.kwargs["sector_names"] == ["Banks"]
+    assert "Petroleum" not in mock_rank.call_args.kwargs["sector_names"]
+    assert mock_rank.call_args.kwargs["allow_broad_fallback"] is False
+    assert result["data"]["rankings"][0]["fund_name"] == "Bank Fund"
+
+
+def test_positive_picker_prompt_asks_only_for_sectors_that_benefit():
+    from news_rag.affected_sectors import build_picker_prompt
+
+    prompt = build_picker_prompt(
+        question="which funds are positively affected by the crude price increase?",
+        direction="positive",
+        articles=[{"body": "Banks gain."}],
+        sector_names=["Banks", "Realty"],
+    )
+    assert "only sectors that benefit" in prompt.lower()
+
+
+def test_picker_drops_a_sector_name_that_is_not_in_the_list():
+    from news_rag.affected_sectors import accepted_sectors
+
+    kept = accepted_sectors(
+        [
+            {"name": "Banks", "direction": "positive", "reason": "Margins rise."},
+            {"name": "Not A Real Sector", "direction": "positive", "reason": "Invented."},
+        ],
+        ["Banks", "Realty"],
+        direction="positive",
+    )
+    assert [row["name"] for row in kept] == ["Banks"]
+
+
+def _weight_nav(isin: str):
+    if isin == "HIGH":
+        return {
+            "success": True,
+            "latest_nav": 10,
+            "latest_date": "2026-10-06",
+            "stats": {"1M": {"change_pct": -1.0}, "1W": {"change_pct": -0.2}},
+        }
+    if isin == "LOW":
+        return {
+            "success": True,
+            "latest_nav": 12,
+            "latest_date": "2026-10-06",
+            "stats": {"1M": {"change_pct": 5.0}, "1W": {"change_pct": 1.0}},
+        }
+    return {"success": False}
+
+
+@patch("news_rag.affected_sectors.pick_affected_sectors")
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_weight_nav)
+@patch(
+    "news_rag.tools._sector_candidates",
+    return_value=[
+        {"isin": "LOW", "fund_name": "Light Finance", "sector_weight_pct": 10, "sector_purity": "dedicated_sectoral"},
+        {"isin": "HIGH", "fund_name": "Heavy Finance", "sector_weight_pct": 40, "sector_purity": "dedicated_sectoral"},
+    ],
+)
+@patch("news_rag.tools._catalog_candidates")
+def test_finance_exposure_keeps_sector_weight_order(mock_catalog, mock_sector, mock_nav, mock_pick):
+    from news_rag.tools import run_screen_funds
+
+    result = run_screen_funds(
+        category="Large Cap",
+        direction="positive",
+        top_n=2,
+        question="name any two funds that are heavily invested in finance sector?",
+    )
+    mock_catalog.assert_not_called()
+    mock_pick.assert_not_called()
+    names = [row["fund_name"] for row in result["data"]["rankings"]]
+    assert names == ["Heavy Finance", "Light Finance"]
+    assert result["data"]["rankings"][0]["sector_weight_pct"] == 40.0
+
+
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_mock_nav_history)
+@patch("news_rag.tools._catalog_candidates", return_value=[{"isin": "INF1", "fund_name": "Mixed Fund"}])
+@patch("news_rag.tools._sector_candidates", return_value=[])
+def test_performing_well_does_not_force_large_cap(mock_sector, mock_catalog, mock_nav):
+    from news_rag.tools import run_screen_funds
+
+    run_screen_funds(
+        category="Large Cap",
+        direction="positive",
+        top_n=3,
+        question="what are the funds that are performing well?",
+    )
+    assert mock_catalog.called
+    assert all(not (call.kwargs.get("category") or "") for call in mock_catalog.call_args_list)
+
+
+def test_bhel_resolves_to_the_archive_company_and_compare_keeps_holders():
+    from news_rag.ask_agent import _rows_for_compare
+    from news_rag.ask_execution import ExecutionBundle
+    from news_rag.ask_plan import PlannedTool
+    from news_rag.name_resolution import ResolvedNames
+    from news_rag.stock_fund_ranking import _match_aggregated
+    from news_rag.tools import screen_hints_from_question
+
+    matched = _match_aggregated("BHEL")
+    assert matched is not None
+    assert matched[0] == "Bharat Heavy Electricals Limited"
+    hints = screen_hints_from_question("compare any two funds that holds bhel stocks?")
+    assert hints["stock_name"].lower() == "bhel"
+    bundle = ExecutionBundle(names=ResolvedNames())
+    bundle.tool_results["screen_funds_0"] = {
+        "ok": True,
+        "data": {
+            "stock_name": "Bharat Heavy Electricals Limited",
+            "rankings": [
+                {"fund_name": "Holder A", "isin": "INFA", "weight_pct": 2.1, "holding_name": matched[0]},
+                {"fund_name": "Holder B", "isin": "INFB", "weight_pct": 1.4, "holding_name": matched[0]},
+                {"fund_name": "No Holding", "isin": "INFC", "return_1m_pct": 3.0},
+            ],
+        },
+    }
+    rows = _rows_for_compare(bundle, PlannedTool(tool="compare_funds", stock_name="BHEL", top_n=2))
+    assert [row["fund_name"] for row in rows] == ["Holder A", "Holder B"]
+
+
+def _bank_nav(isin: str):
+    if isin == "DOWN":
+        return {
+            "success": True,
+            "latest_nav": 10,
+            "latest_date": "2026-10-06",
+            "stats": {"1M": {"change_pct": -2.0}, "1W": {"change_pct": -0.4}},
+        }
+    if isin == "UP":
+        return {
+            "success": True,
+            "latest_nav": 12,
+            "latest_date": "2026-10-06",
+            "stats": {"1M": {"change_pct": 1.5}, "1W": {"change_pct": 0.3}},
+        }
+    return {"success": False}
+
+
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_bank_nav)
+@patch(
+    "news_rag.tools._sector_candidates",
+    return_value=[
+        {
+            "isin": "DOWN",
+            "fund_name": "Dedicated Bank",
+            "sector_weight_pct": 80,
+            "sector_purity": "dedicated_sectoral",
+        },
+        {
+            "isin": "UP",
+            "fund_name": "Heavy Bank Mix",
+            "sector_weight_pct": 35,
+            "sector_purity": "diversified_equity",
+        },
+    ],
+)
+def test_banking_heavy_and_positive_month_keeps_the_fund_that_is_up(mock_sector, mock_nav):
+    from news_rag.tools import run_screen_funds
+
+    result = run_screen_funds(
+        direction="positive",
+        top_n=1,
+        question="name any 1 funds that are heavily invested in banking sector and that are performing positive in last one month",
+    )
+    names = [row["fund_name"] for row in result["data"]["rankings"]]
+    assert names == ["Heavy Bank Mix"]
+    assert result["data"]["return_window"] == "1M"
+
+
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_bank_nav)
+@patch("news_rag.stock_fund_ranking.funds_holding_stock")
+@patch("news_rag.affected_sectors.pick_affected_companies", return_value=["Reliance Industries Limited"])
+@patch("news_rag.tools.run_affected_funds")
+@patch(
+    "news_rag.affected_sectors.pick_affected_sectors",
+    return_value=[{"name": "Banks", "direction": "positive", "reason": "Rates help banks."}],
+)
+@patch("news_rag.tools._articles_for_affected_question", return_value=[{"body": "Reliance refines crude."}])
+def test_crude_with_no_sector_funds_uses_a_company_from_the_articles(
+    mock_articles, mock_sectors, mock_rank, mock_companies, mock_holders, mock_nav
+):
+    from news_rag.tools import run_screen_funds
+
+    mock_rank.return_value = {"ok": True, "data": {"rankings": []}}
+    mock_holders.return_value = {
+        "stock_name": "Reliance Industries Limited",
+        "funds": [{"isin": "UP", "fund_name": "Energy Holder", "weight_pct": 4.2, "holding_name": "Reliance Industries Limited"}],
+        "note": "",
+    }
+    result = run_screen_funds(
+        top_n=1,
+        question="name one fund that is affected by crude news?",
+    )
+    assert result["data"]["rankings"][0]["fund_name"] == "Energy Holder"
+    mock_companies.assert_called()

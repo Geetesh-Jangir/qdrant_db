@@ -64,6 +64,9 @@ Return JSON only. Fill every field you can. Use empty arrays or null when someth
       "category": "",
       "amc": "",
       "keyword": "",
+      "return_window": "1W|1M|3M|1Y",
+      "compare_on": "nav|sectors|holdings|all",
+      "direction": "positive|negative|any",
       "driver": "",
       "target": "",
       "theme": ""
@@ -92,16 +95,19 @@ TOOL CATALOG
 - macro_news_enhanced: one macro driver (RBI, oil, inflation, flows) with clustering inside the tool.
 - common_market_news: broad Indian market snapshot. Use when the user asks what is happening overall.
 - When the user also asks which sectors benefit, are positively affected, or are working well, set sentiment to positive and call sector_news in the same round. Use a short semantic_query such as sectors benefiting from the news, never the full user sentence. common_market_news alone does not answer a sector question.
-- When the user asks which funds are positively affected, benefiting, or working well, news is not enough. After the news round, call sector_funds once per sector the news themes name as benefiting. Set sentiment to positive and sector_name to that sector, such as Banks. Do not set status to ready until those fund rankings are back, or the tool has failed.
-- sector_funds: funds ranked by exposure to a named sector, with recent NAV. Set sector_name from a sector the news already named.
-- affected_funds: funds for sectors you name in affected_funds_sectors or sector_name. Use this when several benefiting sectors should be ranked together.
+- Call news tools only when the user asks what is happening in the market or in the news. A question that only names an AMC, a category, a stock, or a performance window does not need a news search.
+- screen_funds: which funds match a sector, category, AMC, or stock, and how they moved. Set any of sector_name, category, amc, stock_name. direction is positive, negative, or any. return_window is 1W, 1M, 3M, or 1Y. Use 1M when they ask how funds are performing and do not name a period. Last week is 1W. Last month is 1M. top_n is the count they asked for. A driver written in the question is sector_name. Do not wait for a news theme to invent it. Positive keeps only gains in that window. Negative keeps only declines.
+- When the user asks which funds are affected by a driver such as crude, rates, or the news, call a news tool first, then screen_funds. Set direction to positive when they want who benefits, negative when they want who is hurt, and any when they only say affected. Do not set sector_name to the driver. The screen reads the articles and the sector list, then ranks funds in the sectors that match that direction.
+- When the user asks which funds are performing, or names an AMC, category, sector, or stock, call screen_funds and set direction and return_window from the question. A named sector such as finance is sector_name. A driver is not.
+- sector_funds and affected_funds use the same window and direction. Prefer screen_funds.
+- affected_funds: several sectors in one ranking. Set sector_name or pass the sectors already found.
 - metals_spot: gold and silver spot moves.
 - stock_snapshot: price snapshot for one stock. Set stock_name.
 - expand_news: more article bodies for a theme already returned by common_market_news or macro_news_enhanced. Set theme to that label.
 - trace_relationships: direct holding or sector weight versus indirect names that co-occur in retrieved articles. Set driver and target.
-- fund_universe_search: list regular-growth schemes by category, AMC, or keyword (large cap, ELSS, gold ETF). Set category, amc, keyword, top_n.
-- compare_funds: NAV, sectors, and holdings side by side. Set fund_entity_indexes or entity_filters to the funds.
-- funds_holding_stock: how many funds hold a stock, its industry, and the fund list when that file is on disk. Set stock_name.
+- fund_universe_search: list regular-growth schemes by category, AMC, or keyword when no return filter is needed. Set category, amc, keyword, top_n. Prefer screen_funds when performance or direction matters.
+- compare_funds: only when the user asks to compare. Set entity_filters to the fund names. If they did not name the funds, call screen_funds first and set depends_on to that call. compare_on is nav, sectors, holdings, or all. return_window is the same window as the screen. Fetch only the blocks they asked for.
+- funds_holding_stock: schemes that hold a stock, plus the archive count when the scan finds no names. Set stock_name. Prefer screen_funds with stock_name when a return window is also asked.
 
 DATA ON HAND
 News archive, fund NAV and holdings, sector-to-fund weights, metals spot, regular-growth fund universe.
@@ -166,6 +172,9 @@ AGENT_RESPONSE_SCHEMA: dict[str, Any] = {
                     "category": _STRING,
                     "amc": _STRING,
                     "keyword": _STRING,
+                    "return_window": _STRING,
+                    "compare_on": _STRING,
+                    "direction": _STRING,
                     "driver": _STRING,
                     "target": _STRING,
                     "theme": _STRING,
@@ -292,6 +301,146 @@ def _accumulate(base: AskPlan | None, fresh: AskPlan) -> AskPlan:
     return base
 
 
+_FUND_NAME_RE = re.compile(r"\bfunds?\b|\bschemes?\b|\bmutual funds?\b", re.I)
+_FUND_INTENT_RE = re.compile(
+    r"benefit|benefited|affected|working|performing|gain|hurt|positive|negative|compare|which|name|any\b|provided by|from\b",
+    re.I,
+)
+
+
+def question_wants_fund_names(question: str) -> bool:
+    text = question or ""
+    return bool(_FUND_NAME_RE.search(text) and _FUND_INTENT_RE.search(text))
+
+
+def _has_fund_ranking(bundle: ExecutionBundle | None) -> bool:
+    if bundle is None:
+        return False
+    for key, payload in bundle.tool_results.items():
+        if not (
+            key.startswith("sector_funds")
+            or key.startswith("affected_funds")
+            or key.startswith("screen_funds")
+        ):
+            continue
+        data = (payload or {}).get("data") or {}
+        rows = data.get("rankings") or data.get("rows") or data.get("funds") or []
+        if any(isinstance(row, dict) and (row.get("fund_name") or row.get("isin")) for row in rows):
+            return True
+    return False
+
+
+def _sectors_from_observations(observations: list[dict[str, Any]], *, limit: int = 4) -> list[str]:
+    names: list[str] = []
+    for obs in observations:
+        for name in obs.get("entities_found") or []:
+            cleaned = str(name).strip()
+            if cleaned and cleaned not in names:
+                names.append(cleaned)
+        for article in obs.get("articles") or []:
+            if not isinstance(article, dict):
+                continue
+            for sector in article.get("sectors") or []:
+                cleaned = str(sector).strip()
+                if cleaned and cleaned not in names:
+                    names.append(cleaned)
+    return names[:limit]
+
+
+def _direction_for_funds(question: str, plan: AskPlan) -> str:
+    if plan.sentiment in ("positive", "negative"):
+        return plan.sentiment
+    low = (question or "").lower()
+    if any(word in low for word in ("hurt", "negatively", "losing", "worst")):
+        return "negative"
+    if any(word in low for word in ("benefit", "positive", "working well", "performing", "gain")):
+        return "positive"
+    return "any"
+
+
+def _fill_fund_ranking_gap(
+    question: str,
+    plan: AskPlan,
+    bundle: ExecutionBundle,
+    observations: list[dict[str, Any]],
+    *,
+    date_from: str | None,
+    date_to: str | None,
+    min_impact: int | None,
+    source: str | None,
+    direction: str | None,
+    query_log: QueryLogger | None,
+) -> None:
+    """If fund names were asked and no screen rows came back, screen from the question or from sectors the news supports."""
+    if not question_wants_fund_names(question) or _has_fund_ranking(bundle):
+        return
+    from news_rag.affected_sectors import question_needs_affected_sectors
+    from news_rag.article_pool import collect_bundle_articles
+    from news_rag.tools import (
+        explicit_fund_count,
+        infer_return_window,
+        run_funds_for_affected_question,
+        run_screen_funds,
+        screen_hints_from_question,
+    )
+
+    hints = screen_hints_from_question(question)
+    asked = _direction_for_funds(question, plan)
+    if question_needs_affected_sectors(question):
+        if asked in ("positive", "negative"):
+            plan.sentiment = asked
+        result = run_funds_for_affected_question(
+            question=question,
+            direction=asked,
+            articles=collect_bundle_articles(bundle),
+            top_n=explicit_fund_count(question) or 5,
+            return_window=infer_return_window(question),
+            query_log=query_log,
+        )
+        bundle.tool_results[f"affected_sectors_{len(bundle.tool_results)}"] = result
+        observations.append(
+            _observation(
+                PlannedTool(tool="screen_funds", direction=asked, purpose="Sectors from the news, then funds."),
+                result,
+            )
+        )
+        return
+    if asked in ("positive", "negative"):
+        plan.sentiment = asked
+    window = infer_return_window(question)
+    count = explicit_fund_count(question) or 5
+    tool = PlannedTool(
+        tool="screen_funds",
+        sector_name=hints.get("sector_name") or "",
+        category=hints.get("category") or "",
+        amc=hints.get("amc") or "",
+        stock_name=hints.get("stock_name") or "",
+        direction=asked,
+        return_window=window,
+        top_n=count,
+        purpose="Screen funds from the sector, category, or AMC written in the question.",
+    )
+    plan.tools.append(tool)
+    if query_log is not None:
+        query_log.write(
+            "FUND_GAP "
+            f"sector={tool.sector_name} category={tool.category} amc={tool.amc} "
+            f"stock={tool.stock_name} direction={asked} window={window}"
+        )
+    result = run_screen_funds(
+        sector_name=tool.sector_name,
+        category=tool.category,
+        amc=tool.amc,
+        stock_name=tool.stock_name,
+        direction=asked,
+        return_window=window,
+        top_n=count,
+        question=question,
+    )
+    bundle.tool_results[f"screen_funds_gap_{len(bundle.tool_results)}"] = result
+    observations.append(_observation(tool, result))
+
+
 def _apply_reading_window(plan: AskPlan, tools: list[PlannedTool]) -> None:
     raw = (plan.question_reading or {}).get("time_window_days")
     try:
@@ -410,6 +559,33 @@ def _details_for_compare(plan: AskPlan, bundle: ExecutionBundle, tool: PlannedTo
     return details
 
 
+def _rows_for_compare(bundle: ExecutionBundle, tool: PlannedTool) -> list[dict[str, Any]]:
+    """Rows from the screening call this compare depends on, or the latest screen."""
+    wanted = (tool.depends_on or "").strip()
+    picked: list[dict[str, Any]] = []
+    for key, payload in bundle.tool_results.items():
+        if wanted and wanted not in key and not key.startswith(wanted):
+            continue
+        if not (
+            key.startswith("screen_funds")
+            or key.startswith("sector_funds")
+            or key.startswith("affected_funds")
+            or (wanted and wanted in key)
+        ):
+            continue
+        data = (payload or {}).get("data") or {}
+        rows = data.get("rankings") or data.get("funds") or []
+        named = [row for row in rows if isinstance(row, dict) and (row.get("fund_name") or row.get("isin"))]
+        if data.get("stock_name") or tool.stock_name:
+            named = [row for row in named if row.get("weight_pct") is not None or row.get("holding_name")]
+        if named:
+            picked = named
+            if wanted or data.get("stock_name"):
+                break
+    limit = tool.top_n or 2
+    return picked[: max(2, limit)]
+
+
 def _expand_news(bundle: ExecutionBundle, tool: PlannedTool) -> dict[str, Any]:
     theme = (tool.theme or tool.semantic_query or tool.search_focus or "").strip().lower()
     extra: list[dict[str, Any]] = []
@@ -451,9 +627,42 @@ def _run_special(
             )
         if tool.tool == "compare_funds":
             details = _details_for_compare(plan, bundle, tool)
-            if len(details) < 2:
+            rows = _rows_for_compare(bundle, tool)
+            holders = [row for row in rows if row.get("weight_pct") is not None or row.get("holding_name")]
+            if tool.stock_name and len(holders) < 2:
+                payload = funds_holding_stock(tool.stock_name, limit=max(tool.top_n or 2, 2))
+                bundle.tool_results[f"funds_holding_stock_{len(bundle.tool_results)}"] = {
+                    "ok": True,
+                    "data": payload,
+                    "error": "",
+                }
+                holders = [
+                    row
+                    for row in (payload.get("funds") or [])
+                    if isinstance(row, dict) and (row.get("weight_pct") is not None or row.get("holding_name"))
+                ]
+            if tool.stock_name or holders:
+                if len(holders) < 2:
+                    return {
+                        "ok": False,
+                        "data": {"funds": holders, "count": len(holders)},
+                        "error": "Fewer than two confirmed holders are available to compare.",
+                    }
+                return run_compare_funds(
+                    rows=holders,
+                    top_n=tool.top_n or len(holders),
+                    compare_on=tool.compare_on or "sectors",
+                    return_window=tool.return_window or "1M",
+                )
+            if len(details) < 2 and len(rows) < 2:
                 return {"ok": False, "data": None, "error": "compare_funds needs at least two resolved funds"}
-            return run_compare_funds(details, top_n=tool.top_n or 5)
+            return run_compare_funds(
+                details if len(details) >= 2 else None,
+                rows=rows if len(details) < 2 else None,
+                top_n=tool.top_n or max(2, len(rows) or 2),
+                compare_on=tool.compare_on or "all",
+                return_window=tool.return_window or "1M",
+            )
         if tool.tool == "funds_holding_stock":
             payload = funds_holding_stock(tool.stock_name or tool.semantic_query, limit=tool.top_n or 10)
             return {"ok": True, "data": payload, "error": ""}
@@ -645,6 +854,19 @@ def run_research_agent(
         plan = AskPlan(answer_parts=question)
     if bundle is None:
         bundle = ExecutionBundle(names=ResolvedNames())
+    if not plan.decline_entirely:
+        _fill_fund_ranking_gap(
+            question,
+            plan,
+            bundle,
+            observations,
+            date_from=date_from,
+            date_to=date_to,
+            min_impact=min_impact,
+            source=source,
+            direction=direction,
+            query_log=query_log,
+        )
     if note:
         plan.judge_note = note
     return AgentRun(
