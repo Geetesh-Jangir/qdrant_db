@@ -103,8 +103,11 @@
     .insight-body {
       font-size: 0.98rem;
       color: #334155;
-      line-height: 1.75;
-      margin: 0 0 1rem;
+      line-height: 1.7;
+      margin: 0 0 0.85rem;
+    }
+    .insight-body + .insight-body {
+      margin-top: 0;
     }
     .insight-bullets {
       margin: 0.25rem 0 0;
@@ -222,6 +225,20 @@
       return formatted;
     }
 
+    function appendProse(container, text, className) {
+      const chunks = String(text || "")
+        .trim()
+        .split(/\n\s*\n/)
+        .map((part) => part.trim())
+        .filter(Boolean);
+      for (const part of chunks.length ? chunks : [String(text || "").trim()]) {
+        const p = document.createElement("p");
+        p.className = className;
+        p.innerHTML = formatMarkdown(part).replace(/\n/g, "<br>");
+        container.appendChild(p);
+      }
+    }
+
     function proseToBullets(text) {
       const t = String(text || "").trim();
       if (!t) return [];
@@ -244,24 +261,14 @@
         "";
       let bullets = data.insight_bullets || (sec && sec.bullets) || [];
 
-      if (!bullets.length && (data.insight || narrative)) {
-        bullets = proseToBullets(data.insight || narrative);
-        if (bullets.length > 1) {
-          narrative = "";
-        }
-      }
-
       if (headline) {
         const h = document.createElement("p");
         h.className = "insight-headline";
         h.innerHTML = formatMarkdown(headline);
         container.appendChild(h);
       }
-      if (narrative && narrative !== headline && !bullets.length) {
-        const p = document.createElement("p");
-        p.className = "insight-body";
-        p.innerHTML = formatMarkdown(narrative.trim());
-        container.appendChild(p);
+      if (narrative && narrative !== headline) {
+        appendProse(container, narrative, "insight-body");
       }
       if (bullets.length) {
         const ul = document.createElement("ul");
@@ -272,7 +279,7 @@
           ul.appendChild(li);
         }
         container.appendChild(ul);
-      } else if (!headline) {
+      } else if (!headline && !narrative) {
         const p = document.createElement("p");
         p.className = "insight-body";
         p.innerHTML = formatMarkdown(data.insight || "No insight returned.");

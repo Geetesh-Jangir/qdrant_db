@@ -46,6 +46,10 @@ def run_fund_nav(detail: dict[str, Any], need: DataNeed) -> dict[str, Any]:
             "day_change_pct": detail.get("nav_day_change_pct"),
             "returns": rets,
             "benchmark": detail.get("benchmark"),
+            "high_52w": detail.get("high_52w"),
+            "low_52w": detail.get("low_52w"),
+            "scheme_type": detail.get("scheme_type"),
+            "category": detail.get("category"),
         },
         elapsed,
     )
@@ -56,6 +60,29 @@ def run_fund_holdings(detail: dict[str, Any], need: DataNeed) -> dict[str, Any]:
     rows = extract_top_holdings(detail, limit=need.top_n)
     elapsed = (time.perf_counter() - started) * 1000
     return _ok({"rows": rows, "fund_name": detail.get("fund_short_name")}, elapsed)
+
+
+def run_compare_funds(details: list[dict[str, Any]], *, top_n: int = 5) -> dict[str, Any]:
+    """Side-by-side NAV, sector weights, and holdings for funds the agent already resolved."""
+    started = time.perf_counter()
+    funds: list[dict[str, Any]] = []
+    for detail in details:
+        if not detail:
+            continue
+        nav = run_fund_nav(detail, DataNeed(tool="fund_nav", scope="with_returns"))
+        holdings = run_fund_holdings(detail, DataNeed(tool="fund_holdings", top_n=top_n))
+        sectors = run_fund_sectors(detail, DataNeed(tool="fund_sectors", top_n=top_n))
+        funds.append(
+            {
+                "nav": (nav.get("data") if nav.get("ok") else None),
+                "holdings": ((holdings.get("data") or {}).get("rows") if holdings.get("ok") else []),
+                "sectors": ((sectors.get("data") or {}).get("rows") if sectors.get("ok") else []),
+                "scheme_type": detail.get("scheme_type"),
+                "category": detail.get("category"),
+            }
+        )
+    elapsed = (time.perf_counter() - started) * 1000
+    return _ok({"funds": funds, "count": len(funds)}, elapsed)
 
 
 def run_fund_sectors(detail: dict[str, Any], need: DataNeed) -> dict[str, Any]:
@@ -463,6 +490,16 @@ def _direction_from_sentiment(sentiment: str | None, api_direction: str | None =
     return None
 
 
+def _layered_news_topics(layer: str, semantic_query: str) -> list[str]:
+    """Vector search already scopes the query. A full sentence as a topic filter drops every hit."""
+    if layer == "macro_news":
+        return []
+    query = (semantic_query or "").strip()
+    if not query or len(query.split()) > 3 or "?" in query:
+        return []
+    return [query]
+
+
 def run_layered_news(
     *,
     layer: str,
@@ -492,10 +529,15 @@ def run_layered_news(
         entities = []
     scope = ScopeRefinement(
         news_entities=entities[:10],
-        news_topics=[semantic_query] if semantic_query else [],
+        news_topics=_layered_news_topics(layer, semantic_query),
         search_mode=mode,
     )
-    direction = _direction_from_sentiment(sentiment, filter_kwargs.get("direction"))
+    explicit_direction = filter_kwargs.get("direction")
+    direction = explicit_direction.strip().lower() if isinstance(explicit_direction, str) else None
+    if direction not in ("positive", "negative"):
+        direction = None
+    if window_days is not None:
+        window_days = max(7, int(window_days))
     focus = (search_focus or "").strip().lower()
     blob = f"{semantic_query} {question}".lower()
     use_bullion = layer == "macro_news" and (

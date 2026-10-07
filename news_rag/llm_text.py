@@ -100,3 +100,78 @@ def parse_json_from_text(text: str) -> dict[str, Any] | None:
 
     return None
 
+
+def _json_balance(text: str) -> tuple[bool, int, int]:
+    """Return (inside_string, unclosed_braces, unclosed_brackets)."""
+    in_string = False
+    escape = False
+    braces = 0
+    brackets = 0
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            braces += 1
+        elif ch == "}":
+            braces -= 1
+        elif ch == "[":
+            brackets += 1
+        elif ch == "]":
+            brackets -= 1
+    return in_string, braces, brackets
+
+
+def salvage_truncated_json(text: str) -> dict[str, Any] | None:
+    """Close a cut-off JSON object so a headline or narrative can still be used."""
+    import json
+    import re
+
+    parsed = parse_json_from_text(text)
+    if isinstance(parsed, dict):
+        return parsed
+    raw = text or ""
+    start = raw.find("{")
+    if start < 0:
+        return None
+    fragment = raw[start:]
+    if fragment.endswith("\\"):
+        fragment = fragment[:-1]
+
+    def _loads_closed(candidate: str) -> dict[str, Any] | None:
+        body = candidate.rstrip()
+        body = re.sub(r",\s*$", "", body)
+        if re.search(r":\s*$", body):
+            body += " null"
+        in_string, braces, brackets = _json_balance(body)
+        if in_string:
+            body += '"'
+            _, braces, brackets = _json_balance(body)
+        body += "]" * max(brackets, 0) + "}" * max(braces, 0)
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    loaded = _loads_closed(fragment)
+    if loaded is not None:
+        return loaded
+
+    cut = fragment
+    for index in range(len(cut) - 1, 0, -1):
+        if cut[index] != ",":
+            continue
+        loaded = _loads_closed(cut[:index])
+        if loaded is not None:
+            return loaded
+    return None
+

@@ -23,6 +23,7 @@ _PAYLOAD_FIELDS = [
     "source",
     "published_at",
     "entity_names",
+    "sector_names",
     "holding_names",
     "primary_industry",
     "max_impact",

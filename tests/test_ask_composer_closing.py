@@ -20,5 +20,4 @@ def test_closing_from_bullets_builds_prose():
         "News on **IT** earnings may affect top holding **Infosys**.",
     ]
     closing = _closing_from_bullets("HDFC Large Cap overview", bullets, "How is HDFC Large Cap doing?")
-    assert closing
-    assert _word_count(closing) >= 10
+    assert "HDFC Large Cap" in closing

@@ -22,3 +22,4 @@ def test_cluster_prefers_larger_groups():
     clusters = cluster_articles_by_theme(articles)
     assert clusters
     assert clusters[0].article_count >= 2
+    assert len(clusters[0].articles) >= 2

@@ -94,8 +94,8 @@ def test_plan_enrich_sets_affected_funds_when_question_asks_funds():
     )
     q = "tell me whats happening in the market right now and what are the sectors which are performing well and then which mutual funds are working well"
     enriched = enrich_ask_plan(q, plan)
-    assert enriched.affected_funds == "after_news"
-    assert enriched.affected_funds_top_n >= 3
+    assert enriched.affected_funds == "none"
+    assert {t.tool for t in enriched.tools} == {"common_market_news", "sector_news"}
 
 
 def test_build_ranked_fund_bullets():
@@ -140,19 +140,23 @@ def test_finalize_compose_includes_ranked_funds_for_fund_query():
         "**Information Technology** — Strong exports boost realization.",
     ]
     q = "what is happening in market and what sectors and mutual funds are performing well"
-    _, _, bullets = _finalize_compose(
+    headline, narrative, bullets = _finalize_compose(
         "Headline",
-        "",
-        initial_bullets,
+        "Banks gained while IT lagged.",
+        initial_bullets + ["Banks gained while IT lagged."],
         bundle,
         digests=[],
         market_pulse_clusters=[{"label": "Theme 1", "article_count": 2}],
         question=q,
         answer_parts=q,
         sentiment="positive",
+        evidence_text="no fund figures here",
     )
-    assert any("Nippon India Power & Infra Fund" in b for b in bullets)
-    assert any("+3.8%" in b for b in bullets)
+    assert narrative == "Banks gained while IT lagged."
+    assert headline == "Headline"
+    assert any("Information Technology" in b for b in bullets)
+    assert not any("Nippon India Power" in b for b in bullets)
+    assert not any(b == "Banks gained while IT lagged." for b in bullets)
 
 
 def test_enrich_does_not_rewrite_planner_sentiment():
@@ -213,9 +217,7 @@ def test_plan_enrich_adds_sector_funds_for_banking_best_query():
         "and which banking mutual funds have performed best over the last month?"
     )
     enriched = enrich_ask_plan(q, plan)
-    sector_tools = [t for t in enriched.tools if t.tool == "sector_funds"]
-    assert len(sector_tools) == 1
-    assert "banking" in (sector_tools[0].sector_name or "").lower()
+    assert [t.tool for t in enriched.tools] == ["macro_news_enhanced", "sector_news"]
 
 
 def test_finalize_compose_does_not_duplicate_when_llm_wrote_fund_bullets():
@@ -241,9 +243,9 @@ def test_finalize_compose_does_not_duplicate_when_llm_wrote_fund_bullets():
         "**Top Fund: ICICI Prudential Technology Fund** — Holds **34.2%** in Information Technology with **+4.8%** return.",
     ]
     q = "what is happening in market and what sectors and mutual funds are performing well"
-    _, _, bullets = _finalize_compose(
+    _, narrative, bullets = _finalize_compose(
         "Headline",
-        "",
+        "The tape is mixed.",
         llm_bullets,
         bundle,
         digests=[],
@@ -251,7 +253,8 @@ def test_finalize_compose_does_not_duplicate_when_llm_wrote_fund_bullets():
         question=q,
         answer_parts=q,
         sentiment="positive",
+        evidence_text="34.2 4.8",
     )
-    # Verified ranking names are added even if the model mentioned a different fund.
-    assert any("Nippon India Power & Infra Fund" in b for b in bullets)
+    assert narrative == "The tape is mixed."
     assert any("ICICI Prudential Technology Fund" in b for b in bullets)
+    assert not any("Nippon India Power" in b for b in bullets)

@@ -130,21 +130,37 @@ class TestDigestInsightBullets(unittest.TestCase):
         self.assertIn("credit costs", joined)
 
 
+def _agent_run(plan: AskPlan, *, errors: list | None = None):
+    from news_rag.ask_agent import AgentRun
+    from news_rag.ask_execution import ExecutionBundle, PipelineError
+    from news_rag.name_resolution import ResolvedNames
+
+    bundle = ExecutionBundle(names=ResolvedNames())
+    for message in errors or []:
+        bundle.pipeline_errors.append(PipelineError(stage="tool", tool="macro_news", message=message))
+    return AgentRun(
+        plan=plan,
+        bundle=bundle,
+        research={
+            "question_reading": {"intent": plan.answer_parts},
+            "entities": [],
+            "relationships_to_check": [],
+            "information_gaps": [],
+            "tools": [{"tool": t.tool, "purpose": t.purpose, "depends_on": t.depends_on} for t in plan.tools],
+            "rounds": 1,
+        },
+    )
+
+
 class TestAskEngineIntegration(unittest.TestCase):
     @patch("news_rag.ask_engine.judge_answer")
-    @patch("news_rag.ask_engine.digest_news_parallel")
     @patch("news_rag.ask_engine.compose_final_answer")
-    @patch("news_rag.ask_engine.plan_query")
-    @patch("news_rag.ask_execution.retrieve_layered_fund_news", return_value=[])
-    @patch("news_rag.tools.run_layered_news")
-    def test_engine_returns_score_without_hiding_answer(
-        self, _layer_news, _portfolio_news, mock_plan, mock_compose, mock_digest, mock_judge
-    ):
+    @patch("news_rag.ask_engine.run_research_agent")
+    def test_engine_returns_score_without_hiding_answer(self, mock_agent, mock_compose, mock_judge):
         from news_rag.ask_composer import ComposedAnswer
         from news_rag.ask_engine import run_ask_engine
 
-        mock_plan.return_value = _defence_plan()
-        mock_digest.return_value = ([], [])
+        mock_agent.return_value = _agent_run(_defence_plan())
         mock_compose.return_value = ComposedAnswer(
             headline="**HDFC Defence** performance context",
             narrative="NAV and returns over the last month.",
@@ -152,49 +168,48 @@ class TestAskEngineIntegration(unittest.TestCase):
             display="HDFC Defence NAV context",
             bullets=["1 month return noted"],
             highlight_terms=["HDFC Defence"],
+            format_chosen="mixed",
+            gaps=["No fresh holdings news."],
         )
         mock_judge.return_value = JudgeResult(
             passed=False,
-            scores={"answers_query": 0.4, "grounded": 0.5, "no_advice": 1.0},
+            scores={"answers_query": 0.4, "grounded": 0.9, "no_advice": 1.0},
             attempt=1,
             raw={},
         )
         out = run_ask_engine("how is hdfc defence fund working?")
         self.assertIn("HDFC Defence", out.get("insight") or "")
+        self.assertIn("NAV and returns", out.get("insight_narrative") or "")
         self.assertIsNotNone(out.get("output_score"))
+        self.assertIn("question_reading", out.get("research") or {})
+        self.assertEqual((out.get("answer_trace") or {}).get("format_chosen"), "mixed")
         self.assertNotEqual(out.get("insight"), "We do not have information related to this query in our data.")
 
     @patch("news_rag.ask_engine.judge_answer")
-    @patch("news_rag.ask_engine.digest_news_parallel")
     @patch("news_rag.ask_engine.compose_final_answer")
-    @patch("news_rag.ask_engine.plan_query")
-    def test_tool_failure_surfaces_pipeline_errors(self, mock_plan, mock_compose, mock_digest, mock_judge):
+    @patch("news_rag.ask_engine.run_research_agent")
+    def test_tool_failure_surfaces_pipeline_errors(self, mock_agent, mock_compose, mock_judge):
         from news_rag.ask_composer import ComposedAnswer
         from news_rag.ask_engine import run_ask_engine
-        from news_rag.ask_execution import PipelineError
 
-        mock_plan.return_value = AskPlan(
-            answer_parts="macro",
-            tools=[PlannedTool(tool="macro_news", semantic_query="crude oil India")],
+        mock_agent.return_value = _agent_run(
+            AskPlan(
+                answer_parts="macro",
+                tools=[PlannedTool(tool="macro_news", semantic_query="crude oil India")],
+            ),
+            errors=["qdrant down"],
         )
-        mock_digest.return_value = ([], [])
 
         def _compose(*_a, **_k):
             return ComposedAnswer(summary="partial", display="partial")
 
         mock_compose.side_effect = _compose
-        mock_judge.return_value = JudgeResult(passed=True, scores={}, attempt=1, raw={})
-
-        with patch("news_rag.ask_execution._run_one_tool") as mock_tool:
-            mock_tool.return_value = MagicMock(
-                tool="macro_news",
-                key="macro_news_0",
-                result={"ok": False, "error": "qdrant down", "data": None},
-                error="qdrant down",
-            )
-            out = run_ask_engine("crude oil impact on sectors")
+        mock_judge.return_value = JudgeResult(passed=True, scores={"grounded": 0.9}, attempt=1, raw={})
+        out = run_ask_engine("crude oil impact on sectors")
         errs = out.get("pipeline_errors") or []
         self.assertTrue(any("qdrant" in (e.get("message") or "").lower() for e in errs))
+        self.assertIn("research", out)
+        self.assertIn("answer_trace", out)
 
 
 if __name__ == "__main__":

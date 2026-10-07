@@ -19,7 +19,7 @@ def test_entity_pair_cluster_bullet_detected():
     )
 
 
-def test_positive_postprocess_drops_noise_and_injects_sectors():
+def test_positive_postprocess_drops_noise_without_inventing_sectors():
     bullets = [
         "**Market Backdrop** — Nifty under pressure as yields rise.",
         "**PB Fintech Limited · Reliance Industries Limited** — 52-week lows across names.",
@@ -49,9 +49,8 @@ def test_positive_postprocess_drops_noise_and_injects_sectors():
     blob = " ".join(out).lower()
     assert "pb fintech" not in blob
     assert "brokerage firms" not in blob
-    assert "information technology" in blob
-    assert "capital goods" not in blob
-    assert "pharmaceutical" not in blob
+    assert "information technology" not in blob
+    assert "market backdrop" in blob
 
 
 def test_finalize_compose_positive_sentiment_filters_clusters():
@@ -73,19 +72,21 @@ def test_finalize_compose_positive_sentiment_filters_clusters():
         "**Automobiles** — Sectors under pressure from crude costs.",
         "**Aviation** — Fuel costs squeeze margins.",
     ]
-    _, _, bullets = _finalize_compose(
+    headline, narrative, bullets = _finalize_compose(
         "Headline",
-        "",
+        "Yields and crude are pulling in different directions.",
         llm_bullets,
         bundle,
         digests,
         market_pulse_clusters=clusters,
         sentiment="positive",
+        evidence_text="7.19",
     )
-    assert not any("PB Fintech" in b for b in bullets)
-    assert _count_beneficiary(bullets) >= 1
-    pressure = [b for b in bullets if "under pressure" in b.lower() or "squeeze" in b.lower()]
-    assert len(pressure) <= 1
+    assert headline == "Headline"
+    assert "Yields and crude" in narrative
+    assert any("PB Fintech" in b for b in bullets)
+    assert any("under pressure" in b.lower() for b in bullets)
+    assert any("squeeze" in b.lower() for b in bullets)
 
 
 def _count_beneficiary(bullets: list[str]) -> int:

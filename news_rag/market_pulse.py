@@ -230,11 +230,7 @@ def cluster_articles_by_theme(articles: list[dict[str, Any]]) -> list[MacroTheme
         for a in arts:
             sectors.extend(str(s) for s in (a.get("sector_names") or []) if s)
             entities.extend(str(e) for e in (a.get("entity_names") or []) if e)
-        ranked_arts = sorted(
-            arts,
-            key=lambda a: (int(a.get("max_impact") or 0), float(a.get("_rrf_score") or 0)),
-            reverse=True,
-        )[:1]
+        ranked_arts = pick_diverse_articles(arts, limit=4)
         theme_slug = re.sub(r"[^a-z0-9]+", "_", label.lower())[:32] or f"theme_{i}"
         clusters.append(
             MacroThemeCluster(
@@ -244,13 +240,39 @@ def cluster_articles_by_theme(articles: list[dict[str, Any]]) -> list[MacroTheme
                 article_count=count,
                 score=score,
                 articles=ranked_arts,
-                sectors=list(dict.fromkeys(sectors))[:6],
+                sectors=list(dict.fromkeys(sectors))[:12],
                 entities=list(dict.fromkeys(entities))[:6],
             )
         )
 
     clusters.sort(key=lambda c: c.score, reverse=True)
     return clusters[:MARKET_PULSE_TOP_CLUSTERS]
+
+
+def pick_diverse_articles(articles: list[dict[str, Any]], *, limit: int = 4) -> list[dict[str, Any]]:
+    """Keep several articles from one theme, skipping near-duplicate headlines."""
+    ranked = sorted(
+        articles,
+        key=lambda art: (int(art.get("max_impact") or 0), float(art.get("_rrf_score") or 0)),
+        reverse=True,
+    )
+    picked: list[dict[str, Any]] = []
+    seen: list[set[str]] = []
+    for art in ranked:
+        sig = _title_signature(art)
+        if sig and any(
+            len(sig & prev) >= 2 and (len(sig & prev) / min(len(sig), len(prev))) >= 0.5
+            for prev in seen
+        ):
+            continue
+        picked.append(art)
+        if sig:
+            seen.append(sig)
+        if len(picked) >= limit:
+            break
+    if not picked and ranked:
+        return ranked[:1]
+    return picked
 
 
 def pick_cluster_representative(articles: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -336,6 +358,9 @@ def _collect_pulse_pool(
     filter_kwargs: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     pool: dict[str, dict[str, Any]] = {}
+    from news_rag.embed import embed_query
+
+    embed_query(MACRO_QUERY_SPECS[0][0])
     with ThreadPoolExecutor(max_workers=max(1, min(8, len(MACRO_QUERY_SPECS)))) as pool_exec:
         futs = {
             pool_exec.submit(

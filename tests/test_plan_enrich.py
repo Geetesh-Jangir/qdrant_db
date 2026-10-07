@@ -15,11 +15,7 @@ class TestPlanEnrich(unittest.TestCase):
             tools=[PlannedTool(tool="metals_spot")],
         )
         out = enrich_ask_plan(q, plan)
-        macro = [t for t in out.tools if t.tool == "macro_news"]
-        focuses = {t.search_focus for t in macro}
-        self.assertIn("gold", focuses)
-        self.assertIn("silver", focuses)
-        self.assertTrue(any(t.tool == "sector_funds" for t in out.tools))
+        self.assertEqual([t.tool for t in out.tools], ["metals_spot"])
 
     def test_fund_overview_gets_news_tools(self):
         plan = AskPlan(
@@ -32,8 +28,7 @@ class TestPlanEnrich(unittest.TestCase):
             ],
         )
         out = enrich_ask_plan("tell me about hdfc large cap fund?", plan)
-        news = {t.tool for t in out.tools} & {"holdings_news", "sector_news", "macro_news"}
-        self.assertEqual(news, {"holdings_news", "sector_news", "macro_news"})
+        self.assertEqual([t.tool for t in out.tools], ["fund_nav", "fund_top_stocks", "fund_top_sectors"])
 
     def test_pure_nav_skips_news_enrichment(self):
         plan = AskPlan(
@@ -58,14 +53,8 @@ class TestPlanEnrich(unittest.TestCase):
         )
         q = "is the gold price movement affecting the ppfas flexi cap fund?"
         out = enrich_ask_plan(q, plan)
-        self.assertIn("cross_impact", out.raw_json)
-        self.assertIn("gold", out.raw_json["cross_impact"]["drivers"])
-        self.assertTrue(any(t.tool == "metals_spot" for t in out.tools))
-        gold_macro = [
-            t for t in out.tools if t.tool == "macro_news" and t.search_focus == "gold"
-        ]
-        self.assertTrue(gold_macro)
-        self.assertFalse(any(t.tool == "sector_funds" for t in out.tools))
+        self.assertEqual([t.tool for t in out.tools], ["fund_nav"])
+        self.assertNotIn("cross_impact", out.raw_json or {})
 
     def test_fund_scheme_gets_nav_tool(self):
         plan = AskPlan(
@@ -74,9 +63,7 @@ class TestPlanEnrich(unittest.TestCase):
             tools=[PlannedTool(tool="fund_top_stocks")],
         )
         out = enrich_ask_plan("How is HDFC Defence Fund doing?", plan)
-        nav_tools = [t for t in out.tools if t.tool == "fund_nav"]
-        self.assertEqual(len(nav_tools), 1)
-        self.assertEqual(nav_tools[0].fund_entity_index, 0)
+        self.assertEqual([t.tool for t in out.tools], ["fund_top_stocks"])
 
 
 if __name__ == "__main__":

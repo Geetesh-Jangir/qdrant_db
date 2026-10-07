@@ -14,7 +14,7 @@ def test_enrich_normalizes_common_market_news_window():
     assert (out.raw_json or {}).get("common_market_news") is True
 
 
-def test_enrich_drops_redundant_macro_when_common_market_selected():
+def test_enrich_keeps_macro_news_beside_common_market():
     plan = AskPlan(
         tools=[
             PlannedTool(tool="common_market_news"),
@@ -23,4 +23,4 @@ def test_enrich_drops_redundant_macro_when_common_market_selected():
     )
     out = enrich_ask_plan("market update", plan)
     names = {t.tool for t in out.tools}
-    assert names == {"common_market_news"}
+    assert names == {"common_market_news", "macro_news"}

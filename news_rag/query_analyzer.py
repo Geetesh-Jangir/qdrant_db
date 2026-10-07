@@ -170,7 +170,9 @@ def plan_query(
             temperature=0.0,
             query_log=query_log,
         )
-        parsed = parse_json_from_text(res.raw_text) or {}
+        parsed = res.parsed if isinstance(getattr(res, "parsed", None), dict) else None
+        if not isinstance(parsed, dict):
+            parsed = parse_json_from_text(res.raw_text) or {}
         if not parsed:
             raise ValueError("planner returned no JSON object")
         plan = AskPlan.from_dict(parsed)
@@ -189,7 +191,9 @@ def plan_query(
                 temperature=0.0,
                 query_log=query_log,
             )
-            parsed2 = parse_json_from_text(res2.raw_text) or {}
+            parsed2 = res2.parsed if isinstance(getattr(res2, "parsed", None), dict) else None
+            if not isinstance(parsed2, dict):
+                parsed2 = parse_json_from_text(res2.raw_text) or {}
             if parsed2:
                 plan = AskPlan.from_dict(parsed2)
                 if not plan.answer_parts:

@@ -9,7 +9,7 @@ from typing import Any, TYPE_CHECKING
 
 from news_rag.config import get_settings
 from news_rag.json_util import safe_json_dumps
-from news_rag.llm_client import call_insight_llm, composer_model, llm_api_key_configured
+from news_rag.llm_client import call_json_llm, composer_model, llm_api_key_configured
 from news_rag.cross_impact import CROSS_IMPACT_COMPOSER_ADDENDUM, cross_impact_from_plan
 from news_rag.article_pool import collect_bundle_articles
 from news_rag.market_pulse import (
@@ -21,21 +21,9 @@ from news_rag.news_digest import LayerDigest
 from news_rag.snippet_clean import article_body_for_llm
 from news_rag.llm_text import parse_json_from_text
 
-INSTITUTIONAL_ANALYST_RULES = """SECTOR AND FUND RULES
-- A sector bullet opens with the sector name in bold, then an em dash: **Oil & Gas** — producers gain when crude rises; marketers face losses if pump prices stay fixed.
-- Allowed sector names are sectors_positive, sectors_negative, ranked_funds.matched_sectors, and sectors named inside digests. Use at most three.
-- Display names: Banks → Banking & Financial Services; IT - Software or Software → Information Technology; Pharmaceuticals → Pharmaceuticals & Biotechnology.
-- A company (ONGC, BPCL, HDFC Bank, Tata Motors) is not a sector. Mention it inside the sector bullet.
-- Crude, bond yields, the repo rate, the rupee, and inflation go in one **Macro Backdrop** bullet. They are not sectors.
-- Do not add Information Technology, Pharma, PSU banks, or Capital Goods unless a digest supports that sector or the user specifically asks for it.
-- Sector-fund answers use only ranked_funds with sector_purity=dedicated_sectoral. Never present arbitrage, hybrid, multi-asset, or debt funds as sector equity.
-- If defensive_alternatives is non-empty, at most one bullet titled **Defensive / Market-Neutral Alternatives**, and label those schemes as arbitrage or hybrid.
-- If all_drawdown is true, or every 1-month return in ranked_funds is negative: the sector pulled back. Title **Most Resilient Performers** and do not call a loss a gain.
-- If fund_rank_direction is positive and ranked_funds is empty: say no screened dedicated equity fund has a positive 1-month NAV. Do not substitute weaker or unrelated funds.
-- If the user did not ask about funds or sectors and they are not highly relevant to the general market pulse, DO NOT include them. Be dynamic."""
+INSTITUTIONAL_ANALYST_RULES = ""
 
-MARKET_PULSE_COMPOSER_ADDENDUM = """MARKET OVERVIEW
-Read market_pulse_representatives and the market_pulse digest. Write a dynamic summary. If the user asks a general market question (like 'what is happening'), focus on the macro themes. DO NOT force sector or fund bullets if the question doesn't specifically ask for them or if they aren't directly relevant to the core narrative. Skip theme labels such as Bond Yields or RBI Repo Rate as if they were sectors. If news_article_count is 0, say the archive had no matching articles and stop."""
+MARKET_PULSE_COMPOSER_ADDENDUM = ""
 
 if TYPE_CHECKING:
     from news_rag.ask_plan import AskPlan
@@ -44,38 +32,105 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-COMPOSER_SYSTEM = """You write the final answer for an Indian mutual-fund research app. Context is already retrieved. You only turn that Context into a clear answer. Return JSON only. No markdown fences.
+COMPOSER_SYSTEM = """You are a seasoned analyst for an Indian mutual-fund research app.
+The research agent has already retrieved Context. You write the final answer.
+Return JSON only. No markdown fences.
 
 {
-  "headline": "One sentence that answers the question and names the sector or fund. Bold that name only.",
-  "narrative": "",
-  "bullets": ["Four to six bullets. One claim each."],
-  "closing_summary": "Two or three new sentences, 40 to 80 words. Do not repeat the headline or the bullets.",
-  "advice_declined_note": ""
+  "headline": "The direct answer in one or two sentences.",
+  "narrative": "Short paragraphs, separated by a blank line. Each paragraph is one thing that is happening and how it lands.",
+  "bullets": ["Who is affected, then the impact, in plain words."],
+  "closing_summary": "One or two short sentences a fund investor can remember. Empty string if it would repeat the bullets.",
+  "advice_declined_note": "",
+  "format_chosen": "narrative|bullets|mixed|comparison|figure",
+  "themes": [{"name": "", "direction": "positive|negative|mixed|unclear", "why_it_matters": ""}],
+  "relationships_used": [{"driver": "", "target": "", "kind": "direct|indirect", "channel": "", "evidence": ""}],
+  "numbers_cited": [{"label": "", "value": "", "source": "nav|holding|sector|article|metals|rank"}],
+  "gaps": ["What the evidence could not answer."]
 }
 
-ANSWER THE QUESTION FIRST
-- "Which sector benefits" → the headline names the sectors that benefit, and any sector the same news hurts.
-- "What is happening / which sectors are working" → the headline states the market driver and the sectors in focus.
-- "Best or worst funds" → the headline states whether those funds are up or down.
-- A named fund → the headline says how this news reaches that fund. Stay on that fund.
-- If the evidence is mixed, say the split. Do not force a cheerful beneficiary list.
-
-FACTS
-- Use the article body, not the title alone. Also use digests, ranked_funds, sectors_positive, sectors_negative, holdings, and NAV fields in Context.
-- Copy percentages, weights, prices, and basis points exactly. Do not invent or round them into a new figure.
-- Do not paste article titles, URLs, bylines, dates, "Published", "Updated", source names, "related articles", "Impact x/5", or "mood".
-- Rewrite the news as one clean sentence. A bad bullet copies the snippet. A good bullet states the effect.
+HOW TO WRITE
+- Write for someone who does not follow markets every day. Short sentences. Everyday words.
+- If you use a term such as repo rate, PMI, or basis points, say what it means in the same sentence.
+- Do not say Context, payload, clusters, evidence, or channel.
+- Answer the question that was asked. A market overview, a named fund, a sector, a stock, a comparison, and an impact question are different jobs.
 
 SHAPE
-1. Optional **Macro Backdrop** — only when rates, crude, yields, inflation, or the rupee are part of the answer.
-2. One bullet per sector, bold sector name first.
-3. If the user asked for funds, or ranked_funds is non-empty: one bullet per fund with the fund name, sector weight %, 1-month NAV %, and 1-week NAV %.
-- No second bullet that repeats a fact. The closing adds the implication only.
-- holdings_market is rendered separately. Do not write a bullet per holding.
-- No buy, sell, or target price. No glossary in parentheses. No "stay calm" or long-term lecture. Complete sentences. No ellipses.
+- headline: one or two short sentences that answer the question.
+- narrative: a few short paragraphs, separated by a blank line. Each paragraph is one force in the news. First sentence: what happened. Next sentence: who it helps or hurts, and how. Example shape: banks are lending more, so bank profits can rise; higher interest rates make new loans costlier.
+- bullets: the scan list for who is positively or negatively affected. Each bullet names the sector or fund, then the impact. Do not retell the narrative.
+- closing_summary: one or two short sentences. Do not repeat the bullets. No fixed label such as Macro Backdrop.
 
-""" + INSTITUTIONAL_ANALYST_RULES
+IMPACT
+- Every paragraph and every bullet must do both jobs: what the news says, and how that hits a sector, a company, or a fund.
+- A negative or positive tag on an article is that article's mood. It is not the list of who benefits. Name the industries, companies, and sector tags the articles themselves name, and say how the news hits them.
+- If one search came back empty, answer from the articles you do have. Do not say that no sector was named when those articles name industries or companies.
+- When several articles are one event, merge them. When they disagree, say so in plain words.
+- Let the affected names be whatever the evidence supports. Do not invent a sector label for a company or a geopolitical story.
+- If fund names were not retrieved, say that in one sentence. Do not spend the answer on the missing data.
+
+RELATIONSHIPS
+- Direct: the fund holds the stock, or a sector weight is in the data. Cite the weight.
+- Indirect: a rate, a currency, a cost, or demand in the news connects them. Name that chain in plain words. If the chain is not in the data, do not invent it.
+- If both exist, say which one matters more for this fund.
+
+FACTS
+- Numbers, names, and directions come only from the data. Copy them. Do not round them into a new figure.
+- Do not show titles, URLs, bylines, dates, impact scores, or mood.
+- Use the scheme type on each fund. An arbitrage, hybrid, or debt scheme is not a dedicated equity sector fund.
+- A negative return is a pullback. Do not describe it as strength.
+- No buy, sell, hold, target price, or prediction. If advice was declined, put that only in advice_declined_note.
+- Bold a fund, company, sector, or figure when it is the point of the sentence.
+"""
+
+COMPOSER_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "narrative": {"type": "string"},
+        "bullets": {"type": "array", "items": {"type": "string"}},
+        "closing_summary": {"type": "string"},
+        "advice_declined_note": {"type": "string"},
+        "format_chosen": {"type": "string"},
+        "themes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "direction": {"type": "string"},
+                    "why_it_matters": {"type": "string"},
+                },
+            },
+        },
+        "relationships_used": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "driver": {"type": "string"},
+                    "target": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "channel": {"type": "string"},
+                    "evidence": {"type": "string"},
+                },
+            },
+        },
+        "numbers_cited": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "label": {"type": "string"},
+                    "value": {"type": "string"},
+                    "source": {"type": "string"},
+                },
+            },
+        },
+        "gaps": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["headline", "narrative", "bullets"],
+}
 
 
 _MAX_BOLD_PER_HEADLINE = 10
@@ -1341,6 +1396,83 @@ def _inject_digest_insights(
     return _polish_bullet_list(bullets + added)
 
 
+_PCT_OR_BPS_RE = re.compile(
+    r"(?<![\w.])([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|bps|bp)(?![\w])",
+    re.I,
+)
+_MONEY_RE = re.compile(
+    r"(?:₹|Rs\.?|INR)\s*([+-]?\d+(?:,\d{3})*(?:\.\d+)?)",
+    re.I,
+)
+_DECIMAL_RE = re.compile(r"(?<![\w.])([+-]?\d{1,3}(?:,\d{3})*\.\d+)(?![\w.])")
+_ANY_NUMBER_RE = re.compile(r"\d+(?:,\d{3})*(?:\.\d+)?")
+
+
+def _numeric_core(raw: str) -> str:
+    s = (raw or "").replace(",", "").strip().lstrip("+")
+    if not s:
+        return ""
+    if re.fullmatch(r"-?\d+\.\d+", s):
+        s = s.rstrip("0").rstrip(".")
+    return s
+
+
+def _cores_in_text(blob: str) -> set[str]:
+    cores: set[str] = set()
+    for match in _ANY_NUMBER_RE.finditer(blob or ""):
+        core = _numeric_core(match.group(0))
+        if core:
+            cores.add(core)
+    return cores
+
+
+def _tidy_prose(text: str) -> str:
+    text = re.sub(r"\*{2,}\s*\*{2,}", "", text or "")
+    text = re.sub(r"\bbetween\s+and\b", "", text, flags=re.I)
+    text = re.sub(r"\(\s*\)", "", text)
+    text = re.sub(r"\s+,", ",", text)
+    text = re.sub(r",\s*,", ",", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    return text.strip()
+
+
+def _strip_ungrounded_numbers(text: str, allowed: set[str]) -> str:
+    def drop_pct(match: re.Match[str]) -> str:
+        core = _numeric_core(match.group(1))
+        return match.group(0) if core in allowed else ""
+
+    def drop_money(match: re.Match[str]) -> str:
+        core = _numeric_core(match.group(1))
+        return match.group(0) if core in allowed else ""
+
+    def drop_decimal(match: re.Match[str]) -> str:
+        core = _numeric_core(match.group(1))
+        return match.group(0) if core in allowed else ""
+
+    cleaned = _PCT_OR_BPS_RE.sub(drop_pct, text or "")
+    cleaned = _MONEY_RE.sub(drop_money, cleaned)
+    cleaned = _DECIMAL_RE.sub(drop_decimal, cleaned)
+    return _tidy_prose(cleaned)
+
+
+def _exact_text_key(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+
+def _dedupe_exact(bullets: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for bullet in bullets:
+        cleaned = (bullet or "").strip()
+        key = _exact_text_key(cleaned)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(cleaned)
+    return out
+
+
 def _finalize_compose(
     headline: str,
     narrative: str,
@@ -1352,115 +1484,29 @@ def _finalize_compose(
     question: str = "",
     answer_parts: str = "",
     sentiment: str = "any",
+    evidence_text: str = "",
+    numbers_cited: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str, list[str]]:
-    nav = _nav_payload(bundle)
-    nav_line = _format_nav_bullet(nav) if nav else None
-    if nav_line:
-        lower_blob = " ".join(bullets).lower()
-        if "nav" not in lower_blob[:200]:
-            bullets = [nav_line] + bullets
+    """Keep the model's sentences. Drop exact repeats and figures absent from evidence."""
+    del bundle, digests, holdings_market, market_pulse_clusters, question, answer_parts, sentiment
+    allowed = _cores_in_text(evidence_text)
+    cited = numbers_cited or []
+    for item in cited:
+        if not isinstance(item, dict):
+            continue
+        value = str(item.get("value") or "")
+        core = _numeric_core(re.sub(r"[^\d.,+-]", "", value))
+        if value and core and core not in allowed:
+            headline = headline.replace(value, "")
+            narrative = narrative.replace(value, "")
+            bullets = [b.replace(value, "") for b in bullets]
 
-    if not bullets and narrative:
-        bullets = _narrative_to_bullets(narrative)
-        if len(bullets) >= 2:
-            narrative = ""
-    elif narrative and len(narrative) > 200 and len(bullets) <= 1:
-        extra = _narrative_to_bullets(narrative)
-        if extra:
-            bullets = bullets + [b for b in extra if b not in bullets]
-            narrative = ""
-
-    bullets = [_strip_bullet_prefix(b) for b in bullets]
-    backed = _build_news_backed_pulse_bullets(market_pulse_clusters or [], digests)
-    cluster_dump = any(
-        "related articles" in b.lower() or "mood:" in b.lower() for b in bullets
-    )
-    if market_pulse_clusters and backed and (not bullets or cluster_dump):
-        bullets = list(backed)
-    elif market_pulse_clusters:
-        bullets = [b for b in bullets if not _is_generic_market_fluff(b)]
-    bullets = _inject_holdings_market_bullets(bullets, holdings_market)
-    nav = _nav_payload(bundle)
-    fund_name = str((nav or {}).get("fund_name") or "")
-    pulse_mode = bool(market_pulse_clusters)
-    if digests and not pulse_mode:
-        bullets = _inject_digest_insights(
-            bullets,
-            digests,
-            holdings_market=holdings_market,
-            market_pulse_clusters=market_pulse_clusters,
-            fund_name=fund_name,
-        )
-    if pulse_mode:
-        bullets = [b for b in bullets if not _is_generic_market_fluff(b)]
-        bullets = _dedupe_pulse_bullets(bullets) if bullets else []
-        bullets = _apply_positive_sector_postprocess(
-            bullets, digests, sentiment=sentiment, pulse_mode=True
-        )
-        ranked_funds = _extract_ranked_funds_from_bundle(bundle)
-        if ranked_funds:
-            lower_q = (question + " " + answer_parts).lower()
-            wants_funds = any(
-                w in lower_q
-                for w in ("fund", "funds", "mutual fund", "mutual funds", "scheme", "schemes")
-            )
-            has_fund_bullets = False
-            for b in bullets:
-                b_lower = b.lower()
-                for rf in ranked_funds:
-                    fname = str(rf.get("fund_name") or "").lower()
-                    if fname and len(fname) > 5 and fname in b_lower:
-                        has_fund_bullets = True
-                        break
-                if has_fund_bullets:
-                    break
-            if wants_funds and not has_fund_bullets:
-                fund_bullets = _build_ranked_fund_bullets(ranked_funds, limit=3, sentiment=sentiment)
-                for fb in fund_bullets:
-                    if fb not in bullets:
-                        bullets.append(fb)
-    else:
-        if market_pulse_clusters:
-            bullets = [b for b in bullets if not _is_generic_market_fluff(b)]
-            if backed:
-                seen_keys = {_normalize_bullet_key(b) for b in backed}
-                extra = [b for b in bullets if _normalize_bullet_key(b) not in seen_keys]
-                bullets = _polish_bullet_list(backed + extra[:2])
-        bullets = _polish_bullet_list(bullets)
-        bullets = _rank_bullets_by_fund_impact(
-            bullets,
-            nav=nav,
-            nav_line=nav_line,
-            holdings_market=holdings_market,
-            sector_rows=bundle.sector_rows or [],
-            question=question,
-            answer_parts=answer_parts,
-        )[:_MAX_INSIGHT_BULLETS]
-    sector_names = _sector_names_from_bullets(bullets)
-    headline_low = (headline or "").lower()
-    if sector_names and (
-        not headline.strip()
-        or "related articles" in headline_low
-        or "mood:" in headline_low
-        or headline.strip().lower().startswith("here is what our data")
-    ):
-        headline = "Sectors in focus: " + ", ".join(f"**{n}**" for n in sector_names[:3])
-
-    fund_direction, fund_note, fund_rows = _sector_fund_payload(bundle)
-    lower_q = (question + " " + answer_parts).lower()
-    wants_funds = any(
-        w in lower_q for w in ("fund", "funds", "mutual fund", "mutual funds", "scheme", "schemes")
-    )
-    if wants_funds and fund_direction == "positive" and not fund_rows and fund_note:
-        bullets = [b for b in bullets if not _claims_negative_fund_as_best(b)]
-        line = f"**Fund Performance** — {fund_note}"
-        if line not in bullets:
-            bullets.append(line)
-    narrative = ""
-
-    if not pulse_mode:
-        impact_terms = _collect_impact_bold_terms(bundle, nav, holdings_market)
-        headline, narrative, bullets = _apply_impact_emphasis(headline, narrative, bullets, impact_terms)
+    headline = _strip_ungrounded_numbers(headline, allowed)
+    narrative = _strip_ungrounded_numbers(narrative, allowed)
+    bullets = [_strip_ungrounded_numbers(b, allowed) for b in bullets]
+    bullets = [b for b in bullets if b]
+    narrative_key = _exact_text_key(narrative)
+    bullets = [b for b in _dedupe_exact(bullets) if _exact_text_key(b) != narrative_key]
     return headline, narrative, bullets
 
 
@@ -1473,22 +1519,15 @@ def _finalize_closing(
     answer_parts: str,
     holdings_market: list[dict[str, Any]] | None = None,
     market_pulse_clusters: list[dict[str, Any]] | None = None,
+    evidence_text: str = "",
 ) -> str:
+    del bundle, answer_parts, holdings_market, market_pulse_clusters, bullets
     text = re.sub(r"^[-*•]\s+", "", (closing or "").strip())
     text = re.sub(r"\n+", " ", text)
-    if market_pulse_clusters and _is_generic_investing_closing(text):
-        text = ""
-    if market_pulse_clusters and not text:
-        text = _pulse_closing_from_bullets(bullets, market_pulse_clusters)
-    if not text:
-        text = _closing_from_bullets(headline, bullets, answer_parts)
-    if not text:
+    text = _strip_ungrounded_numbers(text, _cores_in_text(evidence_text))
+    if _exact_text_key(text) and _exact_text_key(text) == _exact_text_key(headline):
         return ""
-    if not market_pulse_clusters:
-        nav = _nav_payload(bundle)
-        impact_terms = _collect_impact_bold_terms(bundle, nav, holdings_market)
-        text = _emphasize_impact_text(text, impact_terms, max_bold_spans=_MAX_BOLD_PER_CLOSING)
-    return _clamp_closing_words(text)
+    return text
 
 
 @dataclass
@@ -1503,6 +1542,20 @@ class ComposedAnswer:
     display: str = ""
     advice_declined_note: str = ""
     error: str = ""
+    format_chosen: str = ""
+    themes: list[dict[str, Any]] = field(default_factory=list)
+    relationships_used: list[dict[str, Any]] = field(default_factory=list)
+    numbers_cited: list[dict[str, Any]] = field(default_factory=list)
+    gaps: list[str] = field(default_factory=list)
+
+    def answer_trace(self) -> dict[str, Any]:
+        return {
+            "format_chosen": self.format_chosen,
+            "themes": self.themes,
+            "relationships_used": self.relationships_used,
+            "numbers_cited": self.numbers_cited,
+            "gaps": self.gaps,
+        }
 
 
 def _build_display(
@@ -1575,6 +1628,14 @@ def _deterministic_fallback(
         if nb:
             bullets.append(nb)
     pulse_clusters = _market_pulse_clusters_from_bundle(bundle)
+    evidence_text = safe_json_dumps(
+        {
+            "narrative": narrative_parts,
+            "bullets": bullets,
+            "ranked_funds": ranked_funds,
+            "nav": nav,
+        }
+    )
     headline, narrative, bullets = _finalize_compose(
         headline,
         narrative,
@@ -1585,6 +1646,7 @@ def _deterministic_fallback(
         market_pulse_clusters=pulse_clusters if market_pulse_from_plan(plan) else None,
         question="",
         answer_parts=plan.answer_parts,
+        evidence_text=evidence_text,
     )
     closing = _finalize_closing(
         "",
@@ -1606,16 +1668,15 @@ def _deterministic_fallback(
     )
 
 
-def _articles_for_llm(articles: list[dict[str, Any]], *, limit: int = 6) -> list[dict[str, Any]]:
+def _articles_for_llm(articles: list[dict[str, Any]], *, limit: int = 8) -> list[dict[str, Any]]:
     """Title plus cleaned body for the final model. Not a headline-only list."""
-    ranked = sorted(
-        articles,
-        key=lambda row: (-int(row.get("max_impact") or 0), str(row.get("published_at") or "")),
-    )
+    from news_rag.market_pulse import pick_diverse_articles
+
+    ranked = pick_diverse_articles(articles, limit=limit)
     rows: list[dict[str, Any]] = []
     for article in ranked:
         title = str(article.get("title") or "").strip()
-        body = article_body_for_llm(article, limit=1000)
+        body = article_body_for_llm(article, limit=650)
         if not title and not body:
             continue
         sectors = article.get("sector_names") or article.get("sectors") or []
@@ -1623,14 +1684,104 @@ def _articles_for_llm(articles: list[dict[str, Any]], *, limit: int = 6) -> list
             {
                 "title": title,
                 "body": body,
-                "source": article.get("source"),
-                "published_at": str(article.get("published_at") or "")[:10],
+                "direction": article.get("direction"),
+                "event_type": article.get("event_type"),
+                "entity_names": article.get("entity_names") or [],
+                "holding_names": article.get("holding_names") or [],
                 "sectors": sectors if isinstance(sectors, list) else [],
             }
         )
         if len(rows) >= limit:
             break
     return rows
+
+
+def _composer_tool_results(bundle: ExecutionBundle) -> dict[str, Any]:
+    """Cluster labels and short representatives. Full article lists stay in the article pack."""
+    slim: dict[str, Any] = {}
+    for key, val in bundle.tool_results.items():
+        if not val.get("ok"):
+            continue
+        data = val.get("data") or {}
+        if not isinstance(data, dict):
+            slim[key] = data
+            continue
+        if data.get("clusters") or data.get("representative_articles"):
+            reps = []
+            for rep in (data.get("representative_articles") or [])[:6]:
+                if not isinstance(rep, dict):
+                    continue
+                reps.append(
+                    {
+                        "theme": rep.get("theme"),
+                        "title": rep.get("title"),
+                        "direction": rep.get("direction"),
+                        "sectors": rep.get("sectors"),
+                        "body": str(rep.get("body") or "")[:500],
+                    }
+                )
+            clusters = []
+            for cluster in (data.get("clusters") or [])[:8]:
+                if not isinstance(cluster, dict):
+                    continue
+                clusters.append(
+                    {
+                        "label": cluster.get("label"),
+                        "article_count": cluster.get("article_count"),
+                        "sectors": cluster.get("sectors"),
+                        "entities": list(cluster.get("entities") or [])[:6],
+                    }
+                )
+            slim[key] = {
+                "window_label": data.get("window_label"),
+                "clusters": clusters,
+                "representative_articles": reps,
+            }
+            continue
+        copy = {
+            field: value
+            for field, value in data.items()
+            if field not in ("articles", "clusters", "representative_articles", "queries")
+        }
+        articles = data.get("articles") or []
+        copy["article_count"] = len(articles) if isinstance(articles, list) else 0
+        slim[key] = copy
+    return slim
+
+
+def _closed_prose(text: str) -> str:
+    """Drop a trailing fragment when the model reply was cut off mid-sentence."""
+    cleaned = (text or "").strip()
+    if not cleaned or cleaned[-1] in ".!?":
+        return cleaned
+    for index in range(len(cleaned) - 1, -1, -1):
+        if cleaned[index] in ".!?":
+            return cleaned[: index + 1].strip()
+    return cleaned
+
+
+def _answer_from_representatives(
+    reps: list[dict[str, Any]],
+    clusters: list[dict[str, Any]],
+) -> tuple[str, str, list[str]]:
+    bullets: list[str] = []
+    for rep in reps or []:
+        theme = str(rep.get("theme") or "").strip()
+        body = str(rep.get("body") or rep.get("snippet") or rep.get("title") or "").strip()
+        if not body:
+            continue
+        sentence = body.split(". ")[0].strip()
+        if sentence and not sentence.endswith("."):
+            sentence += "."
+        line = f"{theme}: {sentence}" if theme else sentence
+        if line not in bullets:
+            bullets.append(line)
+        if len(bullets) >= 4:
+            break
+    label = str((clusters[0] if clusters else {}).get("label") or "").strip() if clusters else ""
+    headline = label or (bullets[0][:140] if bullets else "")
+    narrative = " ".join(bullets[:2])
+    return headline, narrative, bullets
 
 
 def compose_final_answer(
@@ -1649,9 +1800,13 @@ def compose_final_answer(
         None,
     )
     cross = cross_impact_from_plan(plan)
+    reading = getattr(plan, "question_reading", None) or {}
     context = {
         "answer_parts": plan.answer_parts,
         "declined_parts": plan.declined_parts,
+        "question_reading": reading,
+        "relationships_to_check": getattr(plan, "relationships_to_check", None) or [],
+        "information_gaps": getattr(plan, "information_gaps", None) or [],
         "sentiment": plan.sentiment,
         "news_article_count": news_article_count,
         "cross_impact": cross,
@@ -1660,7 +1815,7 @@ def compose_final_answer(
         "holdings": bundle.holdings_rows,
         "sectors": bundle.sector_rows,
         "holdings_market": holdings_market or [],
-        "tool_results": {k: v.get("data") for k, v in bundle.tool_results.items() if v.get("ok")},
+        "tool_results": _composer_tool_results(bundle),
         "digests": [
             {
                 "focus": d.focus or d.layer,
@@ -1731,68 +1886,68 @@ def compose_final_answer(
         }
         for c in pulse_clusters[:8]
     ]
-    context["market_pulse_representatives"] = pulse_reps
+    context["market_pulse_representatives"] = [
+        {
+            "theme": rep.get("theme"),
+            "title": rep.get("title"),
+            "direction": rep.get("direction"),
+            "sectors": rep.get("sectors"),
+        }
+        for rep in (pulse_reps or [])[:6]
+        if isinstance(rep, dict)
+    ]
     llm_articles = _articles_for_llm(pooled_articles)
 
-    if market_pulse_from_plan(plan) and news_article_count == 0:
-        pulse_data = market_pulse_data_from_bundle(bundle)
-        wd = pulse_data.get("window_days")
-        label = pulse_data.get("window_label") or (f"last {wd} days" if wd else "the configured window")
-        pub_from = (pulse_data.get("published_from") or "")[:10]
-        pub_to = (pulse_data.get("published_to") or "")[:10]
-        range_bit = f" ({pub_from} to {pub_to})" if pub_from and pub_to else ""
-        msg = (
-            f"We searched our news archive (Nifty, RBI, flows, earnings, and other macro topics) "
-            f"for **{label}**{range_bit} but found **no articles** matching filters "
-            f"(including relevance ≥ 2). If your Qdrant index is older, try asking with "
-            f"\"last 90 days\" or re-index recent news."
-        )
-        return ComposedAnswer(
-            headline="No news articles available for this market question",
-            bullets=[msg],
-            closing_summary=msg,
-            summary=msg,
-            display=_build_display("No news articles available for this market question", "", [msg], "", msg),
-        )
-
     system_prompt = COMPOSER_SYSTEM
-    if cross:
-        drivers = ", ".join(str(d) for d in (cross.get("drivers") or []))
-        system_prompt = (
-            f"{COMPOSER_SYSTEM}\n\n{CROSS_IMPACT_COMPOSER_ADDENDUM}\n"
-            f"Active drivers for this question: {drivers}."
-        )
-    elif market_pulse_from_plan(plan):
-        system_prompt = f"{COMPOSER_SYSTEM}\n\n{MARKET_PULSE_COMPOSER_ADDENDUM}"
-        if plan.sentiment == "positive":
-            system_prompt += (
-                "\n\nThe question asks what is working or who benefits. "
-                "Call a sector a beneficiary only when a digest states a benefit or a positive catalyst. "
-                "If the same news shows another sector under pressure, give that sector its own bullet. "
-                "Name each ranked_funds entry when that list is non-empty. If it is empty, do not invent gainers."
-            )
+    if cross or getattr(plan, "relationships_to_check", None):
+        drivers = ", ".join(str(d) for d in ((cross or {}).get("drivers") or []))
+        system_prompt = f"{COMPOSER_SYSTEM}\n\n{CROSS_IMPACT_COMPOSER_ADDENDUM}"
+        if drivers:
+            system_prompt += f"\nActive drivers for this question: {drivers}."
 
+    articles_json = safe_json_dumps(llm_articles)
+    context_json = safe_json_dumps(context, limit=14000)
+    evidence_text = f"{articles_json}\n{context_json}"
+    judge_note = str(getattr(plan, "judge_note", "") or "").strip()
     user = (
         "Write the final answer from the articles and Context. "
-        "Each article has a title and a body. Read the body. Do not answer from the title alone. "
-        "The headline answers the question. "
-        "Sector bullets use sector names, not company names or article titles. "
-        "Fund names and NAV figures come only from ranked_funds.\n\n"
+        "Use short paragraphs and plain words. "
+        "Each paragraph and each bullet must say what the news shows and how it affects a sector, company, or fund. "
+        "Do not retell an article, and do not repeat the same point in the narrative and the bullets. "
+        "Use question_reading, relationships_to_check, and information_gaps when they are present. "
+        "Numbers must be copied from Context.\n\n"
         f"Question:\n{question}\n\n"
-        f"Articles:\n{safe_json_dumps(llm_articles)}\n\n"
-        f"Context:\n{safe_json_dumps(context, limit=8000)}"
+        f"Articles:\n{articles_json}\n\n"
+        f"Context:\n{context_json}"
     )
+    if judge_note:
+        user += f"\n\nGrounding note from the checker:\n{judge_note}"
     try:
-        res = call_insight_llm(
+        settings = get_settings()
+        res = call_json_llm(
             system_prompt=system_prompt,
             user_content=user,
-            query_log=query_log,
             model_override=composer_model(),
+            max_tokens=max(settings.llm_max_tokens, 4096),
+            temperature=0.2,
+            query_log=query_log,
+            response_schema=COMPOSER_RESPONSE_SCHEMA,
+            stage="composer",
         )
-        parsed = parse_json_from_text(res.raw_text) or {}
+        parsed = res.parsed if isinstance(res.parsed, dict) else (parse_json_from_text(res.raw_text) or {})
         headline = str(parsed.get("headline") or "").strip()
         narrative = str(parsed.get("narrative") or parsed.get("summary") or "").strip()
-        bullets = [str(b) for b in (parsed.get("bullets") or []) if str(b).strip()][:24]
+        bullets = [str(b) for b in (parsed.get("bullets") or []) if str(b).strip()]
+        if not headline and not narrative and not bullets:
+            headline, narrative, bullets = _answer_from_representatives(pulse_reps, pulse_clusters)
+        if res.truncated:
+            narrative = _closed_prose(narrative)
+            bullets = [
+                closed
+                for item in bullets
+                if (closed := _closed_prose(item)) and closed[-1] in ".!?"
+            ]
+        numbers_cited = [n for n in (parsed.get("numbers_cited") or []) if isinstance(n, dict)]
         headline, narrative, bullets = _finalize_compose(
             headline,
             narrative,
@@ -1804,7 +1959,16 @@ def compose_final_answer(
             question=question,
             answer_parts=plan.answer_parts,
             sentiment=plan.sentiment,
+            evidence_text=evidence_text,
+            numbers_cited=numbers_cited,
         )
+        allowed = _cores_in_text(evidence_text)
+        kept_numbers: list[dict[str, Any]] = []
+        for item in numbers_cited:
+            value = str(item.get("value") or "")
+            core = _numeric_core(re.sub(r"[^\d.,+-]", "", value))
+            if core and core in allowed:
+                kept_numbers.append(item)
         closing_raw = str(
             parsed.get("closing_summary") or parsed.get("closing") or parsed.get("summary_paragraph") or ""
         ).strip()
@@ -1818,11 +1982,15 @@ def compose_final_answer(
             answer_parts=plan.answer_parts,
             holdings_market=holdings_market,
             market_pulse_clusters=pulse_clusters if market_pulse_from_plan(plan) else None,
+            evidence_text=evidence_text,
         )
 
         note = str(parsed.get("advice_declined_note") or "").strip()
         if plan.declined_parts and not note:
             note = "We do not provide buy/sell, target-price, or prediction advice."
+        themes = [t for t in (parsed.get("themes") or []) if isinstance(t, dict)]
+        relationships_used = [t for t in (parsed.get("relationships_used") or []) if isinstance(t, dict)]
+        gaps = [str(g).strip() for g in (parsed.get("gaps") or []) if str(g).strip()]
 
         return ComposedAnswer(
             headline=headline,
@@ -1834,6 +2002,11 @@ def compose_final_answer(
             impact_items=[],
             display=_build_display(headline, narrative, bullets, note, closing),
             advice_declined_note=note,
+            format_chosen=str(parsed.get("format_chosen") or "").strip(),
+            themes=themes,
+            relationships_used=relationships_used,
+            numbers_cited=kept_numbers,
+            gaps=gaps,
         )
     except Exception as exc:
         logger.warning("composer failed: %s", exc)

@@ -1,75 +1,51 @@
-from news_rag.ask_composer import (
-    _build_news_backed_pulse_bullets,
-    _dedupe_pulse_bullets,
-    _is_generic_market_fluff,
-)
+from news_rag.ask_composer import COMPOSER_SYSTEM, _finalize_compose, _strip_ungrounded_numbers
+from news_rag.ask_execution import ExecutionBundle
+from news_rag.name_resolution import ResolvedNames
 
 
-def test_generic_fluff_detected():
-    assert _is_generic_market_fluff(
-        "Investors are keeping a close eye on Nifty to see how the overall market is moving."
+def _bundle() -> ExecutionBundle:
+    return ExecutionBundle(names=ResolvedNames())
+
+
+def test_composer_prompt_is_not_a_fixed_bullet_template():
+    assert "Four to six" not in COMPOSER_SYSTEM
+    assert "at most three" not in COMPOSER_SYSTEM.lower()
+    assert "one clean sentence" not in COMPOSER_SYSTEM.lower()
+    assert "format_chosen" in COMPOSER_SYSTEM
+    assert "Everyday words" in COMPOSER_SYSTEM
+    assert "how that hits a sector" in COMPOSER_SYSTEM
+
+
+def test_finalize_keeps_model_narrative_and_bullets():
+    bullets = ["**Banks** — credit growth is the story."]
+    headline, narrative, out = _finalize_compose(
+        "Headline",
+        "A connected account of the tape.",
+        bullets,
+        _bundle(),
+        market_pulse_clusters=[{"label": "RBI Repo Rate", "articles": [{"snippet": "margins"}]}],
+        evidence_text="credit",
     )
+    assert headline == "Headline"
+    assert narrative == "A connected account of the tape."
+    assert out == bullets
+    assert "Macro Backdrop" not in " ".join(out)
 
 
-def test_news_backed_bullets_use_headline():
-    clusters = [
-        {
-            "label": "RBI policy",
-            "article_count": 3,
-            "sectors": ["Banking"],
-            "articles": [
-                {
-                    "title": "RBI holds repo rate at 6.5%",
-                    "snippet": "The central bank kept rates unchanged citing inflation risks.",
-                    "direction": "negative",
-                    "max_impact": 4,
-                    "published_at": "2026-10-04",
-                }
-            ],
-        }
-    ]
-    bullets = _build_news_backed_pulse_bullets(clusters, None)
-    assert bullets
-    assert "Banking" in bullets[0]
-    assert "related articles" not in bullets[0].lower()
-    assert "mood:" not in bullets[0].lower()
-    assert "inflation" in bullets[0].lower()
-
-
-def test_banks_cluster_uses_sector_display_name():
-    clusters = [
-        {
-            "label": "RBI Repo Rate",
-            "article_count": 12,
-            "sectors": ["Banks"],
-            "articles": [
-                {
-                    "title": "PSBs see rate repricing",
-                    "snippet": "Net interest margins of most banks are already under pressure.",
-                    "direction": "unclear",
-                    "max_impact": 2,
-                }
-            ],
-        }
-    ]
-    bullets = _build_news_backed_pulse_bullets(clusters, None)
-    assert bullets
-    joined = " ".join(bullets)
-    assert "Banking & Financial Services" in joined
-    assert "related articles" not in joined.lower()
-    assert "RBI Repo Rate" not in joined
-
-
-def test_pulse_dedupe_keeps_multiple_themes():
-    a = (
-        "**Bond Yields** (11 related articles) — **Yields rise** (2026-10-01). "
-        "First sentence. **Impact:** 4/5 · **Mood:** pressuring stocks."
+def test_finalize_drops_exact_duplicates_and_invented_percentages():
+    headline, narrative, bullets = _finalize_compose(
+        "Rates moved 9.9%",
+        "Banks gained on the policy.",
+        [
+            "Banks gained on the policy.",
+            "Banks rose 9.9% today.",
+            "IT exports held up.",
+            "IT exports held up.",
+        ],
+        _bundle(),
+        evidence_text="no figures",
     )
-    b = (
-        "**FII flows** (5 related articles) — **FIIs sell** (2026-10-02). "
-        "Second theme sentence. **Impact:** 3/5 · **Mood:** mixed/neutral."
-    )
-    out = _dedupe_pulse_bullets([a, b])
-    assert len(out) == 2
-    assert "Yields rise" in out[0]
-    assert "FIIs sell" in out[1]
+    assert "9.9" not in headline
+    assert narrative == "Banks gained on the policy."
+    assert bullets == ["Banks rose today.", "IT exports held up."]
+    assert _strip_ungrounded_numbers("Still down between **-1.2%** and **-0.4%**.", set()) == "Still down."

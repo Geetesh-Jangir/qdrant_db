@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import json
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -45,7 +46,12 @@ def _mark_gemini_quota_exceeded(query_log: QueryLogger | None, body: str) -> Non
         )
 
 from news_rag.config import Settings, get_settings
-from news_rag.llm_text import extract_assistant_text, extract_gemini_text
+from news_rag.llm_text import (
+    extract_assistant_text,
+    extract_gemini_text,
+    parse_json_from_text,
+    salvage_truncated_json,
+)
 
 if TYPE_CHECKING:
     from news_rag.query_log import QueryLogger
@@ -61,6 +67,10 @@ class LlmCallResult:
     total_tokens: int | None
     duration_sec: float
     http_status: int
+    parsed: dict[str, Any] | None = None
+    finish_reason: str = ""
+    truncated: bool = False
+    repaired: bool = False
 
 
 def llm_provider(settings: Settings | None = None) -> str:
@@ -203,6 +213,32 @@ def call_insight_llm(
             raise
 
 
+def _blocks_to_parts(context_blocks: list[dict[str, Any]] | None, user_content: str) -> list[str]:
+    if not context_blocks:
+        return [user_content]
+    parts: list[str] = []
+    for block in context_blocks:
+        name = str(block.get("name") or "context").strip()
+        text = str(block.get("text") or "")
+        parts.append(f"## {name}\n{text}")
+    return parts
+
+
+def _finish_is_truncated(finish_reason: str) -> bool:
+    return (finish_reason or "").strip().lower() in {"length", "max_tokens"}
+
+
+def _composer_partial_usable(parsed: dict[str, Any] | None) -> bool:
+    if not isinstance(parsed, dict):
+        return False
+    if str(parsed.get("headline") or "").strip():
+        return True
+    if str(parsed.get("narrative") or parsed.get("summary") or "").strip():
+        return True
+    bullets = parsed.get("bullets") or []
+    return any(str(item).strip() for item in bullets if not isinstance(item, dict))
+
+
 def call_json_llm(
     *,
     system_prompt: str,
@@ -211,74 +247,115 @@ def call_json_llm(
     max_tokens: int = 600,
     temperature: float = 0.0,
     query_log: QueryLogger | None = None,
+    context_blocks: list[dict[str, Any]] | None = None,
+    response_schema: dict[str, Any] | None = None,
+    stage: str | None = None,
+    _repair_attempt: bool = False,
 ) -> LlmCallResult:
     settings = get_settings()
     provider = _effective_provider(settings)
     chosen_model = model_override or router_model(settings)
-    if provider == "gemini":
-        try:
+    parts = _blocks_to_parts(context_blocks, user_content)
+    joined = "\n\n".join(parts)
+    schema_text = ""
+    if response_schema:
+        schema_text = (
+            "\n\nReturn a JSON object that matches this schema:\n"
+            f"{json.dumps(response_schema, ensure_ascii=False)}"
+        )
+
+    def _invoke(active_provider: str) -> LlmCallResult:
+        if active_provider == "gemini":
             return _call_gemini(
                 settings,
                 system_prompt,
-                user_content,
-                model=chosen_model,
+                joined,
+                model=chosen_model if provider == "gemini" else settings.gemini_model,
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_json=True,
+                response_schema=response_schema,
+                user_parts=parts,
                 query_log=query_log,
             )
-        except Exception as exc:
-            if settings.deepseek_api_key and settings.deepseek_api_key.strip():
-                if query_log is not None:
-                    query_log.write(f"gemini_json_failed_falling_back_to_deepseek error={exc}")
-                if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
-                    if _is_gemini_quota_response(exc.response.status_code, exc.response.text):
-                        _mark_gemini_quota_exceeded(query_log, exc.response.text)
-                return _call_deepseek(
-                    settings,
-                    system_prompt,
-                    user_content,
-                    model=settings.deepseek_model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    response_json=True,
-                    query_log=query_log,
-                )
+        return _call_deepseek(
+            settings,
+            system_prompt + schema_text,
+            joined,
+            model=chosen_model if provider != "gemini" else settings.deepseek_model,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_json=True,
+            query_log=query_log,
+        )
+
+    try:
+        result = _invoke(provider)
+    except Exception as exc:
+        fallback = ""
+        if provider == "gemini" and (settings.deepseek_api_key or "").strip():
+            fallback = "deepseek"
+            if query_log is not None:
+                query_log.write(f"gemini_json_failed_falling_back_to_deepseek error={exc}")
             if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
-                if exc.response.status_code == 429:
-                    raise RuntimeError(
-                        "Gemini returned HTTP 429 (rate limit or daily quota). "
-                        "Wait a few minutes, avoid rapid repeated asks, "
-                        "or set DEEPSEEK_API_KEY for automatic fallback while RAG_LLM_PROVIDER=gemini."
-                    ) from exc
+                if _is_gemini_quota_response(exc.response.status_code, exc.response.text):
+                    _mark_gemini_quota_exceeded(query_log, exc.response.text)
+        elif provider != "gemini" and (settings.gemini_api_key or "").strip():
+            fallback = "gemini"
+            if query_log is not None:
+                query_log.write(f"deepseek_json_failed_falling_back_to_gemini error={exc}")
+        if not fallback:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None and exc.response.status_code == 429:
+                raise RuntimeError(
+                    "Gemini returned HTTP 429 (rate limit or daily quota). "
+                    "Wait a few minutes, avoid rapid repeated asks, "
+                    "or set DEEPSEEK_API_KEY for automatic fallback while RAG_LLM_PROVIDER=gemini."
+                ) from exc
             raise
-    else:
-        try:
-            return _call_deepseek(
-                settings,
-                system_prompt,
-                user_content,
-                model=chosen_model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                response_json=True,
-                query_log=query_log,
+        result = _invoke(fallback)
+
+    parsed = parse_json_from_text(result.raw_text)
+    if not isinstance(parsed, dict):
+        parsed = salvage_truncated_json(result.raw_text)
+    result.parsed = parsed if isinstance(parsed, dict) else None
+    keep_partial = stage == "composer" and result.truncated and _composer_partial_usable(result.parsed)
+    needs_repair = (result.truncated or not isinstance(result.parsed, dict)) and not keep_partial
+    if needs_repair and not _repair_attempt:
+        repair_user = (
+            "The previous reply was cut off or was not a JSON object. "
+            "Return one complete JSON object for the same task. No markdown.\n\n"
+            f"Partial reply:\n{(result.raw_text or '')[:6000]}"
+        )
+        repaired = call_json_llm(
+            system_prompt=system_prompt,
+            user_content=repair_user,
+            model_override=model_override,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            query_log=query_log,
+            response_schema=response_schema,
+            stage=stage,
+            _repair_attempt=True,
+        )
+        repaired.repaired = True
+        if query_log is not None:
+            query_log.write(
+                f"llm stage={stage or 'json'} repaired=true finish={repaired.finish_reason} "
+                f"truncated={repaired.truncated}"
             )
-        except Exception as exc:
-            if settings.gemini_api_key and settings.gemini_api_key.strip():
-                if query_log is not None:
-                    query_log.write(f"deepseek_json_failed_falling_back_to_gemini error={exc}")
-                return _call_gemini(
-                    settings,
-                    system_prompt,
-                    user_content,
-                    model=settings.gemini_model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    response_json=True,
-                    query_log=query_log,
-                )
-            raise
+        if (
+            stage == "composer"
+            and not _composer_partial_usable(repaired.parsed if isinstance(repaired.parsed, dict) else None)
+            and _composer_partial_usable(result.parsed)
+        ):
+            result.repaired = True
+            return result
+        return repaired
+    if query_log is not None and stage:
+        query_log.write(
+            f"llm stage={stage} finish={result.finish_reason} truncated={result.truncated} repaired={result.repaired}"
+        )
+    return result
 
 
 def _call_deepseek(
@@ -342,6 +419,8 @@ def _call_deepseek(
     output_tokens = int(usage.get("completion_tokens") or 0)
     total_raw = usage.get("total_tokens")
     total_tokens = int(total_raw) if total_raw is not None else None
+    choices = data.get("choices") or []
+    finish_reason = str((choices[0].get("finish_reason") if choices else "") or "")
 
     result = LlmCallResult(
         raw_text=extract_assistant_text(data),
@@ -352,6 +431,8 @@ def _call_deepseek(
         total_tokens=total_tokens,
         duration_sec=duration,
         http_status=response.status_code,
+        finish_reason=finish_reason,
+        truncated=_finish_is_truncated(finish_reason),
     )
     if query_log is not None:
         query_log.record_llm_call(
@@ -375,6 +456,8 @@ def _call_gemini(
     max_tokens: int | None = None,
     temperature: float = 0.25,
     response_json: bool = False,
+    response_schema: dict[str, Any] | None = None,
+    user_parts: list[str] | None = None,
     query_log: QueryLogger | None,
 ) -> LlmCallResult:
     api_key = (settings.gemini_api_key or "").strip().strip('"')
@@ -392,10 +475,16 @@ def _call_gemini(
     }
     if response_json:
         gen_config["responseMimeType"] = "application/json"
+    if response_schema:
+        gen_config["responseSchema"] = response_schema
 
+    if user_parts:
+        contents = [{"role": "user", "parts": [{"text": part}]} for part in user_parts]
+    else:
+        contents = [{"role": "user", "parts": [{"text": user_content}]}]
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": user_content}]}],
+        "contents": contents,
         "generationConfig": gen_config,
     }
     if query_log is not None:
@@ -410,7 +499,7 @@ def _call_gemini(
     max_retries = 1 if has_fallback else 3
     backoffs = [1.0] if has_fallback else [2.0, 4.0, 8.0]
     for attempt in range(max_retries + 1):
-        with httpx.Client(timeout=30.0) as client:
+        with httpx.Client(timeout=120.0) as client:
             response = client.post(
                 url,
                 headers={
@@ -452,6 +541,9 @@ def _call_gemini(
     total_raw = usage.get("totalTokenCount")
     total_tokens = int(total_raw) if total_raw is not None else None
 
+    candidates = data.get("candidates") or []
+    finish_reason = str((candidates[0].get("finishReason") if candidates else "") or "")
+
     result = LlmCallResult(
         raw_text=extract_gemini_text(data),
         provider="gemini",
@@ -461,6 +553,8 @@ def _call_gemini(
         total_tokens=total_tokens,
         duration_sec=duration,
         http_status=response.status_code,
+        finish_reason=finish_reason,
+        truncated=_finish_is_truncated(finish_reason),
     )
     if query_log is not None:
         query_log.record_llm_call(

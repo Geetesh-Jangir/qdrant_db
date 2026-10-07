@@ -72,6 +72,22 @@ def _tool_key(tool: PlannedTool, index: int) -> str:
     return f"{tool.tool}_{index}"
 
 
+def detail_for_tool(plan: AskPlan, names: ResolvedNames, tool: PlannedTool) -> dict[str, Any] | None:
+    """Honor fund_entity_index as an index into plan.entities, not only the scheme list."""
+    idx = tool.fund_entity_index
+    if idx is None:
+        return names.primary_scheme
+    if 0 <= idx < len(plan.entities):
+        ent = plan.entities[idx]
+        phrase = ent.cleaned_phrase or ent.raw
+        for scheme in names.schemes:
+            same_phrase = (scheme.entity.cleaned_phrase or scheme.entity.raw) == phrase
+            same_raw = scheme.entity.raw == ent.raw and scheme.entity.role == ent.role
+            if same_phrase or same_raw:
+                return scheme.detail
+    return names.scheme_detail(idx)
+
+
 def _run_one_tool(
     tool: PlannedTool,
     index: int,
@@ -87,7 +103,7 @@ def _run_one_tool(
     query_log: QueryLogger | None,
 ) -> ToolRunResult:
     key = _tool_key(tool, index)
-    detail = names.scheme_detail(tool.fund_entity_index)
+    detail = detail_for_tool(plan, names, tool)
     filter_kwargs = {
         "date_from": date_from,
         "date_to": date_to,
@@ -153,7 +169,7 @@ def _run_one_tool(
             need = DataNeed(tool="stock_snapshot", stock_name=tool.stock_name, semantic_query=tool.semantic_query)
             return ToolRunResult(tool.tool, key, run_stock_snapshot(need))
         if tool.tool == "affected_funds":
-            sectors = plan.affected_funds_sectors or names.sectors
+            sectors = [tool.sector_name] if tool.sector_name else (plan.affected_funds_sectors or names.sectors)
             return ToolRunResult(
                 tool.tool,
                 key,
@@ -383,15 +399,12 @@ def execute_ask_plan(
 
     tools_to_run = [t for t in plan.tools if t.tool != "affected_funds" or plan.affected_funds == "now"]
     clustered_macro = [t for t in tools_to_run if t.tool in CLUSTERED_MACRO_TOOL_NAMES]
-    pulse_mode = any(t.tool in ("common_market_news", "market_pulse") for t in clustered_macro)
     fact_tools = [
         t
         for t in tools_to_run
         if t.tool not in _NEWS_TOOL_NAMES and t.tool not in CLUSTERED_MACRO_TOOL_NAMES
     ]
     news_tools = [t for t in tools_to_run if t.tool in _NEWS_TOOL_NAMES]
-    if pulse_mode:
-        news_tools = [t for t in news_tools if t.tool != "macro_news"]
 
     if query_log is not None:
         query_log.write(
@@ -426,7 +439,7 @@ def execute_ask_plan(
         )
     _hydrate_names_from_scheme(bundle)
     driver_news, other_news = _split_news_tools(news_tools)
-    if news_tools and bundle.names.primary_scheme:
+    if news_tools and bundle.names.primary_scheme and len(bundle.names.schemes) <= 1:
         _run_fund_portfolio_news(bundle, question, news_tools, query_log=query_log)
         if driver_news:
             _run_tools_parallel(
@@ -469,6 +482,39 @@ def execute_ask_plan(
         )
 
     return bundle
+
+
+def execute_tool_round(
+    plan: AskPlan,
+    tools: list[PlannedTool],
+    question: str,
+    bundle: ExecutionBundle | None = None,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_impact: int | None = None,
+    source: str | None = None,
+    direction: str | None = None,
+    query_log: QueryLogger | None = None,
+) -> list[ToolRunResult]:
+    """Run exactly the tools the agent asked for. No pulse stripping and no portfolio bypass."""
+    if bundle is None:
+        bundle = ExecutionBundle(names=resolve_plan_names(plan, query_log=query_log))
+    if bundle.names.ambiguous or not tools:
+        return []
+    _hydrate_names_from_scheme(bundle)
+    return _run_tools_parallel(
+        tools,
+        plan,
+        bundle,
+        question,
+        date_from=date_from,
+        date_to=date_to,
+        min_impact=min_impact,
+        source=source,
+        direction=direction,
+        query_log=query_log,
+    )
 
 
 def run_affected_funds_after_news(

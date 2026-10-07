@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 Sentiment = Literal["positive", "negative", "any"]
-EntityRole = Literal["fund_scheme", "amc", "holding", "sector"]
+EntityRole = Literal["fund_scheme", "amc", "holding", "sector", "macro_driver"]
 AffectedFundsTiming = Literal["none", "now", "after_news"]
 
 ALLOWED_PLANNER_TOOLS = frozenset(
@@ -26,14 +26,32 @@ ALLOWED_PLANNER_TOOLS = frozenset(
         "market_pulse",
         "common_market_news",
         "macro_news_enhanced",
+        "fund_universe_search",
+        "compare_funds",
+        "funds_holding_stock",
+        "trace_relationships",
+        "expand_news",
     }
 )
+
+def _int_list(value: Any) -> list[int]:
+    out: list[int] = []
+    if not isinstance(value, list):
+        return out
+    for item in value:
+        try:
+            out.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return out
+
 
 # Aliases normalized at parse time
 _TOOL_ALIASES = {
     "fund_holdings": "fund_top_stocks",
     "fund_sectors": "fund_top_sectors",
     "market_pulse": "common_market_news",
+    "fund_universe_discovery": "fund_universe_search",
 }
 
 
@@ -42,16 +60,18 @@ class EntityMention:
     raw: str
     role: EntityRole
     cleaned_phrase: str = ""
+    why: str = ""
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> EntityMention:
         role = str(data.get("role") or "fund_scheme").strip()
-        if role not in ("fund_scheme", "amc", "holding", "sector"):
+        if role not in ("fund_scheme", "amc", "holding", "sector", "macro_driver"):
             role = "fund_scheme"
         return cls(
             raw=str(data.get("raw") or "").strip(),
-            role=role,
+            role=role,  # type: ignore[arg-type]
             cleaned_phrase=str(data.get("cleaned_phrase") or data.get("cleaned") or "").strip(),
+            why=str(data.get("why") or "").strip(),
         )
 
 
@@ -66,6 +86,15 @@ class PlannedTool:
     window_days: int | None = None
     entity_filters: list[str] = field(default_factory=list)
     search_focus: str = ""
+    purpose: str = ""
+    depends_on: str = ""
+    category: str = ""
+    amc: str = ""
+    keyword: str = ""
+    driver: str = ""
+    target: str = ""
+    theme: str = ""
+    fund_entity_indexes: list[int] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> PlannedTool:
@@ -102,6 +131,15 @@ class PlannedTool:
             window_days=window_days,
             entity_filters=filters,
             search_focus=str(data.get("search_focus") or data.get("focus") or "").strip(),
+            purpose=str(data.get("purpose") or "").strip(),
+            depends_on=str(data.get("depends_on") or "").strip(),
+            category=str(data.get("category") or "").strip(),
+            amc=str(data.get("amc") or "").strip(),
+            keyword=str(data.get("keyword") or "").strip(),
+            driver=str(data.get("driver") or "").strip(),
+            target=str(data.get("target") or "").strip(),
+            theme=str(data.get("theme") or "").strip(),
+            fund_entity_indexes=_int_list(data.get("fund_entity_indexes")),
         )
 
 
@@ -117,6 +155,10 @@ class AskPlan:
     affected_funds: AffectedFundsTiming = "none"
     affected_funds_sectors: list[str] = field(default_factory=list)
     affected_funds_top_n: int = 10
+    question_reading: dict[str, Any] = field(default_factory=dict)
+    relationships_to_check: list[dict[str, Any]] = field(default_factory=list)
+    information_gaps: list[str] = field(default_factory=list)
+    judge_note: str = ""
     raw_json: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -139,14 +181,28 @@ class AskPlan:
                     tools.append(pt)
         declined = [str(x).strip() for x in (data.get("declined_parts") or []) if str(x).strip()]
         sectors_af = [str(x).strip() for x in (data.get("affected_funds_sectors") or []) if str(x).strip()]
+        reading = data.get("question_reading") if isinstance(data.get("question_reading"), dict) else {}
+        relationships = [
+            item for item in (data.get("relationships_to_check") or []) if isinstance(item, dict)
+        ]
+        gaps = [str(x).strip() for x in (data.get("information_gaps") or []) if str(x).strip()]
+        if not declined and isinstance(reading, dict):
+            declined = [str(x).strip() for x in (reading.get("declined_parts") or []) if str(x).strip()]
+        if isinstance(reading, dict) and reading.get("sentiment"):
+            sent = str(reading.get("sentiment") or sent).strip().lower()
+            if sent not in ("positive", "negative", "any"):
+                sent = "any"
         try:
             af_top = max(1, min(int(data.get("affected_funds_top_n") or 10), 25))
         except (TypeError, ValueError):
             af_top = 10
+        answer_parts = str(data.get("answer_parts") or data.get("answerable_parts") or "").strip()
+        if not answer_parts and isinstance(reading, dict):
+            answer_parts = str(reading.get("intent") or "").strip()
         return cls(
             decline_entirely=bool(data.get("decline_entirely")),
             decline_message=str(data.get("decline_message") or "").strip(),
-            answer_parts=str(data.get("answer_parts") or data.get("answerable_parts") or "").strip(),
+            answer_parts=answer_parts,
             declined_parts=declined,
             sentiment=sent,
             entities=entities,
@@ -154,5 +210,8 @@ class AskPlan:
             affected_funds=af,
             affected_funds_sectors=sectors_af,
             affected_funds_top_n=af_top,
+            question_reading=dict(reading or {}),
+            relationships_to_check=relationships,
+            information_gaps=gaps,
             raw_json=data,
         )

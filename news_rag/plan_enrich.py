@@ -417,30 +417,14 @@ def _normalize_macro_enhanced_tools(plan: AskPlan, question: str) -> AskPlan:
 
 
 def enrich_ask_plan(question: str, plan: AskPlan) -> AskPlan:
-    """Add separate news tools per commodity and ensure metals + fund exposure tools."""
+    """Fill a missing market window. Tool choice stays with the research agent."""
     q = question or ""
-    plan = _normalize_planner_market_tools(plan, q)
-    plan = _normalize_macro_enhanced_tools(plan, q)
-
-    market_tools = {t.tool for t in plan.tools}
-    plan = _apply_requested_fund_count(plan, q)
-    if plan.tools and market_tools <= {"common_market_news", "sector_news", "affected_funds"}:
-        return plan
-
-    plan = _ensure_fund_nav_tool(plan)
-    plan = _ensure_fund_portfolio_tools(plan)
-    plan = _tune_holdings_top_n(plan, q)
-
-    drivers = detect_macro_drivers(q)
-    fund_idx = _fund_entity_index(plan)
-    cross = fund_idx is not None and drivers and is_cross_impact_question(q)
-
-    if cross:
-        plan = _ensure_cross_impact_tools(plan, q, drivers)
-    else:
-        plan = _ensure_fund_news_tools(plan, q)
-        plan = _enrich_commodity_only_plan(q, plan)
-
-    plan = _ensure_sector_performance_funds(plan, q)
-    plan = _apply_requested_fund_count(plan, q)
+    for tool in plan.tools:
+        if tool.tool == "common_market_news":
+            if not tool.window_days:
+                tool.window_days = market_pulse_window_days(q, MARKET_PULSE_DEFAULT_WINDOW_DAYS)
+            plan.raw_json = dict(plan.raw_json or {})
+            plan.raw_json["common_market_news"] = True
+        elif tool.tool == "macro_news_enhanced" and not tool.window_days:
+            tool.window_days = market_pulse_window_days(q, MARKET_PULSE_DEFAULT_WINDOW_DAYS)
     return plan

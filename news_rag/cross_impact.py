@@ -77,15 +77,8 @@ def driver_semantic_query(driver: str) -> str:
 
 
 CROSS_IMPACT_COMPOSER_ADDENDUM = """
-CROSS-IMPACT MODE (macro driver × named fund):
-The user asks whether a macro/commodity move affects a fund that may NOT hold that asset directly.
-
-Required reasoning in bullets (plain sentences, no section labels):
-1) Brief fund snapshot: NAV/returns if available; note direct holdings of the driver (e.g. gold ETFs) or absence.
-2) Cite driver context: use context.metals_spot for gold/silver when present; summarize driver news from digests whose focus matches the driver (gold, silver, oil, macro).
-3) Indirect impact: map driver news to THIS fund's top sectors and holdings — channels include safe-haven flows, rupee, rates, inflation, import costs, consumer demand, jewellery, banking liquidity, etc.
-4) Conclude with a balanced view (limited vs meaningful indirect exposure) grounded in the fund's sector weights.
-
-Do NOT answer "no impact" only because the fund lacks gold. Do NOT claim "no gold news" when driver digests or metals_spot exist.
-Do NOT list unrelated holding news unless it ties to the driver story.
+RELATIONSHIP REMINDER
+When the question is about impact, say in plain words whether the fund holds the stock or sector, or whether rates, currency, costs, or demand are the link.
+State that link only when the data supports it.
+Do not answer that there is no impact only because the fund does not hold the driver.
 """

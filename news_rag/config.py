@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     rag_router_model: str = ""
     rag_contract_model: str = ""
     router_max_tokens: int = 600
+    ask_agent_max_tokens: int = 2500
+    ask_agent_max_rounds: int = 3
     contract_max_tokens: int = 800
 
     llm_max_tokens: int = Field(

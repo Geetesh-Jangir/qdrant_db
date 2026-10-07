@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 from lib.embedding_cache import model_snapshot_exists, prepare_embedding_cache
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 _encoder: Any | None = None
 _embeddings_ready: bool = False
+_encoder_lock = threading.Lock()
 
 
 def embeddings_ready() -> bool:
@@ -82,7 +84,9 @@ def _build_encoder() -> Any:
 def embed_query(text: str) -> list[float]:
     global _encoder, _embeddings_ready
     if _encoder is None:
-        _encoder = _build_encoder()
+        with _encoder_lock:
+            if _encoder is None:
+                _encoder = _build_encoder()
     query = text if text.startswith(QUERY_PREFIX) else QUERY_PREFIX + text
     vec = _encoder.embed_query(query)
     _embeddings_ready = True
