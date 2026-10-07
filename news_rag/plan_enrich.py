@@ -97,6 +97,22 @@ def _ensure_sector_performance_funds(plan: AskPlan, question: str) -> AskPlan:
     return plan
 
 
+def _apply_requested_fund_count(plan: AskPlan, question: str) -> AskPlan:
+    """Use the user's fund count when they state one; otherwise at least 3."""
+    from news_rag.tools import explicit_fund_count
+
+    n = explicit_fund_count(question)
+    plan.raw_json = dict(plan.raw_json or {})
+    plan.raw_json["fund_count_explicit"] = n is not None
+    chosen = n if n is not None else 5
+    if plan.affected_funds != "none":
+        plan.affected_funds_top_n = chosen if n is not None else max(3, chosen)
+    for tool in plan.tools:
+        if tool.tool == "sector_funds" and n is not None:
+            tool.top_n = n
+    return plan
+
+
 def _is_pure_nav_question(question: str) -> bool:
     q = (question or "").strip()
     if not q:
@@ -407,6 +423,7 @@ def enrich_ask_plan(question: str, plan: AskPlan) -> AskPlan:
     plan = _normalize_macro_enhanced_tools(plan, q)
 
     market_tools = {t.tool for t in plan.tools}
+    plan = _apply_requested_fund_count(plan, q)
     if plan.tools and market_tools <= {"common_market_news", "sector_news", "affected_funds"}:
         return plan
 
@@ -425,4 +442,5 @@ def enrich_ask_plan(question: str, plan: AskPlan) -> AskPlan:
         plan = _enrich_commodity_only_plan(q, plan)
 
     plan = _ensure_sector_performance_funds(plan, q)
+    plan = _apply_requested_fund_count(plan, q)
     return plan

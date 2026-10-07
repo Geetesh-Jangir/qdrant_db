@@ -108,12 +108,13 @@ class TestFiveHarnessQueries(unittest.TestCase):
             self.assertEqual(len(sections), 1, key)
             self.assertEqual(sections[0].get("style"), "unified_answer", key)
 
+    @patch("news_rag.scoped_retrieve.embed_query", return_value=[0.0] * 384)
     @patch("news_rag.ask_engine.judge_answer")
     @patch("news_rag.ask_engine.digest_news_parallel")
     @patch("news_rag.ask_engine.compose_final_answer")
     @patch("news_rag.ask_engine.plan_query", side_effect=lambda q, **_: _plan_for_question(q))
     @patch("news_rag.tools.run_layered_news", return_value={"ok": True, "data": {"articles": []}, "elapsed_ms": 1})
-    def test_defence_insights_unified(self, _layer, _plan, mock_compose, mock_digest, mock_judge):
+    def test_defence_insights_unified(self, _layer, _plan, mock_compose, mock_digest, mock_judge, _embed):
         mock_digest.return_value = ([], [])
         mock_compose.return_value = ComposedAnswer(
             headline="HDFC Defence NAV and news",

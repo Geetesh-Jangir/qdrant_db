@@ -11,6 +11,7 @@ from news_rag.article_pool import article_dedupe_key
 from news_rag.ask_plan import AskPlan
 from news_rag.parse import infer_window_days_from_question
 from news_rag.query_plan import ScopeRefinement
+from news_rag.snippet_clean import article_body_for_llm
 
 if TYPE_CHECKING:
     from news_rag.query_log import QueryLogger
@@ -276,6 +277,7 @@ def market_pulse_representatives_from_clusters(
             rep = pick_cluster_representative(arts)
         if not rep:
             continue
+        body = article_body_for_llm(rep, limit=1000)
         rows.append(
             {
                 "theme": str(cl.get("label") or "Macro theme"),
@@ -287,7 +289,8 @@ def market_pulse_representatives_from_clusters(
                 "published_at": rep.get("published_at"),
                 "direction": rep.get("direction"),
                 "max_impact": rep.get("max_impact"),
-                "snippet": (str(rep.get("snippet") or rep.get("scraped_text") or ""))[:520],
+                "body": body,
+                "snippet": body,
                 "sectors": cl.get("sectors") if isinstance(cl.get("sectors"), list) else [],
                 "entities": cl.get("entities") if isinstance(cl.get("entities"), list) else [],
             }

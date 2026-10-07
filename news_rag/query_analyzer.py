@@ -71,10 +71,11 @@ GUARDRAILS:
   Still set answer_parts to the factual question and run tools for the factual part.
 - Never refuse the whole question only because of buy/sell wording.
 
-SENTIMENT:
-- positive: user wants beneficiaries, gainers, sectors that benefit or get positively affected.
-- negative: hurt, worst hit, adversely affected or face headwinds.
-- any: no side specified — retrieve all directions; explain both sides in the answer.
+SENTIMENT (this value is the fund-direction filter — do not leave it to later code):
+- positive: the user wants funds or sectors that are working well, performing well, doing well, benefiting, or are gainers. Affected-fund and sector-fund ranking will keep only positive 1-month NAV.
+- negative: the user wants worst hit, adversely affected, under pressure, falling, or losing funds or sectors. Ranking keeps the weakest 1-month NAV.
+- any: the user did not ask for a winning or losing side. Ranking uses the strongest 1-month results without a sign filter.
+- "which mutual funds are working well" and "sectors performing well" are positive, even in a combined market question.
 
 ENTITIES (critical):
 - fund_scheme: a specific mutual fund (fix typos: HFDC→HDFC, defense→defence in cleaned_phrase).

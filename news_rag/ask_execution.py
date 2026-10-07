@@ -143,7 +143,7 @@ def _run_one_tool(
                 key,
                 run_sector_funds(
                     need,
-                    direction=direction or plan.sentiment or "any",
+                    direction=plan.sentiment or "any",
                     question=question,
                 ),
             )
@@ -161,7 +161,8 @@ def _run_one_tool(
                     sector_names=sectors,
                     top_n=plan.affected_funds_top_n,
                     semantic_query=tool.semantic_query,
-                    direction=direction or plan.sentiment or "any",
+                    direction=plan.sentiment or "any",
+                    count_explicit=bool((plan.raw_json or {}).get("fund_count_explicit")),
                 ),
             )
         if tool.tool in ("common_market_news", "market_pulse"):
@@ -475,19 +476,21 @@ def run_affected_funds_after_news(
     bundle: ExecutionBundle,
     digest_sectors: list[str],
     *,
+    question: str = "",
     direction: str | None = None,
     query_log: QueryLogger | None = None,
 ) -> None:
     if plan.affected_funds != "after_news":
         return
     sectors = [s for s in (digest_sectors or plan.affected_funds_sectors or []) if str(s).strip()][:3]
-    target_dir = direction or plan.sentiment or "any"
+    target_dir = plan.sentiment or "any"
     try:
         res = run_affected_funds(
             sector_names=sectors,
-            top_n=plan.affected_funds_top_n,
+            top_n=max(3, plan.affected_funds_top_n or 3),
             semantic_query=plan.answer_parts,
             direction=target_dir,
+            count_explicit=bool((plan.raw_json or {}).get("fund_count_explicit")),
         )
         bundle.tool_results["affected_funds_post"] = res
         if query_log is not None:

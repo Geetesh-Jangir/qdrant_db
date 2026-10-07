@@ -62,6 +62,23 @@ _BROKEN_END = re.compile(
 )
 
 
+def article_body_for_llm(article: dict, limit: int = 1000) -> str:
+    """Cleaned article text for an LLM. Prefer the scraped body over the headline."""
+    raw = str(
+        article.get("scraped_text")
+        or article.get("body")
+        or article.get("snippet")
+        or ""
+    )
+    text = clean_scraped_snippet(raw)
+    if len(text) <= limit:
+        return text
+    cut = text[:limit]
+    if " " in cut:
+        cut = cut.rsplit(" ", 1)[0]
+    return cut
+
+
 def clean_scraped_snippet(text: str) -> str:
     cleaned = " ".join((text or "").split())
     if not cleaned:

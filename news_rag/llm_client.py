@@ -78,6 +78,15 @@ def llm_model(settings: Settings | None = None) -> str:
     return settings.deepseek_model
 
 
+def composer_model(settings: Settings | None = None) -> str:
+    """Final ask answer only. Planner, digest, and judge keep gemini_model."""
+    settings = settings or get_settings()
+    if llm_provider(settings) != "gemini":
+        return llm_model(settings)
+    name = (settings.gemini_composer_model or "").strip()
+    return name or "gemini-3.8-flash"
+
+
 def router_model(settings: Settings | None = None) -> str:
     settings = settings or get_settings()
     if (settings.rag_router_model or "").strip():
@@ -127,16 +136,18 @@ def call_insight_llm(
     system_prompt: str,
     user_content: str,
     query_log: QueryLogger | None = None,
+    model_override: str | None = None,
 ) -> LlmCallResult:
     settings = get_settings()
     provider = _effective_provider(settings)
+    gemini_model = (model_override or "").strip() or settings.gemini_model
     if provider == "gemini":
         try:
             return _call_gemini(
                 settings,
                 system_prompt,
                 user_content,
-                model=settings.gemini_model,
+                model=gemini_model,
                 max_tokens=settings.llm_max_tokens,
                 temperature=0.25,
                 query_log=query_log,

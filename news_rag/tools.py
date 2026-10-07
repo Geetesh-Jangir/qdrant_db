@@ -65,11 +65,136 @@ def run_fund_sectors(detail: dict[str, Any], need: DataNeed) -> dict[str, Any]:
     return _ok({"rows": rows, "fund_name": detail.get("fund_short_name")}, elapsed)
 
 
+def run_fund_universe_discovery(
+    *,
+    category: str | None = None,
+    amc: str | None = None,
+    keyword: str | None = None,
+    limit: int = 5,
+    enrich_nav: bool = True,
+) -> dict[str, Any]:
+    from news_rag.fund_universe_agent import get_fund_universe_catalog
+    started = time.perf_counter()
+    catalog = get_fund_universe_catalog()
+    funds = catalog.query(
+        category=category,
+        amc=amc,
+        keyword=keyword,
+        limit=limit,
+        enrich_nav=enrich_nav,
+    )
+    elapsed = (time.perf_counter() - started) * 1000
+    return _ok({"funds": funds, "count": len(funds)}, elapsed)
+
+
 _PERFORMANCE_QUESTION_RE = re.compile(
     r"\b(best|top|highest|outperform|performed\s+best|performing\s+best|working\s+well|"
     r"last\s+month|1\s*[- ]?month|one\s+month)\b",
     re.I,
 )
+
+
+_FUND_COUNT_RE = re.compile(
+    r"\b(\d{1,2})\b(?:\s+\w+){0,4}\s+(?:mutual\s+)?(?:funds?|schemes?)\b",
+    re.I,
+)
+_WORD_FUND_COUNTS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+
+
+def explicit_fund_count(question: str) -> int | None:
+    """Return a fund count only when the user asked for one."""
+    q = question or ""
+    m = _FUND_COUNT_RE.search(q)
+    if m:
+        try:
+            return max(1, min(int(m.group(1)), 15))
+        except ValueError:
+            return None
+    for word, n in _WORD_FUND_COUNTS.items():
+        if re.search(rf"\b{word}\s+(?:mutual\s+)?(?:funds?|schemes?)\b", q, re.I):
+            return n
+    return None
+
+
+def _active_sector_equity(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Dedicated sector/thematic equity only. Never arbitrage, hybrid, or passive."""
+    dedicated = [
+        r
+        for r in rows
+        if r.get("sector_purity") == "dedicated_sectoral"
+        and r.get("sector_purity") != "defensive_neutral"
+    ]
+    if dedicated:
+        return dedicated
+    return [
+        r
+        for r in rows
+        if r.get("sector_purity") == "diversified_equity"
+        and not r.get("passive_sector_product")
+    ]
+
+
+def select_funds_by_nav(
+    rows: list[dict[str, Any]],
+    *,
+    direction: str,
+    top_n: int,
+    count_explicit: bool,
+) -> tuple[list[dict[str, Any]], bool, str]:
+    """
+    Sort by 1-month NAV.
+    Positive: only funds with a positive 1-month NAV. A working-well question never lists declines.
+    """
+    if not rows:
+        return [], False, "No sector equity funds were found."
+    ordered = enrich_rankings_with_nav(
+        rows,
+        direction="any",
+        top_n=len(rows),
+        sort_by="performance",
+    )
+    measured = [r for r in ordered if r.get("return_1m_pct") is not None]
+    if not measured:
+        return [], False, "NAV returns were not available for these sector funds."
+    dir_clean = str(direction or "any").strip().lower()
+    gainers = [r for r in measured if float(r["return_1m_pct"]) > 0]
+    if dir_clean == "negative":
+        losers = [r for r in measured if float(r["return_1m_pct"]) < 0]
+        losers.sort(key=lambda r: float(r["return_1m_pct"]))
+        n = top_n if count_explicit else min(5, max(3, len(losers)))
+        n = min(n, len(losers)) if losers else 0
+        return losers[:n], False, "Weakest 1-month NAV returns among dedicated sector equity funds."
+    if dir_clean == "positive" and gainers:
+        n = top_n if count_explicit else min(5, len(gainers))
+        return gainers[:n], False, "Dedicated sector equity funds with positive 1-month NAV returns."
+    if dir_clean == "positive":
+        n = top_n if count_explicit else min(3, len(measured))
+        return (
+            measured[:n],
+            True,
+            "The broader sector equity universe is down on a 1-month basis. These are the most resilient performers by lowest drawdown.",
+        )
+    if dir_clean == "any" and not gainers:
+        n = top_n if count_explicit else 3
+        n = min(n, len(measured))
+        return (
+            measured[:n],
+            True,
+            "The sector equity universe is down on a 1-month basis. These are the most resilient names by lowest drawdown.",
+        )
+    n = top_n if count_explicit else min(5, len(measured))
+    return measured[:n], False, "Strongest 1-month NAV returns among dedicated sector equity funds."
 
 
 def _performance_sort_key(row: dict[str, Any], *, reverse: bool = True) -> tuple:
@@ -224,7 +349,7 @@ def run_sector_funds(
             keys = idx.resolve_sector_keys(["Petroleum Products", "Power"])
         else:
             keys = []
-    limit = 48 if rank_direction in ("positive", "any") else 24
+    limit = 80
     ranked = rank_funds_by_sector_exposure(keys, limit=limit, combine="max")
     from news_rag.fund_search import get_fund_index
 
@@ -250,55 +375,16 @@ def run_sector_funds(
                 "scheme_type": row.get("scheme_type") or (catalog or {}).get("scheme_type") or "",
             }
         )
-    top_n = need.top_n or 5
-    sectoral = [r for r in rankings if r.get("sector_purity") == "dedicated_sectoral"]
-    diversified = [
-        r
-        for r in rankings
-        if r.get("sector_purity") == "diversified_equity" and float(r.get("sector_weight_pct") or 0) >= 8
-    ]
-    if rank_direction == "positive":
-        final_rankings = enrich_rankings_with_nav(
-            sectoral, direction="positive", top_n=top_n, sort_by="performance"
-        )
-        widened = False
-        if len(final_rankings) < top_n and diversified:
-            seen = {str(r.get("isin") or "") for r in final_rankings}
-            extra = enrich_rankings_with_nav(
-                [r for r in diversified if str(r.get("isin") or "") not in seen],
-                direction="positive",
-                top_n=top_n,
-                sort_by="performance",
-            )
-            if extra:
-                widened = True
-                final_rankings = sorted(
-                    final_rankings + extra,
-                    key=lambda r: _performance_sort_key(r, reverse=True),
-                    reverse=True,
-                )[:top_n]
-        if not final_rankings:
-            ranking_note = (
-                "No fund with meaningful exposure to this sector posted a positive 1-month NAV return."
-            )
-        elif widened:
-            ranking_note = (
-                "Dedicated sector funds did not all lead. Listed names are those with positive 1-month NAV returns."
-            )
-        else:
-            ranking_note = "Dedicated sector funds with positive 1-month NAV returns."
-    elif rank_direction == "negative":
-        pool = sectoral or diversified
-        final_rankings = enrich_rankings_with_nav(
-            pool, direction="negative", top_n=top_n, sort_by="performance"
-        )
-        ranking_note = "Weakest 1-month NAV returns among sector peers."
-    else:
-        pool = sectoral or _sector_fund_candidate_pool(rankings)
-        final_rankings = enrich_rankings_with_nav(
-            pool, direction="any", top_n=top_n, sort_by="performance"
-        )
-        ranking_note = "Strongest 1-month NAV returns in this sector universe."
+    explicit = explicit_fund_count(question)
+    count_explicit = explicit is not None
+    top_n = explicit if explicit is not None else max(need.top_n or 0, 5)
+    pool = _active_sector_equity(rankings)
+    final_rankings, all_drawdown, ranking_note = select_funds_by_nav(
+        pool,
+        direction=rank_direction,
+        top_n=top_n,
+        count_explicit=count_explicit,
+    )
     elapsed = (time.perf_counter() - started) * 1000
     return _ok(
         {
@@ -309,6 +395,7 @@ def run_sector_funds(
             "direction": rank_direction,
             "ranking_basis": "1M_NAV_direction_filter",
             "ranking_note": ranking_note,
+            "all_drawdown": all_drawdown,
             "performance_query": performance_query,
         },
         elapsed,
@@ -452,19 +539,37 @@ def run_layered_news(
     return _ok({"articles": articles, "layer": layer, "search_focus": focus}, elapsed)
 
 
+def _broad_working_well_keys(idx) -> list[str]:
+    """Sector keys used when the news-led sector has no fund up on the month."""
+    labels = (
+        "It - Software",
+        "Pharmaceuticals & Biotechnology",
+        "Healthcare Services",
+        "Banks",
+        "Automobiles",
+        "Capital Goods",
+        "FMCG",
+        "Consumer Durables",
+        "Power",
+        "Realty",
+    )
+    return [name for name in labels if idx.has_sector(name)]
+
+
 def run_affected_funds(
     *,
     sector_names: list[str],
-    top_n: int = 10,
+    top_n: int = 5,
     semantic_query: str = "",
     direction: str = "any",
+    count_explicit: bool = False,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     idx = get_sector_fund_ranking_index()
     keys = idx.resolve_sector_keys(sector_names) if sector_names else []
     if not keys and semantic_query:
         keys = idx.resolve_from_question(semantic_query) or []
-    limit = max(top_n * 6, 40)
+    limit = 80
     ranked = rank_funds_by_sector_exposure(keys, limit=limit, combine="max")
     from news_rag.fund_search import get_fund_index
 
@@ -490,34 +595,60 @@ def run_affected_funds(
                 "scheme_type": row.get("scheme_type") or (catalog or {}).get("scheme_type") or "",
             }
         )
-    final_rankings = enrich_rankings_with_nav(
-        _sector_fund_candidate_pool(rankings) or rankings,
+    pool = _active_sector_equity(rankings)
+    display_n = top_n if count_explicit else max(top_n, 3)
+    final_rankings, all_drawdown, ranking_note = select_funds_by_nav(
+        pool,
         direction=direction,
-        top_n=top_n,
-        sort_by="performance",
+        top_n=display_n,
+        count_explicit=count_explicit,
     )
-    ranking_note = ""
-    dir_clean = str(direction or "any").strip().lower()
-    if dir_clean == "positive" and not final_rankings:
-        final_rankings = enrich_rankings_with_nav(
-            _sector_fund_candidate_pool(rankings) or rankings,
-            direction="any",
-            top_n=min(top_n, 3),
-            sort_by="performance",
+    if str(direction).strip().lower() == "positive" and not final_rankings:
+        broad_ranked = rank_funds_by_sector_exposure(
+            _broad_working_well_keys(idx),
+            limit=60,
+            combine="max",
         )
-        ranking_note = (
-            "No fund in these news-backed sectors posted a positive 1-month NAV. "
-            "Names below are the funds most exposed to those sectors; quote the actual return."
+        broad_rows = []
+        seen = {str(r.get("isin") or "") for r in rankings}
+        for row in broad_ranked.get("rankings") or []:
+            isin = str(row.get("isin") or "")
+            if not isin or isin in seen:
+                continue
+            catalog = index.catalog_entry(isin)
+            name = row.get("fund_name") or (catalog or {}).get("fund_short_name") or isin
+            breakdown = row.get("sector_breakdown") or {}
+            broad_rows.append(
+                {
+                    **row,
+                    "fund_name": name,
+                    "matched_sectors": list(breakdown.keys())[:5] if isinstance(breakdown, dict) else [],
+                    "category": row.get("category") or (catalog or {}).get("category") or "",
+                    "scheme_type": row.get("scheme_type") or (catalog or {}).get("scheme_type") or "",
+                }
+            )
+        extra_pool = _active_sector_equity(broad_rows)
+        final_rankings, all_drawdown, ranking_note = select_funds_by_nav(
+            extra_pool,
+            direction="positive",
+            top_n=display_n,
+            count_explicit=count_explicit,
         )
+        if final_rankings:
+            ranking_note = (
+                "Dedicated funds in the news-led sectors are not up on a 1-month basis. "
+                "These names are sector equity funds with a positive 1-month NAV."
+            )
     elapsed = (time.perf_counter() - started) * 1000
     return _ok(
         {
             "sector_keys": ranked.get("sector_keys"),
             "rankings": final_rankings,
-            "defensive_alternatives": ranked.get("defensive_alternatives") or [],
+            "defensive_alternatives": [],
             "sectors": sector_names,
             "direction": direction,
             "ranking_note": ranking_note,
+            "all_drawdown": all_drawdown,
         },
         elapsed,
     )

@@ -30,8 +30,34 @@ def test_news_backed_bullets_use_headline():
     ]
     bullets = _build_news_backed_pulse_bullets(clusters, None)
     assert bullets
-    assert "RBI holds repo rate" in bullets[0]
-    assert "pressuring stocks" in bullets[0]
+    assert "Banking" in bullets[0]
+    assert "related articles" not in bullets[0].lower()
+    assert "mood:" not in bullets[0].lower()
+    assert "inflation" in bullets[0].lower()
+
+
+def test_banks_cluster_uses_sector_display_name():
+    clusters = [
+        {
+            "label": "RBI Repo Rate",
+            "article_count": 12,
+            "sectors": ["Banks"],
+            "articles": [
+                {
+                    "title": "PSBs see rate repricing",
+                    "snippet": "Net interest margins of most banks are already under pressure.",
+                    "direction": "unclear",
+                    "max_impact": 2,
+                }
+            ],
+        }
+    ]
+    bullets = _build_news_backed_pulse_bullets(clusters, None)
+    assert bullets
+    joined = " ".join(bullets)
+    assert "Banking & Financial Services" in joined
+    assert "related articles" not in joined.lower()
+    assert "RBI Repo Rate" not in joined
 
 
 def test_pulse_dedupe_keeps_multiple_themes():

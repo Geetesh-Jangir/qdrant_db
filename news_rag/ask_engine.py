@@ -208,7 +208,9 @@ def run_ask_engine(
         if d.error:
             pipeline_errors.append({"stage": "digest", "tool": d.layer, "message": d.error})
 
-    run_affected_funds_after_news(plan, bundle, sectors_for_funds, direction=direction, query_log=query_log)
+    run_affected_funds_after_news(
+        plan, bundle, sectors_for_funds, question=q, direction=direction, query_log=query_log
+    )
 
     composed = compose_final_answer(
         q,

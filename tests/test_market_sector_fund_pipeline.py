@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 from news_rag.ask_plan import AskPlan, PlannedTool
 from news_rag.plan_enrich import enrich_ask_plan
-from news_rag.tools import enrich_rankings_with_nav
+from news_rag.tools import enrich_rankings_with_nav, explicit_fund_count, select_funds_by_nav
 from news_rag.ask_execution import ExecutionBundle
 from news_rag.ask_composer import _finalize_compose, _build_ranked_fund_bullets
 
@@ -95,7 +95,7 @@ def test_plan_enrich_sets_affected_funds_when_question_asks_funds():
     q = "tell me whats happening in the market right now and what are the sectors which are performing well and then which mutual funds are working well"
     enriched = enrich_ask_plan(q, plan)
     assert enriched.affected_funds == "after_news"
-    assert enriched.affected_funds_top_n >= 6
+    assert enriched.affected_funds_top_n >= 3
 
 
 def test_build_ranked_fund_bullets():
@@ -155,13 +155,49 @@ def test_finalize_compose_includes_ranked_funds_for_fund_query():
     assert any("+3.8%" in b for b in bullets)
 
 
+def test_enrich_does_not_rewrite_planner_sentiment():
+    plan = AskPlan(
+        tools=[PlannedTool(tool="common_market_news"), PlannedTool(tool="sector_news")],
+        sentiment="any",
+        affected_funds="after_news",
+    )
+    q = "what are the sectors performing well and which mutual funds are working well"
+    enriched = enrich_ask_plan(q, plan)
+    assert enriched.sentiment == "any"
+    assert explicit_fund_count("which mutual funds are working well") is None
+    assert explicit_fund_count("show me the top 4 banking mutual funds") == 4
+    assert explicit_fund_count("give three funds in IT") == 3
+
+
 @patch("news_rag.tools.get_fund_nav_history", side_effect=_mock_nav_history)
-def test_enrich_rankings_performance_relative_best_when_all_negative(mock_nav):
-    candidates = [
-        {"isin": "INF2", "fund_name": "Fund Negative 1", "sector_weight_pct": 75.0, "matched_sectors": ["Healthcare"]},
+def test_select_funds_positive_does_not_list_drawdowns(mock_nav):
+    rows = [
+        {
+            "isin": "INF2",
+            "fund_name": "Bank Fund Down",
+            "sector_weight_pct": 60.0,
+            "sector_purity": "dedicated_sectoral",
+        }
     ]
-    res = enrich_rankings_with_nav(candidates, direction="positive", top_n=2, sort_by="performance")
-    assert res == []
+    picked, all_drawdown, note = select_funds_by_nav(
+        rows, direction="positive", top_n=5, count_explicit=False
+    )
+    assert len(picked) == 1
+    assert all_drawdown is True
+    assert "resilient" in note.lower() or "drawdown" in note.lower()
+
+
+@patch("news_rag.tools.get_fund_nav_history", side_effect=_mock_nav_history)
+def test_select_funds_positive_skips_negative(mock_nav):
+    rows = [
+        {"isin": "INF2", "fund_name": "Down", "sector_purity": "dedicated_sectoral", "sector_weight_pct": 40},
+        {"isin": "INF1", "fund_name": "Up", "sector_purity": "dedicated_sectoral", "sector_weight_pct": 20},
+    ]
+    picked, all_drawdown, _note = select_funds_by_nav(
+        rows, direction="positive", top_n=5, count_explicit=False
+    )
+    assert all_drawdown is False
+    assert [r["isin"] for r in picked] == ["INF1"]
 
 
 def test_plan_enrich_adds_sector_funds_for_banking_best_query():
@@ -216,6 +252,6 @@ def test_finalize_compose_does_not_duplicate_when_llm_wrote_fund_bullets():
         answer_parts=q,
         sentiment="positive",
     )
-    # Since LLM already provided a Top Fund bullet, it should not blindly append more
-    assert not any("Nippon India Power & Infra Fund" in b for b in bullets)
-    assert len(bullets) == 3
+    # Verified ranking names are added even if the model mentioned a different fund.
+    assert any("Nippon India Power & Infra Fund" in b for b in bullets)
+    assert any("ICICI Prudential Technology Fund" in b for b in bullets)

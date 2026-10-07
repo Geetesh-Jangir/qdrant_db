@@ -12,6 +12,7 @@ from news_rag.config import get_settings
 from news_rag.json_util import safe_json_dumps
 from news_rag.llm_client import call_json_llm, contract_model, llm_api_key_configured
 from news_rag.llm_text import parse_json_from_text
+from news_rag.snippet_clean import article_body_for_llm
 
 if TYPE_CHECKING:
     from news_rag.query_log import QueryLogger
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 DIGEST_SYSTEM = """You analyze news articles for one topic focus (gold, silver, holding, sector, or macro).
 When fund context is provided, explain what the news means for THAT fund's holdings/sectors (not generic market commentary).
-When holdings_market is present (check linked_articles per holding), produce digest items that explain WHY the stock moved using snippet/title evidence only.
+When holdings_market is present (check linked_articles per holding), produce digest items that explain WHY the stock moved using the article body, not the title alone.
 Each item for a holding must state: price move %, then the news driver in plain language from linked_articles — never invent succession/RBI/crude themes unless an article mentions them.
 Return ONLY JSON:
 {
@@ -72,9 +73,9 @@ Return ONLY JSON:
   "sectors_negative": ["names of sectors explicitly stated to face headwinds or be adversely affected, e.g. Real Estate, Automobiles"]
 }
 CRITICAL SECTOR ASSIGNMENT:
-- sectors_positive: ONLY sectors that are explicitly rising, gaining, or benefiting from the news.
-- sectors_negative: ONLY sectors that are explicitly falling, taking a hit, worst affected, or facing headwinds.
-- Do NOT guess or infer impacts without clear evidence in the snippet.
+- sectors_positive: Sectors explicitly stated to rise, gain, benefit from catalysts (like weak rupee for exporters), or demonstrate strong operational resilience/credit growth.
+- sectors_negative: Sectors explicitly stated to fall, take a hit, worst affected, face margin squeeze, or face headwinds.
+- Do NOT guess or infer impacts without clear evidence in the article body.
 - If a sentiment filter is provided, ensure your sector categorizations strictly align with it.
 
 Use only facts from the provided representatives. Identify all beneficiary and negatively affected sectors accurately. One item per theme. No buy/sell advice."""
@@ -188,11 +189,13 @@ def _digest_one_layer(
             ],
         )
     slim = []
-    for a in articles[:12]:
+    for a in articles[:8]:
+        body = article_body_for_llm(a, limit=1000)
         slim.append(
             {
                 "title": a.get("title"),
-                "snippet": (a.get("snippet") or "")[:400],
+                "body": body,
+                "snippet": body,
                 "direction": a.get("direction"),
                 "max_impact": a.get("max_impact"),
                 "sectors": a.get("sector_names"),
