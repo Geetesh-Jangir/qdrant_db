@@ -320,6 +320,16 @@ def call_json_llm(
     result.parsed = parsed if isinstance(parsed, dict) else None
     keep_partial = stage == "composer" and result.truncated and _composer_partial_usable(result.parsed)
     needs_repair = (result.truncated or not isinstance(result.parsed, dict)) and not keep_partial
+    # Judge is a tiny JSON object; a repair round doubled calls and still parsed as zeros.
+    if needs_repair and stage == "judge":
+        needs_repair = False
+    if (
+        needs_repair
+        and stage == "agent"
+        and isinstance(result.parsed, dict)
+        and (result.parsed.get("tools") or result.parsed.get("status") == "ready")
+    ):
+        needs_repair = False
     if needs_repair and not _repair_attempt:
         repair_user = (
             "The previous reply was cut off or was not a JSON object. "

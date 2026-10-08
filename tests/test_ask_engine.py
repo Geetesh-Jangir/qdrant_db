@@ -211,6 +211,30 @@ class TestAskEngineIntegration(unittest.TestCase):
         self.assertIn("research", out)
         self.assertIn("answer_trace", out)
 
+    @patch("news_rag.ask_engine.judge_answer")
+    @patch("news_rag.ask_engine.compose_final_answer")
+    @patch("news_rag.ask_engine.run_research_agent")
+    def test_unusable_judge_scores_do_not_retry_agent(self, mock_agent, mock_compose, mock_judge):
+        from news_rag.ask_composer import ComposedAnswer
+        from news_rag.ask_engine import run_ask_engine
+
+        mock_agent.return_value = _agent_run(_defence_plan())
+        mock_compose.return_value = ComposedAnswer(
+            headline="HDFC Defence",
+            display="HDFC Defence NAV context",
+            summary="HDFC Defence NAV context",
+        )
+        mock_judge.return_value = JudgeResult(
+            passed=False,
+            scores={"answers_query": 0.0, "grounded": 0.0, "on_topic": 0.0},
+            attempt=1,
+            raw={},
+            usable=False,
+        )
+        out = run_ask_engine("how is hdfc defence fund working?")
+        self.assertEqual(mock_agent.call_count, 1)
+        self.assertIn("HDFC Defence", out.get("insight") or "")
+
 
 if __name__ == "__main__":
     unittest.main()

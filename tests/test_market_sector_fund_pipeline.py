@@ -95,7 +95,7 @@ def test_plan_enrich_sets_affected_funds_when_question_asks_funds():
     q = "tell me whats happening in the market right now and what are the sectors which are performing well and then which mutual funds are working well"
     enriched = enrich_ask_plan(q, plan)
     assert enriched.affected_funds == "none"
-    assert {t.tool for t in enriched.tools} == {"common_market_news", "sector_news"}
+    assert {t.tool for t in enriched.tools} == {"common_market_news"}
 
 
 def test_build_ranked_fund_bullets():

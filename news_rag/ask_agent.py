@@ -313,21 +313,77 @@ def question_wants_fund_names(question: str) -> bool:
     return bool(_FUND_NAME_RE.search(text) and _FUND_INTENT_RE.search(text))
 
 
+_FUND_RANKING_KEY_PREFIXES = (
+    "sector_funds",
+    "affected_funds",
+    "screen_funds",
+    "fund_universe_search",
+    "funds_holding_stock",
+)
+_REPEATABLE_NEWS_TOOLS = frozenset(
+    {"common_market_news", "macro_news", "macro_news_enhanced", "sector_news"}
+)
+_REPEATABLE_FUND_TOOLS = frozenset(
+    {
+        "screen_funds",
+        "sector_funds",
+        "affected_funds",
+        "fund_universe_search",
+        "funds_holding_stock",
+    }
+)
+
+
 def _has_fund_ranking(bundle: ExecutionBundle | None) -> bool:
     if bundle is None:
         return False
     for key, payload in bundle.tool_results.items():
-        if not (
-            key.startswith("sector_funds")
-            or key.startswith("affected_funds")
-            or key.startswith("screen_funds")
-        ):
+        if not any(key.startswith(prefix) for prefix in _FUND_RANKING_KEY_PREFIXES):
             continue
         data = (payload or {}).get("data") or {}
         rows = data.get("rankings") or data.get("rows") or data.get("funds") or []
-        if any(isinstance(row, dict) and (row.get("fund_name") or row.get("isin")) for row in rows):
+        if any(isinstance(row, dict) and (row.get("fund_name") or row.get("isin") or row.get("name")) for row in rows):
             return True
     return False
+
+
+def _obs_has_named_funds(observations: list[dict[str, Any]]) -> bool:
+    for obs in observations:
+        if not obs.get("ok"):
+            continue
+        if (obs.get("counts") or {}).get("rows"):
+            if obs.get("tool") in _REPEATABLE_FUND_TOOLS:
+                return True
+        rows = obs.get("rows") or []
+        if any(isinstance(row, dict) and (row.get("fund_name") or row.get("isin") or row.get("name")) for row in rows):
+            if obs.get("tool") in _REPEATABLE_FUND_TOOLS:
+                return True
+    return False
+
+
+def _obs_has_news(observations: list[dict[str, Any]]) -> bool:
+    return any(
+        obs.get("ok") and (obs.get("counts") or {}).get("articles")
+        for obs in observations
+    )
+
+
+def _batch_already_answers(question: str, observations: list[dict[str, Any]]) -> bool:
+    if question_wants_fund_names(question):
+        return _obs_has_named_funds(observations)
+    return _obs_has_news(observations) or _obs_has_named_funds(observations)
+
+
+def _drop_repeat_tools(tools: list[PlannedTool], observations: list[dict[str, Any]]) -> list[PlannedTool]:
+    ran = {obs.get("tool") for obs in observations if obs.get("ok") and obs.get("tool")}
+    kept: list[PlannedTool] = []
+    for tool in tools:
+        if tool.tool in _REPEATABLE_NEWS_TOOLS and tool.tool in ran:
+            continue
+        if tool.tool in _REPEATABLE_FUND_TOOLS and tool.tool in ran:
+            continue
+        kept.append(tool)
+    return kept
 
 
 def _sectors_from_observations(observations: list[dict[str, Any]], *, limit: int = 4) -> list[str]:
@@ -790,6 +846,9 @@ def run_research_agent(
                 tools=[t.get("tool") for t in (raw.get("tools") or []) if isinstance(t, dict)],
             )
         status, fresh = _parse_decision(raw)
+        if res.truncated and observations:
+            rounds += 1
+            break
         fresh = enrich_ask_plan(question, fresh)
         plan = _accumulate(plan, fresh)
         if plan.decline_entirely:
@@ -811,7 +870,7 @@ def run_research_agent(
             bundle = ExecutionBundle(names=names)
         else:
             bundle.names = names
-        tools = list(fresh.tools)
+        tools = _drop_repeat_tools(list(fresh.tools), observations)
         _apply_reading_window(plan, tools)
         if status != "need_tools" and not tools:
             rounds += 1
@@ -847,7 +906,7 @@ def run_research_agent(
             bundle.tool_results[key] = result
             observations.append(_observation(tool, result))
         rounds += 1
-        if status == "ready":
+        if status == "ready" or _batch_already_answers(question, observations):
             break
 
     if plan is None:

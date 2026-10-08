@@ -416,9 +416,25 @@ def _normalize_macro_enhanced_tools(plan: AskPlan, question: str) -> AskPlan:
     return plan
 
 
+def _drop_overlapping_market_news(plan: AskPlan) -> AskPlan:
+    """common_market_news already covers broad India market/macro clusters."""
+    if not any(t.tool == "common_market_news" for t in plan.tools):
+        return plan
+    kept: list[PlannedTool] = []
+    for tool in plan.tools:
+        if tool.tool in ("macro_news", "macro_news_enhanced"):
+            continue
+        if tool.tool == "sector_news" and not (tool.sector_name or tool.entity_filters):
+            continue
+        kept.append(tool)
+    plan.tools = kept
+    return plan
+
+
 def enrich_ask_plan(question: str, plan: AskPlan) -> AskPlan:
     """Fill a missing market window. Tool choice stays with the research agent."""
     q = question or ""
+    plan = _drop_overlapping_market_news(plan)
     for tool in plan.tools:
         if tool.tool == "common_market_news":
             if not tool.window_days:

@@ -157,6 +157,31 @@ def test_fund_gap_screens_the_amc_in_the_question():
     assert any(key.startswith("screen_funds") for key in bundle.tool_results)
 
 
+def test_fund_gap_skips_when_universe_search_already_named_funds():
+    from news_rag.ask_agent import _fill_fund_ranking_gap
+
+    bundle = ExecutionBundle(names=ResolvedNames())
+    bundle.tool_results["fund_universe_search_0_1"] = {
+        "ok": True,
+        "data": {"funds": [{"fund_name": "HDFC Large Cap", "isin": "INFH"}]},
+    }
+    plan = AskPlan()
+    with patch("news_rag.tools.run_screen_funds") as mocked:
+        _fill_fund_ranking_gap(
+            "name any two hdfc large cap fund?",
+            plan,
+            bundle,
+            [],
+            date_from=None,
+            date_to=None,
+            min_impact=None,
+            source=None,
+            direction=None,
+            query_log=None,
+        )
+    mocked.assert_not_called()
+
+
 def test_fund_name_question_is_detected_and_sectors_are_capped():
     from news_rag.ask_agent import _sectors_from_observations, question_wants_fund_names
 

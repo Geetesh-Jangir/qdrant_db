@@ -173,3 +173,41 @@ def test_ask_plan_keeps_rich_agent_fields():
     assert plan.declined_parts == ["should I sell"]
     assert "oil move" in plan.answer_parts
     json.dumps(plan.raw_json)
+
+
+@patch("news_rag.llm_client.httpx.Client")
+@patch("news_rag.llm_client.get_settings")
+def test_judge_truncated_json_does_not_repair(mock_settings, mock_client_cls):
+    mock_settings.return_value = _settings()
+    mock_client_cls.return_value = _client(
+        [_gemini_response('{"answers_query": 0.9, "grounded": 0.8', finish="MAX_TOKENS")]
+    )
+    result = call_json_llm(
+        system_prompt="Return JSON",
+        user_content="Question",
+        response_schema={"type": "object"},
+        stage="judge",
+        max_tokens=800,
+    )
+    assert mock_client_cls.return_value.post.call_count == 1
+    assert result.repaired is False
+    assert result.truncated is True
+
+
+@patch("news_rag.llm_client.httpx.Client")
+@patch("news_rag.llm_client.get_settings")
+def test_agent_keeps_truncated_tools_without_repair(mock_settings, mock_client_cls):
+    mock_settings.return_value = _settings()
+    raw = '{"status": "need_tools", "tools": [{"tool": "fund_universe_search"}], "why": "names"'
+    mock_client_cls.return_value = _client([_gemini_response(raw, finish="MAX_TOKENS")])
+    result = call_json_llm(
+        system_prompt="Return JSON",
+        user_content="Question",
+        response_schema={"type": "object"},
+        stage="agent",
+        max_tokens=800,
+    )
+    assert mock_client_cls.return_value.post.call_count == 1
+    assert result.repaired is False
+    assert result.parsed["status"] == "need_tools"
+    assert result.parsed["tools"][0]["tool"] == "fund_universe_search"

@@ -190,7 +190,13 @@ def run_ask_engine(
     jr = judge_answer(q, insight, context_summary, query_log=query_log)
     scores = jr.scores or {}
     grounded = scores.get("grounded")
-    if (insight or "").strip() and grounded is not None and float(grounded) < get_settings().judge_min_score:
+    judge_usable = bool(getattr(jr, "usable", True))
+    if (
+        (insight or "").strip()
+        and judge_usable
+        and grounded is not None
+        and float(grounded) < get_settings().judge_min_score
+    ):
         if query_log is not None:
             query_log.write(f"JUDGE ungrounded={grounded} retry_once=true")
         note = "The draft was not grounded in the retrieved evidence. Fetch the missing facts, then stop."
