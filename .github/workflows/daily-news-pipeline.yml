@@ -3,26 +3,31 @@ name: Daily News Ingestion Pipeline
 on:
   workflow_dispatch:
     inputs:
+      date_range:
+        description: "Inclusive start / exclusive end (D/M/YYYY). Example 5/10/2026-7/10/2026 covers 5 Oct and 6 Oct, not 7 Oct. Leave empty on the daily schedule to use when:1d."
+        required: false
+        default: ""
+        type: string
       holdings_limit:
-        description: "Number of top holdings (leave empty for default, 0 for all)"
+        description: "Number of top holdings (empty = default 5, 0 = all)"
         required: false
         default: ""
+        type: string
       sectors_limit:
-        description: "Number of top sectors (leave empty for default, 0 for all)"
+        description: "Number of top sectors (empty = default 2, 0 = all)"
         required: false
         default: ""
-      news_window_hours:
-        description: "News age window in hours (default 720 for 30 days)"
-        required: false
-        default: "720"
+        type: string
       google_news_when:
-        description: "Google News time filter suffix (e.g. 1d, 7d, 30d)"
+        description: "Used only when date_range is empty (1d daily, 7d/30d backfill)"
         required: false
-        default: "30d"
+        default: "1d"
+        type: string
       portfolio_json:
         description: "Optional investor portfolio file (e.g. investor_data/mohit/portfolio.json)"
         required: false
         default: ""
+        type: string
   schedule:
     # Runs at 06:00 UTC (11:30 AM IST) daily
     - cron: "0 6 * * *"
@@ -30,7 +35,7 @@ on:
 jobs:
   run-pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       JEV_BASE_URL: ${{ secrets.JEV_BASE_URL }}
       JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
@@ -41,10 +46,10 @@ jobs:
       FRESH_START_CLEAR_QDRANT: "false"
       NEWS_CORPUS_MODE: "false"
       RETENTION_DAYS: "30"
+      NEWS_DATE_RANGE: ${{ inputs.date_range }}
       HOLDINGS_LIMIT: ${{ inputs.holdings_limit }}
       SECTORS_LIMIT: ${{ inputs.sectors_limit }}
-      NEWS_WINDOW_HOURS: ${{ inputs.news_window_hours || '720' }}
-      GOOGLE_NEWS_WHEN: ${{ inputs.google_news_when || '30d' }}
+      GOOGLE_NEWS_WHEN: ${{ inputs.google_news_when || '1d' }}
       PORTFOLIO_JSON: ${{ inputs.portfolio_json }}
 
     steps:
@@ -76,6 +81,23 @@ jobs:
           test -n "$JEV_BASE_URL" || { echo "Missing GitHub Secret: JEV_BASE_URL"; exit 1; }
           test -n "$JEV_API_KEY" || { echo "Missing GitHub Secret: JEV_API_KEY"; exit 1; }
           python -c 'from urllib.parse import urlparse; import os; print("Connected to Qdrant cluster:", urlparse(os.environ["QDRANT_URL"]).netloc)'
+
+      - name: Show run window
+        working-directory: ${{ github.workspace }}
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          python - <<'PY'
+          import os
+          from news_pipeline.config import Settings
+          from news_pipeline.news_dates import describe_fetch_window, parse_news_date_range
+          s = Settings()
+          print("NEWS_DATE_RANGE=", os.environ.get("NEWS_DATE_RANGE") or "(empty → relative when:)")
+          print("HOLDINGS_LIMIT=", s.holdings_limit)
+          print("SECTORS_LIMIT=", s.sectors_limit)
+          print(describe_fetch_window(s))
+          print("parsed=", parse_news_date_range(s.news_date_range))
+          PY
 
       - name: Run News Ingestion Pipeline
         working-directory: ${{ github.workspace }}

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from lib.extract import extract_article
 from lib.fetch import fetch_url
-from lib.google_news import is_google_news_article_url, resolve_google_news_url
+from lib.google_news import cached_resolve, is_google_news_article_url
 
 
 def scrape_one(session, input_url, retries=2):
@@ -21,7 +21,7 @@ def scrape_one(session, input_url, retries=2):
 
     resolved_url = input_url
     if is_google_news_article_url(input_url):
-        resolved_url, error = resolve_google_news_url(session, input_url, retries=retries)
+        resolved_url, error = cached_resolve(session, input_url, retries=retries)
         if error or not resolved_url:
             record["status"] = "resolve_failed"
             record["error"] = error or "could not resolve Google News URL"

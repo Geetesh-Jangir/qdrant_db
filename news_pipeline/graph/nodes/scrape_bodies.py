@@ -10,7 +10,8 @@ from news_pipeline.graph.state import PipelineState
 from news_pipeline.run_log import clip_log_text, get_run_logger
 from news_pipeline.scrape.engine import scrape_one
 from news_pipeline.services import get_settings
-from news_pipeline.textutil import parse_time, to_iso, utc_now, within_news_window
+from news_pipeline.news_dates import article_in_fetch_window
+from news_pipeline.textutil import parse_time, to_iso, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ def scrape_bodies(state: PipelineState) -> dict:
         published = parse_time(candidate.get("published_at"))
         if published is None:
             published = parse_time(record.get("date"))
-        if published is None or not within_news_window(published, settings.news_window_hours, now):
+        if published is None or not article_in_fetch_window(published, settings, now):
             if run_log is not None:
                 run_log.write(
                     f"scrape drop url={candidate['url']} reason=outside_news_window "

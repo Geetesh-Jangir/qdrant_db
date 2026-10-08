@@ -7,8 +7,10 @@ import logging
 import secrets
 from datetime import datetime, timezone
 
+from news_pipeline.error_summary import summarize_errors, write_error_summary
 from news_pipeline.fresh_start import apply_fresh_start
 from news_pipeline.graph.build import build_graph
+from news_pipeline.news_dates import NewsDateRangeError, describe_fetch_window, parse_news_date_range
 from news_pipeline.qdrant_target import qdrant_summary, validate_qdrant_settings
 from news_pipeline.run_log import finish_run_logger, get_run_logger, start_run_logger
 from news_pipeline.scrape.workspace import clear_scrape_workspace
@@ -27,6 +29,10 @@ def main() -> None:
     validate_qdrant_settings(settings)
     if not settings.jev_base_url or not settings.jev_api_key:
         raise SystemExit("Set JEV_BASE_URL and JEV_API_KEY in .env")
+    try:
+        parse_news_date_range(settings.news_date_range)
+    except NewsDateRangeError as exc:
+        raise SystemExit(f"Invalid NEWS_DATE_RANGE: {exc}") from exc
 
     started = utc_now()
     run_id = started.strftime("%Y%m%dT%H%M%SZ") + "_" + secrets.token_hex(2)
@@ -46,6 +52,11 @@ def main() -> None:
             f"collection={qdrant_info['collection']} "
             f"cloud={qdrant_info['cloud']} "
             f"news_corpus_mode={settings.news_corpus_mode}"
+        )
+        run_log.write(
+            "fetch window "
+            f"{describe_fetch_window(settings)} "
+            f"holdings_limit={settings.holdings_limit} sectors_limit={settings.sectors_limit}"
         )
     if run_log is not None and fresh_start.get("enabled"):
         run_log.write(
@@ -84,8 +95,9 @@ def main() -> None:
             **initial,
             "errors": list(initial["errors"]) + [{"stage": "run", "error": str(exc)}],
         }
+        write_error_summary(get_run_logger(), result.get("errors") or [], settings=settings)
         telemetry = finish_run_logger()
-        _write_summary(summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info)
+        _write_summary(summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info, settings)
         raise SystemExit(1) from exc
     finally:
         leftover = clear_scrape_workspace(settings)
@@ -95,9 +107,10 @@ def main() -> None:
             if run_log is not None:
                 run_log.write(f"scrape workspace final cleanup files={leftover}")
 
+    write_error_summary(get_run_logger(), result.get("errors") or [], settings=settings)
     telemetry = finish_run_logger()
     qdrant_info["points_count_after_run"] = get_store().points_count()
-    path = _write_summary(summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info)
+    path = _write_summary(summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info, settings)
     counts = result.get("counts") or {}
     logger.info("run complete summary=%s upserted=%s", path, counts.get("upserted", 0))
     if telemetry:
@@ -118,15 +131,18 @@ def _write_summary(
     telemetry: dict | None,
     fresh_start: dict | None,
     qdrant_info: dict | None,
+    settings=None,
 ) -> str:
     finished = datetime.now(timezone.utc)
+    errors = result.get("errors") or []
     payload = {
         "pipeline": "full",
         "run_id": result.get("run_id"),
         "started_at": to_iso(started),
         "finished_at": to_iso(finished),
         "counts": result.get("counts") or {},
-        "errors": result.get("errors") or [],
+        "errors": errors,
+        "error_summary": summarize_errors(errors, settings=settings),
     }
     if fresh_start:
         payload["fresh_start"] = fresh_start

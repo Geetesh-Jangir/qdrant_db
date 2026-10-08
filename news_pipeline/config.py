@@ -194,6 +194,10 @@ MACRO_ENTITIES: tuple[dict[str, str], ...] = (
     {"name": "Macro - Inflation (CPI)", "query": "India CPI retail inflation food prices"},
     {"name": "Macro - GDP & Economy", "query": "India GDP growth economic outlook"},
     {"name": "Macro - Tariffs & Trade", "query": "India trade deficit export import tariffs"},
+    {"name": "Macro - SEBI", "query": "SEBI India capital markets regulator circular"},
+    {"name": "Macro - Nifty 50", "query": "Nifty 50 index India stock market"},
+    {"name": "Macro - Sensex", "query": "Sensex BSE index India stock market"},
+    {"name": "Macro - Bank Nifty", "query": "Bank Nifty index India banking stocks"},
 )
 
 QUERY_PREFIX = "Represent this sentence for searching relevant passages: "
@@ -297,10 +301,15 @@ class Settings(BaseSettings):
     corpus_title_dedupe_hours: int = 0
     corpus_title_dedupe_limit: int = 0
     # Keep articles whose publish time is within this many hours (fetch + scrape). Env: NEWS_WINDOW_HOURS.
+    # Ignored when news_date_range is set.
     news_window_hours: int = 720
     # Google News RSS search window suffix, e.g. 1d, 7d, 30d (without "when:"). Env: GOOGLE_NEWS_WHEN.
-    google_news_when: str = "30d"
-    fetch_workers: int = 2
+    # Ignored when news_date_range is set.
+    google_news_when: str = "1d"
+    # Inclusive start / exclusive end, e.g. 5/10/2026-7/10/2026 covers 5 Oct and 6 Oct.
+    # Env: NEWS_DATE_RANGE. Empty = use google_news_when + news_window_hours (daily cron).
+    news_date_range: str = ""
+    fetch_workers: int = 1
     scrape_workers: int = 4
     upsert_batch: int = 128
     embed_batch: int = 32

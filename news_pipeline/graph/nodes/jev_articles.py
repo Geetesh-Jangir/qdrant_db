@@ -6,6 +6,7 @@ import logging
 
 from news_pipeline.graph.state import PipelineState
 from news_pipeline.graph.timing import merge_llm_usage
+from news_pipeline.error_summary import fetch_window_fields
 from news_pipeline.jev.client import JevClient, JevError, article_questions, score_match
 from news_pipeline.run_log import clip_log_title, get_run_logger
 from news_pipeline.services import get_settings
@@ -39,7 +40,16 @@ def jev_article_scores(state: PipelineState) -> dict:
     try:
         client = JevClient(settings)
     except JevError as exc:
-        errors.append({"stage": "jev_article_scores", "error": str(exc)})
+        window = fetch_window_fields(settings)
+        errors.append(
+            {
+                "source": "jev",
+                "stage": "jev_article_scores",
+                "error": str(exc),
+                "dates": window["dates"],
+                "window": window["window"],
+            }
+        )
         counts = dict(state.get("counts") or {})
         counts["after_body_jev"] = 0
         if run_log is not None:
@@ -80,9 +90,27 @@ def jev_article_scores(state: PipelineState) -> dict:
                     detail=f"url={candidate.get('url', '')}",
                 )
             except JevError as exc:
-                errors.append({"stage": "jev_article_scores", "url": candidate["url"], "error": str(exc)})
+                window = fetch_window_fields(settings)
+                names = [m.get("name") for m in matches if m.get("name")]
+                errors.append(
+                    {
+                        "source": "jev",
+                        "stage": "jev_article_scores",
+                        "url": candidate["url"],
+                        "entities": names,
+                        "published_at": candidate.get("published_at"),
+                        "error": str(exc),
+                        "dates": window["dates"],
+                        "window": window["window"],
+                    }
+                )
                 if run_log is not None:
-                    run_log.write(f"jev_article_scores drop url={candidate['url']} reason=jev_error error={exc}")
+                    run_log.write(
+                        f"jev_article_scores drop url={candidate['url']} reason=jev_error "
+                        f"entities=[{', '.join(names)}] "
+                        f"published_at={candidate.get('published_at')} "
+                        f"dates={window['dates'] or 'relative_window'} error={exc}"
+                    )
                 continue
 
             llm_usage = merge_llm_usage(llm_usage, client.last_call_usage())

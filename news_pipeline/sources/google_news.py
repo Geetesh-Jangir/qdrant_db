@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
-import logging
-import threading
-import time
 import xml.etree.ElementTree as ET
 from urllib.parse import quote_plus
 
 from lib.fetch import fetch_url, thread_session
-from lib.google_news import resolve_google_news_url
+from lib.google_guard import google_breaker
+from lib.google_news import cached_resolve
 from news_pipeline.config import PUBLISHERS, Settings
+from news_pipeline.news_dates import article_in_fetch_window, google_time_query
 from news_pipeline.run_log import get_run_logger
 from news_pipeline.textutil import (
     canonical_url,
@@ -21,59 +20,48 @@ from news_pipeline.textutil import (
     strip_html,
     to_iso,
     utc_now,
-    within_news_window,
 )
 
-logger = logging.getLogger(__name__)
-
-_rss_lock = threading.Lock()
-_last_rss_fetch = 0.0
-_RSS_MIN_INTERVAL_SEC = 0.4
-
-
-def _google_when_clause(settings: Settings) -> str:
-    raw = (settings.google_news_when or "1d").strip().lower()
-    if raw.startswith("when:"):
-        raw = raw[5:].strip()
-    return raw or "1d"
-
-
 def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
+    google_breaker.assert_allowed()
     now = utc_now()
-    when = _google_when_clause(settings)
+    time_q = google_time_query(settings)
     rss_url = (
         "https://news.google.com/rss/search?q="
-        + quote_plus(f"{entity['query']} when:{when}")
+        + quote_plus(f"{entity['query']} {time_q}")
         + "&hl=en-IN&gl=IN&ceid=IN:en"
     )
-    _wait_for_rss_slot()
     session = thread_session()
     _final, body, error = fetch_url(
         session,
         rss_url,
         referer="https://news.google.com/",
-        retries=4,
+        retries=2,
     )
     if error or not body:
         raise RuntimeError(error or "empty Google News RSS response")
     items = _parse_rss(body.encode("utf-8"))
     kept: list[dict] = []
+    dropped_publisher = 0
+    resolve_calls = 0
     cap = getattr(settings, "max_items_per_query", 0)
-    # --- RSS LIMIT CAPPING (COMMENTED OUT TO STORE MAXIMUM NEWS) ---
-    # for item in items:
-    #     if cap > 0 and len(kept) >= cap:
-    #         break
-    # --------------------------------------------------------------
+
     for item in items:
         title = strip_html(item["title"])
         if not item["link"] or not title or not is_english_title(title):
             continue
         published = parse_time(item["published_raw"])
-        if not within_news_window(published, settings.news_window_hours, now):
+        if not article_in_fetch_window(published, settings, now):
             continue
-        resolved = _resolve_publisher_url(item["link"])
-        source = _match_publisher(item["source_url"], item["source_name"], resolved)
+
+        source = _match_publisher(item["source_url"], item["source_name"], item["link"])
         if source is None:
+            dropped_publisher += 1
+            continue
+
+        resolve_calls += 1
+        resolved = _resolve_publisher_url(session, item["link"])
+        if not resolved:
             continue
 
         url = canonical_url(resolved)
@@ -93,13 +81,14 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
                 "total_percentage": entity["total_percentage"],
             }
         )
+
     run_log = get_run_logger()
     if run_log is not None:
-        if len(items) > 0:
-            run_log.write(
-                f"fetch filter entity={entity['name']} rss_items={len(items)} kept={len(kept)} "
-                f"max_items_per_query={'unlimited' if cap <= 0 else cap}"
-            )
+        run_log.write(
+            f"fetch filter entity={entity['name']} rss_items={len(items)} "
+            f"dropped_publisher={dropped_publisher} resolve_calls={resolve_calls} kept={len(kept)} "
+            f"max_items_per_query={'unlimited' if cap <= 0 else cap}"
+        )
         if len(items) > 0 and len(kept) == 0:
             run_log.write(
                 f"fetch filter entity={entity['name']} reason=publisher_or_time_or_language_filters"
@@ -109,22 +98,11 @@ def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
     return kept
 
 
-def _resolve_publisher_url(link: str) -> str:
+def _resolve_publisher_url(session, link: str) -> str | None:
     if "news.google.com" not in link:
         return link
-    session = thread_session()
-    resolved, _error = resolve_google_news_url(session, link, retries=1)
-    return resolved or link
-
-
-def _wait_for_rss_slot() -> None:
-    global _last_rss_fetch
-    with _rss_lock:
-        now = time.monotonic()
-        delay = _RSS_MIN_INTERVAL_SEC - (now - _last_rss_fetch)
-        if delay > 0:
-            time.sleep(delay)
-        _last_rss_fetch = time.monotonic()
+    resolved, _error = cached_resolve(session, link, retries=1)
+    return resolved
 
 
 def _parse_rss(content: bytes) -> list[dict]:

@@ -5,7 +5,8 @@ import re
 import time
 from urllib.parse import urlparse
 
-from lib.fetch import fetch_url
+from lib.fetch import fetch_url, post_url
+from lib.url_cache import get_resolved, put_failure, put_resolved
 
 BATCH_EXECUTE_URL = "https://news.google.com/_/DotsSplashUi/data/batchexecute"
 _GOOGLE_HOSTS = {"news.google.com", "www.news.google.com"}
@@ -39,6 +40,23 @@ def is_google_news_article_url(url):
 
 def article_id_from_url(url):
     return url.rstrip("/").split("/")[-1].split("?")[0]
+
+
+def cached_resolve(session, url, timeout=20, retries=1):
+    """Resolve wrapper URL with SQLite cache (success forever, failure TTL)."""
+    if not is_google_news_article_url(url):
+        return url, None
+    cached = get_resolved(url)
+    if cached is not None:
+        if cached:
+            return cached, None
+        return None, "cached resolve failure"
+    resolved, error = resolve_google_news_url(session, url, timeout=timeout, retries=retries)
+    if resolved:
+        put_resolved(url, resolved)
+        return resolved, None
+    put_failure(url)
+    return None, error or "could not resolve Google News URL"
 
 
 def resolve_google_news_url(session, url, timeout=20, retries=2):
@@ -78,24 +96,25 @@ def _batchexecute(session, article_id, timestamp, signature, timeout):
         separators=(",", ":"),
     )
     f_req = json.dumps([[["Fbv4je", rpc_inner, None, "generic"]]], separators=(",", ":"))
-    try:
-        response = session.post(
-            BATCH_EXECUTE_URL,
-            data={"f.req": f_req},
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-                "Referer": "https://news.google.com/",
-            },
-            timeout=timeout,
-        )
-        if response.status_code >= 400:
-            return None, f"batchexecute {response.status_code}"
-        resolved = _parse_garturlres(response.text)
-        if not resolved:
-            return None, "no garturlres in batchexecute response"
-        return resolved, None
-    except Exception as exc:
-        return None, f"batchexecute failed: {exc}"
+    status, body, error = post_url(
+        session,
+        BATCH_EXECUTE_URL,
+        data={"f.req": f_req},
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            "Referer": "https://news.google.com/",
+        },
+        timeout=timeout,
+        retries=0,
+    )
+    if error:
+        return None, error
+    if status >= 400:
+        return None, f"batchexecute {status}"
+    resolved = _parse_garturlres(body)
+    if not resolved:
+        return None, "no garturlres in batchexecute response"
+    return resolved, None
 
 
 def _parse_garturlres(body):

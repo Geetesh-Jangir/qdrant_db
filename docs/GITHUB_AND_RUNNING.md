@@ -42,7 +42,7 @@ Writes `data/fund_holdings_aggregate/portfolio_news_scope.json` for the RAG fund
 
 Logs: `data/news_runs/{run_id}.log` and `{run_id}.json` (kept across runs).
 
-Optional `.env` overrides: `NEWS_WINDOW_HOURS`, `GOOGLE_NEWS_WHEN`, `NEWS_CORPUS_MODE`, etc.
+Optional `.env` / GitHub Actions overrides: `NEWS_DATE_RANGE` (inclusive start / exclusive end, e.g. `5/10/2026-7/10/2026` = 5 Oct and 6 Oct), `HOLDINGS_LIMIT`, `SECTORS_LIMIT`, `GOOGLE_NEWS_WHEN` (used when `NEWS_DATE_RANGE` is empty; default `1d` on the daily schedule), `NEWS_CORPUS_MODE`, `GOOGLE_HTTP_PROXY`, etc.
 
 ### RAG only
 

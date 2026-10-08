@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from news_pipeline.error_summary import fetch_window_fields
 from news_pipeline.graph.state import PipelineState
 from news_pipeline.graph.timing import merge_llm_usage
 from news_pipeline.jev.client import JevClient, JevError, article_questions, score_match
@@ -110,8 +111,18 @@ def merge_entity_links(state: PipelineState) -> dict:
                         run_log,
                     )
                 except JevError as exc:
+                    window = fetch_window_fields(settings)
+                    names = [m.get("name") for m in new_matches if m.get("name")]
                     errors.append(
-                        {"stage": "merge_entity_links", "url": canonical_url, "error": str(exc)}
+                        {
+                            "source": "jev",
+                            "stage": "merge_entity_links",
+                            "url": canonical_url,
+                            "entities": names,
+                            "error": str(exc),
+                            "dates": window["dates"],
+                            "window": window["window"],
+                        }
                     )
                     continue
 

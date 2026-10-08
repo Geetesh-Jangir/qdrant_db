@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from news_pipeline.graph.state import PipelineState
+from news_pipeline.news_dates import describe_fetch_window
 from news_pipeline.run_log import get_run_logger
 from news_pipeline.services import get_settings
 from news_pipeline.sources.universe import load_universe as read_universe, sector_query_gaps
@@ -32,7 +33,8 @@ def load_universe(state: PipelineState) -> dict:
                 f"equity_aggregate={settings.aggregated_holdings_map}"
             )
         run_log.write(
-            f"load_universe finished holdings={holdings} sectors={sectors} macros={macros} total={len(entities)}"
+            f"load_universe finished holdings={holdings} sectors={sectors} macros={macros} total={len(entities)} "
+            f"{describe_fetch_window(settings)}"
         )
         for entity in entities:
             run_log.write(

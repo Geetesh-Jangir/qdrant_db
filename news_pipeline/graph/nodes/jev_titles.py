@@ -8,6 +8,7 @@ from collections import defaultdict
 
 from news_pipeline.graph.state import PipelineState
 from news_pipeline.graph.timing import merge_llm_usage
+from news_pipeline.error_summary import fetch_window_fields
 from news_pipeline.jev.client import JevClient, JevError, read_noul, title_questions
 from news_pipeline.run_log import clip_log_title, get_run_logger
 from news_pipeline.services import get_settings
@@ -35,7 +36,16 @@ def jev_title_screen(state: PipelineState) -> dict:
     try:
         client = JevClient(settings)
     except JevError as exc:
-        errors.append({"stage": "jev_title_screen", "error": str(exc)})
+        window = fetch_window_fields(settings)
+        errors.append(
+            {
+                "source": "jev",
+                "stage": "jev_title_screen",
+                "error": str(exc),
+                "dates": window["dates"],
+                "window": window["window"],
+            }
+        )
         counts = dict(state.get("counts") or {})
         counts["after_title_jev"] = 0
         if run_log is not None:
@@ -171,9 +181,23 @@ def _score_entity_titles(
             detail=f"entity={name} titles={len(rows)}",
         )
     except JevError as exc:
-        errors.append({"stage": "jev_title_screen", "name": name, "error": str(exc)})
+        window = fetch_window_fields(settings)
+        errors.append(
+            {
+                "source": "jev",
+                "stage": "jev_title_screen",
+                "name": name,
+                "entities": [name],
+                "error": str(exc),
+                "dates": window["dates"],
+                "window": window["window"],
+            }
+        )
         if run_log is not None:
-            run_log.write(f"jev_title_screen entity={name} call_failed error={exc}")
+            run_log.write(
+                f"jev_title_screen entity={name} call_failed "
+                f"dates={window['dates'] or 'relative_window'} error={exc}"
+            )
         return llm_usage
 
     llm_usage = merge_llm_usage(llm_usage, client.last_call_usage())
