@@ -37,6 +37,8 @@ jobs:
   backfill:
     runs-on: ubuntu-latest
     timeout-minutes: 360
+    outputs:
+      day_matrix: ${{ steps.days.outputs.matrix }}
     env:
       JEV_BASE_URL: ${{ secrets.JEV_BASE_URL }}
       JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
@@ -101,23 +103,32 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}
         run: python -m news_pipeline.backfill_days
 
-      - name: Upload per-day run artifacts
+      - name: List per-day run folders
+        id: days
         if: always()
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           shopt -s nullglob
-          uploaded=0
+          days=()
           for dir in data/news_runs/????-??-??/; do
-            day=$(basename "$dir")
-            echo "Uploading artifact news-${day}"
-            gh run upload "$dir" --name "news-${day}"
-            uploaded=1
+            days+=("$(basename "$dir")")
           done
-          if [ "$uploaded" -eq 0 ]; then
-            echo "No per-day run folders to upload"
+          if [ "${#days[@]}" -eq 0 ]; then
+            echo 'matrix=[]' >> "$GITHUB_OUTPUT"
+            echo "No per-day run folders found"
+          else
+            matrix=$(printf '%s\n' "${days[@]}" | jq -R . | jq -s -c .)
+            echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+            echo "Day folders: $matrix"
           fi
+
+      - name: Upload news runs bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-runs-bundle
+          path: data/news_runs/
+          if-no-files-found: ignore
 
       - name: Upload backfill checkpoint
         if: always()
@@ -134,3 +145,24 @@ jobs:
           name: news-failure-ledger
           path: data/news_failures/
           if-no-files-found: warn
+
+  upload-day-artifacts:
+    needs: backfill
+    if: always() && needs.backfill.outputs.day_matrix != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        day: ${{ fromJSON(needs.backfill.outputs.day_matrix) }}
+    steps:
+      - name: Download news runs bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: news-runs-bundle
+
+      - name: Upload per-day artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-${{ matrix.day }}
+          path: data/news_runs/${{ matrix.day }}/
+          if-no-files-found: error

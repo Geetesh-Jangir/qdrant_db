@@ -222,10 +222,16 @@ def mark_source_resolved(settings: Settings, url: str) -> None:
     row["resolved_at"] = _now_iso()
 
 
+def day_failure_slices_for_run() -> tuple[list[dict], list[dict]]:
+    day = get_run_context().calendar_day
+    google_slice = [r for r in _day_google if r.get("calendar_day") == day]
+    source_slice = [r for r in _day_source if r.get("calendar_day") == day]
+    return google_slice, source_slice
+
+
 def write_day_slices(settings: Settings, out_dir: Path) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
-    google_slice = [r for r in _day_google if r.get("calendar_day") == get_run_context().calendar_day]
-    source_slice = [r for r in _day_source if r.get("calendar_day") == get_run_context().calendar_day]
+    google_slice, source_slice = day_failure_slices_for_run()
     (out_dir / "failed_google.json").write_text(
         json.dumps({"items": google_slice}, indent=2),
         encoding="utf-8",

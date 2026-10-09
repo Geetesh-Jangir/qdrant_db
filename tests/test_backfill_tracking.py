@@ -81,6 +81,9 @@ def test_publisher_stats_unique_urls(tmp_path):
     assert row["received"] == 1
     assert row["scraped"] == 1
     assert row["scrape_errors"] == 1
+    assert data["totals"]["urls_received"] == 1
+    assert data["totals"]["urls_scraped"] == 1
+    assert data["totals"]["urls_scrape_errors"] == 1
 
 
 def test_failure_ledger_attempts_cap(tmp_path):

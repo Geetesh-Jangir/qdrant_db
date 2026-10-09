@@ -33,9 +33,12 @@ class PublisherStats:
         if source and url:
             self._errors[source][reason].add(url)
 
-    def write(self, path: Path) -> None:
+    def build_payload(self) -> dict[str, Any]:
         ctx = get_run_context()
         publishers: list[dict[str, Any]] = []
+        total_received = 0
+        total_scraped = 0
+        total_scrape_errors = 0
         for source in sorted(self._received.keys()):
             received = len(self._received[source])
             if received <= 0:
@@ -47,6 +50,9 @@ class PublisherStats:
                 error_reasons[reason] = len(urls)
                 error_urls |= urls
             scrape_errors = len(error_urls)
+            total_received += received
+            total_scraped += scraped
+            total_scrape_errors += scrape_errors
             publishers.append(
                 {
                     "source": source,
@@ -56,14 +62,22 @@ class PublisherStats:
                     "error_reasons": error_reasons,
                 }
             )
-        payload = {
+        return {
             "run_id": ctx.run_id,
             "calendar_day": ctx.calendar_day,
             "news_date_range": ctx.news_date_range,
+            "totals": {
+                "publishers_with_traffic": len(publishers),
+                "urls_received": total_received,
+                "urls_scraped": total_scraped,
+                "urls_scrape_errors": total_scrape_errors,
+            },
             "publishers": publishers,
         }
+
+    def write(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        path.write_text(json.dumps(self.build_payload(), indent=2), encoding="utf-8")
 
 
 _STATS = PublisherStats()

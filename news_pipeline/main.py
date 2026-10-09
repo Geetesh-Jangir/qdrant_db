@@ -21,7 +21,7 @@ from news_pipeline.news_dates import (
 from news_pipeline.publisher_stats import get_publisher_stats
 from news_pipeline.qdrant_target import qdrant_summary, validate_qdrant_settings
 from news_pipeline.run_artifacts import finalize_run_artifacts
-from news_pipeline.run_context import set_run_context
+from news_pipeline.run_context import get_run_context, set_run_context
 from news_pipeline.run_log import finish_run_logger, get_run_logger, start_run_logger
 from news_pipeline.scrape.workspace import clear_scrape_workspace
 from news_pipeline.services import get_settings, get_store
@@ -120,8 +120,14 @@ def main() -> None:
         }
         write_error_summary(get_run_logger(), result.get("errors") or [], settings=settings)
         telemetry = finish_run_logger()
-        finalize_run_artifacts(settings, summary_dir)
-        _write_summary(summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info, settings)
+        summary_path = summary_dir / f"{run_id}.json"
+        _write_summary(summary_path, result, started, telemetry, fresh_start, qdrant_info, settings)
+        finalize_run_artifacts(
+            settings,
+            summary_dir,
+            counts=result.get("counts") or {},
+            run_id=run_id,
+        )
         flush(settings)
         raise SystemExit(1) from exc
     finally:
@@ -136,9 +142,13 @@ def main() -> None:
         write_error_summary(get_run_logger(), result.get("errors") or [], settings=settings)
         telemetry = finish_run_logger()
         qdrant_info["points_count_after_run"] = get_store().points_count()
-        finalize_run_artifacts(settings, summary_dir)
-        path = _write_summary(
-            summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info, settings
+        path = summary_dir / f"{run_id}.json"
+        _write_summary(path, result, started, telemetry, fresh_start, qdrant_info, settings)
+        finalize_run_artifacts(
+            settings,
+            summary_dir,
+            counts=result.get("counts") or {},
+            run_id=run_id,
         )
         flush(settings)
         counts = result.get("counts") or {}
@@ -165,9 +175,12 @@ def _write_summary(
 ) -> str:
     finished = datetime.now(timezone.utc)
     errors = result.get("errors") or []
+    ctx = get_run_context() if settings else None
     payload = {
         "pipeline": "full",
         "run_id": result.get("run_id"),
+        "calendar_day": ctx.calendar_day if ctx else None,
+        "news_date_range": ctx.news_date_range if ctx else (getattr(settings, "news_date_range", None) if settings else None),
         "started_at": to_iso(started),
         "finished_at": to_iso(finished),
         "counts": result.get("counts") or {},
