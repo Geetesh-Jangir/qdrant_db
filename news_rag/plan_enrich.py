@@ -416,6 +416,13 @@ def _normalize_macro_enhanced_tools(plan: AskPlan, question: str) -> AskPlan:
     return plan
 
 
+def _sector_news_is_specific(tool: PlannedTool) -> bool:
+    if tool.sector_name or tool.entity_filters:
+        return True
+    query = (tool.semantic_query or "").strip()
+    return len(query.split()) >= 3
+
+
 def _drop_overlapping_market_news(plan: AskPlan) -> AskPlan:
     """common_market_news already covers broad India market/macro clusters."""
     if not any(t.tool == "common_market_news" for t in plan.tools):
@@ -424,7 +431,7 @@ def _drop_overlapping_market_news(plan: AskPlan) -> AskPlan:
     for tool in plan.tools:
         if tool.tool in ("macro_news", "macro_news_enhanced"):
             continue
-        if tool.tool == "sector_news" and not (tool.sector_name or tool.entity_filters):
+        if tool.tool == "sector_news" and not _sector_news_is_specific(tool):
             continue
         kept.append(tool)
     plan.tools = kept

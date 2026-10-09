@@ -7,11 +7,21 @@ import logging
 import secrets
 from datetime import datetime, timezone
 
+from news_pipeline.entity_funnel import get_entity_funnel
 from news_pipeline.error_summary import summarize_errors, write_error_summary
+from news_pipeline.failure_ledger import ensure_loaded, flush, reset_run_buffers
 from news_pipeline.fresh_start import apply_fresh_start
 from news_pipeline.graph.build import build_graph
-from news_pipeline.news_dates import NewsDateRangeError, describe_fetch_window, parse_news_date_range
+from news_pipeline.news_dates import (
+    NewsDateRangeError,
+    covered_calendar_days,
+    describe_fetch_window,
+    parse_news_date_range,
+)
+from news_pipeline.publisher_stats import get_publisher_stats
 from news_pipeline.qdrant_target import qdrant_summary, validate_qdrant_settings
+from news_pipeline.run_artifacts import finalize_run_artifacts
+from news_pipeline.run_context import set_run_context
 from news_pipeline.run_log import finish_run_logger, get_run_logger, start_run_logger
 from news_pipeline.scrape.workspace import clear_scrape_workspace
 from news_pipeline.services import get_settings, get_store
@@ -36,8 +46,18 @@ def main() -> None:
 
     started = utc_now()
     run_id = started.strftime("%Y%m%dT%H%M%SZ") + "_" + secrets.token_hex(2)
-    summary_dir = settings.path(settings.run_summary_dir)
+    base_summary_dir = settings.path(settings.run_summary_dir)
+    subdir = (settings.news_run_subdir or "").strip()
+    summary_dir = base_summary_dir / subdir if subdir else base_summary_dir
     summary_dir.mkdir(parents=True, exist_ok=True)
+
+    days = covered_calendar_days(settings)
+    calendar_day = days[0] if days else (subdir or started.date().isoformat())
+    set_run_context(run_id, calendar_day, settings.news_date_range or "")
+    get_entity_funnel().reset()
+    get_publisher_stats().reset()
+    reset_run_buffers()
+    ensure_loaded(settings)
 
     fresh_start = apply_fresh_start(settings)
 
@@ -56,7 +76,8 @@ def main() -> None:
         run_log.write(
             "fetch window "
             f"{describe_fetch_window(settings)} "
-            f"holdings_limit={settings.holdings_limit} sectors_limit={settings.sectors_limit}"
+            f"holdings_limit={settings.holdings_limit} sectors_limit={settings.sectors_limit} "
+            f"run_subdir={subdir or '(flat)'}"
         )
     if run_log is not None and fresh_start.get("enabled"):
         run_log.write(
@@ -83,6 +104,7 @@ def main() -> None:
     }
     result = initial
     telemetry = None
+    failed = False
     try:
         store = get_store()
         store.ensure_collection()
@@ -90,6 +112,7 @@ def main() -> None:
             run_log.write(f"qdrant collection ready points_count={store.points_count()}")
         result = build_graph().invoke(initial)
     except Exception as exc:
+        failed = True
         logger.exception("news pipeline failed")
         result = {
             **initial,
@@ -97,7 +120,9 @@ def main() -> None:
         }
         write_error_summary(get_run_logger(), result.get("errors") or [], settings=settings)
         telemetry = finish_run_logger()
+        finalize_run_artifacts(settings, summary_dir)
         _write_summary(summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info, settings)
+        flush(settings)
         raise SystemExit(1) from exc
     finally:
         leftover = clear_scrape_workspace(settings)
@@ -107,21 +132,26 @@ def main() -> None:
             if run_log is not None:
                 run_log.write(f"scrape workspace final cleanup files={leftover}")
 
-    write_error_summary(get_run_logger(), result.get("errors") or [], settings=settings)
-    telemetry = finish_run_logger()
-    qdrant_info["points_count_after_run"] = get_store().points_count()
-    path = _write_summary(summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info, settings)
-    counts = result.get("counts") or {}
-    logger.info("run complete summary=%s upserted=%s", path, counts.get("upserted", 0))
-    if telemetry:
-        logger.info(
-            "run log=%s total_seconds=%s llm_calls=%s input_tokens=%s input_cost_usd=%s",
-            telemetry.get("log_file"),
-            telemetry.get("total_seconds"),
-            telemetry.get("llm_calls"),
-            telemetry.get("input_tokens"),
-            telemetry.get("input_cost_usd"),
+    if not failed:
+        write_error_summary(get_run_logger(), result.get("errors") or [], settings=settings)
+        telemetry = finish_run_logger()
+        qdrant_info["points_count_after_run"] = get_store().points_count()
+        finalize_run_artifacts(settings, summary_dir)
+        path = _write_summary(
+            summary_dir / f"{run_id}.json", result, started, telemetry, fresh_start, qdrant_info, settings
         )
+        flush(settings)
+        counts = result.get("counts") or {}
+        logger.info("run complete summary=%s upserted=%s", path, counts.get("upserted", 0))
+        if telemetry:
+            logger.info(
+                "run log=%s total_seconds=%s llm_calls=%s input_tokens=%s input_cost_usd=%s",
+                telemetry.get("log_file"),
+                telemetry.get("total_seconds"),
+                telemetry.get("llm_calls"),
+                telemetry.get("input_tokens"),
+                telemetry.get("input_cost_usd"),
+            )
 
 
 def _write_summary(

@@ -294,7 +294,7 @@ class Settings(BaseSettings):
     embed_chars: int = 1500
     body_words: int = 2000
     # 0 = never delete by age. Ignored when news_corpus_mode is true.
-    retention_days: int = 30
+    retention_days: int = 0
     # Accumulate articles in Qdrant across runs; skip retention deletes and never wipe the collection.
     news_corpus_mode: bool = False
     # Global title dedupe vs existing corpus. 0 hours = all stored articles; 0 limit = no cap.
@@ -311,6 +311,11 @@ class Settings(BaseSettings):
     news_date_range: str = ""
     fetch_workers: int = 1
     scrape_workers: int = 4
+    scrape_domain_gap_sec: float = 0
+    scrape_max_attempts: int = 3
+    scrape_backoff_base_sec: float = 2.0
+    news_run_subdir: str = ""
+    news_failures_dir: str = "data/news_failures"
     upsert_batch: int = 128
     embed_batch: int = 32
 

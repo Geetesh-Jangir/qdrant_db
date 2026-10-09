@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 
 from news_pipeline.embeddings.encoder import get_encoder
+from news_pipeline.entity_funnel import get_entity_funnel
+from news_pipeline.failure_ledger import mark_source_resolved
 from news_pipeline.graph.state import PipelineState
 from news_pipeline.run_log import clip_log_title, get_run_logger
 from news_pipeline.models import EntityScore, StoredArticle
@@ -78,6 +80,16 @@ def embed_and_upsert(state: PipelineState) -> dict:
             f"cloud={qdrant['cloud']} articles={len(articles)}"
         )
     written = store.upsert_articles(articles, vectors)
+    funnel = get_entity_funnel()
+    for article in articles:
+        mark_source_resolved(settings, article.url)
+        for name in article.entity_names:
+            etype = "holding"
+            for ent in article.entities:
+                if ent.name == name:
+                    etype = ent.type
+                    break
+            funnel.bump(name, etype, "upserted")
     total_points = store.points_count()
     if run_log is not None:
         run_log.write(

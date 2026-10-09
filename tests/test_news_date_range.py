@@ -45,3 +45,12 @@ def test_publish_filter_exclusive_end():
     assert article_in_fetch_window(sixth, settings, now) is True
     assert article_in_fetch_window(seventh, settings, now) is False
     assert article_in_fetch_window(None, settings, now) is True
+
+
+def test_publish_time_missing_both_dates_in_range_mode():
+    from news_pipeline.news_dates import publish_time_for_scrape
+
+    settings = Settings()
+    settings.news_date_range = "5/10/2026-7/10/2026"
+    now = datetime(2026, 10, 8, tzinfo=timezone.utc)
+    assert publish_time_for_scrape(None, None, settings, now) is None

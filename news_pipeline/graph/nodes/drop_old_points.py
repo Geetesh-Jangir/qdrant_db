@@ -15,7 +15,17 @@ def drop_old_points(state: PipelineState) -> dict:
     settings = get_settings()
     run_log = get_run_logger()
     counts = dict(state.get("counts") or {})
-    retention_days = settings.retention_days if settings.retention_days > 0 else 30
+    if settings.news_corpus_mode or settings.retention_days <= 0:
+        counts["deleted"] = 0
+        if run_log is not None:
+            run_log.write(
+                "drop_old_points skipped "
+                f"news_corpus_mode={settings.news_corpus_mode} retention_days={settings.retention_days}"
+            )
+        logger.info("drop_old_points skipped corpus=%s retention=%s", settings.news_corpus_mode, settings.retention_days)
+        return {"counts": counts}
+
+    retention_days = settings.retention_days
 
     if run_log is not None:
         before = get_store().points_count()

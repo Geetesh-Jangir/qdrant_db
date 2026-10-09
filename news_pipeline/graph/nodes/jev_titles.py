@@ -6,6 +6,7 @@ import logging
 
 from collections import defaultdict
 
+from news_pipeline.entity_funnel import get_entity_funnel
 from news_pipeline.graph.state import PipelineState
 from news_pipeline.graph.timing import merge_llm_usage
 from news_pipeline.error_summary import fetch_window_fields
@@ -113,6 +114,11 @@ def jev_title_screen(state: PipelineState) -> dict:
 
     counts = dict(state.get("counts") or {})
     counts["after_title_jev"] = len(kept)
+    funnel = get_entity_funnel()
+    for candidate in kept:
+        for match in candidate.get("matches") or []:
+            if match.get("name"):
+                funnel.bump(match["name"], match.get("type") or "", "after_title_jev")
     if run_log is not None:
         run_log.write(f"jev_title_screen finished unique_urls_kept={len(kept)}")
         for industry, stats in sorted(title_stats.items()):

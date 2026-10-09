@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from news_pipeline.entity_funnel import get_entity_funnel
 from news_pipeline.graph.state import PipelineState
 from news_pipeline.run_log import get_run_logger
 from news_pipeline.services import get_store
@@ -24,9 +25,13 @@ def skip_known_urls(state: PipelineState) -> dict:
     known = store.existing_ids([row["url"] for row in merged])
     fresh: list[dict] = []
     known_merges: list[dict] = []
+    funnel = get_entity_funnel()
     for row in merged:
         if point_id_for_url(row["url"]) in known:
             known_merges.append(row)
+            for match in row.get("matches") or []:
+                if match.get("name"):
+                    funnel.bump(match["name"], match.get("type") or "", "skipped_existing")
         else:
             fresh.append(row)
 

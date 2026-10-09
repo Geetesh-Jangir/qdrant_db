@@ -6,6 +6,7 @@ import logging
 
 from rapidfuzz import fuzz
 
+from news_pipeline.entity_funnel import get_entity_funnel
 from news_pipeline.graph.state import PipelineState
 from news_pipeline.run_log import clip_log_title, get_run_logger
 from news_pipeline.services import get_settings, get_store
@@ -75,6 +76,7 @@ def dedupe_and_alias(state: PipelineState) -> dict:
         story_index,
         settings.title_similarity,
         run_log,
+        get_entity_funnel(),
     )
     counts = dict(state.get("counts") or {})
     counts["after_alias"] = len(candidates)
@@ -86,6 +88,11 @@ def dedupe_and_alias(state: PipelineState) -> dict:
             f"dedupe_and_alias finished urls_before={len(candidates)} urls_after={len(deduped)} "
             f"urls_dropped={dropped} canonical_merges={len(canonical_merges)}"
         )
+    funnel = get_entity_funnel()
+    for row in deduped:
+        for match in row.get("matches") or []:
+            if match.get("name"):
+                funnel.bump(match["name"], match.get("type") or "", "after_title_dedupe")
     logger.info("dedupe_and_alias before_dedupe=%s after_dedupe=%s", len(candidates), len(deduped))
     return {
         "candidates": deduped,
@@ -101,6 +108,7 @@ def _dedupe_candidates(
     story_index: list[dict],
     threshold: int,
     run_log,
+    funnel,
 ) -> tuple[list[dict], int, list[dict]]:
     ordered = sorted(candidates, key=lambda row: row.get("published_at") or "", reverse=True)
     seen: dict[str, list[str]] = {name: list(titles) for name, titles in recent_by_name.items()}
@@ -156,6 +164,9 @@ def _dedupe_candidates(
             run_stories.append({"title": candidate["title"], "url": candidate["url"]})
         else:
             dropped_urls += 1
+            for match in candidate.get("matches") or []:
+                if match.get("name"):
+                    funnel.bump(match["name"], match.get("type") or "", "title_dedupe_dropped")
             if run_log is not None:
                 run_log.write(
                     f"dedupe_and_alias drop_url reason=all_matches_deduped "

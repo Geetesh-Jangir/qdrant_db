@@ -42,8 +42,18 @@ def article_id_from_url(url):
     return url.rstrip("/").split("/")[-1].split("?")[0]
 
 
-def cached_resolve(session, url, timeout=20, retries=1):
+def cached_resolve(
+    session,
+    url,
+    timeout=20,
+    retries=1,
+    *,
+    max_attempts: int = 3,
+    backoff_base_sec: float = 2.0,
+):
     """Resolve wrapper URL with SQLite cache (success forever, failure TTL)."""
+    from news_pipeline.retry_backoff import sleep_before_attempt
+
     if not is_google_news_article_url(url):
         return url, None
     cached = get_resolved(url)
@@ -51,12 +61,17 @@ def cached_resolve(session, url, timeout=20, retries=1):
         if cached:
             return cached, None
         return None, "cached resolve failure"
-    resolved, error = resolve_google_news_url(session, url, timeout=timeout, retries=retries)
-    if resolved:
-        put_resolved(url, resolved)
-        return resolved, None
+    last_error = None
+    attempts = max(1, int(max_attempts))
+    for attempt in range(attempts):
+        sleep_before_attempt(attempt, backoff_base_sec)
+        resolved, error = resolve_google_news_url(session, url, timeout=timeout, retries=retries)
+        if resolved:
+            put_resolved(url, resolved)
+            return resolved, None
+        last_error = error or "could not resolve Google News URL"
     put_failure(url)
-    return None, error or "could not resolve Google News URL"
+    return None, last_error
 
 
 def resolve_google_news_url(session, url, timeout=20, retries=2):

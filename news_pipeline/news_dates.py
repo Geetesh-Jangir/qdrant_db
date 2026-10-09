@@ -101,6 +101,49 @@ def covered_calendar_days(settings) -> list[str]:
     return [(start + timedelta(days=i)).isoformat() for i in range((end - start).days)]
 
 
+def has_news_date_range(settings) -> bool:
+    return parse_news_date_range(getattr(settings, "news_date_range", "") or "") is not None
+
+
+def publish_time_for_scrape(
+    rss_published: datetime | None,
+    page_published: datetime | None,
+    settings,
+    now: datetime,
+) -> datetime | None:
+    """Choose publish time for scrape window check. Trust RSS when date range is set."""
+    parsed = parse_news_date_range(getattr(settings, "news_date_range", "") or "")
+    if parsed is not None and rss_published is not None:
+        if article_in_fetch_window(rss_published, settings, now):
+            return rss_published
+        return None
+    chosen = rss_published if rss_published is not None else page_published
+    if chosen is None:
+        return None
+    if article_in_fetch_window(chosen, settings, now):
+        return chosen
+    return None
+
+
+def single_day_news_date_range(day: date) -> str:
+    """Exclusive-end range covering one calendar day (D/M/YYYY)."""
+    next_day = day + timedelta(days=1)
+    return f"{day.day}/{day.month}/{day.year}-{next_day.day}/{next_day.month}/{next_day.year}"
+
+
+def iter_inclusive_days(start: date, end: date) -> list[date]:
+    if end < start:
+        raise NewsDateRangeError(
+            f"end date must be on or after start: {start.isoformat()} → {end.isoformat()}"
+        )
+    days: list[date] = []
+    current = start
+    while current <= end:
+        days.append(current)
+        current += timedelta(days=1)
+    return days
+
+
 def describe_fetch_window(settings) -> str:
     parsed = parse_news_date_range(getattr(settings, "news_date_range", "") or "")
     if parsed is None:

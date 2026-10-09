@@ -6,11 +6,15 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from lib.fetch import thread_session
+from news_pipeline.entity_funnel import get_entity_funnel
+from news_pipeline.failure_ledger import is_source_exhausted, record_source_failure
 from news_pipeline.graph.state import PipelineState
+from news_pipeline.news_dates import publish_time_for_scrape
+from news_pipeline.publisher_stats import get_publisher_stats
 from news_pipeline.run_log import clip_log_text, get_run_logger
+from news_pipeline.scrape.domain_gap import wait_for_domain
 from news_pipeline.scrape.engine import scrape_one
 from news_pipeline.services import get_settings
-from news_pipeline.news_dates import article_in_fetch_window
 from news_pipeline.textutil import parse_time, to_iso, utc_now
 
 logger = logging.getLogger(__name__)
@@ -22,6 +26,8 @@ def scrape_bodies(state: PipelineState) -> dict:
     errors = list(state.get("errors") or [])
     now = utc_now()
     scraped_at = to_iso(now)
+    funnel = get_entity_funnel()
+    stats = get_publisher_stats()
 
     if not candidates:
         counts = dict(state.get("counts") or {})
@@ -37,7 +43,7 @@ def scrape_bodies(state: PipelineState) -> dict:
 
     results: dict[str, dict | None] = {}
     with ThreadPoolExecutor(max_workers=settings.scrape_workers) as pool:
-        futures = {pool.submit(_scrape, row["url"]): row["url"] for row in candidates}
+        futures = {pool.submit(_scrape, row["url"], settings): row["url"] for row in candidates}
         for future in as_completed(futures):
             url = futures[future]
             try:
@@ -54,56 +60,82 @@ def scrape_bodies(state: PipelineState) -> dict:
 
     kept = []
     for candidate in candidates:
-        record = results.get(candidate["url"])
+        url = candidate["url"]
+        source = candidate.get("source") or ""
+        entities = _entity_refs(candidate)
+
+        def _drop(reason: str, detail: str = "", retriable: bool = False) -> None:
+            for name, etype in entities:
+                funnel.bump_scrape_drop(name, etype, reason)
+            stats.record_scrape_error(source, url, reason)
+            record_source_failure(
+                settings,
+                url=url,
+                drop_reason=reason,
+                error=detail or reason,
+                retriable=retriable,
+                title=candidate.get("title") or "",
+                snippet=candidate.get("snippet") or "",
+                published_at=candidate.get("published_at"),
+                source=source,
+                entities=[{"name": n, "type": t} for n, t in entities],
+            )
+
+        if is_source_exhausted(url, settings):
+            if run_log is not None:
+                run_log.write(f"scrape drop url={url} reason=ledger_exhausted")
+            for name, etype in entities:
+                funnel.bump_scrape_drop(name, etype, "ledger_exhausted")
+            stats.record_scrape_error(source, url, "ledger_exhausted")
+            continue
+
+        record = results.get(url)
         if not isinstance(record, dict):
             if run_log is not None:
-                run_log.write(f"scrape drop url={candidate['url']} reason=no_record")
+                run_log.write(f"scrape drop url={url} reason=no_record")
+            _drop("no_record", retriable=True)
             continue
         if record["status"] in ("fetch_failed", "resolve_failed"):
             if run_log is not None:
                 err = clip_log_text(record.get("error") or record["status"])
                 run_log.write(
-                    f"scrape drop url={candidate['url']} reason={record['status']} detail={err}"
+                    f"scrape drop url={url} reason={record['status']} detail={err}"
                 )
+            _drop(record["status"], detail=record.get("error") or "", retriable=True)
             continue
         text = (record.get("text") or "").strip()
-        
-        # --- SNIPPET FALLBACK (ENSURES PAYWALLED / BLOCKED ARTICLES ARE RETAINED) ---
+
         if len(text) < settings.min_body_chars:
             snippet = (candidate.get("snippet") or "").strip()
             if snippet:
                 text = f"{candidate.get('title') or ''}. {snippet}"
             else:
                 text = candidate.get("title") or ""
-        
-        # Original drop condition commented out for huge corpus collection:
-        # if len(text) < settings.min_body_chars:
-        #     if run_log is not None:
-        #         run_log.write(
-        #             f"scrape drop url={candidate['url']} reason=short_body "
-        #             f"chars={len(text)} min={settings.min_body_chars}"
-        #         )
-        #     continue
-        # ----------------------------------------------------------------------------
-        published = parse_time(candidate.get("published_at"))
+
+        rss_published = parse_time(candidate.get("published_at"))
+        page_published = parse_time(record.get("date"))
+        published = publish_time_for_scrape(rss_published, page_published, settings, now)
         if published is None:
-            published = parse_time(record.get("date"))
-        if published is None or not article_in_fetch_window(published, settings, now):
             if run_log is not None:
                 run_log.write(
-                    f"scrape drop url={candidate['url']} reason=outside_news_window "
+                    f"scrape drop url={url} reason=outside_news_window "
                     f"published={candidate.get('published_at') or record.get('date')}"
                 )
+            _drop("outside_news_window", retriable=False)
             continue
         title = candidate["title"] or (record.get("title") or "").strip()
         if not title:
             if run_log is not None:
-                run_log.write(f"scrape drop url={candidate['url']} reason=empty_title")
+                run_log.write(f"scrape drop url={url} reason=empty_title")
+            _drop("empty_title", retriable=False)
             continue
         if run_log is not None:
             run_log.write(
-                f"scrape keep url={candidate['url']} chars={len(text)} status={record.get('status')}"
+                f"scrape keep url={url} chars={len(text)} status={record.get('status')}"
             )
+        stats.record_scraped(source, url)
+        for name, etype in entities:
+            funnel.bump(name, etype, "scraped")
         kept.append(
             {
                 **candidate,
@@ -122,6 +154,16 @@ def scrape_bodies(state: PipelineState) -> dict:
     return {"candidates": kept, "counts": counts, "errors": errors}
 
 
+def _entity_refs(candidate: dict) -> list[tuple[str, str]]:
+    refs = []
+    for match in candidate.get("matches") or []:
+        if match.get("name"):
+            refs.append((match["name"], match.get("type") or ""))
+    if not refs and candidate.get("entity_name"):
+        refs.append((candidate["entity_name"], candidate.get("entity_type") or ""))
+    return refs
+
+
 def _log_scrape_record(run_log, url: str, record: dict) -> None:
     status = record.get("status") or "unknown"
     text_len = len((record.get("text") or "").strip())
@@ -134,5 +176,6 @@ def _log_scrape_record(run_log, url: str, record: dict) -> None:
         run_log.write(f"scrape url={url} status={status} chars={text_len}")
 
 
-def _scrape(url: str) -> dict:
+def _scrape(url: str, settings) -> dict:
+    wait_for_domain(url, settings.scrape_domain_gap_sec)
     return scrape_one(thread_session(), url, retries=2)
