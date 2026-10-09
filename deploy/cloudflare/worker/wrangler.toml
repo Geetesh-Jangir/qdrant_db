@@ -1,0 +1,22 @@
+name = "news-backfill-trigger"
+main = "src/index.ts"
+compatibility_date = "2024-11-12"
+
+# Optional: run on a schedule (UTC). Comment out if you only trigger manually.
+[triggers]
+crons = ["0 3 * * 0"]
+
+[vars]
+GITHUB_REPO = "Geetesh-Jangir/qdrant_db"
+GITHUB_WORKFLOW_FILE = "historical-news-backfill.yml"
+GITHUB_REF = "main"
+# Default workflow_dispatch inputs (D/M/YYYY). Override in Cloudflare dashboard vars or per request.
+BACKFILL_START = "1/10/2026"
+BACKFILL_END = "3/10/2026"
+HOLDINGS_LIMIT = "500"
+SECTORS_LIMIT = "50"
+BACKFILL_PAUSE_SEC = "600"
+
+# Secrets (set via `wrangler secret put` — never commit):
+#   GITHUB_PAT          — fine-scoped PAT with repo + Actions write
+#   BACKFILL_TRIGGER_SECRET — optional Bearer token for POST /trigger

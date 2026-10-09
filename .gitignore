@@ -4,6 +4,9 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+deploy/cloudflare/worker/node_modules/
+deploy/cloudflare/worker/.dev.vars
+deploy/cloudflare/worker/.wrangler/
 data/qdrant_storage/
 data/news_runs/*.json
 data/news_runs/*.log

@@ -1,0 +1,17 @@
+[Unit]
+Description=Historical news backfill (one shot per start)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/news-rag
+Environment=NEWS_RAG_DIR=/opt/news-rag
+EnvironmentFile=-/opt/news-rag/.env
+ExecStart=/opt/news-rag/deploy/lightsail/run-backfill.sh
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

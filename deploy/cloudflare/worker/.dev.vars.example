@@ -1,0 +1,2 @@
+GITHUB_PAT=ghp_your_fine_grained_pat_with_actions_write
+BACKFILL_TRIGGER_SECRET=choose-a-long-random-string
