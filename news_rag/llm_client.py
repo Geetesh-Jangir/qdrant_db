@@ -15,12 +15,51 @@ _gemini_skip_for_request: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "gemini_skip_for_request",
     default=False,
 )
+_current_llm_stage: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "current_llm_stage",
+    default=None,
+)
+_current_llm_repair: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "current_llm_repair",
+    default=False,
+)
 _gemini_cooldown_until: float = 0.0
 _GEMINI_COOLDOWN_SEC = 300.0
 
 
 def reset_llm_request_state() -> None:
     _gemini_skip_for_request.set(False)
+    _current_llm_stage.set(None)
+    _current_llm_repair.set(False)
+
+
+def _summarize_parsed_for_log(stage: str | None, parsed: dict[str, Any] | None) -> str:
+    if not isinstance(parsed, dict):
+        return "parse_failed"
+    st = (stage or "").strip()
+    if st == "brief":
+        subs = parsed.get("sub_asks") or []
+        return (
+            f"goal_len={len(str(parsed.get('goal') or ''))} "
+            f"sub_asks={len(subs)} evidence_needs={parsed.get('evidence_needs')}"
+        )
+    if st == "interpret":
+        return (
+            f"headline_len={len(str(parsed.get('headline') or ''))} "
+            f"bullets={len(parsed.get('bullets') or [])}"
+        )
+    if st == "judge":
+        return (
+            f"answers_query={parsed.get('answers_query')} grounded={parsed.get('grounded')} "
+            f"pass={parsed.get('pass')}"
+        )
+    if st == "agent":
+        tools = parsed.get("tools") or []
+        return f"status={parsed.get('status')} tools={len(tools) if isinstance(tools, list) else tools}"
+    if st == "composer":
+        return f"headline_len={len(str(parsed.get('headline') or ''))} bullets={len(parsed.get('bullets') or [])}"
+    keys = list(parsed.keys())[:8]
+    return f"keys={keys}"
 
 
 def gemini_in_cooldown() -> bool:
@@ -289,6 +328,19 @@ def call_json_llm(
             query_log=query_log,
         )
 
+    stage_token = _current_llm_stage.set(stage)
+    repair_token = _current_llm_repair.set(_repair_attempt)
+    pending_call_index = 0
+    if query_log is not None:
+        pending_call_index = query_log.log_llm_start(
+            stage=stage,
+            provider=provider,
+            model=chosen_model,
+            max_tokens=max_tokens,
+            system_chars=len(system_prompt),
+            user_chars=len(joined),
+            repair=_repair_attempt,
+        )
     try:
         result = _invoke(provider)
     except Exception as exc:
@@ -314,6 +366,10 @@ def call_json_llm(
             raise
         result = _invoke(fallback)
 
+    finally:
+        _current_llm_stage.reset(stage_token)
+        _current_llm_repair.reset(repair_token)
+
     parsed = parse_json_from_text(result.raw_text)
     if not isinstance(parsed, dict):
         parsed = salvage_truncated_json(result.raw_text)
@@ -331,6 +387,22 @@ def call_json_llm(
     ):
         needs_repair = False
     if needs_repair and not _repair_attempt:
+        if query_log is not None:
+            query_log.write(
+                f"LLM_REPAIR stage={stage or 'json'} reason=truncated_or_invalid_json "
+                f"finish={result.finish_reason}"
+            )
+            query_log.log_llm_result(
+                stage=stage,
+                call_index=pending_call_index or query_log.llm_calls,
+                finish_reason=result.finish_reason,
+                truncated=result.truncated,
+                repaired=False,
+                parsed_summary=_summarize_parsed_for_log(
+                    stage, result.parsed if isinstance(result.parsed, dict) else None
+                ),
+                raw_preview=result.raw_text if result.truncated else "",
+            )
         repair_user = (
             "The previous reply was cut off or was not a JSON object. "
             "Return one complete JSON object for the same task. No markdown.\n\n"
@@ -348,11 +420,6 @@ def call_json_llm(
             _repair_attempt=True,
         )
         repaired.repaired = True
-        if query_log is not None:
-            query_log.write(
-                f"llm stage={stage or 'json'} repaired=true finish={repaired.finish_reason} "
-                f"truncated={repaired.truncated}"
-            )
         if (
             stage == "composer"
             and not _composer_partial_usable(repaired.parsed if isinstance(repaired.parsed, dict) else None)
@@ -361,9 +428,15 @@ def call_json_llm(
             result.repaired = True
             return result
         return repaired
-    if query_log is not None and stage:
-        query_log.write(
-            f"llm stage={stage} finish={result.finish_reason} truncated={result.truncated} repaired={result.repaired}"
+    if query_log is not None:
+        query_log.log_llm_result(
+            stage=stage,
+            call_index=pending_call_index or query_log.llm_calls,
+            finish_reason=result.finish_reason,
+            truncated=result.truncated,
+            repaired=result.repaired,
+            parsed_summary=_summarize_parsed_for_log(stage, result.parsed if isinstance(result.parsed, dict) else None),
+            raw_preview=result.raw_text if result.truncated else "",
         )
     return result
 
@@ -397,13 +470,6 @@ def _call_deepseek(
     }
     if response_json:
         payload["response_format"] = {"type": "json_object"}
-
-    if query_log is not None:
-        query_log.write(
-            f"llm request provider=deepseek url={url} model={chosen_model} "
-            f"max_tokens={chosen_max_tokens} system_chars={len(system_prompt)} "
-            f"user_chars={len(user_content)}"
-        )
 
     started = time.perf_counter()
     with httpx.Client(timeout=120.0) as client:
@@ -453,6 +519,7 @@ def _call_deepseek(
             total_tokens=result.total_tokens,
             duration_sec=result.duration_sec,
             http_status=result.http_status,
+            stage=_current_llm_stage.get(),
         )
     return result
 
@@ -497,13 +564,6 @@ def _call_gemini(
         "contents": contents,
         "generationConfig": gen_config,
     }
-    if query_log is not None:
-        query_log.write(
-            f"llm request provider=gemini url={url} model={chosen_model} "
-            f"max_output_tokens={chosen_max_tokens} system_chars={len(system_prompt)} "
-            f"user_chars={len(user_content)}"
-        )
-
     started = time.perf_counter()
     has_fallback = bool((settings.deepseek_api_key or "").strip())
     max_retries = 1 if has_fallback else 3
@@ -575,6 +635,7 @@ def _call_gemini(
             total_tokens=result.total_tokens,
             duration_sec=result.duration_sec,
             http_status=result.http_status,
+            stage=_current_llm_stage.get(),
         )
     return result
 

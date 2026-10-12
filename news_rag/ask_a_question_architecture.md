@@ -2,9 +2,13 @@
 
 This document explains the **Ask a Question** feature (`POST /api/ask`). It is written so you can follow one question from the browser to the final insight: which code runs, which tools fire, what the LLM sees, and what comes back.
 
-The live path is **not** the old `query_router.py` / `execution.py` files. Those stay unused. The live path is:
+The live path is **insight v2** (legacy `query_router` / `ask_agent` / `ask_composer` removed):
 
-`news_rag/app.py` → `news_rag/ask_engine.py` → `news_rag/ask_agent.py` → tools → `news_rag/ask_composer.py` → judge (display only).
+`news_rag/app.py` → `news_rag/ask_engine.py` → `news_rag/insight/pipeline.py`
+
+Stages: **brief** → **gather** (tool registry + coverage ledger) → **compute findings** → **interpret** → **verify** (+ optional judge display score).
+
+Tool registry: `news_rag/insight/registry.py` + `news_rag/insight/tool_runners.py`. Eval set: `news_rag/eval/cases_v2.json` via `scripts/eval_ask_v2.py`.
 
 ---
 

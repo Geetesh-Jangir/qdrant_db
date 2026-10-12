@@ -311,6 +311,12 @@ def ask(
             outcome = "refused"
         if result.get("pipeline_errors") and outcome == "ok":
             outcome = "partial"
+        if query_log is not None:
+            query_log.log_insight_output(
+                insight_source=str(result.get("insight_source") or "insight_v2"),
+                char_count=len(str(result.get("insight") or "")),
+                preview=str(result.get("insight_summary") or result.get("insight") or "")[:500],
+            )
         meta = query_log.finish(
             outcome=outcome,
             article_count=article_count,
@@ -321,6 +327,11 @@ def ask(
                 "sub_queries": result.get("sub_queries"),
                 "output_score": result.get("output_score"),
                 "pipeline_errors": result.get("pipeline_errors"),
+                "research_summary": {
+                    "evidence_needs": (result.get("research") or {}).get("evidence_needs"),
+                    "ledger": (result.get("research") or {}).get("ledger"),
+                    "verify_gaps": (result.get("research") or {}).get("verify_gaps"),
+                },
             },
         )
         _attach_llm_meta(result, meta)

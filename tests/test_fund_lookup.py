@@ -89,11 +89,3 @@ def test_invested_hdfc_defence_not_pronoun_tail() -> None:
     bad, amb2, _ = lookup_extracted_fund(name="me for this fund")
     assert bad is None and not amb2
 
-
-def test_fast_route_nav_without_fund_keyword() -> None:
-    from news_rag.query_router import try_fast_fund_fact_route
-
-    r = try_fast_fund_fact_route("Show latest NAV for Kotak Flexicap")
-    assert r is not None
-    assert r.intent == "fund_nav"
-    assert "kotak" in r.fund.name.lower()

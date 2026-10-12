@@ -94,21 +94,28 @@ class Settings(BaseSettings):
     sector_to_isin_weights_json: str = "data/fund_holdings_aggregate/sector_to_isin_weights.json"
     impact_ranking_regular_growth_only: bool = True
 
-    # Legacy flag; /api/ask always uses the LLM ask engine.
-    rag_use_ask_engine: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("RAG_USE_ASK_ENGINE", "rag_use_ask_engine"),
-    )
-    rag_unified_compose: bool = Field(
-        default=True,
-        validation_alias=AliasChoices("RAG_UNIFIED_COMPOSE", "rag_unified_compose"),
-    )
     fund_fuzzy_accept: float = 88.0
     fund_fuzzy_reject: float = 75.0
     fund_fuzzy_ambiguous_gap: float = 5.0
     retrieve_min_vector_score: float = 0.35
     tool_timeout_sec: float = 25.0
     judge_min_score: float = 0.65
+    ask_pipeline_v2: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("ASK_PIPELINE_V2", "ask_pipeline_v2"),
+    )
+    insight_fan_out_cap: int = Field(
+        default=8,
+        validation_alias=AliasChoices("INSIGHT_FAN_OUT_CAP", "insight_fan_out_cap"),
+    )
+    insight_driven_by_share_pct: float = Field(
+        default=35.0,
+        validation_alias=AliasChoices("INSIGHT_DRIVEN_BY_SHARE_PCT", "insight_driven_by_share_pct"),
+    )
+    insight_use_llm_interpret: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("INSIGHT_USE_LLM_INTERPRET", "insight_use_llm_interpret"),
+    )
     rag_warmup_embeddings: bool = Field(
         default=True,
         validation_alias=AliasChoices("RAG_WARMUP_EMBEDDINGS", "rag_warmup_embeddings"),

@@ -1,57 +1,25 @@
-from news_rag.ask_composer import COMPOSER_SYSTEM, _finalize_compose, _strip_ungrounded_numbers
-from news_rag.ask_execution import ExecutionBundle
-from news_rag.name_resolution import ResolvedNames
+from news_rag.insight.grounding import cores_in_text, finalize_text_fields, strip_ungrounded_numbers
 
 
-def _bundle() -> ExecutionBundle:
-    return ExecutionBundle(names=ResolvedNames())
-
-
-def test_composer_prompt_is_not_a_fixed_bullet_template():
-    assert "Four to six" not in COMPOSER_SYSTEM
-    assert "at most three" not in COMPOSER_SYSTEM.lower()
-    assert "one clean sentence" not in COMPOSER_SYSTEM.lower()
-    assert "format_chosen" in COMPOSER_SYSTEM
-    assert "Everyday words" in COMPOSER_SYSTEM
-    assert "how that hits a sector" in COMPOSER_SYSTEM
-    assert "article body" in COMPOSER_SYSTEM
-    assert "day the article was published" in COMPOSER_SYSTEM
-
-
-def test_finalize_keeps_model_narrative_and_bullets():
-    bullets = ["**Banks** — credit growth is the story."]
-    headline, narrative, out = _finalize_compose(
-        "Headline",
-        "A connected account of the tape.",
-        bullets,
-        _bundle(),
-        market_pulse_clusters=[{"label": "RBI Repo Rate", "articles": [{"snippet": "margins"}]}],
-        evidence_text="credit",
-    )
-    assert headline == "Headline"
-    assert narrative == "A connected account of the tape."
-    assert out == bullets
-    assert "Macro Backdrop" not in " ".join(out)
-
-
-def test_finalize_drops_exact_duplicates_and_invented_percentages():
-    headline, narrative, bullets = _finalize_compose(
-        "Rates moved 9.9%",
-        "Banks gained on the policy.",
-        [
-            "Banks gained on the policy.",
-            "Banks rose 9.9% today.",
-            "IT exports held up.",
-            "IT exports held up.",
-        ],
-        _bundle(),
-        evidence_text="no figures",
-    )
-    assert "9.9" not in headline
-    assert narrative == "Banks gained on the policy."
-    assert bullets == ["Banks rose today.", "IT exports held up."]
-    assert _strip_ungrounded_numbers("Still down between **-1.2%** and **-0.4%**.", set()) == "Still down."
-    assert "-1.2%" in _strip_ungrounded_numbers("The fund is -1.2%.", {"1.2"})
-    cleaned = _strip_ungrounded_numbers("The fund is -9.9 per cent.", {"1.2"})
+def test_strip_ungrounded_percent():
+    evidence = "return 5.2 exposure 18"
+    allowed = cores_in_text(evidence)
+    text = "The fund returned 9.9% while exposure is 18%."
+    cleaned = strip_ungrounded_numbers(text, allowed)
     assert "9.9" not in cleaned
-    assert "per cent" not in cleaned.lower()
+    assert "18" in cleaned or "18%" in cleaned
+
+
+def test_finalize_compose_drops_invented_numbers():
+    evidence = "benchmark_return_pct=2.0"
+    headline, narrative, bullets, closing = finalize_text_fields(
+        "Up 99%",
+        "Benchmark moved 2.0%.",
+        ["Fund fell 50%."],
+        "Closing 77%.",
+        evidence,
+    )
+    assert "99" not in headline
+    assert "2.0" in narrative or "2" in narrative
+    assert "50" not in "".join(bullets)
+    assert "77" not in closing

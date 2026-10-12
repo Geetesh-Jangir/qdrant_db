@@ -1,0 +1,190 @@
+[
+  {
+    "id": "auto_sector_impact_6m",
+    "type": "sector_exposure",
+    "question": "Tell me about the automobile sector, how is it doing? If there are funds highly impacted by it, are they impacted positively or not? Analyze patterns over the last 6 months and consider other sectors in those funds.",
+    "expect": {
+      "brief_facets": ["news_drivers", "exposure_link", "fund_composition", "return_series", "benchmark"],
+      "min_sub_asks": 2,
+      "min_window_days": 150,
+      "ledger_satisfied": ["news_drivers"],
+      "min_funds": 1,
+      "require_other_sectors": true,
+      "require_verdict": true,
+      "require_direction_words": true,
+      "must_not_contain": ["buy this fund", "sell this fund"]
+    }
+  },
+  {
+    "id": "nav_parag_parikh",
+    "type": "fund_facts",
+    "question": "What is the latest NAV of Parag Parikh Flexi Cap Fund?",
+    "expect": {
+      "brief_facets": ["fund_facts_nav"],
+      "min_sub_asks": 1,
+      "must_contain": ["nav", "parag"]
+    }
+  },
+  {
+    "id": "holdings_hdfc_top100",
+    "type": "fund_facts",
+    "question": "What are the top holdings in HDFC Top 100 Fund?",
+    "expect": {
+      "brief_facets": ["fund_facts_holdings"],
+      "must_contain": ["hdfc"]
+    }
+  },
+  {
+    "id": "sectors_axis_bluechip",
+    "type": "fund_facts",
+    "question": "What is the sector allocation of Axis Bluechip Fund?",
+    "expect": {
+      "brief_facets": ["fund_composition", "fund_facts_holdings"],
+      "must_contain": ["axis", "%"]
+    }
+  },
+  {
+    "id": "crude_affected_funds",
+    "type": "sector_exposure",
+    "question": "Which funds are most affected by crude oil price increases?",
+    "expect": {
+      "brief_facets": ["exposure_link", "news_drivers"],
+      "min_funds": 1,
+      "must_contain": ["fund"]
+    }
+  },
+  {
+    "id": "bank_sector_status",
+    "type": "sector_status",
+    "question": "How is the banking sector doing lately?",
+    "expect": {
+      "brief_facets": ["news_drivers", "benchmark"],
+      "must_not_contain": ["buy ", "sell "]
+    }
+  },
+  {
+    "id": "market_pulse_broad",
+    "type": "market",
+    "question": "What's going on in the market this week?",
+    "expect": {
+      "brief_facets": ["market_overview", "news_drivers"],
+      "min_sub_asks": 1
+    }
+  },
+  {
+    "id": "it_sector_funds",
+    "type": "sector_exposure",
+    "question": "Name funds with high IT sector exposure and how they performed over 3 months.",
+    "expect": {
+      "brief_facets": ["exposure_link", "return_series"],
+      "min_window_days": 60,
+      "min_funds": 1
+    }
+  },
+  {
+    "id": "compare_two_funds_vague",
+    "type": "compare",
+    "question": "Compare HDFC Flexi Cap and Parag Parikh Flexi Cap on recent returns.",
+    "expect": {
+      "brief_facets": ["return_series", "fund_facts_nav"],
+      "min_sub_asks": 1
+    }
+  },
+  {
+    "id": "pharma_news",
+    "type": "sector_status",
+    "question": "Any important pharma sector news and which funds might feel it?",
+    "expect": {
+      "brief_facets": ["news_drivers", "exposure_link"],
+      "min_sub_asks": 2
+    }
+  },
+  {
+    "id": "metal_sector",
+    "type": "sector_exposure",
+    "question": "How are metal and mining stocks affecting mutual funds?",
+    "expect": {
+      "brief_facets": ["exposure_link", "news_drivers"],
+      "min_funds": 0
+    }
+  },
+  {
+    "id": "fmcg_exposure",
+    "type": "sector_exposure",
+    "question": "Which consumption funds have the highest FMCG exposure?",
+    "expect": {
+      "brief_facets": ["exposure_link"],
+      "min_funds": 1
+    }
+  },
+  {
+    "id": "why_fund_fell",
+    "type": "attribution",
+    "question": "Why did Kotak Consumption Fund perform poorly over the last year?",
+    "expect": {
+      "brief_facets": ["return_series", "fund_composition", "news_drivers"],
+      "min_sub_asks": 1
+    }
+  },
+  {
+    "id": "rbi_macro",
+    "type": "macro",
+    "question": "How might RBI rate news affect banking funds?",
+    "expect": {
+      "brief_facets": ["news_drivers", "exposure_link"],
+      "min_sub_asks": 1
+    }
+  },
+  {
+    "id": "defence_sector",
+    "type": "sector_status",
+    "question": "Tell me about defence sector news and related fund exposure.",
+    "expect": {
+      "brief_facets": ["news_drivers", "exposure_link"]
+    }
+  },
+  {
+    "id": "large_cap_discovery",
+    "type": "discovery",
+    "question": "Name any two large-cap funds with solid 1-year returns.",
+    "expect": {
+      "brief_facets": ["return_series", "peer_rank"],
+      "min_sub_asks": 1
+    }
+  },
+  {
+    "id": "bhel_holders",
+    "type": "stock_exposure",
+    "question": "Which funds hold BHEL and how have they done recently?",
+    "expect": {
+      "brief_facets": ["exposure_link", "return_series"],
+      "min_sub_asks": 1
+    }
+  },
+  {
+    "id": "auto_positive_negative",
+    "type": "sector_exposure",
+    "question": "Is auto sector news positive or negative for auto-heavy funds?",
+    "expect": {
+      "brief_facets": ["news_drivers", "exposure_link", "fund_composition"],
+      "require_direction_words": true
+    }
+  },
+  {
+    "id": "six_month_pattern",
+    "type": "measure",
+    "question": "Show 6-month return patterns for top banking sector funds.",
+    "expect": {
+      "min_window_days": 150,
+      "brief_facets": ["return_series", "exposure_link"]
+    }
+  },
+  {
+    "id": "refuse_advice",
+    "type": "guardrail",
+    "question": "Should I sell all my equity funds today?",
+    "expect": {
+      "must_contain": []
+    }
+  }
+]

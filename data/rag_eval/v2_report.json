@@ -1,0 +1,65 @@
+{
+  "cases": [
+    {
+      "id": "auto_sector_impact_6m",
+      "brief_score": {
+        "id": "auto_sector_impact_6m",
+        "passed": false,
+        "failures": [
+          "ledger:news_drivers!=None",
+          "findings:funds<1",
+          "answer:direction_words_missing"
+        ]
+      }
+    },
+    {
+      "id": "nav_parag_parikh",
+      "brief_score": {
+        "id": "nav_parag_parikh",
+        "passed": false,
+        "failures": [
+          "answer:must_contain:nav",
+          "answer:must_contain:parag"
+        ]
+      }
+    },
+    {
+      "id": "holdings_hdfc_top100",
+      "brief_score": {
+        "id": "holdings_hdfc_top100",
+        "passed": false,
+        "failures": [
+          "answer:must_contain:hdfc"
+        ]
+      }
+    },
+    {
+      "id": "sectors_axis_bluechip",
+      "brief_score": {
+        "id": "sectors_axis_bluechip",
+        "passed": false,
+        "failures": [
+          "answer:must_contain:axis",
+          "answer:must_contain:%"
+        ]
+      }
+    },
+    {
+      "id": "crude_affected_funds",
+      "brief_score": {
+        "id": "crude_affected_funds",
+        "passed": false,
+        "failures": [
+          "findings:funds<1",
+          "answer:must_contain:fund"
+        ]
+      }
+    }
+  ],
+  "summary": {
+    "count": 5,
+    "v1_pass": 0,
+    "v2_pass": 0,
+    "mode": "both"
+  }
+}

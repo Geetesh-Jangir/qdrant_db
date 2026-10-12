@@ -85,6 +85,11 @@ def judge_answer(
     user = (
         f"Question:\n{question}\n\nContext summary:\n{context_summary[:6000]}\n\nDraft:\n{draft}"
     )
+    if query_log is not None:
+        query_log.write(
+            "JUDGE_START scoring draft vs question and evidence_text "
+            f"(draft_chars={len(draft)} context_chars={len(context_summary)})"
+        )
     try:
         res = call_json_llm(
             system_prompt=JUDGE_FALLBACK_PROMPT,
@@ -113,7 +118,10 @@ def judge_answer(
         if not usable:
             passed = False
         if query_log is not None:
-            query_log.write(f"JUDGE llm scores={scores} pass={passed} usable={usable}")
+            trunc_note = " truncated_scores_untrusted=true" if res.truncated and not usable else ""
+            query_log.write(
+                f"JUDGE_RESULT scores={scores} pass={passed} usable={usable}{trunc_note}"
+            )
         return JudgeResult(passed=passed, scores=scores, attempt=1, raw=parsed, usable=usable)
     except Exception as exc:
         if query_log is not None:

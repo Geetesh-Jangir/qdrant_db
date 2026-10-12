@@ -13,6 +13,65 @@ from typing import Any
 from news_rag.config import get_settings
 
 
+# Human-readable purpose for each LLM `stage=` passed to call_json_llm / call_insight_llm.
+LLM_STAGE_CATALOG: dict[str, dict[str, str]] = {
+    "brief": {
+        "pipeline": "insight_v2",
+        "phase": "1_brief",
+        "purpose": "Decompose the user question into sub-asks, subjects, window, and evidence_needs (facets).",
+        "output": "JSON: goal, sub_asks, evidence_needs, success_criteria",
+    },
+    "interpret": {
+        "pipeline": "insight_v2",
+        "phase": "4_interpret",
+        "purpose": "Optional LLM polish of structured findings into headline/narrative (off when INSIGHT_USE_LLM_INTERPRET=false).",
+        "output": "JSON: headline, narrative, bullets, closing_summary",
+    },
+    "judge": {
+        "pipeline": "insight_v2",
+        "phase": "5_judge",
+        "purpose": "Score draft answer quality (grounded, on-topic, no advice) for telemetry — does not block the user response.",
+        "output": "JSON: answers_query, grounded, on_topic, no_advice, no_extra, pass",
+    },
+    "agent": {
+        "pipeline": "legacy",
+        "phase": "agent",
+        "purpose": "Legacy ask agent tool-planning round (not used in insight_v2 default path).",
+        "output": "JSON: tools / status",
+    },
+    "composer": {
+        "pipeline": "legacy",
+        "phase": "compose",
+        "purpose": "Legacy final answer composer.",
+        "output": "JSON: headline, narrative, bullets",
+    },
+    "router": {
+        "pipeline": "legacy",
+        "phase": "router",
+        "purpose": "Legacy query router / intent classification.",
+        "output": "JSON: intent, entities",
+    },
+    "contract_planner": {
+        "pipeline": "legacy",
+        "phase": "contract",
+        "purpose": "Legacy answer contract planner.",
+        "output": "JSON: plan",
+    },
+    "insight": {
+        "pipeline": "fund_brief",
+        "phase": "compose",
+        "purpose": "Generate fund brief insight prose from retrieved articles.",
+        "output": "JSON or text insight",
+    },
+    "json": {
+        "pipeline": "any",
+        "phase": "llm",
+        "purpose": "Structured JSON LLM call (stage not labeled).",
+        "output": "JSON",
+    },
+}
+
+
 def clip_log_text(text: str, limit: int = 240) -> str:
     cleaned = " ".join(str(text or "").split())
     if len(cleaned) <= limit:
@@ -46,6 +105,8 @@ class QueryLogger:
         self.llm_input_tokens = 0
         self.llm_output_tokens = 0
         self._summary: dict[str, Any] = {"query_id": query_id, "kind": kind, "events": []}
+        self._llm_journal: list[dict[str, Any]] = []
+        self._pipeline_stages: list[dict[str, Any]] = []
         self._file_lock = threading.Lock()
         log_path.parent.mkdir(parents=True, exist_ok=True)
         if log_path.exists():
@@ -58,6 +119,12 @@ class QueryLogger:
         self.log_path = log_path
         log_path.write_text("", encoding="utf-8")
         self.write(f"query started query_id={query_id} log_file={log_path}")
+        self.write(
+            "LOG_LEGEND "
+            "PIPELINE=insight_v2 stages | "
+            "LLM_START=what the model is asked to do | LLM_HTTP=tokens/latency | LLM_DONE=parse outcome | "
+            "BRIEF/GATHER/COMPUTE/INTERPRET/VERIFY=deterministic stages | TOOL=registry adapter"
+        )
 
     def write(self, message: str) -> None:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -77,7 +144,140 @@ class QueryLogger:
 
     def log_stage(self, stage: str, **fields: Any) -> None:
         self.write(stage.upper() + " " + _kv(fields))
-        self.note(stage, **fields)
+        safe = {k: v for k, v in fields.items() if k != "event"}
+        self.note(stage, **safe)
+
+    def log_pipeline(self, phase: str, event: str, **fields: Any) -> None:
+        """Insight v2 (and shared) pipeline milestones: start | done | skip | retry."""
+        line = f"PIPELINE phase={phase} event={event}"
+        if fields:
+            line += " " + _kv(fields)
+        self.write(line)
+        entry = {"phase": phase, "event": event, **fields}
+        self._pipeline_stages.append(entry)
+        self.note("pipeline", phase=phase, step_event=event, **fields)
+
+    def llm_stage_info(self, stage: str | None) -> dict[str, str]:
+        key = (stage or "json").strip() or "json"
+        return LLM_STAGE_CATALOG.get(key, LLM_STAGE_CATALOG["json"])
+
+    def log_llm_start(
+        self,
+        *,
+        stage: str | None,
+        provider: str,
+        model: str,
+        max_tokens: int,
+        system_chars: int,
+        user_chars: int,
+        repair: bool = False,
+    ) -> int:
+        """Log intent before an LLM HTTP call; returns call_index (upcoming)."""
+        info = self.llm_stage_info(stage)
+        call_index = self.llm_calls + 1
+        repair_bit = " repair=true" if repair else ""
+        self.write(
+            f"LLM_START call_index={call_index} stage={stage or 'json'}{repair_bit} "
+            f"provider={provider} model={model} max_tokens={max_tokens} "
+            f"system_chars={system_chars} user_chars={user_chars} "
+            f"purpose={json.dumps(info.get('purpose', ''), ensure_ascii=False)} "
+            f"expected_output={info.get('output', '')}"
+        )
+        self.note(
+            "llm_start",
+            call_index=call_index,
+            stage=stage or "json",
+            provider=provider,
+            model=model,
+            purpose=info.get("purpose"),
+            pipeline_phase=info.get("phase"),
+        )
+        return call_index
+
+    def log_llm_result(
+        self,
+        *,
+        stage: str | None,
+        call_index: int,
+        finish_reason: str,
+        truncated: bool,
+        repaired: bool,
+        parsed_summary: str = "",
+        raw_preview: str = "",
+    ) -> None:
+        info = self.llm_stage_info(stage)
+        self.write(
+            f"LLM_DONE call_index={call_index} stage={stage or 'json'} "
+            f"pipeline_phase={info.get('phase', '')} "
+            f"finish={finish_reason or 'unknown'} truncated={truncated} repaired={repaired} "
+            f"parsed_summary={clip_log_text(parsed_summary, 400)}"
+        )
+        if raw_preview and truncated:
+            self.write(f"LLM_TRUNCATED_PREVIEW call_index={call_index} text={clip_log_text(raw_preview, 300)}")
+        self.note(
+            "llm_done",
+            call_index=call_index,
+            stage=stage or "json",
+            truncated=truncated,
+            parsed_summary=clip_log_text(parsed_summary, 200),
+        )
+
+    def log_brief(self, *, source: str, brief_summary: dict[str, Any]) -> None:
+        self.write("BRIEF " + _kv(brief_summary))
+        self.note("brief", source=source, summary=brief_summary)
+
+    def log_gather_ledger(self, ledger: list[dict[str, Any]], *, articles: int, tool_runs: int) -> None:
+        self.write(f"GATHER articles={articles} tool_runs={tool_runs}")
+        for row in ledger:
+            self.write(
+                "GATHER facet "
+                + _kv(
+                    {
+                        "facet": row.get("facet"),
+                        "status": row.get("status"),
+                        "tool": row.get("tool"),
+                        "reason": clip_log_text(str(row.get("reason") or ""), 120),
+                    }
+                )
+            )
+        self.note("gather", articles=articles, ledger=ledger)
+
+    def log_tool_invocation(
+        self,
+        *,
+        tool: str,
+        facet: str = "",
+        ok: bool,
+        elapsed_ms: float | None = None,
+        error: str = "",
+        detail: str = "",
+    ) -> None:
+        self.write(
+            "TOOL "
+            + _kv(
+                {
+                    "name": tool,
+                    "facet": facet,
+                    "ok": ok,
+                    "elapsed_ms": round(elapsed_ms, 2) if elapsed_ms is not None else None,
+                    "error": error or None,
+                    "detail": clip_log_text(detail, 200) if detail else None,
+                }
+            )
+        )
+        self.note("tool", tool=tool, facet=facet, ok=ok, error=error or None)
+
+    def log_compute(self, **fields: Any) -> None:
+        self.write("COMPUTE " + _kv(fields))
+        self.note("compute", **fields)
+
+    def log_interpret(self, **fields: Any) -> None:
+        self.write("INTERPRET " + _kv(fields))
+        self.note("interpret", **fields)
+
+    def log_verify(self, **fields: Any) -> None:
+        self.write("VERIFY " + _kv(fields))
+        self.note("verify", **fields)
 
     def log_parsed(self, parsed: Any) -> None:
         fund = parsed.fund_resolved or {}
@@ -220,6 +420,7 @@ class QueryLogger:
         total_tokens: int | None,
         duration_sec: float,
         http_status: int,
+        stage: str | None = None,
     ) -> None:
         if provider and not self.llm_provider:
             self.llm_provider = provider
@@ -227,13 +428,26 @@ class QueryLogger:
         self.llm_input_tokens += max(0, input_tokens)
         self.llm_output_tokens += max(0, output_tokens)
         total_bit = f" total_tokens={total_tokens}" if total_tokens is not None else ""
+        stage_bit = f" stage={stage}" if stage else ""
         self.write(
-            f"llm call provider={provider} "
+            f"LLM_HTTP provider={provider}{stage_bit} "
             f"call_index={self.llm_calls} model={model} http_status={http_status} "
             f"input_tokens={input_tokens} output_tokens={output_tokens}{total_bit} "
             f"duration_sec={round(duration_sec, 3)} "
             f"cumulative_input_tokens={self.llm_input_tokens} "
             f"cumulative_output_tokens={self.llm_output_tokens}"
+        )
+        self._llm_journal.append(
+            {
+                "call_index": self.llm_calls,
+                "stage": stage or "json",
+                "provider": provider,
+                "model": model,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "duration_sec": round(duration_sec, 3),
+                "http_status": http_status,
+            }
         )
 
     def record_deepseek(self, **kwargs: Any) -> None:
@@ -263,8 +477,10 @@ class QueryLogger:
                 "insight_source": insight_source,
                 "llm_provider": self.llm_provider,
                 "llm_calls": self.llm_calls,
+                "llm_call_journal": self._llm_journal,
                 "llm_input_tokens": self.llm_input_tokens,
                 "llm_output_tokens": self.llm_output_tokens,
+                "pipeline_stages": self._pipeline_stages,
                 "total_seconds": total_seconds,
                 "log_file": str(self.log_path),
             }

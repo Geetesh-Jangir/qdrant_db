@@ -218,6 +218,59 @@ def get_fund_nav_history(isin: str, *, use_cache: bool = True) -> dict[str, Any]
     }
 
 
+def monthly_returns_from_records(
+    records_asc: list[dict[str, Any]],
+    *,
+    months: int = 6,
+) -> list[dict[str, Any]]:
+    """Last N calendar months: one return per month (first NAV to last NAV in month)."""
+    if not records_asc:
+        return []
+    by_month: dict[str, list[dict[str, Any]]] = {}
+    for r in records_asc:
+        ds = str(r.get("nav_date") or "")[:7]
+        if not ds:
+            continue
+        by_month.setdefault(ds, []).append(r)
+    keys = sorted(by_month.keys())
+    if months > 0:
+        keys = keys[-months:]
+    out: list[dict[str, Any]] = []
+    for ym in keys:
+        pts = by_month[ym]
+        if len(pts) < 2:
+            if len(pts) == 1:
+                out.append({"month": ym, "return_pct": 0.0, "points": 1})
+            continue
+        start_nav = float(pts[0]["nav_value"])
+        end_nav = float(pts[-1]["nav_value"])
+        pct = ((end_nav - start_nav) / start_nav * 100.0) if start_nav > 0 else 0.0
+        out.append({"month": ym, "return_pct": round(pct, 2), "points": len(pts)})
+    return out
+
+
+def fund_return_series(
+    isin: str,
+    *,
+    window_days: int = 180,
+    use_cache: bool = True,
+) -> dict[str, Any]:
+    records = fetch_raw_nav_history(isin, use_cache=use_cache)
+    if not records:
+        return {"success": False, "isin": isin, "monthly": [], "window_pct": None}
+    stats = _calculate_window_stats(records, days=window_days)
+    months = max(1, min(12, window_days // 30))
+    monthly = monthly_returns_from_records(records, months=months)
+    return {
+        "success": True,
+        "isin": isin.upper(),
+        "window_days": window_days,
+        "window_pct": stats.get("change_pct") if stats else None,
+        "monthly": monthly,
+        "stats": stats,
+    }
+
+
 def format_nav_context_for_rag(isin: str, fund_name: str | None = None) -> str:
     """Format a dense, verified NAV performance block for LLM prompts."""
     nav_res = get_fund_nav_history(isin)

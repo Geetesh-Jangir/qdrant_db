@@ -594,6 +594,9 @@ def run_sector_funds(
     direction: str = "any",
     question: str = "",
     return_window: str | None = None,
+    broad_pool: bool = False,
+    sector_keys: list[str] | None = None,
+    min_weight_pct: float = 0.0,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     idx = get_sector_fund_ranking_index()
@@ -602,7 +605,9 @@ def run_sector_funds(
     performance_query = bool(_PERFORMANCE_QUESTION_RE.search(perf_blob))
     rank_direction = str(direction or "any").strip().lower() or "any"
     window = infer_return_window(question, return_window)
-    keys = idx.resolve_from_question(text) if text else []
+    keys = list(sector_keys or [])
+    if not keys:
+        keys = idx.resolve_from_question(text) if text else []
     if not keys:
         lower = text.lower()
         if any(w in lower for w in ("gold", "silver", "bullion", "precious")):
@@ -612,7 +617,9 @@ def run_sector_funds(
         else:
             keys = []
     limit = 80
-    ranked = rank_funds_by_sector_exposure(keys, limit=limit, combine="max")
+    ranked = rank_funds_by_sector_exposure(
+        keys, limit=limit, combine="max", min_weight_pct=min_weight_pct
+    )
     from news_rag.fund_search import get_fund_index
 
     index = get_fund_index()
@@ -640,7 +647,7 @@ def run_sector_funds(
     explicit = explicit_fund_count(question)
     count_explicit = explicit is not None
     top_n = explicit if explicit is not None else max(need.top_n or 0, 5)
-    pool = _active_sector_equity(rankings)
+    pool = rankings if broad_pool else _active_sector_equity(rankings)
     final_rankings, all_drawdown, ranking_note = select_funds_by_nav(
         pool,
         direction=rank_direction,
