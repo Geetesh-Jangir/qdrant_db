@@ -811,6 +811,8 @@ def run_layered_news(
             **{k: v for k, v in filter_kwargs.items() if k != "direction"},
         )
     for art in articles:
+        if not isinstance(art, dict):
+            continue
         art["_news_layer"] = layer.replace("_news", "")
         if focus:
             art["_search_focus"] = focus
@@ -1175,7 +1177,7 @@ def run_screen_funds(
     from news_rag.affected_sectors import question_needs_affected_sectors
     from news_rag.stock_fund_ranking import funds_holding_stock, holder_candidates_for_stock
 
-    if question and question_needs_affected_sectors(question):
+    if question and question_needs_affected_sectors(question) and not sector_name:
         return run_funds_for_affected_question(
             question=question,
             direction=direction,
@@ -1455,3 +1457,28 @@ def run_macro_sector_impact_tool(
     from news_rag.macro_impact_map import run_macro_sector_impact
 
     return run_macro_sector_impact(driver=driver, direction=direction)
+
+
+def run_sector_holdings_tool(*, sector_name: str, top_n: int = 2) -> dict[str, Any]:
+    """Representative companies for a sector. Does not need a mutual fund."""
+    from lib.portfolio_scope import sector_query_for_label
+    from news_pipeline.config import SECTOR_BELLWETHERS
+    from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
+
+    started = time.perf_counter()
+    label = (sector_name or "").strip()
+    mapped = sector_query_for_label(label) if label else None
+    if mapped:
+        label = mapped[0]
+    elif label:
+        keys = get_sector_fund_ranking_index().resolve_from_question(label) or []
+        if keys:
+            label = keys[0]
+    raw = SECTOR_BELLWETHERS.get(label, "")
+    names = [part.strip() for part in raw.split(",") if part.strip()]
+    n = max(1, min(int(top_n or 2), 8))
+    rows = [{"name": name} for name in names[:n]]
+    elapsed = (time.perf_counter() - started) * 1000
+    if not rows:
+        return _err(f"No representative holdings for {sector_name or 'that sector'}", elapsed)
+    return _ok({"sector": label, "rows": rows, "holdings": rows}, elapsed)

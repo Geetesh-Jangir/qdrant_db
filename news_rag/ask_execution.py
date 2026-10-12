@@ -89,6 +89,71 @@ def detail_for_tool(plan: AskPlan, names: ResolvedNames, tool: PlannedTool) -> d
     return names.scheme_detail(idx)
 
 
+def _detail_from_lookup(matched: Any) -> dict[str, Any] | None:
+    """lookup_extracted_fund returns (detail, ambiguous, close_matches), not a fund dict."""
+    if isinstance(matched, dict):
+        return matched
+    if isinstance(matched, tuple) and matched and isinstance(matched[0], dict):
+        return matched[0]
+    return None
+
+
+def _resolve_fund_detail_fallback(
+    bundle: ExecutionBundle | None,
+    plan: AskPlan,
+    names: ResolvedNames,
+    tool: PlannedTool,
+) -> dict[str, Any] | None:
+    """If no fund was resolved from the question text, check tool parameters and earlier screening results."""
+    from news_rag.fund_search import get_fund_index
+    try:
+        index = get_fund_index()
+    except Exception:
+        return None
+
+    # 1. Try explicit strings from tool fields
+    for candidate in (tool.keyword, tool.semantic_query, tool.stock_name, tool.target):
+        cand = str(candidate or "").strip()
+        if cand:
+            matched = index.lookup_extracted_fund(name=cand, isin=cand)
+            detail = _detail_from_lookup(matched)
+            if detail:
+                return detail
+
+    # 2. Try looking in bundle results from screening/ranking tools
+    if bundle and bundle.tool_results:
+        for k, val in bundle.tool_results.items():
+            if not isinstance(val, dict) or not val.get("ok"):
+                continue
+            if not any(
+                prefix in k
+                for prefix in (
+                    "screen_funds",
+                    "sector_funds",
+                    "affected_funds",
+                    "affected_sectors",
+                    "fund_universe_search",
+                    "funds_holding_stock",
+                )
+            ):
+                continue
+            data = val.get("data") or {}
+            rows = data.get("rankings") or data.get("funds") or data.get("rows") or []
+            if isinstance(rows, list) and rows:
+                target_idx = tool.fund_entity_index or 0
+                if target_idx < 0 or target_idx >= len(rows):
+                    target_idx = 0
+                fund_row = rows[target_idx]
+                if isinstance(fund_row, dict):
+                    isin = fund_row.get("isin")
+                    name = fund_row.get("scheme_name") or fund_row.get("fund_name") or fund_row.get("name")
+                    matched = index.lookup_extracted_fund(isin=isin, name=name)
+                    detail = _detail_from_lookup(matched)
+                    if detail:
+                        return detail
+    return None
+
+
 def _run_one_tool(
     tool: PlannedTool,
     index: int,
@@ -102,9 +167,12 @@ def _run_one_tool(
     source: str | None,
     direction: str | None,
     query_log: QueryLogger | None,
+    bundle: ExecutionBundle | None = None,
 ) -> ToolRunResult:
     key = _tool_key(tool, index)
     detail = detail_for_tool(plan, names, tool)
+    if not detail:
+        detail = _resolve_fund_detail_fallback(bundle, plan, names, tool)
     filter_kwargs = {
         "date_from": date_from,
         "date_to": date_to,
@@ -113,20 +181,47 @@ def _run_one_tool(
         "direction": direction,
     }
     try:
-        if tool.tool == "fund_nav" and detail:
+        if tool.tool == "fund_nav":
+            if not detail:
+                return ToolRunResult(
+                    tool.tool,
+                    key,
+                    {"ok": False, "error": f"Fund detail required for {tool.tool} (no fund scheme was resolved)", "data": None},
+                )
             need = DataNeed(tool="fund_nav", scope="with_returns")
             return ToolRunResult(tool.tool, key, run_fund_nav(detail, need))
-        if tool.tool == "fund_top_stocks" and detail:
+        if tool.tool == "fund_top_stocks":
+            if not detail:
+                sector = (tool.sector_name or "").strip() or (names.sectors[0] if names.sectors else "")
+                if sector:
+                    from news_rag.tools import run_sector_holdings_tool
+
+                    return ToolRunResult(
+                        tool.tool,
+                        key,
+                        run_sector_holdings_tool(sector_name=sector, top_n=tool.top_n or 2),
+                    )
+                return ToolRunResult(
+                    tool.tool,
+                    key,
+                    {"ok": True, "data": {"rows": [], "skipped": "no fund scheme"}, "error": ""},
+                )
             need = DataNeed(tool="fund_holdings", top_n=tool.top_n)
             return ToolRunResult(tool.tool, key, run_fund_holdings(detail, need))
-        if tool.tool == "fund_top_sectors" and detail:
+        if tool.tool == "fund_top_sectors":
+            if not detail:
+                return ToolRunResult(
+                    tool.tool,
+                    key,
+                    {"ok": False, "error": f"Fund detail required for {tool.tool} (no fund scheme was resolved)", "data": None},
+                )
             need = DataNeed(tool="fund_sectors", top_n=tool.top_n)
             return ToolRunResult(tool.tool, key, run_fund_sectors(detail, need))
         if tool.tool in ("holdings_news", "sector_news", "macro_news"):
             entities = list(tool.entity_filters)
-            if tool.tool == "holdings_news" and detail and not entities:
+            if tool.tool == "holdings_news" and isinstance(detail, dict) and not entities:
                 entities = [str(r.get("name") or "") for r in extract_top_holdings(detail, 8)]
-            if tool.tool == "sector_news" and detail and not entities:
+            if tool.tool == "sector_news" and isinstance(detail, dict) and not entities:
                 entities = [str(r.get("sector") or "") for r in extract_top_sectors(detail, 6)]
             if not entities and names.holdings and tool.tool == "holdings_news":
                 entities = names.holdings
@@ -211,6 +306,15 @@ def _run_one_tool(
                     **filter_kwargs,
                 ),
             )
+        if tool.tool == "sector_holdings":
+            from news_rag.tools import run_sector_holdings_tool
+
+            sector = (tool.sector_name or "").strip() or (names.sectors[0] if names.sectors else "")
+            return ToolRunResult(
+                tool.tool,
+                key,
+                run_sector_holdings_tool(sector_name=sector, top_n=tool.top_n or 2),
+            )
         if tool.tool == "macro_news_enhanced":
             return ToolRunResult(
                 tool.tool,
@@ -223,7 +327,13 @@ def _run_one_tool(
                     **filter_kwargs,
                 ),
             )
-        if tool.tool == "sector_holding_alignment" and detail:
+        if tool.tool == "sector_holding_alignment":
+            if not detail:
+                return ToolRunResult(
+                    tool.tool,
+                    key,
+                    {"ok": False, "error": f"Fund detail required for {tool.tool} (no fund scheme was resolved)", "data": None},
+                )
             from news_rag.tools import run_sector_holding_alignment_tool
 
             window_label = tool.return_window or (
@@ -334,12 +444,29 @@ def _hydrate_names_from_scheme(bundle: ExecutionBundle) -> None:
         ]
 
 
+_FUND_FACT_TOOLS = frozenset({"fund_top_stocks", "fund_top_sectors", "fund_nav", "sector_holding_alignment"})
+
+
 def _apply_tool_result(bundle: ExecutionBundle, tr: ToolRunResult) -> None:
     data = tr.result.get("data") or {}
     if tr.tool == "fund_top_stocks" and tr.result.get("ok"):
-        bundle.holdings_rows = data.get("rows") or []
+        rows = data.get("rows") or []
+        if not bundle.holdings_rows:
+            bundle.holdings_rows = list(rows)
+        else:
+            existing_names = {str(r.get("name") or "").lower() for r in bundle.holdings_rows}
+            for r in rows:
+                if str(r.get("name") or "").lower() not in existing_names:
+                    bundle.holdings_rows.append(r)
     if tr.tool == "fund_top_sectors" and tr.result.get("ok"):
-        bundle.sector_rows = data.get("rows") or []
+        rows = data.get("rows") or []
+        if not bundle.sector_rows:
+            bundle.sector_rows = list(rows)
+        else:
+            existing_sectors = {str(r.get("sector") or "").lower() for r in bundle.sector_rows}
+            for r in rows:
+                if str(r.get("sector") or "").lower() not in existing_sectors:
+                    bundle.sector_rows.append(r)
     if tr.tool == "fund_nav" and tr.result.get("ok"):
         bundle.fund_nav_data = data
     if tr.tool in CLUSTERED_MACRO_TOOL_NAMES and tr.result.get("ok"):
@@ -375,17 +502,56 @@ def _run_tools_parallel(
     source: str | None,
     direction: str | None,
     query_log: QueryLogger | None,
+    start_index: int = 0,
 ) -> list[ToolRunResult]:
     results: list[ToolRunResult] = []
     if not tools_to_run:
         return results
+
+    # If any tool requires fund detail that is not yet known, but other tools in this batch
+    # (such as screening) could provide candidate funds, run those discovery tools first in Wave 1.
+    needing_detail = [
+        t for t in tools_to_run
+        if t.tool in _FUND_FACT_TOOLS and not detail_for_tool(plan, bundle.names, t)
+    ]
+    if needing_detail and len(needing_detail) < len(tools_to_run):
+        wave1 = [t for t in tools_to_run if t not in needing_detail]
+        wave2 = needing_detail
+        res1 = _run_tools_parallel(
+            wave1,
+            plan,
+            bundle,
+            question,
+            date_from=date_from,
+            date_to=date_to,
+            min_impact=min_impact,
+            source=source,
+            direction=direction,
+            query_log=query_log,
+            start_index=start_index,
+        )
+        res2 = _run_tools_parallel(
+            wave2,
+            plan,
+            bundle,
+            question,
+            date_from=date_from,
+            date_to=date_to,
+            min_impact=min_impact,
+            source=source,
+            direction=direction,
+            query_log=query_log,
+            start_index=start_index + len(wave1),
+        )
+        return res1 + res2
+
     max_workers = min(8, max(1, len(tools_to_run)))
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {
             pool.submit(
                 _run_one_tool,
                 tool,
-                i,
+                start_index + i,
                 plan,
                 bundle.names,
                 question,
@@ -395,7 +561,8 @@ def _run_tools_parallel(
                 source=source,
                 direction=direction,
                 query_log=query_log,
-            ): (tool, i)
+                bundle=bundle,
+            ): (tool, start_index + i)
             for i, tool in enumerate(tools_to_run)
         }
         for fut in as_completed(futures):

@@ -37,13 +37,13 @@ COMPOSER_SYSTEM = """You are a seasoned analyst for an Indian mutual-fund resear
 The research agent has already retrieved Context. You write the final answer.
 Return JSON only. No markdown fences.
 
-The user sees headline plus closing_summary. Do not repeat the same facts in narrative and bullets.
+The user sees a headline, bullets that answer the question, then a short story.
 
 {
   "headline": "One sentence that answers the question.",
   "narrative": "",
-  "bullets": [],
-  "closing_summary": "One short story that contains every fact required to answer the question. Nothing else.",
+  "bullets": ["One bullet per part of the question. Name the fund, company, or sector, then the fact."],
+  "closing_summary": "A short story that ties those bullets together. Do not add facts the bullets do not need.",
   "advice_declined_note": "",
   "format_chosen": "narrative|bullets|mixed|comparison|figure",
   "themes": [],
@@ -56,9 +56,9 @@ HOW TO WRITE
 - Write for someone who does not follow markets every day. Short sentences. Everyday words.
 - Answer only what the question asks. Leave out holdings, sectors, macros, and news that do not change the answer.
 - Headline: one sentence.
-- Narrative: leave empty. The story lives in closing_summary.
-- Bullets: leave empty unless the question asks for a list (funds, sectors, or holdings). Then at most the names that matter. If asked about affected sectors, name each sector and how that hits a sector. Do not add a bullet that the story already says.
-- closing_summary: storytelling, not a list and not a second copy of the headline. Include every number and name the question needs, and no background tour. Bold impactful words with **double asterisks** — funds, companies, sectors, moves, and figures that carry the point. There is no cap on how many words you bold.
+- Narrative: leave empty.
+- Bullets: required. One bullet for each thing the question asks, and nothing else. A request for two holdings is two company names. Do not add the fund, the weight, or the index unless the question asked for them. Never write a percentage, the word "at", or "of the fund" unless Context has that number. If asked about affected sectors, name each sector and how that hits a sector.
+- closing_summary: one or two sentences that restate the bullets. Do not introduce funds, weights, or index products the question did not ask for. If a number is missing, leave it out. Do not write "at of". Bold the names that answer the question with **double asterisks**.
 - Skip themes, relationships_used, and numbers_cited unless a field is required to avoid losing a fact. Prefer an empty array.
 - Do not say Context, payload, clusters, evidence, or channel.
 
@@ -998,15 +998,16 @@ def _sector_fund_payload(bundle: ExecutionBundle) -> tuple[str, str, list]:
     for k, val in bundle.tool_results.items():
         if not val.get("ok"):
             continue
-        if "sector_funds" not in k and "affected_funds" not in k:
+        if not any(prefix in k for prefix in ("sector_funds", "affected_funds", "screen_funds", "affected_sectors")):
             continue
         data = val.get("data") or {}
+        rf = data.get("rankings") or data.get("funds") or data.get("rows") or []
         payload = (
             str(data.get("direction") or ""),
             str(data.get("ranking_note") or ""),
-            list(data.get("rankings") or []),
+            list(rf),
         )
-        if "affected_funds" in k:
+        if "affected_funds" in k or "affected_sectors" in k:
             return payload
         found = payload
     return found or ("", "", [])
@@ -1022,17 +1023,39 @@ def _claims_negative_fund_as_best(bullet: str) -> bool:
 
 
 def _extract_ranked_funds_from_bundle(bundle: ExecutionBundle) -> list[dict[str, Any]]:
-    for k in ("affected_funds_post", "affected_funds_0", "sector_funds_0"):
+    for k in (
+        "affected_funds_post",
+        "affected_funds_0",
+        "sector_funds_0",
+        "screen_funds_0",
+        "screen_funds_1",
+        "screen_funds_2",
+        "affected_sectors_0",
+        "affected_sectors_1",
+    ):
         val = bundle.tool_results.get(k)
         if val and val.get("ok"):
             data = val.get("data") or {}
-            rf = data.get("rankings")
+            rf = data.get("rankings") or data.get("funds") or data.get("rows")
             if isinstance(rf, list) and rf:
                 return rf
     for k, val in bundle.tool_results.items():
-        if ("affected_funds" in k or "sector_funds" in k) and val.get("ok"):
+        if (
+            any(
+                prefix in k
+                for prefix in (
+                    "affected_funds",
+                    "sector_funds",
+                    "screen_funds",
+                    "affected_sectors",
+                    "fund_universe_search",
+                    "funds_holding_stock",
+                )
+            )
+            and val.get("ok")
+        ):
             data = val.get("data") or {}
-            rf = data.get("rankings")
+            rf = data.get("rankings") or data.get("funds") or data.get("rows")
             if isinstance(rf, list) and rf:
                 return rf
     return []
@@ -1049,7 +1072,7 @@ def _build_ranked_fund_bullets(
     )
     bullets: list[str] = []
     for f in ranked_funds:
-        name = str(f.get("fund_name") or f.get("isin") or "").strip()
+        name = str(f.get("fund_name") or f.get("scheme_name") or f.get("name") or f.get("isin") or "").strip()
         if not name:
             continue
         weight = f.get("sector_weight_pct")
@@ -1565,25 +1588,19 @@ def _build_display(
     note: str,
     closing_summary: str = "",
 ) -> str:
-    """Show the story once. Drop narrative and bullets already covered by the summary."""
+    """Headline, then the bullets that answer the question, then the short story."""
     parts: list[str] = []
     if note:
         parts.append(note)
     story = (closing_summary or "").strip()
     story_key = _exact_text_key(story)
-    if headline and _exact_text_key(headline) != story_key and headline.strip() not in story:
+    if headline and _exact_text_key(headline) != story_key:
         parts.append(headline.strip())
-    if not story and narrative:
-        parts.append(narrative.strip())
-    if bullets and not story:
-        parts.append("\n".join(f"• {b}" for b in bullets))
-    elif bullets and story:
-        extra = [b for b in bullets if b.strip() and b.strip() not in story]
-        if extra:
-            parts.append("\n".join(f"• {b}" for b in extra))
-    if story:
+    if bullets:
+        parts.append("\n".join(f"• {b}" for b in bullets if b.strip()))
+    if story and story_key != _exact_text_key(headline):
         parts.append(story)
-    return "\n\n".join(parts).strip()
+    return "\n\n".join(p for p in parts if p).strip()
 
 
 def _deterministic_fallback(
@@ -1850,23 +1867,25 @@ def compose_final_answer(
     ranked_funds = _extract_ranked_funds_from_bundle(bundle)
     context["ranked_funds"] = [
         {
-            "fund_name": r.get("fund_name"),
+            "fund_name": r.get("fund_name") or r.get("scheme_name") or r.get("name"),
             "isin": r.get("isin"),
             "sector_weight_pct": r.get("sector_weight_pct"),
             "matched_sectors": r.get("matched_sectors"),
             "return_1w_pct": r.get("return_1w_pct"),
             "return_1m_pct": r.get("return_1m_pct"),
+            "return_3m_pct": r.get("return_3m_pct"),
+            "return_1y_pct": r.get("return_1y_pct"),
             "latest_nav": r.get("latest_nav"),
             "sector_purity": r.get("sector_purity"),
             "category": r.get("category"),
         }
-        for r in ranked_funds[:3]
+        for r in ranked_funds[:5]
     ]
     defensive: list[dict[str, Any]] = []
     for k, val in bundle.tool_results.items():
         if not val.get("ok"):
             continue
-        if "sector_funds" not in k and "affected_funds" not in k:
+        if not any(prefix in k for prefix in ("sector_funds", "affected_funds", "screen_funds", "affected_sectors")):
             continue
         data = val.get("data") or {}
         alt = data.get("defensive_alternatives")
@@ -1876,7 +1895,7 @@ def compose_final_answer(
     for k, val in bundle.tool_results.items():
         if not val.get("ok"):
             continue
-        if "sector_funds" not in k and "affected_funds" not in k:
+        if not any(prefix in k for prefix in ("sector_funds", "affected_funds", "screen_funds", "affected_sectors")):
             continue
         data = val.get("data") or {}
         if data.get("ranking_note") or data.get("ranking_basis") or "all_drawdown" in data:
@@ -1884,7 +1903,7 @@ def compose_final_answer(
             context["ranking_note"] = data.get("ranking_note") or ""
             context["fund_rank_direction"] = data.get("direction") or ""
             context["all_drawdown"] = bool(data.get("all_drawdown"))
-            if "affected_funds" in k:
+            if "affected_funds" in k or "affected_sectors" in k:
                 break
     if not llm_api_key_configured(get_settings()):
         return _deterministic_fallback(plan, bundle, digests)
@@ -1945,7 +1964,7 @@ def compose_final_answer(
     evidence_text = f"{articles_json}\n{context_json}"
     judge_note = str(getattr(plan, "judge_note", "") or "").strip()
     user = (
-        "Answer only the question. The story in closing_summary is the answer the user reads. "
+        "Answer only the question. Put each asked fact in its own bullet, then a short story in closing_summary. "
         "Use the tools that were run as the source of facts. Ignore tool rows that do not change the answer. "
         "Use the article body, not the title. "
         "Do not name a publisher or the day an article was published. "

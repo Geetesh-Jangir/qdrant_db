@@ -182,7 +182,43 @@ def test_fund_gap_skips_when_universe_search_already_named_funds():
     mocked.assert_not_called()
 
 
-def test_fund_name_question_is_detected_and_sectors_are_capped():
+def test_automotive_sector_holdings_are_two_companies():
+    from news_rag.tools import run_sector_holdings_tool
+
+    result = run_sector_holdings_tool(sector_name="automotive", top_n=2)
+    assert result["ok"]
+    names = [row["name"] for row in result["data"]["rows"]]
+    assert names == ["Tata Motors", "Maruti Suzuki"]
+    assert result["data"]["sector"] == "Automobiles"
+    from news_rag.ask_execution import _detail_from_lookup
+
+    assert _detail_from_lookup(({"fund_name": "Auto Fund"}, False, []))["fund_name"] == "Auto Fund"
+    assert _detail_from_lookup((None, True, ["A", "B"])) is None
+    assert _detail_from_lookup(None) is None
+    from news_rag.ask_plan import EntityMention
+    from news_rag.name_resolution import resolve_plan_names
+
+    plan = AskPlan(
+        entities=[
+            EntityMention(
+                raw="automobile sector",
+                role="fund_scheme",
+                cleaned_phrase="how automobile sector is working and two funds",
+            )
+        ],
+        tools=[PlannedTool(tool="sector_news", sector_name="Automobiles")],
+    )
+    with patch(
+        "news_rag.name_resolution._lookup_phrase",
+        return_value=(None, True, ["Axis Children's Fund", "Axis BSE India Sector Leaders Index Fund"], "catalog"),
+    ), patch(
+        "news_rag.name_resolution._sector_label_for_phrase",
+        return_value="Automobiles",
+    ):
+        names = resolve_plan_names(plan)
+    assert names.ambiguous is False
+    assert names.close_matches == []
+    assert names.sectors
     from news_rag.ask_agent import _sectors_from_observations, question_wants_fund_names
 
     assert question_wants_fund_names(

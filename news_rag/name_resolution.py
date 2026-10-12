@@ -51,6 +51,22 @@ def _lookup_phrase(phrase: str) -> tuple[dict[str, Any] | None, bool, list[str],
     return detail, amb, close, method
 
 
+def _sector_label_for_phrase(phrase: str) -> str:
+    """Catalog sector for a phrase the planner may have tagged as a fund."""
+    text = (phrase or "").strip()
+    if not text:
+        return ""
+    try:
+        from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
+
+        keys = get_sector_fund_ranking_index().resolve_sector_keys([text])
+        if not keys:
+            keys = get_sector_fund_ranking_index().resolve_from_question(text) or []
+    except Exception:
+        return ""
+    return keys[0] if keys else ""
+
+
 def resolve_plan_names(plan: AskPlan, *, query_log: QueryLogger | None = None) -> ResolvedNames:
     out = ResolvedNames()
     scheme_entities = [e for e in plan.entities if e.role == "fund_scheme"]
@@ -76,7 +92,23 @@ def resolve_plan_names(plan: AskPlan, *, query_log: QueryLogger | None = None) -
         phrase = ent.cleaned_phrase or ent.raw
         if not phrase:
             continue
+        sector_label = _sector_label_for_phrase(phrase)
         detail, amb, close, method = _lookup_phrase(phrase)
+        if sector_label and (amb or not detail):
+            if sector_label not in out.sectors:
+                out.sectors.append(sector_label)
+            if query_log is not None:
+                query_log.log_stage(
+                    "name_resolve",
+                    raw=ent.raw,
+                    role="sector",
+                    phrase=phrase,
+                    canonical=sector_label,
+                    ambiguous=False,
+                    close=[],
+                    method="sector_catalog",
+                )
+            continue
         canonical = ""
         if detail and not amb:
             canonical = str(detail.get("fund_short_name") or detail.get("fund_name") or "")

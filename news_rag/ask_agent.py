@@ -86,8 +86,12 @@ CHOOSE TOOLS
 - Never request buy/sell advice. Factual performance, news, and exposure are in scope.
 
 TOOL CATALOG
-- fund_nav: latest NAV, returns, 52-week high and low, benchmark, scheme type. Needs a fund_scheme entity.
-- fund_top_stocks: top holdings and weights. Needs a fund. Later news tools can use those names.
+- A sector ("automobile sector", "how banking is working") is role sector, never fund_scheme. Do not put the user's full sentence in cleaned_phrase.
+- "Name two funds in a sector" is sector_funds or screen_funds with that sector_name and top_n 2. direction=any unless they ask for winners or losers. Also call sector_news for how the sector is working.
+- "Name two holdings" in a sector, with no scheme named: sector_holdings with sector_name and top_n. Do not call fund_top_stocks, fund_nav, or sector_news. Do not name a fund.
+- fund_nav: latest NAV, returns, 52-week high and low, benchmark, scheme type. Needs one resolved fund_scheme. If you are not sure of the scheme, do not call it.
+- fund_top_stocks: top holdings and weights of one named mutual fund. Do not call this for "holdings of a sector".
+- sector_holdings: representative companies in a sector. Set sector_name and top_n. Use this when the user asks for holdings or stocks of a sector and does not name a fund.
 - fund_top_sectors: sector weights. Needs a fund.
 - holdings_news: news on named holdings. Set entity_filters from holdings already retrieved.
 - sector_news: news on a sector. Set sector_name or entity_filters.
@@ -108,6 +112,8 @@ TOOL CATALOG
 - fund_universe_search: list regular-growth schemes by category, AMC, or keyword when no return filter is needed. Set category, amc, keyword, top_n. Prefer screen_funds when performance or direction matters.
 - compare_funds: only when the user asks to compare. Set entity_filters to the fund names. If they did not name the funds, call screen_funds first and set depends_on to that call. compare_on is nav, sectors, holdings, or all. return_window is the same window as the screen. Fetch only the blocks they asked for.
 - funds_holding_stock: schemes that hold a stock, plus the archive count when the scan finds no names. Set stock_name. Prefer screen_funds with stock_name when a return window is also asked.
+- sector_holding_alignment: compares fund holdings against sector index moves (NSE sectoral indices) to verify whether fund returns align with sector performance. Needs a fund.
+- macro_sector_impact: rule-based macro impact analysis mapping macro drivers (e.g. rbi_repo, crude_oil, usd_inr, inflation) to sector winners and losers. Set driver and direction.
 
 DATA ON HAND
 News archive, fund NAV and holdings, sector-to-fund weights, metals spot, regular-growth fund universe.
@@ -308,6 +314,25 @@ _FUND_INTENT_RE = re.compile(
 )
 
 
+_FUND_BOUND_TOOLS = frozenset(
+    {
+        "fund_nav",
+        "fund_top_stocks",
+        "fund_top_sectors",
+        "sector_holding_alignment",
+        "compare_funds",
+    }
+)
+
+
+def _fund_clarification_required(plan: AskPlan) -> bool:
+    """Ask which fund only when every planned tool needs one resolved scheme."""
+    tools = {tool.tool for tool in plan.tools}
+    if not tools:
+        return False
+    return tools <= _FUND_BOUND_TOOLS
+
+
 def question_wants_fund_names(question: str) -> bool:
     text = question or ""
     return bool(_FUND_NAME_RE.search(text) and _FUND_INTENT_RE.search(text))
@@ -368,7 +393,22 @@ def _obs_has_news(observations: list[dict[str, Any]]) -> bool:
     )
 
 
+def _question_wants_holdings(question: str) -> bool:
+    return bool(re.search(r"\b(holdings?|top\s+stocks?|owned\s+stocks?)\b", question or "", re.I))
+
+
+def _obs_has_holdings(observations: list[dict[str, Any]]) -> bool:
+    return any(
+        obs.get("ok")
+        and obs.get("tool") in ("fund_top_stocks", "funds_holding_stock")
+        and ((obs.get("counts") or {}).get("rows", 0) > 0 or bool(obs.get("rows")))
+        for obs in observations
+    )
+
+
 def _batch_already_answers(question: str, observations: list[dict[str, Any]]) -> bool:
+    if _question_wants_holdings(question) and not _obs_has_holdings(observations):
+        return False
     if question_wants_fund_names(question):
         return _obs_has_named_funds(observations)
     return _obs_has_news(observations) or _obs_has_named_funds(observations)
@@ -404,13 +444,10 @@ def _sectors_from_observations(observations: list[dict[str, Any]], *, limit: int
 
 
 def _direction_for_funds(question: str, plan: AskPlan) -> str:
-    if plan.sentiment in ("positive", "negative"):
+    """Direction comes from the planner. The question text is not scanned for sentiment words."""
+    del question
+    if plan.sentiment in ("positive", "negative", "any"):
         return plan.sentiment
-    low = (question or "").lower()
-    if any(word in low for word in ("hurt", "negatively", "losing", "worst")):
-        return "negative"
-    if any(word in low for word in ("benefit", "positive", "working well", "performing", "gain")):
-        return "positive"
     return "any"
 
 
@@ -854,7 +891,10 @@ def run_research_agent(
         if plan.decline_entirely:
             break
         names = resolve_plan_names(plan, query_log=query_log)
-        if names.ambiguous:
+        if names.ambiguous and not _fund_clarification_required(plan):
+            names.ambiguous = False
+            names.close_matches = []
+        if names.ambiguous and _fund_clarification_required(plan):
             return AgentRun(
                 plan=plan,
                 bundle=ExecutionBundle(names=names),

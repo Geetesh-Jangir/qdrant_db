@@ -34,6 +34,7 @@ ALLOWED_PLANNER_TOOLS = frozenset(
         "expand_news",
         "sector_holding_alignment",
         "macro_sector_impact",
+        "sector_holdings",
     }
 )
 
