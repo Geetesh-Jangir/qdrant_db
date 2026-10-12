@@ -11,6 +11,7 @@ from news_rag.config import get_settings
 from news_rag.json_util import safe_json_dumps
 from news_rag.llm_client import call_json_llm, composer_model, llm_api_key_configured
 from news_rag.cross_impact import CROSS_IMPACT_COMPOSER_ADDENDUM, cross_impact_from_plan
+from news_rag.sector_alignment import SECTOR_ALIGNMENT_COMPOSER_ADDENDUM
 from news_rag.article_pool import collect_bundle_articles
 from news_rag.market_pulse import (
     market_pulse_data_from_bundle,
@@ -36,26 +37,29 @@ COMPOSER_SYSTEM = """You are a seasoned analyst for an Indian mutual-fund resear
 The research agent has already retrieved Context. You write the final answer.
 Return JSON only. No markdown fences.
 
+The user sees headline plus closing_summary. Do not repeat the same facts in narrative and bullets.
+
 {
-  "headline": "The direct answer in one or two sentences.",
-  "narrative": "A short account of what is happening. Blank line between paragraphs. Provide the context that supports the overall output.",
-  "bullets": ["Numbered points (1, 2, 3...) or clear bullets explicitly answering the user's queries. If asked for affected sectors, list each sector clearly, followed by exactly why and how it is affected based on the news."],
-  "closing_summary": "A comprehensive concluding summary that contains every vital piece of information. Tell what is going on and how things are working in detail. Do not artificially limit this to two sentences.",
+  "headline": "One sentence that answers the question.",
+  "narrative": "",
+  "bullets": [],
+  "closing_summary": "One short story that contains every fact required to answer the question. Nothing else.",
   "advice_declined_note": "",
   "format_chosen": "narrative|bullets|mixed|comparison|figure",
-  "themes": [{"name": "", "direction": "positive|negative|mixed|unclear", "why_it_matters": ""}],
-  "relationships_used": [{"driver": "", "target": "", "kind": "direct|indirect", "channel": "", "evidence": ""}],
-  "numbers_cited": [{"label": "", "value": "", "source": "nav|holding|sector|article|metals|rank"}],
-  "gaps": ["What the evidence could not answer."]
+  "themes": [],
+  "relationships_used": [],
+  "numbers_cited": [],
+  "gaps": []
 }
 
 HOW TO WRITE
 - Write for someone who does not follow markets every day. Short sentences. Everyday words.
-- Headline: one or two sentences that answer the question.
-- Narrative: what is happening. Provide the necessary context to support the conclusions.
-- Bullets: Try to answer things using bullet points or numbers (1, 2, 3...). If asked about affected sectors, you must list each affected sector, name it clearly, and say how that hits a sector.
-- If the question has several parts, cover each part methodically. Answer the things that are explicitly asked in the query and use the evidence that supports the output.
-- Closing: at most two sentences. Answer the question in plain words. Do not repeat every figure already written in the bullets.
+- Answer only what the question asks. Leave out holdings, sectors, macros, and news that do not change the answer.
+- Headline: one sentence.
+- Narrative: leave empty. The story lives in closing_summary.
+- Bullets: leave empty unless the question asks for a list (funds, sectors, or holdings). Then at most the names that matter. If asked about affected sectors, name each sector and how that hits a sector. Do not add a bullet that the story already says.
+- closing_summary: storytelling, not a list and not a second copy of the headline. Include every number and name the question needs, and no background tour. Bold impactful words with **double asterisks** — funds, companies, sectors, moves, and figures that carry the point. There is no cap on how many words you bold.
+- Skip themes, relationships_used, and numbers_cited unless a field is required to avoid losing a fact. Prefer an empty array.
 - Do not say Context, payload, clusters, evidence, or channel.
 
 ARTICLE TEXT
@@ -69,7 +73,6 @@ FACTS
 - If the question did not ask what is happening in the market, do not add a market story.
 - If the question asked for funds and no fund rows came back, say that in one sentence.
 - No buy, sell, hold, target price, or prediction. If advice was declined, put that only in advice_declined_note.
-- Bold a fund, company, sector, or figure when it is the point of the sentence.
 """
 
 COMPOSER_RESPONSE_SCHEMA: dict[str, Any] = {
@@ -1562,17 +1565,24 @@ def _build_display(
     note: str,
     closing_summary: str = "",
 ) -> str:
+    """Show the story once. Drop narrative and bullets already covered by the summary."""
     parts: list[str] = []
     if note:
         parts.append(note)
-    if headline:
-        parts.append(headline)
-    if narrative:
-        parts.append(narrative)
-    if bullets:
+    story = (closing_summary or "").strip()
+    story_key = _exact_text_key(story)
+    if headline and _exact_text_key(headline) != story_key and headline.strip() not in story:
+        parts.append(headline.strip())
+    if not story and narrative:
+        parts.append(narrative.strip())
+    if bullets and not story:
         parts.append("\n".join(f"• {b}" for b in bullets))
-    if closing_summary:
-        parts.append(closing_summary)
+    elif bullets and story:
+        extra = [b for b in bullets if b.strip() and b.strip() not in story]
+        if extra:
+            parts.append("\n".join(f"• {b}" for b in extra))
+    if story:
+        parts.append(story)
     return "\n\n".join(parts).strip()
 
 
@@ -1826,6 +1836,17 @@ def compose_final_answer(
         "sectors_positive": list(dict.fromkeys(s for d in digests for s in (d.sectors_positive or [])))[:3],
         "sectors_negative": list(dict.fromkeys(s for d in digests for s in (d.sectors_negative or []))),
     }
+    has_alignment = False
+    for key, val in bundle.tool_results.items():
+        if not val.get("ok"):
+            continue
+        data = val.get("data")
+        if key.startswith("sector_holding_alignment") and isinstance(data, dict):
+            context["sector_holding_alignment"] = data
+            has_alignment = True
+        if key.startswith("macro_sector_impact") and isinstance(data, dict):
+            context["macro_sector_impact"] = data
+            has_alignment = True
     ranked_funds = _extract_ranked_funds_from_bundle(bundle)
     context["ranked_funds"] = [
         {
@@ -1893,6 +1914,22 @@ def compose_final_answer(
         if isinstance(rep, dict)
     ]
     llm_articles = _articles_for_llm(pooled_articles)
+    planned_tools = [
+        {
+            "tool": tool.tool,
+            "purpose": tool.purpose,
+            "semantic_query": tool.semantic_query,
+            "sector_name": tool.sector_name,
+            "stock_name": tool.stock_name,
+            "driver": tool.driver,
+            "direction": tool.direction,
+            "top_n": tool.top_n,
+        }
+        for tool in (plan.tools or [])
+    ]
+    tools_ran = [
+        key for key, val in bundle.tool_results.items() if isinstance(val, dict) and val.get("ok")
+    ]
 
     system_prompt = COMPOSER_SYSTEM
     if cross or getattr(plan, "relationships_to_check", None):
@@ -1900,20 +1937,24 @@ def compose_final_answer(
         system_prompt = f"{COMPOSER_SYSTEM}\n\n{CROSS_IMPACT_COMPOSER_ADDENDUM}"
         if drivers:
             system_prompt += f"\nActive drivers for this question: {drivers}."
+    if has_alignment:
+        system_prompt = f"{system_prompt}\n\n{SECTOR_ALIGNMENT_COMPOSER_ADDENDUM}"
 
     articles_json = safe_json_dumps(llm_articles)
     context_json = safe_json_dumps(context, limit=14000)
     evidence_text = f"{articles_json}\n{context_json}"
     judge_note = str(getattr(plan, "judge_note", "") or "").strip()
     user = (
-        "Write the final answer from the article bodies and Context. "
-        "Use the body, not the title. "
+        "Answer only the question. The story in closing_summary is the answer the user reads. "
+        "Use the tools that were run as the source of facts. Ignore tool rows that do not change the answer. "
+        "Use the article body, not the title. "
         "Do not name a publisher or the day an article was published. "
-        "Each bullet starts with the sector, company, or fund name, then how that hits it. "
-        "Do not repeat the same point in the narrative, the bullets, and the closing. "
-        "Use question_reading, relationships_to_check, and information_gaps when they are present. "
+        "Bold impactful words with **asterisks**. "
         "Numbers must be copied from Context.\n\n"
         f"Question:\n{question}\n\n"
+        f"What to answer:\n{plan.answer_parts or question}\n\n"
+        f"Tools the planner chose:\n{safe_json_dumps(planned_tools, limit=4000)}\n\n"
+        f"Tools that returned data:\n{safe_json_dumps(tools_ran, limit=2000)}\n\n"
         f"Articles:\n{articles_json}\n\n"
         f"Context:\n{context_json}"
     )

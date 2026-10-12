@@ -1422,3 +1422,36 @@ def resolve_fund_for_need(
         )
     method = "catalog"
     return detail, amb, close, method
+
+
+def run_sector_holding_alignment_tool(
+    detail: dict[str, Any],
+    *,
+    question: str,
+    top_n: int = 5,
+    sector_name: str = "",
+    return_window: str = "",
+    window_days: int | None = None,
+    query_log: QueryLogger | None = None,
+) -> dict[str, Any]:
+    from news_rag.sector_alignment import run_sector_holding_alignment
+
+    return run_sector_holding_alignment(
+        detail,
+        question=question,
+        top_n=top_n,
+        sector_name=sector_name,
+        return_window=return_window,
+        window_days=window_days,
+        query_log=query_log,
+    )
+
+
+def run_macro_sector_impact_tool(
+    *,
+    driver: str,
+    direction: str = "",
+) -> dict[str, Any]:
+    from news_rag.macro_impact_map import run_macro_sector_impact
+
+    return run_macro_sector_impact(driver=driver, direction=direction)

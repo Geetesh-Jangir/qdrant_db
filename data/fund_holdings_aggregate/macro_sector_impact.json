@@ -1,0 +1,639 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "lookup": "by_macro \u2014 O(1) dict keyed by macro_name",
+    "sector_labels": "Must match SECTOR_QUERIES or Nifty 50"
+  },
+  "by_macro": {
+    "rbi_repo": {
+      "display_name": "RBI repo rate / monetary policy",
+      "search_keywords": [
+        "RBI",
+        "repo rate",
+        "MPC",
+        "rate cut",
+        "rate hike",
+        "monetary policy"
+      ],
+      "directions": [
+        "ease",
+        "tighten"
+      ],
+      "sectors": [
+        {
+          "sector": "Banks",
+          "transmission": "Loan demand vs lending margins",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Finance",
+          "transmission": "NBFC borrowing costs and credit demand",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Realty",
+          "transmission": "Mortgage affordability and developer financing",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Automobiles",
+          "transmission": "Vehicle loan affordability",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Consumer Durables",
+          "transmission": "Discretionary financing costs",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Insurance",
+          "transmission": "Bond portfolio valuations vs reinvestment yields",
+          "positive_when": "tighten",
+          "negative_when": "ease",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Industrial Products",
+          "transmission": "Capex financing costs",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Nifty 50",
+          "transmission": "Discount rate and broad equity valuations",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "rbi_liquidity": {
+      "display_name": "RBI liquidity / CRR / OMOs",
+      "search_keywords": [
+        "liquidity",
+        "CRR",
+        "OMO",
+        "LAF",
+        "VRR",
+        "system liquidity"
+      ],
+      "directions": [
+        "ease",
+        "tighten"
+      ],
+      "sectors": [
+        {
+          "sector": "Banks",
+          "transmission": "Funding availability and deposit competition",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Finance",
+          "transmission": "Wholesale funding and securitisation",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Realty",
+          "transmission": "Developer and mortgage funding",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Capital Markets",
+          "transmission": "Risk appetite and market turnover",
+          "positive_when": "ease",
+          "negative_when": "tighten",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "crude_oil": {
+      "display_name": "Brent / crude oil prices",
+      "search_keywords": [
+        "crude",
+        "Brent",
+        "WTI",
+        "oil price",
+        "OPEC"
+      ],
+      "directions": [
+        "up",
+        "down"
+      ],
+      "sectors": [
+        {
+          "sector": "Petroleum Products",
+          "transmission": "Upstream realizations vs OMC marketing margins",
+          "positive_when": "up",
+          "negative_when": "down",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Transport Services",
+          "transmission": "Aviation fuel and freight costs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Automobiles",
+          "transmission": "Running costs and affordability",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Chemicals & Petrochemicals",
+          "transmission": "Petroleum feedstock costs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Diversified Fmcg",
+          "transmission": "Packaging and freight inflation",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Cement & Cement Products",
+          "transmission": "Fuel and transport costs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Banks",
+          "transmission": "Indirect macro and inflation channel",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "indirect"
+        },
+        {
+          "sector": "Nifty 50",
+          "transmission": "Inflation and risk sentiment",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "indirect"
+        }
+      ]
+    },
+    "usd_inr": {
+      "display_name": "USD/INR and rupee moves",
+      "search_keywords": [
+        "rupee",
+        "USD/INR",
+        "forex",
+        "dollar",
+        "currency"
+      ],
+      "directions": [
+        "weaken",
+        "strengthen"
+      ],
+      "sectors": [
+        {
+          "sector": "It - Software",
+          "transmission": "Rupee translation of dollar revenues",
+          "positive_when": "weaken",
+          "negative_when": "strengthen",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Pharmaceuticals & Biotechnology",
+          "transmission": "Export revenues vs imported API costs",
+          "positive_when": "weaken",
+          "negative_when": "strengthen",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Transport Services",
+          "transmission": "Dollar-linked fuel and lease costs",
+          "positive_when": "weaken",
+          "negative_when": "strengthen",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Automobiles",
+          "transmission": "Imported component costs",
+          "positive_when": "weaken",
+          "negative_when": "strengthen",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Petroleum Products",
+          "transmission": "Imported crude in rupee terms",
+          "positive_when": "weaken",
+          "negative_when": "strengthen",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "gsec_10y": {
+      "display_name": "10-year government bond yields",
+      "search_keywords": [
+        "10-year",
+        "G-Sec",
+        "bond yield",
+        "sovereign yield"
+      ],
+      "directions": [
+        "up",
+        "down"
+      ],
+      "sectors": [
+        {
+          "sector": "Banks",
+          "transmission": "Bond MTM and reinvestment economics",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Insurance",
+          "transmission": "Fixed-income portfolio valuations",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Realty",
+          "transmission": "Project and mortgage financing costs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Finance",
+          "transmission": "Bond-funded NBFC refinancing",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Industrial Products",
+          "transmission": "Long-duration project financing",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "cpi_inflation": {
+      "display_name": "CPI / WPI inflation",
+      "search_keywords": [
+        "CPI",
+        "WPI",
+        "inflation",
+        "core inflation"
+      ],
+      "directions": [
+        "up",
+        "down"
+      ],
+      "sectors": [
+        {
+          "sector": "Diversified Fmcg",
+          "transmission": "Input-cost pressure vs pricing power",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Automobiles",
+          "transmission": "Affordability and component costs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Consumer Durables",
+          "transmission": "Purchasing power and costs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Banks",
+          "transmission": "Policy tightening risk vs credit stress",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Food Products",
+          "transmission": "Input costs vs pricing",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "us_fed_yields": {
+      "display_name": "US Fed / Treasury yields",
+      "search_keywords": [
+        "Federal Reserve",
+        "Fed",
+        "Treasury yield",
+        "US rates"
+      ],
+      "directions": [
+        "up",
+        "down"
+      ],
+      "sectors": [
+        {
+          "sector": "It - Software",
+          "transmission": "Global risk appetite and client budgets",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Realty",
+          "transmission": "Global discount rates and funding",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Finance",
+          "transmission": "External funding conditions",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Nifty 50",
+          "transmission": "Global risk sentiment",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "indirect"
+        }
+      ]
+    },
+    "fpi_flows": {
+      "display_name": "FPI / FII equity flows",
+      "search_keywords": [
+        "FPI",
+        "FII",
+        "foreign inflows",
+        "foreign outflows"
+      ],
+      "directions": [
+        "inflow",
+        "outflow"
+      ],
+      "sectors": [
+        {
+          "sector": "Banks",
+          "transmission": "Index-heavy financials liquidity",
+          "positive_when": "inflow",
+          "negative_when": "outflow",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "It - Software",
+          "transmission": "Large-cap FII favourites",
+          "positive_when": "inflow",
+          "negative_when": "outflow",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Petroleum Products",
+          "transmission": "Index-heavy energy weights",
+          "positive_when": "inflow",
+          "negative_when": "outflow",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Nifty 50",
+          "transmission": "Broad market liquidity",
+          "positive_when": "inflow",
+          "negative_when": "outflow",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "growth_indicators": {
+      "display_name": "GDP / PMI / IIP growth",
+      "search_keywords": [
+        "GDP",
+        "PMI",
+        "IIP",
+        "industrial production",
+        "manufacturing PMI"
+      ],
+      "directions": [
+        "accelerate",
+        "weak"
+      ],
+      "sectors": [
+        {
+          "sector": "Industrial Products",
+          "transmission": "Capex and equipment orders",
+          "positive_when": "accelerate",
+          "negative_when": "weak",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Automobiles",
+          "transmission": "Production and consumption",
+          "positive_when": "accelerate",
+          "negative_when": "weak",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Ferrous Metals",
+          "transmission": "Industrial demand and prices",
+          "positive_when": "accelerate",
+          "negative_when": "weak",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Construction",
+          "transmission": "Infrastructure and building activity",
+          "positive_when": "accelerate",
+          "negative_when": "weak",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "It - Software",
+          "transmission": "Client discretionary tech spend",
+          "positive_when": "accelerate",
+          "negative_when": "weak",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Banks",
+          "transmission": "Credit demand and asset quality",
+          "positive_when": "accelerate",
+          "negative_when": "weak",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "monsoon": {
+      "display_name": "Monsoon / rainfall",
+      "search_keywords": [
+        "monsoon",
+        "rainfall",
+        "El Nino",
+        "drought",
+        "kharif"
+      ],
+      "directions": [
+        "good",
+        "poor"
+      ],
+      "sectors": [
+        {
+          "sector": "Agricultural, Commercial & Construction Vehicles",
+          "transmission": "Farm income and tractor demand",
+          "positive_when": "good",
+          "negative_when": "poor",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Automobiles",
+          "transmission": "Rural two-wheeler and entry auto demand",
+          "positive_when": "good",
+          "negative_when": "poor",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Diversified Fmcg",
+          "transmission": "Rural consumption",
+          "positive_when": "good",
+          "negative_when": "poor",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Finance",
+          "transmission": "Rural lender repayment capacity",
+          "positive_when": "good",
+          "negative_when": "poor",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Food Products",
+          "transmission": "Crop supply vs farm income effects",
+          "positive_when": "good",
+          "negative_when": "poor",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "food_inflation": {
+      "display_name": "Food inflation / crop prices",
+      "search_keywords": [
+        "food inflation",
+        "vegetable prices",
+        "MSP",
+        "crop output"
+      ],
+      "directions": [
+        "up",
+        "down"
+      ],
+      "sectors": [
+        {
+          "sector": "Diversified Fmcg",
+          "transmission": "Margin pressure from inputs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Food Products",
+          "transmission": "Selling prices vs input costs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Beverages",
+          "transmission": "Input and distribution costs",
+          "positive_when": "down",
+          "negative_when": "up",
+          "impact_type": "mixed"
+        }
+      ]
+    },
+    "govt_capex": {
+      "display_name": "Government capex / fiscal spending",
+      "search_keywords": [
+        "capex",
+        "infrastructure spending",
+        "Union Budget",
+        "fiscal deficit",
+        "PM Gati Shakti"
+      ],
+      "directions": [
+        "higher",
+        "lower"
+      ],
+      "sectors": [
+        {
+          "sector": "Construction",
+          "transmission": "Project awards and execution",
+          "positive_when": "higher",
+          "negative_when": "lower",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Industrial Products",
+          "transmission": "Machinery and equipment orders",
+          "positive_when": "higher",
+          "negative_when": "lower",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Cement & Cement Products",
+          "transmission": "Construction demand",
+          "positive_when": "higher",
+          "negative_when": "lower",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Ferrous Metals",
+          "transmission": "Steel demand from projects",
+          "positive_when": "higher",
+          "negative_when": "lower",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Aerospace & Defense",
+          "transmission": "Defence procurement allocations",
+          "positive_when": "higher",
+          "negative_when": "lower",
+          "impact_type": "mixed"
+        },
+        {
+          "sector": "Power",
+          "transmission": "Grid and generation investments",
+          "positive_when": "higher",
+          "negative_when": "lower",
+          "impact_type": "mixed"
+        }
+      ]
+    }
+  }
+}

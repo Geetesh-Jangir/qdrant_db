@@ -32,6 +32,8 @@ ALLOWED_PLANNER_TOOLS = frozenset(
         "funds_holding_stock",
         "trace_relationships",
         "expand_news",
+        "sector_holding_alignment",
+        "macro_sector_impact",
     }
 )
 

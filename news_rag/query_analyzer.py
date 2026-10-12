@@ -51,10 +51,22 @@ SCHEMA:
   "affected_funds_top_n": 10
 }
 
-TOOLS (exact names):
-fund_nav, fund_top_stocks, fund_top_sectors, holdings_news, sector_news, macro_news,
-common_market_news, macro_news_enhanced,
-affected_funds, sector_funds, metals_spot, stock_snapshot
+TOOLS — pick the smallest set that can answer the question. Each line is: name — use when — do not use when.
+
+- fund_nav — the user wants a fund's NAV, returns, or "how is this fund doing". Not for a stock, and not when no fund is named.
+- fund_top_stocks — the user wants the fund's holdings or which stocks drive it. Set top_n from the question.
+- fund_top_sectors — the user wants the fund's sector weights. Set top_n from the question.
+- holdings_news — news about those stocks (earnings, why a holding moved). Set semantic_query to company keywords, not the full question. entity_filters = the stock names when known.
+- sector_news — news about an industry (banking, IT, pharma, oil). Set semantic_query to sector keywords. Not a substitute for common_market_news.
+- macro_news — one narrow headline search. Not for "what is happening in the market".
+- macro_news_enhanced — a named macro theme (RBI, crude, inflation, rupee, FII, yields) when you need articles, not the whole market. Set semantic_query to India + the driver.
+- common_market_news — only "what is happening in the market now/today" with no named fund. Do not add macro_news, sector_holding_alignment, or macro_sector_impact beside it unless the user also asks which sectors or funds.
+- sector_funds — mutual funds in a named sector ("best banking funds"). Set sector_name. sentiment=positive for winners, negative for losers, any otherwise. Do not also call affected_funds when the sector is already named.
+- affected_funds — funds to find only after news reveals the sectors. affected_funds=after_news. If the user already named the sector, use sector_funds instead.
+- metals_spot — gold or silver price level. Always pair with macro_news when the user asks why the metal moved.
+- stock_snapshot — one named stock's price, not a fund and not a sector index.
+- sector_holding_alignment — a named fund, and the user cares whether its holdings moved with the sector index or against it. Needs the fund. Set sector_name when one sector is named. Skip for market-now, NAV-only, and fund-comparison questions.
+- macro_sector_impact — how a macro event is expected to hit sectors. Set driver to one of rbi_repo, rbi_liquidity, crude_oil, usd_inr, gsec_10y, cpi_inflation, us_fed_yields, fpi_flows, growth_indicators, monsoon, food_inflation, govt_capex. Set direction when the question states it (ease, tighten, up, down, weaken, strengthen, inflow, outflow). Pair with macro_news_enhanced so articles confirm what happened. Add sector_holding_alignment only when a fund is named.
 
 MARKET & MACRO TOOLS (planner must choose — no keyword guessing in code):
 - common_market_news: User wants a broad read on Indian markets right now / today / overall backdrop.
@@ -86,12 +98,14 @@ ENTITIES (critical):
 - One question can mix roles (HDFC Defence Fund + HDFC Bank holding).
 
 TOOLS RULES:
-- Fund performance / how is X working → fund_nav (with_returns) + fund_top_stocks + fund_top_sectors +
-  holdings_news + sector_news + macro_news as needed for a rich answer (window_days 30 for "last month").
-- "Tell me about X fund", overview, profile, composition, or general fund questions → ALWAYS include
-  fund_nav + fund_top_stocks + fund_top_sectors + holdings_news + sector_news + macro_news (vector news is required).
+- Fund performance / how is X working → fund_nav + fund_top_stocks + fund_top_sectors.
+  Add holdings_news and sector_news only when the user asks why, what happened, or for news.
+  Add sector_holding_alignment only when they ask whether holdings moved with or against the sector.
+  window_days 30 for "last month".
+- "Tell me about X fund" / overview → fund_nav + fund_top_stocks + fund_top_sectors.
+  Add holdings_news or sector_news only if they ask what is happening or why. Do not add every news tool by default.
 - "How are top holdings working" / top N holdings performance → fund_nav + fund_top_stocks (top_n from question, often 3)
-  + holdings_news with semantic_query naming those companies and earnings/results.
+  + holdings_news with semantic_query naming those companies. Add sector_holding_alignment when they compare those stocks to the sector.
 - Pure NAV (only asking for latest NAV number) → fund_nav only.
 - Top holdings/sectors → fund_top_stocks / fund_top_sectors with top_n from question.
 - Macro/sector impact without a named fund → sector_news + macro_news; sector_funds or affected_funds as needed.
@@ -115,6 +129,13 @@ TOOLS RULES:
   tools: common_market_news (window_days 30) + sector_news.
   affected_funds=after_news, affected_funds_top_n=6.
 - "How is RBI / oil / inflation affecting markets?" with no fund → macro_news_enhanced (+ sector_news if sector named).
+- Macro impact on sectors (no named fund): macro_sector_impact with driver set (rbi_repo, crude_oil, usd_inr, etc.)
+  and direction when stated (ease/tighten, up/down, weaken/strengthen) + macro_news_enhanced + sector_news.
+- Macro × named fund (e.g. RBI cut affecting HDFC Large Cap): macro_sector_impact + sector_holding_alignment +
+  fund_nav + fund_top_stocks + fund_top_sectors + holdings_news + sector_news + macro_news_enhanced.
+- Holding moving opposite to its sector (banks up but one bank down in my fund): sector_holding_alignment first
+  (set sector_name if known), then holdings_news for divergent names only + sector_news.
+- Broad market now/today only → common_market_news ONLY — do NOT add sector_holding_alignment or macro_sector_impact.
 - Crude/oil/RBI → macro_news + sector_news with strong semantic_query (India markets, sectors).
 - semantic_query: dense keywords for vector search, NOT the user's full sentence.
 - affected_funds=after_news when sectors must be inferred from news first; now when sectors listed in question.

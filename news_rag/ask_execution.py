@@ -223,6 +223,39 @@ def _run_one_tool(
                     **filter_kwargs,
                 ),
             )
+        if tool.tool == "sector_holding_alignment" and detail:
+            from news_rag.tools import run_sector_holding_alignment_tool
+
+            window_label = tool.return_window or (
+                "1M" if (tool.window_days or 0) >= 28 else "5d"
+            )
+            return ToolRunResult(
+                tool.tool,
+                key,
+                run_sector_holding_alignment_tool(
+                    detail,
+                    question=question,
+                    top_n=tool.top_n,
+                    sector_name=tool.sector_name,
+                    return_window=window_label,
+                    window_days=tool.window_days,
+                    query_log=query_log,
+                ),
+            )
+        if tool.tool == "macro_sector_impact":
+            from news_rag.tools import run_macro_sector_impact_tool
+
+            driver = (tool.driver or tool.search_focus or tool.theme or "").strip()
+            if not driver and tool.semantic_query:
+                driver = tool.semantic_query.split()[0]
+            return ToolRunResult(
+                tool.tool,
+                key,
+                run_macro_sector_impact_tool(
+                    driver=driver or "rbi_repo",
+                    direction=tool.direction or "",
+                ),
+            )
         return ToolRunResult(tool.tool, key, {"ok": False, "error": f"unknown tool {tool.tool}", "data": None})
     except Exception as exc:
         return ToolRunResult(tool.tool, key, {"ok": False, "error": str(exc), "data": None}, error=str(exc))

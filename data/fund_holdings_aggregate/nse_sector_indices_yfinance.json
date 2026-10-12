@@ -1,0 +1,251 @@
+{
+  "metadata": {
+    "title": "NSE sector indices aligned to news pipeline SECTOR_QUERIES",
+    "schema_version": "2.0.0",
+    "generated_date": "2026-10-12",
+    "lookup": "by_sector — keys match SECTOR_QUERIES / aggregated_sectors sector labels exactly (O(1) dict lookup).",
+    "benchmarks_lookup": "benchmarks — keyed by nse_index_name; Nifty 50 retained as broad benchmark.",
+    "yfinance_verified_on": "2026-10-12",
+    "recommended_runtime_check": "import yfinance as yf; df = yf.Ticker(symbol).history(period='5d'); assert not df.empty"
+  },
+  "benchmarks": {
+    "Nifty 50": {
+      "nse_index_name": "Nifty 50",
+      "index_type": "benchmark",
+      "yfinance_ticker": "^NSEI",
+      "yfinance_search_name": "NIFTY 50 (^NSEI)",
+      "ticker_status": "yfinance_verified",
+      "use_case": "Broad Indian equity benchmark for sector-relative returns."
+    }
+  },
+  "by_sector": {
+    "Aerospace & Defense": {
+      "nse_index_name": "Nifty Infrastructure",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXINFRA",
+      "yfinance_search_name": "NIFTY INFRA (^CNXINFRA)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Infrastructure proxy; Nifty India Defence not on Yahoo."
+    },
+    "Agricultural, Commercial & Construction Vehicles": {
+      "nse_index_name": "Nifty Auto",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXAUTO",
+      "yfinance_search_name": "NIFTY AUTO (^CNXAUTO)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Auto index proxy for tractors and commercial vehicles."
+    },
+    "Auto Components": {
+      "nse_index_name": "Nifty Auto",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXAUTO",
+      "yfinance_search_name": "NIFTY AUTO (^CNXAUTO)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Auto index proxy for auto-ancillary exposure."
+    },
+    "Automobiles": {
+      "nse_index_name": "Nifty Auto",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXAUTO",
+      "yfinance_search_name": "NIFTY AUTO (^CNXAUTO)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Banks": {
+      "nse_index_name": "Nifty Bank",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^NSEBANK",
+      "yfinance_search_name": "NIFTY BANK (^NSEBANK)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Beverages": {
+      "nse_index_name": "Nifty FMCG",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXFMCG",
+      "yfinance_search_name": "NIFTY FMCG (^CNXFMCG)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "FMCG proxy for beverage names."
+    },
+    "Capital Markets": {
+      "nse_index_name": "Nifty Financial Services",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXFIN",
+      "yfinance_search_name": "NIFTY FIN SERVICE (^CNXFIN)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "No dedicated Nifty Capital Markets ticker on Yahoo; financial services index used as proxy."
+    },
+    "Cement & Cement Products": {
+      "nse_index_name": "Nifty Infrastructure",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXINFRA",
+      "yfinance_search_name": "NIFTY INFRA (^CNXINFRA)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Infrastructure / construction proxy."
+    },
+    "Chemicals & Petrochemicals": {
+      "nse_index_name": "Nifty Commodities",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXCMDT",
+      "yfinance_search_name": "NIFTY COMMODITIES (^CNXCMDT)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Construction": {
+      "nse_index_name": "Nifty Infrastructure",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXINFRA",
+      "yfinance_search_name": "NIFTY INFRA (^CNXINFRA)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Consumer Durables": {
+      "nse_index_name": "Nifty Services Sector",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXSERVICE",
+      "yfinance_search_name": "NIFTY SERVICES (^CNXSERVICE)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Services-sector proxy; no Nifty Consumer Durables ticker on Yahoo."
+    },
+    "Diversified Fmcg": {
+      "nse_index_name": "Nifty FMCG",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXFMCG",
+      "yfinance_search_name": "NIFTY FMCG (^CNXFMCG)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Electrical Equipment": {
+      "nse_index_name": "Nifty Infrastructure",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXINFRA",
+      "yfinance_search_name": "NIFTY INFRA (^CNXINFRA)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Ferrous Metals": {
+      "nse_index_name": "Nifty Metal",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXMETAL",
+      "yfinance_search_name": "NIFTY METAL (^CNXMETAL)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Finance": {
+      "nse_index_name": "Nifty Financial Services",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXFIN",
+      "yfinance_search_name": "NIFTY FIN SERVICE (^CNXFIN)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Financial Technology (fintech)": {
+      "nse_index_name": "Nifty Financial Services",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXFIN",
+      "yfinance_search_name": "NIFTY FIN SERVICE (^CNXFIN)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Food Products": {
+      "nse_index_name": "Nifty FMCG",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXFMCG",
+      "yfinance_search_name": "NIFTY FMCG (^CNXFMCG)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Healthcare Services": {
+      "nse_index_name": "Nifty Pharma",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXPHARMA",
+      "yfinance_search_name": "NIFTY PHARMA (^CNXPHARMA)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Pharma index proxy for hospital operators."
+    },
+    "Industrial Products": {
+      "nse_index_name": "Nifty Infrastructure",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXINFRA",
+      "yfinance_search_name": "NIFTY INFRA (^CNXINFRA)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Infrastructure / capital-goods proxy."
+    },
+    "Insurance": {
+      "nse_index_name": "Nifty Financial Services",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXFIN",
+      "yfinance_search_name": "NIFTY FIN SERVICE (^CNXFIN)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Financial services index includes listed insurers."
+    },
+    "It - Software": {
+      "nse_index_name": "Nifty IT",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXIT",
+      "yfinance_search_name": "NIFTY IT (^CNXIT)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Leisure Services": {
+      "nse_index_name": "Nifty Services Sector",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXSERVICE",
+      "yfinance_search_name": "NIFTY SERVICES (^CNXSERVICE)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Non - Ferrous Metals": {
+      "nse_index_name": "Nifty Metal",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXMETAL",
+      "yfinance_search_name": "NIFTY METAL (^CNXMETAL)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Petroleum Products": {
+      "nse_index_name": "Nifty Energy",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXENERGY",
+      "yfinance_search_name": "NIFTY ENERGY (^CNXENERGY)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Pharmaceuticals & Biotechnology": {
+      "nse_index_name": "Nifty Pharma",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXPHARMA",
+      "yfinance_search_name": "NIFTY PHARMA (^CNXPHARMA)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Power": {
+      "nse_index_name": "Nifty Energy",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXENERGY",
+      "yfinance_search_name": "NIFTY ENERGY (^CNXENERGY)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Energy index proxy for power utilities."
+    },
+    "Realty": {
+      "nse_index_name": "Nifty Realty",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXREALTY",
+      "yfinance_search_name": "NIFTY REALTY (^CNXREALTY)",
+      "ticker_status": "yfinance_verified"
+    },
+    "Retailing": {
+      "nse_index_name": "Nifty Services Sector",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXSERVICE",
+      "yfinance_search_name": "NIFTY SERVICES (^CNXSERVICE)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Services-sector index proxy for retail."
+    },
+    "Telecom - Services": {
+      "nse_index_name": "Nifty IT",
+      "index_type": "sectoral",
+      "yfinance_ticker": "^CNXIT",
+      "yfinance_search_name": "NIFTY IT (^CNXIT)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "IT index proxy; Nifty Telecommunications not available on Yahoo."
+    },
+    "Transport Services": {
+      "nse_index_name": "Nifty Infrastructure",
+      "index_type": "thematic",
+      "yfinance_ticker": "^CNXINFRA",
+      "yfinance_search_name": "NIFTY INFRA (^CNXINFRA)",
+      "ticker_status": "yfinance_verified",
+      "proxy_note": "Infrastructure / logistics proxy."
+    }
+  },
+  "counts": {
+    "sectors_in_pipeline": 30,
+    "benchmarks": 1
+  }
+}

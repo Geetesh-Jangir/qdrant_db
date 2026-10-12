@@ -1,5 +1,7 @@
 # News pipeline — step by step
 
+For a **layered architecture diagram**, filter tables per stage, and observability files, see **[NEWS_PIPELINE_ARCHITECTURE.md](./NEWS_PIPELINE_ARCHITECTURE.md)**.
+
 This document describes what happens when you run:
 
 ```bash
