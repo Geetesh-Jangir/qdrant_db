@@ -5,7 +5,7 @@
 set -euo pipefail
 
 NEWS_RAG_REPO="${NEWS_RAG_REPO:-https://github.com/Geetesh-Jangir/qdrant_db.git}"
-NEWS_RAG_BRANCH="${NEWS_RAG_BRANCH:-ask-a-question}"
+NEWS_RAG_BRANCH="${NEWS_RAG_BRANCH:-v2}"
 NEWS_RAG_DIR="${NEWS_RAG_DIR:-/opt/news-rag}"
 
 echo "==> Bootstrap News RAG (ask-question / Option A)"
@@ -41,7 +41,7 @@ if [[ ! -f .env ]]; then
   echo ""
   echo "=== NEXT: edit secrets ==="
   echo "  nano ${NEWS_RAG_DIR}/.env"
-  echo "  (QDRANT_URL, QDRANT_API_KEY, GEMINI_API_KEY — remove YOUR_CLUSTER placeholder)"
+  echo "  (QDRANT_*, ANTHROPIC_API_KEY, GEMINI_API_KEY for fallback — remove YOUR_CLUSTER placeholder)"
   echo ""
   echo "=== THEN install ==="
   echo "  sudo NEWS_RAG_DIR=${NEWS_RAG_DIR} bash deploy/lightsail/install.sh"

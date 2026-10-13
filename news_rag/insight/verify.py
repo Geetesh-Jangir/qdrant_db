@@ -60,7 +60,10 @@ def verify_answer(
             if not any(str(x.get("name") or "") in insight_text for x in sector.sectors_negative[:4]):
                 gaps.append("sectors:answer_missing_hurt_names")
 
-    if brief.wants_funds():
+    from news_rag.insight.brief import asks_market_briefing
+
+    market_wide = asks_market_briefing(question) and not brief.funds and not findings.funds
+    if brief.wants_funds() and not market_wide:
         if not findings.funds:
             gaps.append("funds:none_found")
         for f in findings.funds[:5]:

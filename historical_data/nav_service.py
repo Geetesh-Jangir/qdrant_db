@@ -76,8 +76,24 @@ def fetch_raw_nav_history(isin: str, *, use_cache: bool = True) -> list[dict[str
         "Accept": "application/json",
     }
     
-    with httpx.Client(timeout=15.0) as client:
-        resp = client.get(url, headers=headers)
+    resp = None
+    last_exc: Exception | None = None
+    for attempt in range(3):  # retry transient read timeouts
+        try:
+            with httpx.Client(timeout=15.0 + 8.0 * attempt) as client:
+                resp = client.get(url, headers=headers)
+            break
+        except httpx.TimeoutException as exc:
+            last_exc = exc
+    if resp is None:
+        stale_path = _cache_path(clean_isin)
+        if stale_path.is_file():
+            try:
+                return json.loads(stale_path.read_text(encoding="utf-8")).get("records") or []
+            except Exception:
+                pass
+        raise last_exc  # type: ignore[misc]
+    if True:
         if resp.status_code != 200:
             # If API fails but stale cache exists, fall back gracefully
             stale_path = _cache_path(clean_isin)

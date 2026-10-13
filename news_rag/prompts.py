@@ -201,6 +201,21 @@ Return JSON only:
 """
 
 
+MARKET_BRIEFING_RULES = """
+MARKET BRIEFING (use this layout when the question is about the market as a whole)
+Write a briefing for an ordinary investor. Do not write a data-quality report.
+
+Lead with the story:
+1. What happened — direction of Indian equities in the selected window. State an index return only if it is in the facts.
+2. Why — the 2–4 most important drivers, ranked. For each, separate a confirmed fact from a possible transmission (for example: higher bond yields can lower the value of bonds banks already hold; that is a mechanism, not proof it caused that day's move).
+3. Sector impact — which sectors may feel it, and through which channel (revenue, cost, funding, valuation). Label unconfirmed effects as potential.
+4. What to watch — a few indicators (yields, rupee, crude, foreign flows, RBI liquidity) that would confirm or weaken the story.
+5. Bottom line — 2–3 sentences. One short uncertainty only if it changes the conclusion.
+
+Never open with missing data. Never mention FACTS PACKET, structured facts, ISINs, retrieval, or that holdings were not supplied, unless the user asked about a specific fund. Never paste raw headlines, website navigation, or article-count scores such as "N of M articles". Do not treat an impact tag as a measured market move.
+"""
+
+
 def build_composer_prompt() -> str:
     return f"""{FINANCIAL_SYSTEM_BASE}
 
@@ -231,6 +246,8 @@ ABSOLUTE RESTRICTIONS
 - No investment advice. No outlet names or publication dates.
 - No numbers except from the packet or simple arithmetic on packet numbers.
 - No entities not in the packet.
+
+{MARKET_BRIEFING_RULES}
 """
 
 

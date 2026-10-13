@@ -2,7 +2,7 @@
 
 Standalone **News RAG** (Option A): Qdrant Cloud + Gemini + this repo. No Rupeestop merge.
 
-**GitHub:** `https://github.com/Geetesh-Jangir/qdrant_db` — branch **`ask-a-question`** (or `huge-corpus` for older deploys)
+**GitHub:** `https://github.com/Geetesh-Jangir/qdrant_db` — branch **`v2`** (or `ask-a-question` / `huge-corpus` for older deploys)
 
 ---
 
@@ -25,7 +25,7 @@ Note the **public IPv4**. Browser URL: `http://PUBLIC_IP/`
 
 ```bash
 sudo apt-get update && sudo apt-get install -y git curl
-sudo git clone --depth 1 -b ask-a-question https://github.com/Geetesh-Jangir/qdrant_db.git /opt/news-rag
+sudo git clone --depth 1 -b v2 https://github.com/Geetesh-Jangir/qdrant_db.git /opt/news-rag
 sudo chown -R ubuntu:ubuntu /opt/news-rag
 cd /opt/news-rag
 bash deploy/lightsail/server-bootstrap.sh
@@ -45,11 +45,15 @@ Required (no `YOUR_CLUSTER` placeholder):
 QDRANT_URL=https://xxxx.cloud.qdrant.io
 QDRANT_API_KEY=...
 QDRANT_COLLECTION=news_articles
-RAG_LLM_PROVIDER=gemini
+RAG_LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=...
+ANTHROPIC_MODEL=claude-haiku-5-5
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash-lite
 PYTHONPATH=/opt/news-rag
 ```
+
+Primary LLM is **Anthropic**; **Gemini** is used as fallback when the primary call fails. Keep both keys set on the server.
 
 Save: **Ctrl+O**, **Enter**, **Ctrl+X**.
 
@@ -80,7 +84,7 @@ Open **`http://PUBLIC_IP/`** → ask a question → **Get Insight** (first ask m
 
 ```bash
 cd /opt/news-rag
-git pull origin ask-a-question
+git pull origin v2
 source .venv/bin/activate
 pip install -r requirements.txt -r news_rag/requirements.txt
 deactivate
@@ -95,7 +99,7 @@ Committed files power fund screens, sector weights, stock aliases (e.g. BHEL), a
 
 **Not in git:** `.env`, `data/embedding_models/` (downloaded by `install.sh`), `data/nav_cache/` (runtime), Qdrant news corpus.
 
-**Runtime APIs (outbound HTTPS from the instance):** Qdrant Cloud, Gemini/DeepSeek, and RupeeStop NAV/holdings for live fund detail when you ask about specific stocks.
+**Runtime APIs (outbound HTTPS from the instance):** Qdrant Cloud, Anthropic/Gemini/DeepSeek, and RupeeStop NAV/holdings for live fund detail when you ask about specific stocks.
 
 ---
 
@@ -120,5 +124,5 @@ python3 -c "import news_rag.app"   # shows import errors immediately
 | Site timeout in browser | Lightsail **HTTP 80** open; use `http://` not `https://` |
 | `python` not found | Use `python3` or `.venv/bin/python` |
 | `Permission denied` on `.venv` or `rag_query_logs` | `sudo chown -R ubuntu:ubuntu /opt/news-rag && sudo systemctl restart news-rag` |
-| `sector_to_isin_weights` missing | `git pull origin ask-a-question` |
+| `sector_to_isin_weights` missing | `git pull origin v2` |
 | Empty / no news answers | Ingest into Qdrant Cloud (`python -m news_pipeline` or CI) |

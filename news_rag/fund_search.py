@@ -725,9 +725,29 @@ class FundIndex:
 
         self._ensure_loaded()
         pool = [e for e in self._entries if e.get("fund_name")]
-        if len(pool) < 2:
+        # Random picks should have a meaningful sector mix: skip debt/liquid/gilt/gold-type schemes.
+        _non_equity = re.compile(
+            r"gilt|liquid|overnight|debt|bond|money market|treasury|duration|credit risk|banking & psu|"
+            r"fixed maturity|\bfmp\b|\bg-?sec\b|ibx|sdl|gold|silver|arbitrage|floater|ultra short|low duration|"
+            r"fund of funds|\bfof\b|etf|multi asset",
+            re.I,
+        )
+        _equity = re.compile(
+            r"equity|cap\b|flexi|focus|elss|tax saver|value|contra|dividend yield|sectoral|thematic|infra|"
+            r"pharma|health|bank|financial|technology|\bit\b|consumption|opportunit|bluechip|blue chip|"
+            r"manufactur|energy|\bpsu\b|\besg\b|quant|nifty 50|sensex|momentum|alpha|growth fund|"
+            r"innovation|business cycle|mnc|digital|auto",
+            re.I,
+        )
+        equity_pool = [
+            e for e in pool
+            if _equity.search(str(e.get("fund_name"))) and not _non_equity.search(str(e.get("fund_name")))
+        ]
+        if len(equity_pool) >= 5:
+            pool = equity_pool
+        n = max(1, n)
+        if len(pool) <= n:
             return [str(e["fund_name"]) for e in pool]
-        n = max(2, n)
         shuffled = list(pool)
         random.shuffle(shuffled)
         picked: list[str] = []
@@ -822,15 +842,24 @@ class FundIndex:
         if isin_clean != (isin or "").strip().upper():
             logger.info("Resolved legacy ISIN %s → %s for fund API", isin.strip().upper(), isin_clean)
         url = f"{_API_BASE_URL}/{isin_clean}"
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                resp = client.get(url)
-                if resp.status_code != 200:
-                    logger.warning("RupeeStop fund API returned status %d for ISIN %s", resp.status_code, isin_clean)
-                    return None
-                payload = resp.json()
-        except Exception as exc:
-            logger.warning("Failed to fetch fund detail from RupeeStop API for %s: %s", isin_clean, exc)
+        payload = None
+        for attempt in range(3):  # transient read timeouts must not silently produce an empty fund
+            try:
+                with httpx.Client(timeout=timeout + 6.0 * attempt) as client:
+                    resp = client.get(url)
+                    if resp.status_code != 200:
+                        logger.warning("RupeeStop fund API returned status %d for ISIN %s", resp.status_code, isin_clean)
+                        if resp.status_code < 500:
+                            return None
+                        continue
+                    payload = resp.json()
+                    break
+            except Exception as exc:
+                logger.warning(
+                    "Failed to fetch fund detail from RupeeStop API for %s (attempt %d/3): %s",
+                    isin_clean, attempt + 1, exc,
+                )
+        if payload is None:
             return None
 
         raw = payload.get("data") or {}

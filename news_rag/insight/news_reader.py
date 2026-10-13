@@ -181,6 +181,12 @@ def select_articles(articles: list[dict[str, Any]], limit: int = MAX_ARTICLES) -
         key = re.sub(r"\W+", " ", str(a.get("title") or "")).strip().lower()[:90] or str(a.get("url") or "")
         if not key or key in seen:
             continue
+        body = _body(a)
+        title = str(a.get("title") or "")
+        from news_rag.snippet_clean import article_text_usable, starts_mid_sentence
+
+        if body and not article_text_usable(body) and (starts_mid_sentence(title) or not article_text_usable(title)):
+            continue
         seen.add(key)
         uniq.append(a)
     attr = [a for a in uniq if a.get("_attr_sector")]
@@ -368,7 +374,7 @@ def _llm_read(
             user_content=user,
             context_blocks=[],
             model_override=router_model(settings),
-            max_tokens=2200,
+            max_tokens=4000,
             temperature=0.0,
             query_log=query_log,
             response_schema=READER_SCHEMA,
@@ -416,10 +422,16 @@ _SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
 
 
 def _first_fact(a: dict[str, Any]) -> str:
+    from news_rag.snippet_clean import article_text_usable, starts_mid_sentence
+
     body = _body(a)
     for sent in _SENT_SPLIT.split(body):
         s = sent.strip()
-        if 40 <= len(s) <= 220 and re.search(r"\d|%|rise|fall|grow|decline|demand|sales|cost|price", s, re.I):
+        if not (40 <= len(s) <= 220):
+            continue
+        if starts_mid_sentence(s) or not article_text_usable(s):
+            continue
+        if re.search(r"\d|%|rise|fall|grow|decline|demand|sales|cost|price", s, re.I):
             return s
     title = str(a.get("title") or "").strip()
     return title[:200]
@@ -462,7 +474,7 @@ def _heuristic_read(brief: QuestionBrief, arts: list[dict[str, Any]]) -> NewsRea
     sn = [SectorCall(sector)] if sector and tone in ("negative", "mixed") else []
     return NewsRead(
         tone=tone,
-        tone_reason=f"{pos} of the {len(arts)} articles read positive and {neg} negative." if arts else "",
+        tone_reason="",
         claims=claims,
         sectors_positive=sp,
         sectors_negative=sn,

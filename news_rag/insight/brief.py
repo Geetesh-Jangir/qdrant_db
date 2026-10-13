@@ -196,6 +196,26 @@ def asks_random_fund_compare(question: str) -> bool:
     return bool(_COMPARE_RE.search(q) and _RANDOM_FUNDS_RE.search(q))
 
 
+_RANDOM_ONE_FUND_RE = re.compile(
+    r"\brandom(?:ly)?\b.{0,24}\b(?:fund|scheme)\b|"
+    r"\b(?:take|pick|choose|select|show|give|use)\b.{0,24}\b(?:any|a|some|one)\b.{0,12}\b(?:fund|scheme)\b",
+    re.I,
+)
+
+
+def random_fund_count(question: str) -> int:
+    """How many unnamed funds the user wants us to pick at random (0 = none)."""
+    q = question or ""
+    if asks_random_fund_compare(q):
+        return 2
+    return 1 if _RANDOM_ONE_FUND_RE.search(q) else 0
+
+
+def asks_market_briefing(question: str) -> bool:
+    """A market-wide 'what is happening' question, not a named fund or stock."""
+    return bool(_MARKET_RE.search(question or ""))
+
+
 def asks_weak_sector(question: str) -> bool:
     """User wants the sector that performed poorly, judged from returns, not from a news headline."""
     return bool(_WEAK_SECTOR_RE.search(question or ""))
@@ -449,7 +469,7 @@ def plan_evidence(brief: QuestionBrief, question: str) -> list[str]:
         needs += ["fund_facts_nav", "fund_composition", "return_series"]
         if _COMPARE_RE.search(q):
             needs.append("peer_compare")
-        if not asks_random_fund_compare(q) and not named_fund_why(q, brief):
+        if not random_fund_count(q) and not named_fund_why(q, brief):
             needs.append("news_drivers")
     if brief.stocks:
         needs.append("stock_price")
@@ -553,10 +573,22 @@ def _heuristic_brief(question: str) -> QuestionBrief:
     if stocks and not _FUND_WORD_RE.search(question):
         funds = []
         sector, sector_keys = "", []
-    if asks_random_fund_compare(question) and len(funds) < 2:
+    need_random = random_fund_count(question)
+    if need_random and len(funds) < need_random:
         from news_rag.fund_search import get_fund_index
 
-        funds = get_fund_index().sample_fund_names(2)
+        from news_rag.fund_search import lookup_extracted_fund
+
+        for _attempt in range(6):
+            funds = get_fund_index().sample_fund_names(need_random)
+            try:
+                ok = all(
+                    bool((lookup_extracted_fund(name=n)[0] or {}).get("sectors")) for n in funds
+                )
+            except Exception:
+                ok = False
+            if ok:
+                break
     if funds:
         # a sector word inside a fund's own name is not a sector question
         sector, sector_keys = ("", []) if not re.search(r"\bsector\b", question, re.I) else (sector, sector_keys)
@@ -734,8 +766,8 @@ def build_question_brief(
                 resolved_llm_funds.append(f.strip())
         except Exception:
             resolved_llm_funds.append(f.strip())
-    if asks_random_fund_compare(q) and len(heur.funds) >= 2:
-        funds = list(heur.funds[:2])
+    if random_fund_count(q) and len(heur.funds) >= random_fund_count(q):
+        funds = list(heur.funds[: random_fund_count(q)])
     else:
         funds = list(dict.fromkeys(heur.funds + resolved_llm_funds))
     llm_stocks = [s for s in (parsed.get("stocks") or []) if isinstance(s, str) and s.strip()]

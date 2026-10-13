@@ -74,15 +74,22 @@ def _named_fund_rows(evidence: EvidenceSet) -> list[dict[str, Any]]:
     return rows
 
 
-def _item_for_isin(evidence: EvidenceSet, facet: str, isin: str) -> dict[str, Any] | None:
+def _item_for_isin(
+    evidence: EvidenceSet, facet: str, isin: str, prefer_key: str = ""
+) -> dict[str, Any] | None:
+    """Evidence dict for this ISIN. Several tools can fill one facet, so prefer the one carrying `prefer_key`."""
     key = (isin or "").upper()
     if not key:
         return None
+    first: dict[str, Any] | None = None
     for item in evidence.by_facet(facet):
         d = item.data
         if str(d.get("isin") or "").upper() == key or item.entity_key.upper() == key:
-            return d
-    return None
+            if not prefer_key or d.get(prefer_key) is not None:
+                return d
+            if first is None:
+                first = d
+    return first
 
 
 
@@ -367,6 +374,10 @@ def _build_evidence_text(findings: Findings) -> str:
         for os_ in f.other_top_sectors[:4]:
             vals.append(os_.get("percentage"))
             lines.append(f"{tag}_sector={os_.get('sector')}")
+        for sm in f.sector_mix:
+            vals.append(sm.get("percentage"))
+            vals.append(sm.get("index_return_pct"))
+            lines.append(f"{tag}_sector_mix={sm.get('sector')}")
         for h in f.top_holdings:
             vals.append(h.get("percentage"))
             lines.append(f"{tag}_holding={h.get('name')}")
@@ -517,7 +528,32 @@ def compute_findings(
         other_sectors.sort(key=lambda x: -float(x.get("percentage") or 0))
         other_sectors = other_sectors[:4]
 
-        ret_data = _item_for_isin(evidence, "return_series", isin) or _item_for_isin(evidence, "fund_facts_nav", isin) or {}
+        sector_mix: list[dict[str, Any]] = []
+        vs_idx = _item_for_isin(evidence, "fund_vs_index", isin) or {}
+        idx_by_sector = {
+            re.sub(r"\W+", " ", str(x.get("sector") or "")).strip().lower(): x
+            for x in (vs_idx.get("sectors") or [])
+            if isinstance(x, dict)
+        }
+        for s_ in sorted(
+            [x for x in sectors_list if isinstance(x, dict)],
+            key=lambda x: -float(x.get("percentage") or 0),
+        )[:10]:
+            lab = str(s_.get("sector") or "")
+            hit = idx_by_sector.get(re.sub(r"\W+", " ", lab).strip().lower()) or {}
+            sector_mix.append(
+                {
+                    "sector": lab,
+                    "percentage": round(float(s_.get("percentage") or 0), 2),
+                    "index_label": hit.get("nse_index_name") or "",
+                    "index_return_pct": hit.get("index_return_pct"),
+                }
+            )
+        ret_data = (
+            _item_for_isin(evidence, "return_series", isin, prefer_key="window_pct")
+            or _item_for_isin(evidence, "fund_facts_nav", isin)
+            or {}
+        )
         window_pct = ret_data.get("window_pct")
         if window_pct is None:
             for k in ("return_pct", "return_1m_pct", "return_3m_pct", "return_1y_pct"):
@@ -581,6 +617,9 @@ def compute_findings(
                 ],
                 exposure_sectors=breakdown,
                 other_top_sectors=other_sectors,
+                sector_mix=sector_mix,
+                category=str(comp.get("category") or ""),
+                as_on=str(comp.get("as_on") or ""),
                 return_window_pct=fund_ret_f,
                 monthly_returns=monthly,
                 benchmark_return_pct=float(bench_pct) if bench_pct is not None else None,

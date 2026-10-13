@@ -525,16 +525,28 @@ def call_json_llm(
                 output_tokens=result.output_tokens,
                 total_tokens=result.total_tokens,
             )
-        repair_user = (
-            "The previous reply was cut off or was not a JSON object. "
-            "Return one complete JSON object for the same task. No markdown.\n\n"
-            f"Partial reply:\n{(result.raw_text or '')[:6000]}"
-        )
+        if (result.raw_text or "").strip():
+            repair_user = (
+                "The previous reply was cut off or was not a JSON object. "
+                "Return one complete JSON object for the same task. No markdown.\n\n"
+                f"Partial reply:\n{(result.raw_text or '')[:6000]}"
+            )
+            repair_max = max_tokens
+            repair_context = None
+        else:
+            # Nothing usable came back (all tokens went elsewhere): ask the original question again
+            # with more room instead of "repairing" an empty reply.
+            repair_user = user_content
+            repair_max = min(max(max_tokens * 2, 4000), 8000)
+            repair_context = context_blocks
+            if query_log is not None:
+                query_log.write(f"LLM_RETRY stage={stage or 'json'} reason=empty_reply max_tokens={repair_max}")
         repaired = call_json_llm(
             system_prompt=system_prompt,
             user_content=repair_user,
+            context_blocks=repair_context,
             model_override=model_override,
-            max_tokens=max_tokens,
+            max_tokens=repair_max,
             temperature=temperature,
             query_log=query_log,
             response_schema=response_schema,
@@ -595,20 +607,35 @@ def _call_anthropic(
         "messages": [{"role": "user", "content": user_content}],
     }
     # Haiku 5.5+ rejects `temperature` on the Messages API (400 deprecated).
-    if not chosen_model.startswith("claude-haiku-5"):
+    is_v5 = chosen_model.startswith("claude-haiku-5")
+    if not is_v5:
         payload["temperature"] = temperature
+    else:
+        # Thinking is on by default and its tokens count toward max_tokens, which cut replies off.
+        effort = (getattr(settings, "anthropic_effort", "") or "medium").strip().lower()
+        if effort not in ("low", "medium", "high"):
+            effort = "medium"
+        payload["output_config"] = {"effort": effort}
+        if not getattr(settings, "anthropic_thinking", False):
+            payload["thinking"] = {"type": "disabled"}
 
     started = time.perf_counter()
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
     with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
-        response = client.post(
-            url,
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-        )
+        response = client.post(url, headers=headers, json=payload)
+        if response.status_code == 400 and is_v5 and ("thinking" in response.text or "effort" in response.text):
+            if query_log is not None:
+                query_log.write(
+                    f"anthropic_retry_without_thinking_fields body={response.text[:200]}"
+                )
+            payload.pop("thinking", None)
+            payload.pop("output_config", None)
+            payload["max_tokens"] = max(chosen_max_tokens, 4000)
+            response = client.post(url, headers=headers, json=payload)
         duration = time.perf_counter() - started
         if query_log is not None and response.status_code >= 400:
             query_log.log_error(

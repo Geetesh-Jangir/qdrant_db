@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from news_rag.config import get_settings
-from news_rag.insight.brief import QuestionBrief, asks_sector_lists
+from news_rag.insight.brief import QuestionBrief, asks_market_briefing, asks_sector_lists
 from news_rag.insight.findings import Findings, FundFinding, SectorFinding
 from news_rag.insight.gather import EvidenceSet
 from news_rag.insight.grounding import (
@@ -26,7 +26,7 @@ from news_rag.insight.grounding import (
     strip_ungrounded_numbers,
 )
 from news_rag.prompts import build_composer_prompt, build_interpret_hybrid_prompt
-from news_rag.snippet_clean import polish_insight_sentence
+from news_rag.snippet_clean import article_text_usable, polish_insight_sentence, starts_mid_sentence
 from news_rag.llm_client import (
     call_insight_llm,
     call_json_llm,
@@ -65,12 +65,27 @@ def _composer_user_content(packet: dict[str, Any], analysis_brief: dict[str, Any
             "USER CONSTRAINT (mandatory): List ONLY sectors and funds negatively affected. "
             "Do not list tailwind / helped names."
         )
-    from news_rag.insight.brief import asks_random_fund_compare, asks_share_price
+    from news_rag.insight.brief import asks_random_fund_compare, asks_share_price, random_fund_count
+
+    if random_fund_count(str(packet.get("question") or "")) == 1:
+        parts.append(
+            "USER CONSTRAINT (mandatory): The user did not name a fund. The fund in this packet was "
+            "picked at random from the catalog. Say so in one short phrase, then answer exactly what "
+            "was asked about THAT fund (e.g. its sector weights from the composition data, top holdings, "
+            "return). Lead with the fund's own sector weights. Do not give a market-wide sector essay, "
+            "do not ask the user to name a fund, and do not switch funds."
+        )
 
     if asks_share_price(str(packet.get("question") or "")) and packet.get("stock"):
         parts.append(
             "USER CONSTRAINT (mandatory): The user asked for a share price. "
             "Lead with the rupee price in facts.stock. Do not answer with a mutual fund."
+        )
+    if asks_market_briefing(str(packet.get("question") or "")) and not packet.get("funds"):
+        parts.append(
+            "USER CONSTRAINT (mandatory): This is a market briefing. Lead with what happened "
+            "and why. Do not mention missing ISINs, holdings, FACTS PACKET, or article counts. "
+            "Do not ask the user for fund data."
         )
     if asks_random_fund_compare(str(packet.get("question") or "")):
         parts.append(
@@ -86,7 +101,16 @@ def _composer_user_content(packet: dict[str, Any], analysis_brief: dict[str, Any
         )
     return "\n\n".join(parts)
 
-_ADVICE_RE = re.compile(r"\b(you should|should (?:buy|sell|invest)|buy|sell|invest in|recommend\w*|good time to)\b", re.I)
+# Real advice only. Descriptive market language ("foreign investors sold", "selling pressure") is fine.
+_ADVICE_RE = re.compile(
+    r"\b(?:you should|investors should (?:buy|sell|invest|hold|avoid|switch|accumulate)|"
+    r"should (?:buy|sell|invest|hold|avoid|switch|accumulate)|"
+    r"(?:we|i) recommend|recommend(?:ed|s|ing)? (?:buying|selling|investing|holding|that you)|"
+    r"good time to (?:buy|sell|invest)|"
+    r"(?:consider|worth) (?:buying|selling|investing|adding)|"
+    r"(?:buy|accumulate|avoid) (?:on dips?|these|this fund|the fund))\b",
+    re.I,
+)
 _MARKER_RE = re.compile(r"\s*\[c(\d+)\]")
 _OUTLET_RE = re.compile(
     r"\b(Economic Times|Livemint|Mint|Reuters|CNBC|CNBC-TV18|Moneycontrol|Business Standard|NDTV|Bloomberg|Financial Express)\b",
@@ -96,6 +120,25 @@ _DATE_RE = re.compile(
     r"\b(?:\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*|\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2})\b",
     re.I,
 )
+
+
+def scrub_composer_text(text: str, packet: dict[str, Any], evidence_text: str) -> str:
+    """Remove only the offending sentences/numbers instead of discarding the whole answer."""
+    allowed = cores_in_text(evidence_text)
+    allowed.update(cores_in_text(json.dumps(packet, ensure_ascii=False)))
+    kept_lines: list[str] = []
+    for line in (text or "").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            kept_lines.append(line)
+            continue
+        sentences = re.split(r"(?<=[.!?])\s+", line)
+        ok = [
+            s for s in sentences
+            if not (_ADVICE_RE.search(s) or _OUTLET_RE.search(s) or _DATE_RE.search(s))
+        ]
+        kept_lines.append(" ".join(ok))
+    scrubbed = "\n".join(kept_lines)
+    return strip_ungrounded_numbers(scrubbed, allowed)
 
 
 def check_composer_guardrails(text: str, packet: dict[str, Any], evidence_text: str) -> list[str]:
@@ -693,8 +736,12 @@ def _assemble(
         lists = _sector_lists_block(s, emphasize_down=emphasize, side=side)
         if lists:
             sector_block += ["", lists]
-    if not why_block and s and s.claims and not has_sector and not brief.wants_funds():
-        key_facts = [c["text"] for c in s.claims[:4] if c.get("text")]
+    market = asks_market_briefing(question) and not brief.funds
+    if not why_block and s and s.claims and not has_sector and not brief.wants_funds() and not market:
+        key_facts = [
+            t for t in (polish_insight_sentence(str(c.get("text") or ""), max_chars=200) for c in s.claims[:6])
+            if t and article_text_usable(t) and not starts_mid_sentence(t)
+        ][:3]
         if key_facts:
             sector_block += ["", "**Key facts**", "", "\n".join(f"- {t}" for t in key_facts)]
     narrative_blocks = [why_block] if why_block else ["\n".join(sector_block).strip()]
@@ -734,6 +781,7 @@ def _assemble(
     display = "\n\n".join(
         p for p in [headline, narrative, "\n".join(f"• {b}" for b in bullets), closing_full] if p
     )
+    display = _drop_pipeline_voice(display)
     return ComposedInsight(
         headline=headline,
         narrative=narrative,
@@ -742,6 +790,125 @@ def _assemble(
         display=display.strip(),
         sub_ask_coverage=[a.text for a in sorted(brief.sub_asks, key=lambda a: a.order or 0)],
     )
+
+
+_PIPELINE_VOICE = re.compile(
+    r"facts packet|structured facts|no fund isin|holdings were not|were not supplied|"
+    r"retrieval implementation|backend processing|average tagged impact",
+    re.I,
+)
+
+
+def _drop_pipeline_voice(text: str) -> str:
+    kept: list[str] = []
+    for para in re.split(r"\n\s*\n", text or ""):
+        if _PIPELINE_VOICE.search(para):
+            continue
+        kept.append(para)
+    return "\n\n".join(kept).strip()
+
+
+def _clean_market_claims(findings: Findings) -> list[str]:
+    s = findings.sector
+    if not s:
+        return []
+    out: list[str] = []
+    for c in s.claims:
+        raw = str(c.get("text") or "")
+        line = polish_insight_sentence(raw, max_chars=220)
+        if not line or starts_mid_sentence(line) or not article_text_usable(line):
+            continue
+        if re.search(r"\d+\s+of the\s+\d+\s+articles", line, re.I):
+            continue
+        out.append(line.rstrip("."))
+        if len(out) >= 4:
+            break
+    return out
+
+
+def _market_briefing_compose(
+    question: str, brief: QuestionBrief, findings: Findings, evidence: EvidenceSet
+) -> ComposedInsight:
+    window = brief.window_label or "the recent window"
+    claims = _clean_market_claims(findings)
+    s = findings.sector
+    tone_word = {"positive": "positive", "negative": "negative", "mixed": "mixed"}.get(
+        (s.tone if s else "") or "", ""
+    )
+    idx = ""
+    if s and s.index_return_pct is not None:
+        idx = f" The broad market index is **{s.index_return_pct:+.1f}%** over **{window}**."
+    reason = polish_insight_sentence(str(s.tone_reason or ""), max_chars=240) if s else ""
+    if reason and re.search(r"\d+\s+of the\s+\d+\s+articles", reason, re.I):
+        reason = ""
+    themes = [str(t).strip() for t in ((s.news_themes if s else None) or []) if str(t).strip()][:4]
+
+    if reason:
+        lead = reason.rstrip(".") + "."
+    elif claims:
+        lead = claims[0].rstrip(".") + "."
+    elif themes:
+        lead = f"The main themes in the news are {', '.join(themes)}."
+    else:
+        lead = f"News flow over **{window}** points to a market driven by a few macro themes."
+    tone_bit = f" Overall tone: **{tone_word}**." if tone_word else ""
+    headline = f"**Indian market.** {lead}{tone_bit}{idx}"
+
+    drivers = [c for c in claims if c.rstrip(".") not in lead][:4]
+    blocks: list[str] = []
+    if drivers or themes:
+        lines = [f"- {d}." for d in drivers]
+        if themes and not drivers:
+            lines = [f"- {t}" for t in themes]
+        blocks.append("### What drove the market\n\n" + "\n".join(lines))
+
+    sector_lines: list[str] = []
+    if s:
+        for title, rows in (("Under pressure", s.sectors_negative), ("Holding up better", s.sectors_positive)):
+            items = []
+            for x in (rows or [])[:5]:
+                name = str(x.get("name") or "").strip()
+                if not name:
+                    continue
+                why = polish_insight_sentence(str(x.get("reason") or ""), max_chars=160).rstrip(".")
+                items.append(f"- **{name}**" + (f" — {why}" if why else ""))
+            if items:
+                sector_lines.append(f"**{title}**\n" + "\n".join(items))
+    if sector_lines:
+        blocks.append(
+            "### Sector impact\n\n" + "\n\n".join(sector_lines)
+            + "\n\nTreat these as likely channels (funding cost, bond values, input costs, foreign flows), "
+            "not proof of what caused the whole move."
+        )
+
+    if not blocks:
+        blocks.append(
+            "### What to watch\n\nBond yields, banking-system liquidity, the rupee and foreign investment flows."
+        )
+    sector_read = "\n\n".join(blocks)
+    def _names(rows) -> str:
+        return ", ".join(str(x.get("name")) for x in (rows or [])[:3] if x.get("name"))
+
+    bits = []
+    if s and _names(s.sectors_negative):
+        bits.append(f"Most under pressure: {_names(s.sectors_negative)}.")
+    if s and _names(s.sectors_positive):
+        bits.append(f"Holding up better: {_names(s.sectors_positive)}.")
+    if not findings.funds:
+        bits.append("Fund-level impact needs a named scheme.")
+    closing = " ".join(bits)
+    out = _assemble(
+        brief,
+        findings,
+        evidence,
+        question=question,
+        headline=headline,
+        sector_read=sector_read,
+        fund_lines={},
+        closing=closing,
+    )
+    out.answer_trace = {"mode": "market_briefing"}
+    return out
 
 
 def _stock_quote(evidence: EvidenceSet | None, brief: QuestionBrief) -> dict[str, Any] | None:
@@ -766,6 +933,9 @@ def _stock_quote(evidence: EvidenceSet | None, brief: QuestionBrief) -> dict[str
 def _structured_compose(
     question: str, brief: QuestionBrief, findings: Findings, evidence: EvidenceSet
 ) -> ComposedInsight:
+    if asks_market_briefing(question) and not brief.funds and not findings.funds:
+        out = _market_briefing_compose(question, brief, findings, evidence)
+        return out
     quote = _stock_quote(evidence, brief)
     if quote and not findings.funds:
         price = quote.get("price_inr")
@@ -875,6 +1045,7 @@ def _facts(
             "claims": [
                 {"id": c.get("id"), "text": c.get("text"), "sentiment": c.get("sentiment")}
                 for c in s.claims
+                if article_text_usable(str(c.get("text") or "")) and not starts_mid_sentence(str(c.get("text") or ""))
             ],
             "sectors_helped": (
                 s.sectors_positive
@@ -898,6 +1069,9 @@ def _facts(
                 "picked_for_sector": f.exposure_sector,
                 "exposure_pct": f.exposure_pct,
                 "top_holdings": f.top_holdings[:5],
+                "sector_mix": f.sector_mix,
+                "category": f.category,
+                "portfolio_as_on": f.as_on,
                 "news_tilt": f.news_tilt,
                 "alignment": f.alignment,
                 "helped_sectors": f.pos_sectors,
@@ -957,6 +1131,8 @@ def _llm_compose_from_packet(
         _pipeline_note(pipeline_errors, "compose", msg)
         return None
 
+    if res is None:
+        return None
     text = (res.raw_text or "").strip()
     if not text:
         return None
@@ -965,35 +1141,43 @@ def _llm_compose_from_packet(
     if violations:
         if query_log is not None:
             query_log.write(f"COMPOSER guardrails_violated count={len(violations)}: {violations}")
-        repair_user = (
-            f"The draft below has guardrail violations:\n\n{text}\n\n"
-            f"Violations:\n" + "\n".join(f"- {v}" for v in violations) + "\n\n"
-            "Rewrite the markdown response fixing every violation. "
-            "Strictly follow all rules: no outlet names, no dates, no advice, "
-            "and only use numbers from the FACTS PACKET."
-        )
-        try:
-            res_repair = call_insight_llm(
-                system_prompt=system_prompt,
-                user_content=repair_user,
-                model_override=composer_model(settings),
-                max_tokens=2500,
-                temperature=0.1,
-                query_log=query_log,
+        original = text
+        only_numbers = violations == ["Contains ungrounded numbers."]
+        if only_numbers:
+            # Cheap, lossless fix: drop just the numbers that are not in the data.
+            text = scrub_composer_text(original, packet, findings.evidence_text)
+        else:
+            repair_user = (
+                f"{user_content}\n\n---\nYour previous draft had guardrail violations:\n\n{original}\n\n"
+                "Violations:\n" + "\n".join(f"- {v}" for v in violations) + "\n\n"
+                "Rewrite the full answer from the FACTS PACKET above, fixing every violation and keeping "
+                "all substantive content that answers the user's question. No outlet names, no dates, "
+                "no advice, and only numbers present in the packet. Never say data is missing if the "
+                "packet contains it."
             )
-            text_repair = (res_repair.raw_text or "").strip()
-            if text_repair:
-                violations_repair = check_composer_guardrails(text_repair, packet, findings.evidence_text)
-                if not violations_repair:
+            try:
+                res_repair = call_insight_llm(
+                    system_prompt=system_prompt,
+                    user_content=repair_user,
+                    model_override=composer_model(settings),
+                    max_tokens=3000,
+                    temperature=0.1,
+                    query_log=query_log,
+                )
+                text_repair = ((res_repair.raw_text if res_repair else "") or "").strip()
+                if (
+                    len(text_repair) >= max(200, int(len(original) * 0.5))
+                    and not check_composer_guardrails(text_repair, packet, findings.evidence_text)
+                ):
                     text = text_repair
                 else:
-                    return None
-            else:
-                return None
-        except Exception:
+                    text = scrub_composer_text(original, packet, findings.evidence_text)
+            except Exception:
+                text = scrub_composer_text(original, packet, findings.evidence_text)
+        if len(text.strip()) < 200:
             return None
 
-    text = strip_media_attribution(text)
+    text = _drop_pipeline_voice(strip_media_attribution(text))
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     headline = ""
     for line in lines:

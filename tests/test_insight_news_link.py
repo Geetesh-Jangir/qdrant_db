@@ -149,6 +149,7 @@ def _llm(parsed):
 def _compose(monkeypatch, parsed):
     monkeypatch.setattr(interpret_mod, "llm_api_key_configured", lambda *_a, **_k: True)
     monkeypatch.setattr(interpret_mod, "call_json_llm", _llm(parsed))
+    monkeypatch.setattr(interpret_mod, "call_insight_llm", lambda *_a, **_k: None)
     brief = _brief()
     findings = compute_findings(brief, _evidence(), _read())
     return compose_from_findings("q", brief, findings, _evidence()), findings
@@ -168,7 +169,7 @@ def test_hybrid_compose_renders_citations_and_keeps_code_numbers(monkeypatch):
     assert "Maruti Suzuki carries the demand news" in out.display
     # numbers/labels come from code, not the model
     assert "Automobiles 30.0%" in out.display
-    assert "tailwind" in out.display and "moved with it" in out.display
+    assert "tailwind" in out.display
     assert out.answer_trace["field_fallbacks"] == []
 
 

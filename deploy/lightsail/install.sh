@@ -8,7 +8,7 @@ set -euo pipefail
 
 NEWS_RAG_DIR="${NEWS_RAG_DIR:-/opt/news-rag}"
 NEWS_RAG_REPO="${NEWS_RAG_REPO:-https://github.com/Geetesh-Jangir/qdrant_db.git}"
-NEWS_RAG_BRANCH="${NEWS_RAG_BRANCH:-ask-a-question}"
+NEWS_RAG_BRANCH="${NEWS_RAG_BRANCH:-v2}"
 RAG_PORT="${RAG_PORT:-8081}"
 SERVICE_USER="${SERVICE_USER:-ubuntu}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -80,14 +80,14 @@ fi
 if [[ ! -f .env ]]; then
   cp deploy/lightsail/.env.production.example .env
   echo ""
-  echo "!! Created ${NEWS_RAG_DIR}/.env — edit QDRANT_* and GEMINI_* keys, then rerun:"
+  echo "!! Created ${NEWS_RAG_DIR}/.env — edit QDRANT_*, ANTHROPIC_*, and GEMINI_* (fallback), then rerun:"
   echo "   nano ${NEWS_RAG_DIR}/.env"
   echo "   sudo NEWS_RAG_DIR=${NEWS_RAG_DIR} bash deploy/lightsail/install.sh"
   exit 0
 fi
 
 if grep -q 'YOUR_CLUSTER.cloud.qdrant.io' .env 2>/dev/null; then
-  echo "!! Edit .env (QDRANT_URL, QDRANT_API_KEY, GEMINI_API_KEY), then rerun install.sh"
+  echo "!! Edit .env (QDRANT_*, ANTHROPIC_API_KEY, GEMINI_API_KEY), then rerun install.sh"
   exit 1
 fi
 

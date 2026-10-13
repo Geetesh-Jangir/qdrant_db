@@ -55,6 +55,16 @@ class Settings(BaseSettings):
         default="claude-haiku-5-5",
         validation_alias=AliasChoices("ANTHROPIC_MODEL", "anthropic_model"),
     )
+    # Haiku 5.5 thinks by default and thinking tokens eat max_tokens (replies cut off before any text).
+    anthropic_thinking: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ANTHROPIC_THINKING", "anthropic_thinking"),
+    )
+    # low | medium | high (thinking can only be disabled at high or below)
+    anthropic_effort: str = Field(
+        default="medium",
+        validation_alias=AliasChoices("ANTHROPIC_EFFORT", "anthropic_effort"),
+    )
     anthropic_base_url: str = Field(
         default="https://api.anthropic.com",
         validation_alias=AliasChoices("ANTHROPIC_BASE_URL", "anthropic_base_url"),

@@ -61,6 +61,14 @@ _PUBLISHED_ON = re.compile(
     re.I,
 )
 _LISTEN = re.compile(r"\bListen to (?:this|the) article\b[^.]{0,40}", re.I)
+_NAV_CHROME = re.compile(
+    r"(?:Webinars?\s*New|Deep\s*Dive\s*New|Explore\s+Business\s+Standard|"
+    r"\bSubscribe\b|\bSign\s+in\b|\bAdvertisement\b|\bAlso\s+Read\b|"
+    r"\bRelated\s+(?:News|Stories)\b|\bShare\s+this\b|\bFollow\s+us\b)",
+    re.I,
+)
+_MID_START = re.compile(r"^(?:[a-z]{1,4}\s+\w|[^A-Za-z0-9₹\"'])")
+
 _BROKEN_END = re.compile(
     r"\b(?:on|the|a|an|to|of|for|and|or|in|at|as|by|with|from|that|which|"
     r"their|its|india'?s?)\s*\.\s*$",
@@ -102,9 +110,32 @@ def clean_scraped_snippet(text: str) -> str:
     cleaned = _EARLY_TRADING_DATE.sub(" during early trading", cleaned)
     cleaned = _AGENCY.sub(" ", cleaned)
     cleaned = _DOMAIN.sub(" ", cleaned)
+    cleaned = _NAV_CHROME.sub(" ", cleaned)
     cleaned = " ".join(cleaned.split())
     cleaned = _ELLIPSIS.sub(".", cleaned).strip()
     return cleaned
+
+
+def starts_mid_sentence(text: str) -> bool:
+    """True when a scrape starts in the middle of a word or sentence."""
+    t = (text or "").strip()
+    if not t:
+        return True
+    return bool(_MID_START.match(t))
+
+
+def article_text_usable(text: str) -> bool:
+    """False for nav chrome, mid-sentence scraps, and broken fragments."""
+    t = clean_scraped_snippet(text or "")
+    if len(t) < 40:
+        return False
+    if starts_mid_sentence(t) or is_broken_fragment(t):
+        return False
+    if _NAV_CHROME.search(t):
+        return False
+    if looks_like_raw_scrape(t) and len(t) < 80:
+        return False
+    return True
 
 
 def is_broken_fragment(text: str) -> bool:

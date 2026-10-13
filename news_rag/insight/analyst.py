@@ -52,7 +52,7 @@ def run_insight_analyst(
             system_prompt=build_insight_analyst_prompt(),
             user_content=user,
             model_override=router_model(settings),
-            max_tokens=2000,
+            max_tokens=4000,
             temperature=0.1,
             query_log=query_log,
             stage="insight_analyst",

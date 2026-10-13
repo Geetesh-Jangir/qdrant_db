@@ -45,6 +45,9 @@ class FundFinding:
     neg_sectors: list[dict[str, Any]] = field(default_factory=list)
     exposure_sector: str = ""  # the sector `exposure_pct` refers to
     top_holdings: list[dict[str, Any]] = field(default_factory=list)  # name, percentage
+    sector_mix: list[dict[str, Any]] = field(default_factory=list)  # sector, percentage, index_label, index_return_pct
+    category: str = ""
+    as_on: str = ""
     mixed_exposure_pct: float = 0.0  # weight in sectors where the news pulls both ways
     mixed_sectors: list[dict[str, Any]] = field(default_factory=list)
     news_tilt: str = "unknown"  # tailwind | headwind | mixed | neutral | unknown
@@ -125,6 +128,7 @@ class Findings:
                     "neg_sectors": f.neg_sectors,
                     "exposure_sector": f.exposure_sector,
                     "top_holdings": f.top_holdings,
+                    "sector_mix": f.sector_mix,
                     "mixed_exposure_pct": f.mixed_exposure_pct,
                     "mixed_sectors": f.mixed_sectors,
                     "news_tilt": f.news_tilt,

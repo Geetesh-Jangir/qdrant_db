@@ -22,7 +22,8 @@ def test_render_citations_strips_outlets():
     assert n == 1
 
 
-def test_named_fund_why_uses_sector_drag_not_macro():
+@patch("news_rag.insight.interpret.llm_api_key_configured", return_value=False)
+def test_named_fund_why_uses_sector_drag_not_macro(_m):
     brief = QuestionBrief(
         window_label="1 month",
         funds=["HDFC Large Cap Fund"],
@@ -68,7 +69,8 @@ def test_named_fund_why_uses_sector_drag_not_macro():
     assert "ICICI Bank" in out.display
 
 
-def test_structured_compose_orders_sub_asks_and_bold():
+@patch("news_rag.insight.interpret.llm_api_key_configured", return_value=False)
+def test_structured_compose_orders_sub_asks_and_bold(_m):
     brief = QuestionBrief(
         sub_asks=[
             SubAsk("1", "How is the automobile sector doing", "describe", order=1),
@@ -81,6 +83,7 @@ def test_structured_compose_orders_sub_asks_and_bold():
         sector=SectorFinding(
             sector_label="Automobiles",
             news_direction="positive",
+            tone="positive",
             news_themes=["GST cuts"],
             index_return_pct=5.2,
             benchmark_label="Nifty Auto",
