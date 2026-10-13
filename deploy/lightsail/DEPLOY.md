@@ -129,5 +129,19 @@ python3 -c "import news_rag.app"   # shows import errors immediately
 | `Permission denied` on `.venv` or `rag_query_logs` | `sudo chown -R ubuntu:ubuntu /opt/news-rag && sudo systemctl restart news-rag` |
 | `git pull` divergent / wrong branch | `unset NEWS_RAG_BRANCH`; `bash deploy/lightsail/sync_repo_branch.sh v2` |
 | `pathspec 'ask-a-question'` | Wrong branch env — use `export NEWS_RAG_BRANCH=v2` or `unset NEWS_RAG_BRANCH` |
+| `origin/v2` is not a commit | Shallow/broken clone — **reclone** (below) or `git fetch origin +refs/heads/v2:refs/remotes/origin/v2 --depth 1` |
 | `sector_to_isin_weights` missing | `bash deploy/lightsail/sync_repo_branch.sh v2` |
 | Empty / no news answers | Ingest into Qdrant Cloud (`python -m news_pipeline` or CI) |
+
+**Reclone when git is stuck** (keeps `.env`):
+
+```bash
+sudo systemctl stop news-rag 2>/dev/null || true
+cp -a /opt/news-rag/.env /tmp/news-rag.env.backup
+sudo rm -rf /opt/news-rag
+sudo git clone --depth 1 -b v2 https://github.com/Geetesh-Jangir/qdrant_db.git /opt/news-rag
+sudo chown -R ubuntu:ubuntu /opt/news-rag
+cp -a /tmp/news-rag.env.backup /opt/news-rag/.env
+cd /opt/news-rag
+sudo NEWS_RAG_DIR=/opt/news-rag NEWS_RAG_BRANCH=v2 bash deploy/lightsail/install.sh
+```
