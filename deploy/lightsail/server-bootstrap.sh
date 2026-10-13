@@ -32,9 +32,8 @@ if [[ ! -d "${NEWS_RAG_DIR}/.git" ]]; then
 fi
 
 cd "$NEWS_RAG_DIR"
-git fetch origin "$NEWS_RAG_BRANCH" --depth 1 2>/dev/null || git fetch origin
-git checkout "$NEWS_RAG_BRANCH"
-git pull origin "$NEWS_RAG_BRANCH" || true
+# Instance name is ask-question; deploy branch is v2 — do not set NEWS_RAG_BRANCH=ask-a-question
+bash deploy/lightsail/sync_repo_branch.sh "$NEWS_RAG_BRANCH"
 
 if [[ ! -f .env ]]; then
   cp deploy/lightsail/.env.production.example .env

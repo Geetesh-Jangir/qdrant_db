@@ -82,9 +82,12 @@ Open **`http://PUBLIC_IP/`** → ask a question → **Get Insight** (first ask m
 
 ## 4. Updates (after you push from your PC)
 
+Use branch **`v2`** (not `ask-a-question` — that was an old branch name). If `git pull` says *divergent branches*, sync without merging:
+
 ```bash
 cd /opt/news-rag
-git pull origin v2
+unset NEWS_RAG_BRANCH   # if you exported the wrong branch earlier
+bash deploy/lightsail/sync_repo_branch.sh v2
 source .venv/bin/activate
 pip install -r requirements.txt -r news_rag/requirements.txt
 deactivate
@@ -124,5 +127,7 @@ python3 -c "import news_rag.app"   # shows import errors immediately
 | Site timeout in browser | Lightsail **HTTP 80** open; use `http://` not `https://` |
 | `python` not found | Use `python3` or `.venv/bin/python` |
 | `Permission denied` on `.venv` or `rag_query_logs` | `sudo chown -R ubuntu:ubuntu /opt/news-rag && sudo systemctl restart news-rag` |
-| `sector_to_isin_weights` missing | `git pull origin v2` |
+| `git pull` divergent / wrong branch | `unset NEWS_RAG_BRANCH`; `bash deploy/lightsail/sync_repo_branch.sh v2` |
+| `pathspec 'ask-a-question'` | Wrong branch env — use `export NEWS_RAG_BRANCH=v2` or `unset NEWS_RAG_BRANCH` |
+| `sector_to_isin_weights` missing | `bash deploy/lightsail/sync_repo_branch.sh v2` |
 | Empty / no news answers | Ingest into Qdrant Cloud (`python -m news_pipeline` or CI) |

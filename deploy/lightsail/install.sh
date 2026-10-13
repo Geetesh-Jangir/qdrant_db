@@ -40,9 +40,7 @@ if [[ ! -d "${NEWS_RAG_DIR}/.git" ]]; then
 elif [[ -f "${NEWS_RAG_DIR}/news_rag/app.py" ]]; then
   echo "==> Using repo at ${NEWS_RAG_DIR}"
   cd "${NEWS_RAG_DIR}"
-  git fetch origin "${NEWS_RAG_BRANCH}" --depth 1 2>/dev/null || git fetch origin
-  git checkout "${NEWS_RAG_BRANCH}"
-  git pull origin "${NEWS_RAG_BRANCH}" || true
+  bash deploy/lightsail/sync_repo_branch.sh "${NEWS_RAG_BRANCH}"
 elif [[ -f "${SCRIPT_DIR}/../../news_rag/app.py" ]]; then
   NEWS_RAG_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
   echo "==> Using existing repo at ${NEWS_RAG_DIR}"
