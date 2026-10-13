@@ -719,6 +719,36 @@ class FundIndex:
             self._entries_by_isin = entries_by_isin
             self._loaded = True
 
+    def sample_fund_names(self, n: int = 2) -> list[str]:
+        """Pick n catalog funds, preferring different AMCs, for an unnamed comparison."""
+        import random
+
+        self._ensure_loaded()
+        pool = [e for e in self._entries if e.get("fund_name")]
+        if len(pool) < 2:
+            return [str(e["fund_name"]) for e in pool]
+        n = max(2, n)
+        shuffled = list(pool)
+        random.shuffle(shuffled)
+        picked: list[str] = []
+        seen_amc: set[str] = set()
+        for entry in shuffled:
+            amc = str(entry.get("amc") or "")
+            if amc and amc in seen_amc:
+                continue
+            picked.append(str(entry["fund_name"]))
+            if amc:
+                seen_amc.add(amc)
+            if len(picked) >= n:
+                return picked
+        for entry in shuffled:
+            name = str(entry["fund_name"])
+            if name not in picked:
+                picked.append(name)
+            if len(picked) >= n:
+                break
+        return picked
+
     def search(self, query: str, limit: int = 15) -> list[dict[str, Any]]:
         """Search funds by name or ISIN with autocomplete ranking."""
         self._ensure_loaded()

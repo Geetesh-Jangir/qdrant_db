@@ -5,8 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from news_rag.config import get_settings
 from news_rag.llm_client import call_json_llm
-from news_rag.snippet_clean import article_body_for_llm
+from news_rag.prompts import build_affected_sectors_prompt
+from news_rag.snippet_clean import article_body_for_llm, polish_insight_sentence
 
 _AFFECTED_RE = re.compile(
     r"\b(affected|affecting|impact(?:ed)?|due to|because of)\b",
@@ -41,7 +43,11 @@ PICKER_RESPONSE_SCHEMA: dict[str, Any] = {
                     "reason": {"type": "string"},
                 },
             },
-        }
+        },
+        "positive": {"type": "array"},
+        "negative": {"type": "array"},
+        "mixed": {"type": "array"},
+        "unclear": {"type": "array"},
     },
     "required": ["sectors"],
 }
@@ -67,13 +73,23 @@ def question_needs_affected_sectors(question: str) -> bool:
     return bool(re.search(r"\bfunds?\b|\bschemes?\b", text, re.I))
 
 
+def _article_char_limit() -> int:
+    settings = get_settings()
+    cap = int(getattr(settings, "insight_llm_article_chars", 0) or 0)
+    return max(cap, int(settings.snippet_chars))
+
+
 def _article_lines(articles: list[dict[str, Any]], *, limit: int = 8) -> str:
     lines: list[str] = []
+    char_limit = _article_char_limit()
     for article in articles[:limit]:
         if not isinstance(article, dict):
             continue
-        body = article_body_for_llm(article, limit=700).strip()
-        if body:
+        title = str(article.get("title") or "").strip()
+        body = article_body_for_llm(article, limit=char_limit).strip()
+        if title and body:
+            lines.append(f"[{title}]\n{body}")
+        elif body:
             lines.append(body)
     return "\n\n".join(lines)
 
@@ -94,7 +110,8 @@ def build_picker_prompt(
         f"Sectors: {names}\n\n"
         "Articles:\n"
         f"{_article_lines(articles)}\n\n"
-        "For each sector, give one sentence on why the articles say it moves that way."
+        "For each sector, give one plain-language sentence on why the news moves it that way. "
+        "Do not name newspapers or websites in the reason."
     )
 
 
@@ -125,10 +142,45 @@ def accepted_sectors(
             {
                 "name": canon,
                 "direction": tagged,
-                "reason": str(item.get("reason") or "").strip(),
+                "reason": polish_insight_sentence(str(item.get("reason") or ""), max_chars=180),
             }
         )
     return kept
+
+
+def _flatten_sector_buckets(parsed: dict[str, Any]) -> list[dict[str, Any]]:
+    """Map rich positive/negative/mixed buckets into legacy {name, direction, reason} rows."""
+    out: list[dict[str, Any]] = []
+
+    def _add(rows: Any, direction: str) -> None:
+        if not isinstance(rows, list):
+            return
+        for item in rows:
+            if isinstance(item, str):
+                out.append({"name": item, "direction": direction, "reason": ""})
+                continue
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or item.get("sector") or "").strip()
+            if not name:
+                continue
+            reason = str(item.get("reason") or "").strip()
+            out.append({"name": name, "direction": direction, "reason": reason})
+
+    _add(parsed.get("positive"), "positive")
+    _add(parsed.get("negative"), "negative")
+    for item in parsed.get("mixed") or []:
+        if isinstance(item, dict):
+            name = str(item.get("sector") or item.get("name") or "").strip()
+            if name:
+                out.append(
+                    {
+                        "name": name,
+                        "direction": "positive",
+                        "reason": str(item.get("reason") or "mixed sector effects"),
+                    }
+                )
+    return out
 
 
 def pick_affected_sectors(
@@ -151,10 +203,7 @@ def pick_affected_sectors(
         sector_names=names,
     )
     result = call_json_llm(
-        system_prompt=(
-            "You choose sectors for an Indian mutual-fund question. "
-            "Return JSON only. Use only the sector names you were given."
-        ),
+        system_prompt=build_affected_sectors_prompt(),
         user_content=prompt,
         max_tokens=800,
         temperature=0.0,
@@ -164,6 +213,8 @@ def pick_affected_sectors(
     )
     parsed = result.parsed if isinstance(result.parsed, dict) else {}
     raw = parsed.get("sectors") or []
+    if not raw:
+        raw = _flatten_sector_buckets(parsed)
     return accepted_sectors(raw if isinstance(raw, list) else [], names, direction=direction)
 
 

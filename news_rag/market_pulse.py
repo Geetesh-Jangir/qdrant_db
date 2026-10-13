@@ -299,7 +299,11 @@ def market_pulse_representatives_from_clusters(
             rep = pick_cluster_representative(arts)
         if not rep:
             continue
-        body = article_body_for_llm(rep, limit=1000)
+        from news_rag.config import get_settings
+
+        s = get_settings()
+        body_limit = max(int(getattr(s, "insight_llm_article_chars", 3500)), int(s.snippet_chars))
+        body = article_body_for_llm(rep, limit=body_limit)
         rows.append(
             {
                 "theme": str(cl.get("label") or "Macro theme"),

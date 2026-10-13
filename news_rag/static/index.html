@@ -93,6 +93,17 @@
     .err { color: #dc2626; background: #fef2f2; border: 1px solid #fecaca; padding: 0.75rem 1rem; border-radius: 8px; margin-top: 1rem; }
     .hidden { display: none; }
 
+    .insight-body h3 {
+      font-size: 1.02rem;
+      margin: 1.15rem 0 0.45rem;
+      font-weight: 700;
+      color: #0f172a;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .insight-body h4 { font-size: 0.98rem; margin: 0.9rem 0 0.35rem; color: #1e293b; }
+    .insight-body ol { margin: 0 0 1rem; padding-left: 1.4rem; }
+    .insight-body ol li { margin-bottom: 0.55rem; }
     .insight-headline {
       font-size: 1.12rem;
       font-weight: 700;
@@ -225,6 +236,69 @@
       return formatted;
     }
 
+    function normalizeMarkdown(text) {
+      let t = String(text || "").replace(/\r\n/g, "\n");
+      t = t.replace(/[ \t]+(#{1,4}\s+)/g, "\n\n$1");
+      t = t.replace(/[ \t]+(\d+[.)]\s+)/g, "\n$1");
+      t = t.replace(/[ \t]+([*•]\s+)/g, "\n$1");
+      return t;
+    }
+
+    function renderMarkdown(text) {
+      const root = document.createElement("div");
+      const lines = normalizeMarkdown(text).split("\n");
+      let list = null;
+      let listKind = "";
+      function flushList() {
+        list = null;
+        listKind = "";
+      }
+      for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) {
+          flushList();
+          continue;
+        }
+        const heading = line.match(/^(#{1,4})\s+(.*)$/);
+        if (heading) {
+          flushList();
+          const level = Math.min(4, heading[1].length + 1);
+          const el = document.createElement("h" + level);
+          el.innerHTML = formatMarkdown(heading[2]);
+          root.appendChild(el);
+          continue;
+        }
+        const boldHead = line.match(/^\*\*(.+)\*\*$/);
+        if (boldHead) {
+          flushList();
+          const el = document.createElement("h3");
+          el.innerHTML = formatMarkdown(boldHead[1]);
+          root.appendChild(el);
+          continue;
+        }
+        const bullet = line.match(/^[-*•]\s+(.*)$/);
+        const numbered = line.match(/^\d+[.)]\s+(.*)$/);
+        if (bullet || numbered) {
+          const kind = bullet ? "ul" : "ol";
+          if (!list || listKind !== kind) {
+            flushList();
+            list = document.createElement(kind);
+            listKind = kind;
+            root.appendChild(list);
+          }
+          const li = document.createElement("li");
+          li.innerHTML = formatMarkdown((bullet || numbered)[1]);
+          list.appendChild(li);
+          continue;
+        }
+        flushList();
+        const p = document.createElement("p");
+        p.innerHTML = formatMarkdown(line);
+        root.appendChild(p);
+      }
+      return root;
+    }
+
     function appendProse(container, text, className) {
       const chunks = String(text || "")
         .trim()
@@ -250,6 +324,7 @@
     function renderUnifiedInsight(container, data) {
       container.innerHTML = "";
       const sec = data.sections && data.sections[0];
+      const fullInsight = (data.insight || "").trim();
       let headline =
         data.insight_headline ||
         (sec && sec.headline) ||
@@ -260,6 +335,37 @@
         (sec && sec.closing_summary) ||
         "";
       let bullets = data.insight_bullets || (sec && sec.bullets) || [];
+
+      const markdownBody =
+        fullInsight && (fullInsight.includes("###") || fullInsight.length > 320)
+          ? fullInsight
+          : "";
+      if (markdownBody) {
+        const body = document.createElement("div");
+        body.className = "insight-body";
+        body.appendChild(renderMarkdown(markdownBody));
+        container.appendChild(body);
+        const closingAlreadyShown =
+          closing &&
+          markdownBody.toLowerCase().includes(closing.trim().slice(0, 80).toLowerCase());
+        if (closing && !closingAlreadyShown && !/^for context only/i.test(closing.trim())) {
+          const label = document.createElement("p");
+          label.className = "insight-closing-label";
+          label.textContent = "Why it matters";
+          container.appendChild(label);
+          const p = document.createElement("p");
+          p.className = "insight-closing";
+          p.innerHTML = formatMarkdown(closing.trim());
+          container.appendChild(p);
+        }
+        revealBlocks(container);
+        return;
+      }
+
+      const norm = (s) => (s || "").trim().replace(/\s+/g, " ");
+      if (headline && narrative && norm(narrative).startsWith(norm(headline).slice(0, Math.min(80, norm(headline).length)))) {
+        headline = "";
+      }
 
       if (headline) {
         const h = document.createElement("p");
@@ -285,15 +391,22 @@
         p.innerHTML = formatMarkdown(data.insight || "No insight returned.");
         container.appendChild(p);
       }
-      if (closing && closing.trim()) {
+      if (closing && closing.trim() && !/^for context only/i.test(closing.trim())) {
         const label = document.createElement("p");
         label.className = "insight-closing-label";
-        label.textContent = "In simple terms";
+        label.textContent = "Why it matters";
         container.appendChild(label);
         const p = document.createElement("p");
         p.className = "insight-closing";
         p.innerHTML = formatMarkdown(closing.trim());
         container.appendChild(p);
+      }
+      revealBlocks(container);
+    }
+
+    function revealBlocks(container) {
+      for (const node of container.children) {
+        node.style.opacity = "1";
       }
     }
 
@@ -451,6 +564,89 @@
       }
     }
 
+    function showPipelineIssues(data) {
+      const pipeErrs = data && data.pipeline_errors ? data.pipeline_errors : [];
+      if (!pipeErrs.length) {
+        errorEl.classList.add("hidden");
+        errorEl.textContent = "";
+        return;
+      }
+      errorEl.textContent =
+        "Issues during this answer: " +
+        pipeErrs
+          .map((e) => `[${e.stage || "pipeline"}${e.tool ? "/" + e.tool : ""}] ${e.message}`)
+          .join(" · ");
+      errorEl.classList.remove("hidden");
+    }
+
+    function handleFinalData(data) {
+      resultEl.classList.remove("hidden");
+      showPipelineIssues(data);
+
+      const insightText = (data.insight || data.answer || "").trim();
+      const hasSections = Array.isArray(data.sections) && data.sections.length > 0;
+      if (!insightText && !hasSections && !(data.insight_bullets && data.insight_bullets.length)) {
+        throw new Error(
+          "Server returned an empty answer. On the server run: sudo journalctl -u news-rag -n 40 --no-pager"
+        );
+      }
+      renderInsight(insightEl, data, insightText);
+
+      const sourceLabel = providerLabel(data);
+      const scorePart =
+        data.output_score != null ? ` · quality score ${data.output_score}` : "";
+      const rw = data.retrieval_window;
+      const windowPart =
+        rw && (rw.window_label || rw.window_days)
+          ? ` · news window ${rw.window_label || "last " + rw.window_days + " days"}`
+          : "";
+      metaEl.textContent =
+        `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources · intent ${data.intent || "?"}${windowPart}${scorePart}`;
+      if (data.query_log_file) {
+        debugLogEl.textContent = "Debug log: " + data.query_log_file
+          + (data.query_summary_json ? " · JSON: " + data.query_summary_json : "");
+        debugLogEl.classList.remove("hidden");
+      } else {
+        debugLogEl.classList.add("hidden");
+      }
+
+      sourcesEl.innerHTML = "";
+      const srcList = data.sources || [];
+      if (!srcList.length) {
+        const empty = document.createElement("p");
+        empty.className = "card-meta";
+        empty.textContent =
+          data.outcome === "no_data"
+            ? "No matching articles were retrieved from our news index for this question (check date range and Qdrant data)."
+            : "No source articles were attached to this answer.";
+        sourcesEl.appendChild(empty);
+      }
+      for (const row of srcList) {
+        const div = document.createElement("div");
+        div.className = "card";
+        const titleText = row.title || row.url || "Article";
+        if (row.url) {
+          const link = document.createElement("a");
+          link.href = row.url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.textContent = titleText;
+          div.appendChild(link);
+        } else {
+          const span = document.createElement("span");
+          span.textContent = titleText;
+          div.appendChild(span);
+        }
+        const line = document.createElement("div");
+        line.className = "card-meta";
+        const pub = row.published_at ? row.published_at.slice(0, 10) : "";
+        line.textContent = [row.source, pub].filter(Boolean).join(" · ");
+        div.appendChild(line);
+        sourcesEl.appendChild(div);
+      }
+      resultEl.classList.remove("hidden");
+    }
+
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       errorEl.classList.add("hidden");
@@ -461,9 +657,9 @@
       let elapsed = 0;
       const tick = setInterval(() => {
         elapsed += 1;
-        statusEl.textContent =
-          `Working… ${elapsed}s — loading embeddings, Qdrant, and Gemini on the server. ` +
-          `First question after restart can take 3–6 minutes on a small instance; please wait.`;
+        if (!statusEl.textContent.includes("·")) {
+          statusEl.textContent = `Working… ${elapsed}s — synthesizing insight across market data...`;
+        }
       }, 1000);
 
       const body = {
@@ -487,76 +683,7 @@
                 : response.statusText;
           throw new Error(msg || response.statusText);
         }
-        const insightText = (data.insight || data.answer || "").trim();
-        const hasSections = Array.isArray(data.sections) && data.sections.length > 0;
-        if (!insightText && !hasSections && !(data.insight_bullets && data.insight_bullets.length)) {
-          throw new Error(
-            "Server returned an empty answer. On the server run: sudo journalctl -u news-rag -n 40 --no-pager"
-          );
-        }
-        renderInsight(insightEl, data, insightText);
-
-        const pipeErrs = data.pipeline_errors || [];
-        if (pipeErrs.length) {
-          errorEl.textContent =
-            "Pipeline issues: " +
-            pipeErrs.map((e) => `[${e.stage}${e.tool ? "/" + e.tool : ""}] ${e.message}`).join(" · ");
-          errorEl.classList.remove("hidden");
-        }
-
-        const sourceLabel = providerLabel(data);
-        const scorePart =
-          data.output_score != null ? ` · quality score ${data.output_score}` : "";
-        const rw = data.retrieval_window;
-        const windowPart =
-          rw && (rw.window_label || rw.window_days)
-            ? ` · news window ${rw.window_label || "last " + rw.window_days + " days"}`
-            : "";
-        metaEl.textContent =
-          `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources · intent ${data.intent || "?"}${windowPart}${scorePart}`;
-        if (data.query_log_file) {
-          debugLogEl.textContent = "Debug log: " + data.query_log_file
-            + (data.query_summary_json ? " · JSON: " + data.query_summary_json : "");
-          debugLogEl.classList.remove("hidden");
-        } else {
-          debugLogEl.classList.add("hidden");
-        }
-
-        sourcesEl.innerHTML = "";
-        const srcList = data.sources || [];
-        if (!srcList.length) {
-          const empty = document.createElement("p");
-          empty.className = "card-meta";
-          empty.textContent =
-            data.outcome === "no_data"
-              ? "No matching articles were retrieved from our news index for this question (check date range and Qdrant data)."
-              : "No source articles were attached to this answer.";
-          sourcesEl.appendChild(empty);
-        }
-        for (const row of srcList) {
-          const div = document.createElement("div");
-          div.className = "card";
-          const titleText = row.title || row.url || "Article";
-          if (row.url) {
-            const link = document.createElement("a");
-            link.href = row.url;
-            link.target = "_blank";
-            link.rel = "noopener";
-            link.textContent = titleText;
-            div.appendChild(link);
-          } else {
-            const span = document.createElement("span");
-            span.textContent = titleText;
-            div.appendChild(span);
-          }
-          const line = document.createElement("div");
-          line.className = "card-meta";
-          const pub = row.published_at ? row.published_at.slice(0, 10) : "";
-          line.textContent = [row.source, pub].filter(Boolean).join(" · ");
-          div.appendChild(line);
-          sourcesEl.appendChild(div);
-        }
-        resultEl.classList.remove("hidden");
+        handleFinalData(data);
       } catch (err) {
         errorEl.textContent = err.message || String(err);
         errorEl.classList.remove("hidden");

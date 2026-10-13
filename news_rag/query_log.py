@@ -21,11 +21,23 @@ LLM_STAGE_CATALOG: dict[str, dict[str, str]] = {
         "purpose": "Decompose the user question into sub-asks, subjects, window, and evidence_needs (facets).",
         "output": "JSON: goal, sub_asks, evidence_needs, success_criteria",
     },
+    "news_reader": {
+        "pipeline": "insight_v2",
+        "phase": "2b_news_reader",
+        "purpose": "Read the cleaned article bodies and extract cited claims, the overall sector tone, and which sectors the news helps or hurts.",
+        "output": "JSON: tone, tone_reason, claims[{text, sentiment, article}], sectors_positive, sectors_negative, themes",
+    },
+    "affected_sectors": {
+        "pipeline": "insight_v2",
+        "phase": "2_gather",
+        "purpose": "Pick which sectors the retrieved news helps or hurts (used for driver-led questions).",
+        "output": "JSON: sectors[{name, direction, reason}]",
+    },
     "interpret": {
         "pipeline": "insight_v2",
         "phase": "4_interpret",
-        "purpose": "Optional LLM polish of structured findings into headline/narrative (off when INSIGHT_USE_LLM_INTERPRET=false).",
-        "output": "JSON: headline, narrative, bullets, closing_summary",
+        "purpose": "Write the answer: headline, sector read tied to the cited news, one line per fund linking news to its exposure, and a closing line. Numbers come from findings only.",
+        "output": "JSON: headline, sector_read, fund_lines{isin: text}, closing_summary",
     },
     "judge": {
         "pipeline": "insight_v2",
@@ -122,7 +134,8 @@ class QueryLogger:
         self.write(
             "LOG_LEGEND "
             "PIPELINE=insight_v2 stages | "
-            "LLM_START=what the model is asked to do | LLM_HTTP=tokens/latency | LLM_DONE=parse outcome | "
+            "LLM_START=what the model is asked to do | LLM_HTTP=per-call tokens/latency | "
+            "LLM_DONE=parse outcome + step tokens | LLM_TOKENS_TOTAL=run totals | "
             "BRIEF/GATHER/COMPUTE/INTERPRET/VERIFY=deterministic stages | TOOL=registry adapter"
         )
 
@@ -204,12 +217,26 @@ class QueryLogger:
         repaired: bool,
         parsed_summary: str = "",
         raw_preview: str = "",
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        total_tokens: int | None = None,
     ) -> None:
         info = self.llm_stage_info(stage)
+        token_bit = ""
+        if input_tokens is not None or output_tokens is not None:
+            tot = total_tokens
+            if tot is None and input_tokens is not None and output_tokens is not None:
+                tot = input_tokens + output_tokens
+            token_bit = (
+                f" input_tokens={input_tokens or 0} output_tokens={output_tokens or 0} "
+                f"step_total_tokens={tot if tot is not None else ''} "
+                f"cumulative_input_tokens={self.llm_input_tokens} "
+                f"cumulative_output_tokens={self.llm_output_tokens}"
+            )
         self.write(
             f"LLM_DONE call_index={call_index} stage={stage or 'json'} "
             f"pipeline_phase={info.get('phase', '')} "
-            f"finish={finish_reason or 'unknown'} truncated={truncated} repaired={repaired} "
+            f"finish={finish_reason or 'unknown'} truncated={truncated} repaired={repaired}{token_bit} "
             f"parsed_summary={clip_log_text(parsed_summary, 400)}"
         )
         if raw_preview and truncated:
@@ -266,6 +293,31 @@ class QueryLogger:
             )
         )
         self.note("tool", tool=tool, facet=facet, ok=ok, error=error or None)
+
+    def log_news_read(self, read: dict[str, Any]) -> None:
+        """What the news reader concluded: tone, claims (with their source articles), sector calls."""
+        claims = read.get("claims") or []
+        self.write(
+            "NEWS_READ "
+            + _kv(
+                {
+                    "mode": read.get("mode"),
+                    "tone": read.get("tone"),
+                    "articles_read": read.get("articles_read"),
+                    "claims": len(claims),
+                    "dropped_claims": read.get("dropped_claims"),
+                    "sectors_positive": [s.get("name") for s in read.get("sectors_positive") or []],
+                    "sectors_negative": [s.get("name") for s in read.get("sectors_negative") or []],
+                    "tone_reason": clip_log_text(str(read.get("tone_reason") or ""), 220),
+                }
+            )
+        )
+        for i, c in enumerate(claims, 1):
+            self.write(
+                f"  CLAIM {i} [{c.get('sentiment')}] art#{c.get('article')} "
+                f"{clip_log_text(str(c.get('text') or ''), 200)} | src={clip_log_text(str(c.get('title') or ''), 70)}"
+            )
+        self.note("news_read", **{k: v for k, v in read.items() if k != "event"})
 
     def log_compute(self, **fields: Any) -> None:
         self.write("COMPUTE " + _kv(fields))
@@ -458,6 +510,41 @@ class QueryLogger:
     def log_error(self, stage: str, message: str) -> None:
         self.write(f"error stage={stage} message={clip_log_text(message, 500)}")
 
+    def finish_from_ask_result(self, result: dict[str, Any], *, question: str = "") -> dict[str, Any]:
+        """Write insight preview + JSON sidecar (same as POST /api/ask)."""
+        article_count = len(result.get("sources") or [])
+        outcome = str(result.get("outcome") or "ok")
+        if result.get("refused"):
+            outcome = "refused"
+        if result.get("pipeline_errors") and outcome == "ok":
+            outcome = "partial"
+        insight = str(result.get("insight") or "")
+        self.log_insight_output(
+            insight_source=str(result.get("insight_source") or "insight_v2"),
+            char_count=len(insight),
+            preview=str(result.get("insight_summary") or insight)[:500],
+        )
+        extra: dict[str, Any] = {
+            "intent": result.get("intent"),
+            "sub_queries": result.get("sub_queries"),
+            "output_score": result.get("output_score"),
+            "pipeline_errors": result.get("pipeline_errors"),
+            "research_summary": {
+                "evidence_needs": (result.get("research") or {}).get("evidence_needs"),
+                "ledger": (result.get("research") or {}).get("ledger"),
+                "verify_gaps": (result.get("research") or {}).get("verify_gaps"),
+            },
+        }
+        q = (question or "").strip()
+        if q:
+            extra["question"] = q
+        return self.finish(
+            outcome=outcome,
+            article_count=article_count,
+            insight_source=str(result.get("insight_source") or ""),
+            extra=extra,
+        )
+
     def finish(
         self,
         *,
@@ -480,6 +567,7 @@ class QueryLogger:
                 "llm_call_journal": self._llm_journal,
                 "llm_input_tokens": self.llm_input_tokens,
                 "llm_output_tokens": self.llm_output_tokens,
+                "llm_total_tokens": self.llm_input_tokens + self.llm_output_tokens,
                 "pipeline_stages": self._pipeline_stages,
                 "total_seconds": total_seconds,
                 "log_file": str(self.log_path),
@@ -491,12 +579,20 @@ class QueryLogger:
             json_path.write_text(json.dumps(self._summary, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError:
             json_path = None
+        combined_tokens = self.llm_input_tokens + self.llm_output_tokens
+        self.write(
+            f"LLM_TOKENS_TOTAL llm_calls={self.llm_calls} "
+            f"total_input_tokens={self.llm_input_tokens} "
+            f"total_output_tokens={self.llm_output_tokens} "
+            f"total_tokens={combined_tokens}"
+        )
         self.write(
             "query finished "
             f"outcome={outcome} articles_returned={article_count}{source_bit}{provider_bit} "
             f"llm_calls={self.llm_calls} "
             f"llm_input_tokens={self.llm_input_tokens} "
             f"llm_output_tokens={self.llm_output_tokens} "
+            f"llm_total_tokens={combined_tokens} "
             f"total_seconds={total_seconds}"
         )
         if json_path is not None:
@@ -515,6 +611,19 @@ class QueryLogger:
             "deepseek_input_tokens": self.llm_input_tokens,
             "deepseek_output_tokens": self.llm_output_tokens,
         }
+
+
+def attach_query_log_meta(result: dict[str, Any], meta: dict[str, Any]) -> None:
+    result["query_log_id"] = meta["query_id"]
+    result["query_log_file"] = meta["log_file"]
+    result["query_summary_json"] = meta.get("summary_json") or ""
+    result["llm_provider"] = meta.get("llm_provider") or ""
+    result["llm_calls"] = meta["llm_calls"]
+    result["llm_input_tokens"] = meta["llm_input_tokens"]
+    result["llm_output_tokens"] = meta["llm_output_tokens"]
+    result["deepseek_calls"] = meta["deepseek_calls"]
+    result["deepseek_input_tokens"] = meta["deepseek_input_tokens"]
+    result["deepseek_output_tokens"] = meta["deepseek_output_tokens"]
 
 
 def _kv(fields: dict[str, Any]) -> str:

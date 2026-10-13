@@ -47,7 +47,7 @@ QDRANT_API_KEY=...
 QDRANT_COLLECTION=news_articles
 RAG_LLM_PROVIDER=gemini
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_MODEL=gemini-2.5-flash-lite
 PYTHONPATH=/opt/news-rag
 ```
 

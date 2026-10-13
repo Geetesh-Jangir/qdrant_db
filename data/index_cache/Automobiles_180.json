@@ -1,9 +1,9 @@
 {
   "sector_label": "Automobiles",
-  "benchmark_label": "Nifty 50 (broad proxy; sector index history unavailable)",
-  "yfinance_ticker": "^NSEI",
-  "return_pct": -12.96,
+  "benchmark_label": "Nifty Auto (via ETF)",
+  "yfinance_ticker": "AUTOBEES.NS",
+  "return_pct": -3.44,
   "window_days": 180,
-  "substituted_broad_index": true,
-  "cached_at": 1791806521.2174077
+  "substituted_broad_index": false,
+  "cached_at": 1791889890.8878684
 }

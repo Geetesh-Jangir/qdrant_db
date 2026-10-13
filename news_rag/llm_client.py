@@ -1,4 +1,4 @@
-"""Call DeepSeek or Google Gemini for structured news insight."""
+"""Call Anthropic Claude, Google Gemini, or DeepSeek for structured news insight."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import contextvars
 import json
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator
 
 import httpx
 
@@ -26,11 +26,32 @@ _current_llm_repair: contextvars.ContextVar[bool] = contextvars.ContextVar(
 _gemini_cooldown_until: float = 0.0
 _GEMINI_COOLDOWN_SEC = 300.0
 
+_deepseek_cooldown_until: float = 0.0
+_DEEPSEEK_402_COOLDOWN_SEC = 86400.0  # Cooldown for the process
+
+
+def deepseek_in_cooldown() -> bool:
+    return time.monotonic() < _deepseek_cooldown_until
+
+
+def _mark_deepseek_402(query_log: QueryLogger | None = None) -> None:
+    global _deepseek_cooldown_until
+    already = deepseek_in_cooldown()
+    _deepseek_cooldown_until = time.monotonic() + _DEEPSEEK_402_COOLDOWN_SEC
+    if not already:
+        import logging
+        logging.getLogger(__name__).warning(
+            "DeepSeek returned 402 (Insufficient Balance). Putting DeepSeek in cooldown and falling back to Gemini."
+        )
+    if query_log is not None:
+        query_log.write("deepseek_402_insufficient_balance entering cooldown fallback_to_gemini")
+
 
 def reset_llm_request_state() -> None:
     _gemini_skip_for_request.set(False)
     _current_llm_stage.set(None)
     _current_llm_repair.set(False)
+
 
 
 def _summarize_parsed_for_log(stage: str | None, parsed: dict[str, Any] | None) -> str:
@@ -86,6 +107,7 @@ def _mark_gemini_quota_exceeded(query_log: QueryLogger | None, body: str) -> Non
 
 from news_rag.config import Settings, get_settings
 from news_rag.llm_text import (
+    extract_anthropic_text,
     extract_assistant_text,
     extract_gemini_text,
     parse_json_from_text,
@@ -112,9 +134,23 @@ class LlmCallResult:
     repaired: bool = False
 
 
+def _llm_http_timeout(settings: Settings | None = None) -> float | None:
+    settings = settings or get_settings()
+    raw = getattr(settings, "llm_http_timeout_sec", None)
+    if raw is None:
+        return None
+    try:
+        val = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return None if val <= 0 else val
+
+
 def llm_provider(settings: Settings | None = None) -> str:
     settings = settings or get_settings()
-    name = (settings.rag_llm_provider or "deepseek").strip().lower()
+    name = (settings.rag_llm_provider or "anthropic").strip().lower()
+    if name in ("anthropic", "claude"):
+        return "anthropic"
     if name in ("gemini", "google"):
         return "gemini"
     return "deepseek"
@@ -122,18 +158,24 @@ def llm_provider(settings: Settings | None = None) -> str:
 
 def llm_model(settings: Settings | None = None) -> str:
     settings = settings or get_settings()
-    if llm_provider(settings) == "gemini":
+    prov = llm_provider(settings)
+    if prov == "anthropic":
+        return settings.anthropic_model
+    if prov == "gemini":
         return settings.gemini_model
     return settings.deepseek_model
 
 
 def composer_model(settings: Settings | None = None) -> str:
-    """Final ask answer only. Planner, digest, and judge keep gemini_model."""
+    """Final ask answer; defaults to the same model as other stages per provider."""
     settings = settings or get_settings()
-    if llm_provider(settings) != "gemini":
+    prov = llm_provider(settings)
+    if prov == "anthropic":
+        return settings.anthropic_model
+    if prov != "gemini":
         return llm_model(settings)
     name = (settings.gemini_composer_model or "").strip()
-    return name or "gemini-3.8-flash"
+    return name or settings.gemini_model or "gemini-3.5-flash-lite"
 
 
 def router_model(settings: Settings | None = None) -> str:
@@ -152,23 +194,41 @@ def contract_model(settings: Settings | None = None) -> str:
 
 def llm_api_key_configured(settings: Settings | None = None) -> bool:
     settings = settings or get_settings()
-    if llm_provider(settings) == "gemini":
+    prov = llm_provider(settings)
+    if prov == "anthropic":
+        return bool((settings.anthropic_api_key or "").strip())
+    if prov == "gemini":
         return bool((settings.gemini_api_key or "").strip())
     return bool((settings.deepseek_api_key or "").strip())
 
 
 def missing_llm_key_message(settings: Settings | None = None) -> str:
     settings = settings or get_settings()
-    if llm_provider(settings) == "gemini":
+    prov = llm_provider(settings)
+    if prov == "anthropic":
+        return "ANTHROPIC_API_KEY not configured"
+    if prov == "gemini":
         return "GEMINI_API_KEY not configured"
     return "DEEPSEEK_API_KEY not configured"
 
 
+def _gemini_fallback_available(settings: Settings) -> bool:
+    return bool((settings.gemini_api_key or "").strip())
+
+
 def _effective_provider(settings: Settings) -> str:
     primary = llm_provider(settings)
+    if primary == "anthropic" and not (settings.anthropic_api_key or "").strip():
+        if _gemini_fallback_available(settings):
+            return "gemini"
+    if primary == "deepseek" and deepseek_in_cooldown():
+        if _gemini_fallback_available(settings):
+            return "gemini"
     if primary == "gemini" and gemini_blocked(settings):
-        if (settings.deepseek_api_key or "").strip():
+        if (settings.deepseek_api_key or "").strip() and not deepseek_in_cooldown():
             return "deepseek"
+        if (settings.anthropic_api_key or "").strip():
+            return "anthropic"
     return primary
 
 
@@ -186,23 +246,51 @@ def call_insight_llm(
     user_content: str,
     query_log: QueryLogger | None = None,
     model_override: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.25,
 ) -> LlmCallResult:
     settings = get_settings()
     provider = _effective_provider(settings)
-    gemini_model = (model_override or "").strip() or settings.gemini_model
+    chosen_max = max_tokens or settings.llm_max_tokens
+    if provider == "anthropic":
+        anthropic_model = (model_override or "").strip() or settings.anthropic_model
+        try:
+            return _call_anthropic(
+                settings,
+                system_prompt,
+                user_content,
+                model=anthropic_model,
+                max_tokens=chosen_max,
+                temperature=temperature,
+                query_log=query_log,
+            )
+        except Exception as exc:
+            if _gemini_fallback_available(settings):
+                if query_log is not None:
+                    query_log.write(f"anthropic_failed_falling_back_to_gemini error={exc}")
+                return _call_gemini(
+                    settings,
+                    system_prompt,
+                    user_content,
+                    model=settings.gemini_model,
+                    max_tokens=chosen_max,
+                    temperature=temperature,
+                    query_log=query_log,
+                )
+            raise
     if provider == "gemini":
         try:
             return _call_gemini(
                 settings,
                 system_prompt,
                 user_content,
-                model=gemini_model,
-                max_tokens=settings.llm_max_tokens,
-                temperature=0.25,
+                model=(model_override or "").strip() or settings.gemini_model,
+                max_tokens=chosen_max,
+                temperature=temperature,
                 query_log=query_log,
             )
         except Exception as exc:
-            if settings.deepseek_api_key and settings.deepseek_api_key.strip():
+            if settings.deepseek_api_key and settings.deepseek_api_key.strip() and not deepseek_in_cooldown():
                 if query_log is not None:
                     query_log.write(f"gemini_failed_falling_back_to_deepseek error={exc}")
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
@@ -213,8 +301,8 @@ def call_insight_llm(
                     system_prompt,
                     user_content,
                     model=settings.deepseek_model,
-                    max_tokens=settings.llm_max_tokens,
-                    temperature=0.25,
+                    max_tokens=chosen_max,
+                    temperature=temperature,
                     query_log=query_log,
                 )
             if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
@@ -232,11 +320,15 @@ def call_insight_llm(
                 system_prompt,
                 user_content,
                 model=settings.deepseek_model,
-                max_tokens=settings.llm_max_tokens,
-                temperature=0.25,
+                max_tokens=chosen_max,
+                temperature=temperature,
                 query_log=query_log,
             )
         except Exception as exc:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None and exc.response.status_code == 402:
+                _mark_deepseek_402(query_log)
+            elif "402" in str(exc) or "insufficient balance" in str(exc).lower():
+                _mark_deepseek_402(query_log)
             if settings.gemini_api_key and settings.gemini_api_key.strip():
                 if query_log is not None:
                     query_log.write(f"deepseek_failed_falling_back_to_gemini error={exc}")
@@ -245,11 +337,12 @@ def call_insight_llm(
                     system_prompt,
                     user_content,
                     model=settings.gemini_model,
-                    max_tokens=settings.llm_max_tokens,
-                    temperature=0.25,
+                    max_tokens=chosen_max,
+                    temperature=temperature,
                     query_log=query_log,
                 )
             raise
+
 
 
 def _blocks_to_parts(context_blocks: list[dict[str, Any]] | None, user_content: str) -> list[str]:
@@ -303,13 +396,31 @@ def call_json_llm(
             f"{json.dumps(response_schema, ensure_ascii=False)}"
         )
 
+    def _model_for(active_provider: str) -> str:
+        if active_provider == "anthropic":
+            return chosen_model if provider == "anthropic" else settings.anthropic_model
+        if active_provider == "gemini":
+            return chosen_model if provider == "gemini" else settings.gemini_model
+        return chosen_model if provider == "deepseek" else settings.deepseek_model
+
     def _invoke(active_provider: str) -> LlmCallResult:
+        if active_provider == "anthropic":
+            return _call_anthropic(
+                settings,
+                system_prompt + schema_text,
+                joined,
+                model=_model_for("anthropic"),
+                max_tokens=max_tokens,
+                temperature=temperature,
+                response_json=True,
+                query_log=query_log,
+            )
         if active_provider == "gemini":
             return _call_gemini(
                 settings,
                 system_prompt,
                 joined,
-                model=chosen_model if provider == "gemini" else settings.gemini_model,
+                model=_model_for("gemini"),
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_json=True,
@@ -321,7 +432,7 @@ def call_json_llm(
             settings,
             system_prompt + schema_text,
             joined,
-            model=chosen_model if provider != "gemini" else settings.deepseek_model,
+            model=_model_for("deepseek"),
             max_tokens=max_tokens,
             temperature=temperature,
             response_json=True,
@@ -345,14 +456,22 @@ def call_json_llm(
         result = _invoke(provider)
     except Exception as exc:
         fallback = ""
-        if provider == "gemini" and (settings.deepseek_api_key or "").strip():
+        if provider == "anthropic" and _gemini_fallback_available(settings):
+            fallback = "gemini"
+            if query_log is not None:
+                query_log.write(f"anthropic_json_failed_falling_back_to_gemini error={exc}")
+        elif provider == "gemini" and (settings.deepseek_api_key or "").strip():
             fallback = "deepseek"
             if query_log is not None:
                 query_log.write(f"gemini_json_failed_falling_back_to_deepseek error={exc}")
             if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
                 if _is_gemini_quota_response(exc.response.status_code, exc.response.text):
                     _mark_gemini_quota_exceeded(query_log, exc.response.text)
-        elif provider != "gemini" and (settings.gemini_api_key or "").strip():
+        elif provider == "deepseek" and _gemini_fallback_available(settings):
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None and exc.response.status_code == 402:
+                _mark_deepseek_402(query_log)
+            elif "402" in str(exc) or "insufficient balance" in str(exc).lower():
+                _mark_deepseek_402(query_log)
             fallback = "gemini"
             if query_log is not None:
                 query_log.write(f"deepseek_json_failed_falling_back_to_gemini error={exc}")
@@ -402,6 +521,9 @@ def call_json_llm(
                     stage, result.parsed if isinstance(result.parsed, dict) else None
                 ),
                 raw_preview=result.raw_text if result.truncated else "",
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                total_tokens=result.total_tokens,
             )
         repair_user = (
             "The previous reply was cut off or was not a JSON object. "
@@ -437,6 +559,93 @@ def call_json_llm(
             repaired=result.repaired,
             parsed_summary=_summarize_parsed_for_log(stage, result.parsed if isinstance(result.parsed, dict) else None),
             raw_preview=result.raw_text if result.truncated else "",
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            total_tokens=result.total_tokens,
+        )
+    return result
+
+
+def _call_anthropic(
+    settings: Settings,
+    system_prompt: str,
+    user_content: str,
+    *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.25,
+    response_json: bool = False,
+    query_log: QueryLogger | None,
+) -> LlmCallResult:
+    api_key = (settings.anthropic_api_key or "").strip()
+    if not api_key:
+        raise RuntimeError("Set ANTHROPIC_API_KEY in .env")
+
+    chosen_model = (model or settings.anthropic_model).strip()
+    chosen_max_tokens = max_tokens or settings.llm_max_tokens
+    system = system_prompt
+    if response_json and "json" not in system.lower():
+        system = system + "\n\nRespond with a single JSON object only. No markdown fences."
+
+    url = settings.anthropic_base_url.rstrip("/") + "/v1/messages"
+    payload: dict[str, Any] = {
+        "model": chosen_model,
+        "max_tokens": chosen_max_tokens,
+        "system": system,
+        "messages": [{"role": "user", "content": user_content}],
+    }
+    # Haiku 5.5+ rejects `temperature` on the Messages API (400 deprecated).
+    if not chosen_model.startswith("claude-haiku-5"):
+        payload["temperature"] = temperature
+
+    started = time.perf_counter()
+    with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
+        response = client.post(
+            url,
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+        duration = time.perf_counter() - started
+        if query_log is not None and response.status_code >= 400:
+            query_log.log_error(
+                "llm",
+                f"provider=anthropic http_status={response.status_code} body={response.text[:500]}",
+            )
+        response.raise_for_status()
+        data = response.json()
+
+    usage = data.get("usage") or {}
+    input_tokens = int(usage.get("input_tokens") or 0)
+    output_tokens = int(usage.get("output_tokens") or 0)
+    total_tokens = input_tokens + output_tokens if (input_tokens or output_tokens) else None
+    finish_reason = str(data.get("stop_reason") or "")
+
+    result = LlmCallResult(
+        raw_text=extract_anthropic_text(data),
+        provider="anthropic",
+        model=chosen_model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
+        duration_sec=duration,
+        http_status=response.status_code,
+        finish_reason=finish_reason,
+        truncated=_finish_is_truncated(finish_reason),
+    )
+    if query_log is not None:
+        query_log.record_llm_call(
+            provider=result.provider,
+            model=result.model,
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            total_tokens=result.total_tokens,
+            duration_sec=result.duration_sec,
+            http_status=result.http_status,
+            stage=_current_llm_stage.get(),
         )
     return result
 
@@ -470,9 +679,11 @@ def _call_deepseek(
     }
     if response_json:
         payload["response_format"] = {"type": "json_object"}
+    if not getattr(settings, "deepseek_thinking", False):
+        payload["thinking"] = {"type": "disabled"}
 
     started = time.perf_counter()
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
         response = client.post(
             url,
             headers={
@@ -482,6 +693,8 @@ def _call_deepseek(
             json=payload,
         )
         duration = time.perf_counter() - started
+        if response.status_code == 402:
+            _mark_deepseek_402(query_log)
         if query_log is not None and response.status_code >= 400:
             query_log.log_error(
                 "llm",
@@ -489,6 +702,7 @@ def _call_deepseek(
             )
         response.raise_for_status()
         data = response.json()
+
 
     usage = data.get("usage") or {}
     input_tokens = int(usage.get("prompt_tokens") or 0)
@@ -569,7 +783,7 @@ def _call_gemini(
     max_retries = 1 if has_fallback else 3
     backoffs = [1.0] if has_fallback else [2.0, 4.0, 8.0]
     for attempt in range(max_retries + 1):
-        with httpx.Client(timeout=120.0) as client:
+        with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
             response = client.post(
                 url,
                 headers={
@@ -638,4 +852,204 @@ def _call_gemini(
             stage=_current_llm_stage.get(),
         )
     return result
+
+
+def _stream_deepseek(
+    settings: Settings,
+    system_prompt: str,
+    user_content: str,
+    *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.25,
+) -> Iterator[str]:
+    api_key = (settings.deepseek_api_key or "").strip()
+    if not api_key:
+        raise RuntimeError("Set DEEPSEEK_API_KEY in .env")
+    url = settings.deepseek_base_url.rstrip("/") + "/chat/completions"
+    chosen_model = model or settings.deepseek_model
+    chosen_max_tokens = max_tokens or settings.llm_max_tokens
+    payload = {
+        "model": chosen_model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_content},
+        ],
+        "max_tokens": chosen_max_tokens,
+        "temperature": temperature,
+        "stream": True,
+    }
+    if not getattr(settings, "deepseek_thinking", False):
+        payload["thinking"] = {"type": "disabled"}
+
+    with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
+        with client.stream(
+            "POST",
+            url,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json=payload,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data_str)
+                    choices = chunk.get("choices") or []
+                    if choices:
+                        delta = choices[0].get("delta") or {}
+                        content = delta.get("content") or ""
+                        if content:
+                            yield content
+                except Exception:
+                    continue
+
+
+def _stream_gemini(
+    settings: Settings,
+    system_prompt: str,
+    user_content: str,
+    *,
+    model: str | None = None,
+    max_tokens: int | None = None,
+    temperature: float = 0.25,
+) -> Iterator[str]:
+    api_key = (settings.gemini_api_key or "").strip().strip('"')
+    if not api_key:
+        raise RuntimeError("Set GEMINI_API_KEY in .env")
+    chosen_model = (model or settings.gemini_model).strip()
+    base = settings.gemini_base_url.rstrip("/")
+    url = f"{base}/models/{chosen_model}:streamGenerateContent?alt=sse&key={api_key}"
+    chosen_max_tokens = max_tokens or settings.llm_max_tokens
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": user_content}]}],
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": chosen_max_tokens,
+        },
+    }
+    with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
+        with client.stream(
+            "POST",
+            url,
+            headers={"Content-Type": "application/json"},
+            json=payload,
+        ) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if not line or not line.startswith("data: "):
+                    continue
+                data_str = line[6:].strip()
+                try:
+                    chunk = json.loads(data_str)
+                    candidates = chunk.get("candidates") or []
+                    if candidates:
+                        content = candidates[0].get("content") or {}
+                        parts = content.get("parts") or []
+                        for p in parts:
+                            txt = p.get("text") or ""
+                            if txt:
+                                yield txt
+                except Exception:
+                    continue
+
+
+def stream_text_llm(
+    *,
+    system_prompt: str,
+    user_content: str,
+    model_override: str | None = None,
+    max_tokens: int = 2000,
+    temperature: float = 0.2,
+    query_log: QueryLogger | None = None,
+) -> Iterator[str]:
+    """Stream response tokens for composer using Anthropic, Gemini, or DeepSeek with fallback."""
+    settings = get_settings()
+    provider = _effective_provider(settings)
+    if provider == "anthropic":
+        try:
+            result = _call_anthropic(
+                settings,
+                system_prompt,
+                user_content,
+                model=model_override or settings.anthropic_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                query_log=query_log,
+            )
+            if result.raw_text:
+                yield result.raw_text
+            return
+        except Exception as exc:
+            if _gemini_fallback_available(settings):
+                if query_log is not None:
+                    query_log.write(f"anthropic_stream_failed_falling_back_to_gemini error={exc}")
+                yield from _stream_gemini(
+                    settings,
+                    system_prompt,
+                    user_content,
+                    model=model_override or composer_model(settings),
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                return
+            raise
+    if provider == "deepseek" and not deepseek_in_cooldown():
+        try:
+            yield from _stream_deepseek(
+                settings,
+                system_prompt,
+                user_content,
+                model=model_override or settings.deepseek_model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            return
+        except Exception as exc:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None and exc.response.status_code == 402:
+                _mark_deepseek_402(query_log)
+            elif "402" in str(exc) or "insufficient balance" in str(exc).lower():
+                _mark_deepseek_402(query_log)
+            if settings.gemini_api_key and settings.gemini_api_key.strip():
+                if query_log is not None:
+                    query_log.write(f"deepseek_stream_failed_falling_back_to_gemini error={exc}")
+                yield from _stream_gemini(
+                    settings,
+                    system_prompt,
+                    user_content,
+                    model=model_override or composer_model(settings),
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                return
+            raise
+    else:
+        try:
+            yield from _stream_gemini(
+                settings,
+                system_prompt,
+                user_content,
+                model=model_override or composer_model(settings),
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+        except Exception as exc:
+            if settings.deepseek_api_key and settings.deepseek_api_key.strip() and not deepseek_in_cooldown():
+                if query_log is not None:
+                    query_log.write(f"gemini_stream_failed_falling_back_to_deepseek error={exc}")
+                yield from _stream_deepseek(
+                    settings,
+                    system_prompt,
+                    user_content,
+                    model=model_override or settings.deepseek_model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+                return
+            raise
+
 

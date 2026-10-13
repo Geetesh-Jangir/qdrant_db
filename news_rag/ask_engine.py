@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any, TYPE_CHECKING
 
 from news_rag.config import get_settings
-from news_rag.insight.pipeline import run_insight_pipeline
+from news_rag.insight.pipeline import run_insight_pipeline, stream_insight_pipeline
 
 if TYPE_CHECKING:
+    from typing import AsyncIterator
     from news_rag.query_log import QueryLogger
 
 
@@ -36,3 +37,29 @@ def run_ask_engine(
         direction=direction,
         query_log=query_log,
     )
+
+
+async def stream_ask_engine(
+    question: str,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_impact: int | None = None,
+    source: str | None = None,
+    direction: str | None = None,
+    query_log: QueryLogger | None = None,
+) -> AsyncIterator[str]:
+    q = (question or "").strip()
+    if query_log is not None:
+        query_log.write("PIPELINE_STREAM name=insight_v2")
+    async for packet in stream_insight_pipeline(
+        q,
+        date_from=date_from,
+        date_to=date_to,
+        min_impact=min_impact,
+        source=source,
+        direction=direction,
+        query_log=query_log,
+    ):
+        yield packet
+

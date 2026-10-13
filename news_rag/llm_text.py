@@ -26,6 +26,16 @@ def extract_assistant_text(data: dict[str, Any]) -> str:
     return ""
 
 
+def extract_anthropic_text(data: dict[str, Any]) -> str:
+    chunks: list[str] = []
+    for block in data.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "text":
+            text = block.get("text")
+            if text and str(text).strip():
+                chunks.append(str(text).strip())
+    return "\n".join(chunks)
+
+
 def extract_gemini_text(data: dict[str, Any]) -> str:
     candidates = data.get("candidates") or []
     if not candidates:

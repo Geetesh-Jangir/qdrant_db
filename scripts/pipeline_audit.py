@@ -55,7 +55,11 @@ def audit_stages(question: str, *, fan_out: int = 5, max_rounds: int = 3) -> dic
     brief = build_question_brief(question) if llm_api_key_configured(settings) else _heuristic_brief(question)
     gctx = GatherContext(question=question, brief=brief, fan_out_cap=fan_out)
     evidence = gather_evidence(gctx, max_rounds=max_rounds)
-    findings = compute_findings(brief, evidence)
+    from news_rag.insight.news_reader import read_news
+
+    news_read = read_news(question, brief, evidence.articles)
+    print(f"  news_reader: mode={news_read.mode} tone={news_read.tone} claims={len(news_read.claims)}")
+    findings = compute_findings(brief, evidence, news_read)
     composed = compose_from_findings(question, brief, findings, evidence)
     verify = verify_answer(brief, findings, evidence, insight_text=composed.display)
 

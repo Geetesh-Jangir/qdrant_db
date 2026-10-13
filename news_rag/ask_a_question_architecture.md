@@ -6,7 +6,24 @@ The live path is **insight v2** (legacy `query_router` / `ask_agent` / `ask_comp
 
 `news_rag/app.py` → `news_rag/ask_engine.py` → `news_rag/insight/pipeline.py`
 
-Stages: **brief** → **gather** (tool registry + coverage ledger) → **compute findings** → **interpret** → **verify** (+ optional judge display score).
+Stages: **brief** → **gather** (tool registry + coverage ledger) → **news reader** → **compute findings** → **interpret** → **verify** (+ judge display score).
+
+### Current flow (insight v2), in one screen
+
+| Stage | File | LLM? | What it does |
+| --- | --- | --- | --- |
+| brief | `insight/brief.py` | `brief` | Finds sector, macro driver, funds, stocks, direction and window (code first, LLM adds sub-asks). Plans `evidence_needs` (facets). |
+| gather | `insight/gather.py` | `affected_sectors` (driver questions only) | Maps each facet to a tool (`registry.pick_tool_for_facet`, gated by `ToolSpec.applies`). Closes dependencies (`requires`), runs per-fund tools once per shortlisted fund (`fan_out_over`), retries a failed facet with another provider, caches repeat calls. |
+| news reader | `insight/news_reader.py` | `news_reader` | Reads ~10 cleaned article bodies. Returns cited claims (numbers checked against the article), tone with a reason, and the sectors the news helps or hurts. Heuristic fallback if the LLM fails. |
+| compute | `insight/blocks/compute.py` | no | For each fund: weight in sectors the news helps / hurts / pulls both ways, `news_tilt` (tailwind, headwind, mixed, neutral), and `alignment` with the fund's actual return (aligned, diverged, flat, diluted, mixed). |
+| interpret | `insight/interpret.py` | `interpret` | Hybrid writer. Code prints numbers and labels; the LLM writes headline, sector read, one line per fund, closing. Each field is validated and falls back to a structured sentence. `[c1]` markers become `(Source, date)`. |
+| verify | `insight/verify.py` | no | Telemetry: unmet evidence, missing citations, funds without alignment, ungrounded numbers. |
+
+Tools (22) are described in `insight/tool_runners.py` (`description`, `when_to_use`, `avoid_when`, `applies`). Driver-led questions (crude, RBI, rupee) go news → `affected_sectors` (news decides, `macro_impact_map` is a hint and fallback) → `driver_affected_funds` (funds ranked by weight in those sectors). Sector questions use `sector_funds`. Named-fund questions seed the fund shortlist directly.
+
+Settings: `INSIGHT_USE_LLM_NEWS_READER`, `INSIGHT_USE_LLM_INTERPRET` (both default on), `DEEPSEEK_THINKING` (default off; reasoning tokens otherwise eat the JSON budget). Run one question with a full log: `python scripts/run_ask_once.py "question"`. Audit all stages: `python scripts/pipeline_audit.py`.
+
+Everything below section 5 describes the earlier agent-based design and is kept as background for the tool behaviour; stage names there (agent, composer) no longer exist in the live path.
 
 Tool registry: `news_rag/insight/registry.py` + `news_rag/insight/tool_runners.py`. Eval set: `news_rag/eval/cases_v2.json` via `scripts/eval_ask_v2.py`.
 
@@ -288,7 +305,7 @@ whats happening in the market right now?
 
 Plus a long **system prompt** (`AGENT_SYSTEM`): you are the research agent, here is the tool catalog, return this JSON shape.
 
-**LLM call (from the log):** Gemini `gemini-3.5-flash-lite`, about 1148 input tokens, 221 output tokens, about 3.6s.
+**LLM call (from the log):** Gemini `gemini-2.5-flash-lite`, about 1148 input tokens, 221 output tokens, about 3.6s.
 
 #### Step 3 — Agent JSON out (round 1)
 

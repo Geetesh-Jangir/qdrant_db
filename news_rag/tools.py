@@ -808,6 +808,7 @@ def run_layered_news(
             query_log=query_log,
         )
     else:
+        scoped_kw = {k: v for k, v in filter_kwargs.items() if k != "direction"}
         articles = retrieve_scoped_news(
             semantic_query or question,
             scope=scope,
@@ -815,7 +816,7 @@ def run_layered_news(
             window_days=window_days,
             direction=direction,
             query_log=query_log,
-            **{k: v for k, v in filter_kwargs.items() if k != "direction"},
+            **scoped_kw,
         )
     for art in articles:
         if not isinstance(art, dict):

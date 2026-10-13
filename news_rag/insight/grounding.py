@@ -1,8 +1,40 @@
-"""Number grounding for composed answers (extracted from ask_composer patterns)."""
+"""Number grounding and display polish for composed answers."""
 
 from __future__ import annotations
 
 import re
+
+_MEDIA_OUTLETS = (
+    "Economic Times",
+    "Financial Express",
+    "Business Standard",
+    "BusinessLine",
+    "The Hindu BusinessLine",
+    "Moneycontrol",
+    "Livemint",
+    "Mint",
+    "Reuters",
+    "NDTV Profit",
+    "CNBC-TV18",
+    "CNBC",
+    "Bloomberg",
+    "PTI",
+    "ANI",
+    "Business Standard",
+)
+_OUTLET_CITE_RE = re.compile(
+    r"\(\s*(?:"
+    + "|".join(re.escape(o) for o in _MEDIA_OUTLETS)
+    + r")\s*,\s*[^)]+\)",
+    re.I,
+)
+_OUTLET_BARE_RE = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(o) for o in _MEDIA_OUTLETS)
+    + r")\b(?:\s*,\s*\d{1,2}\s+\w{3,9}(?:\s+\d{4})?)?",
+    re.I,
+)
+_ACCORDING_RE = re.compile(r"\baccording to\s+(?:the\s+)?(?:reports?|news|media)\b[,.]?\s*", re.I)
 
 _PCT_OR_BPS_RE = re.compile(
     r"(?<![\w.])([+-]?\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:%|bps|bp)(?![\w])",
@@ -39,6 +71,17 @@ def cores_in_text(blob: str) -> set[str]:
         if core:
             cores.add(core)
     return cores
+
+
+def strip_media_attribution(text: str) -> str:
+    """Remove newspaper names and inline source parentheses; sources live in the API `sources` list."""
+    cleaned = text or ""
+    cleaned = _OUTLET_CITE_RE.sub("", cleaned)
+    cleaned = _OUTLET_BARE_RE.sub("", cleaned)
+    cleaned = _ACCORDING_RE.sub("", cleaned)
+    cleaned = re.sub(r"\(\s*\d{1,2}\s+\w{3,9}(?:\s+\d{4})?\s*\)", "", cleaned)
+    cleaned = re.sub(r"\s+\(\s*;\s*", " (", cleaned)
+    return tidy_prose(cleaned)
 
 
 def tidy_prose(text: str) -> str:
@@ -80,8 +123,10 @@ def finalize_text_fields(
     evidence_text: str,
 ) -> tuple[str, str, list[str], str]:
     allowed = cores_in_text(evidence_text)
-    headline = strip_ungrounded_numbers(headline, allowed)
-    narrative = strip_ungrounded_numbers(narrative, allowed)
-    bullets = [strip_ungrounded_numbers(b, allowed) for b in bullets if b]
-    closing = strip_ungrounded_numbers(closing, allowed)
+    headline = strip_media_attribution(strip_ungrounded_numbers(headline, allowed))
+    narrative = strip_media_attribution(strip_ungrounded_numbers(narrative, allowed))
+    bullets = [
+        strip_media_attribution(strip_ungrounded_numbers(b, allowed)) for b in bullets if b
+    ]
+    closing = strip_media_attribution(strip_ungrounded_numbers(closing, allowed))
     return headline, narrative, [b for b in bullets if b.strip()], closing

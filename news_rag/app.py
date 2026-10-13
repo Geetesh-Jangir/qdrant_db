@@ -10,7 +10,7 @@ from pathlib import Path
 import httpx
 
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -26,7 +26,7 @@ from news_rag.llm_client import (
 )
 from news_rag.query_log import new_fund_brief_logger, new_query_logger
 from news_rag.fund_brief import generate_fund_brief
-from news_rag.ask_engine import run_ask_engine
+from news_rag.ask_engine import run_ask_engine, stream_ask_engine
 from news_rag.embed import embeddings_ready
 from news_rag.sector_fund_ranking import sector_ranking_data_available
 from news_rag.stock_fund_ranking import holdings_archive_available
@@ -92,16 +92,9 @@ class AskRequest(BaseModel):
 
 
 def _attach_llm_meta(result: dict, meta: dict) -> None:
-    result["query_log_id"] = meta["query_id"]
-    result["query_log_file"] = meta["log_file"]
-    result["query_summary_json"] = meta.get("summary_json") or ""
-    result["llm_provider"] = meta.get("llm_provider") or ""
-    result["llm_calls"] = meta["llm_calls"]
-    result["llm_input_tokens"] = meta["llm_input_tokens"]
-    result["llm_output_tokens"] = meta["llm_output_tokens"]
-    result["deepseek_calls"] = meta["deepseek_calls"]
-    result["deepseek_input_tokens"] = meta["deepseek_input_tokens"]
-    result["deepseek_output_tokens"] = meta["deepseek_output_tokens"]
+    from news_rag.query_log import attach_query_log_meta
+
+    attach_query_log_meta(result, meta)
 
 
 def _check_token(authorization: str | None, x_app_token: str | None) -> None:
@@ -306,34 +299,7 @@ def ask(
             query_log=query_log,
         )
         article_count = len(result.get("sources") or [])
-        outcome = str(result.get("outcome") or "ok")
-        if result.get("refused"):
-            outcome = "refused"
-        if result.get("pipeline_errors") and outcome == "ok":
-            outcome = "partial"
-        if query_log is not None:
-            query_log.log_insight_output(
-                insight_source=str(result.get("insight_source") or "insight_v2"),
-                char_count=len(str(result.get("insight") or "")),
-                preview=str(result.get("insight_summary") or result.get("insight") or "")[:500],
-            )
-        meta = query_log.finish(
-            outcome=outcome,
-            article_count=article_count,
-            insight_source=str(result.get("insight_source") or ""),
-            extra={
-                "question": body.question.strip(),
-                "intent": result.get("intent"),
-                "sub_queries": result.get("sub_queries"),
-                "output_score": result.get("output_score"),
-                "pipeline_errors": result.get("pipeline_errors"),
-                "research_summary": {
-                    "evidence_needs": (result.get("research") or {}).get("evidence_needs"),
-                    "ledger": (result.get("research") or {}).get("ledger"),
-                    "verify_gaps": (result.get("research") or {}).get("verify_gaps"),
-                },
-            },
-        )
+        meta = query_log.finish_from_ask_result(result, question=body.question.strip())
         _attach_llm_meta(result, meta)
         return result
     except httpx.HTTPStatusError as exc:
@@ -367,3 +333,45 @@ def ask(
         query_log.log_error("unhandled", str(exc))
         query_log.finish(outcome="error", article_count=article_count)
         raise HTTPException(status_code=500, detail=str(exc)[:800]) from exc
+
+
+@app.post("/api/ask/stream")
+def ask_stream(
+    body: AskRequest,
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> StreamingResponse:
+    _check_token(authorization, x_app_token)
+    settings = get_settings()
+    if not settings.qdrant_url:
+        raise HTTPException(status_code=500, detail="QDRANT_URL not configured")
+    if not settings.qdrant_api_key and "cloud.qdrant.io" in settings.qdrant_url:
+        raise HTTPException(status_code=500, detail="QDRANT_API_KEY required for Cloud")
+
+    reset_llm_request_state()
+    query_log = new_query_logger()
+    configured_provider = llm_provider(settings)
+    query_log.write(
+        f"config llm_provider={configured_provider} llm_model={llm_model(settings)} "
+        f"collection={settings.qdrant_collection}"
+    )
+
+    if not llm_api_key_configured(settings):
+        message = missing_llm_key_message(settings)
+        query_log.log_error("config", message)
+        query_log.finish(outcome="error", article_count=0)
+        raise HTTPException(status_code=500, detail=message)
+
+    return StreamingResponse(
+        stream_ask_engine(
+            body.question,
+            date_from=body.date_from,
+            date_to=body.date_to,
+            min_impact=body.min_impact,
+            source=body.source,
+            direction=body.direction,
+            query_log=query_log,
+        ),
+        media_type="text/event-stream",
+    )
+

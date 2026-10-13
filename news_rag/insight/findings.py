@@ -38,6 +38,20 @@ class FundFinding:
     verdict: VerdictKind = "unknown"
     confidence: str = "low"
     limits: list[FindingLimit] = field(default_factory=list)
+    # news -> fund link
+    pos_exposure_pct: float = 0.0  # weight in sectors the news helps
+    neg_exposure_pct: float = 0.0  # weight in sectors the news hurts
+    pos_sectors: list[dict[str, Any]] = field(default_factory=list)
+    neg_sectors: list[dict[str, Any]] = field(default_factory=list)
+    exposure_sector: str = ""  # the sector `exposure_pct` refers to
+    top_holdings: list[dict[str, Any]] = field(default_factory=list)  # name, percentage
+    mixed_exposure_pct: float = 0.0  # weight in sectors where the news pulls both ways
+    mixed_sectors: list[dict[str, Any]] = field(default_factory=list)
+    news_tilt: str = "unknown"  # tailwind | headwind | mixed | neutral | unknown
+    alignment: str = "unknown"  # aligned | diverged | diluted | mixed | unknown
+    mechanism: str = ""  # why the news reaches this fund (from the articles)
+    direct_holdings: list[str] = field(default_factory=list)
+    drag_sectors: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -52,6 +66,12 @@ class SectorFinding:
     news_insights: list[str] = field(default_factory=list)
     news_stats: dict[str, Any] = field(default_factory=dict)
     executive_summary: str = ""
+    tone: str = "unclear"
+    tone_reason: str = ""
+    claims: list[dict[str, Any]] = field(default_factory=list)  # id, text, sentiment, source, title, url
+    sectors_positive: list[dict[str, Any]] = field(default_factory=list)
+    sectors_negative: list[dict[str, Any]] = field(default_factory=list)
+    read_mode: str = "none"
 
 
 @dataclass
@@ -79,6 +99,12 @@ class Findings:
                 "news_insights": self.sector.news_insights,
                 "news_stats": self.sector.news_stats,
                 "executive_summary": self.sector.executive_summary,
+                "tone": self.sector.tone,
+                "tone_reason": self.sector.tone_reason,
+                "claims": self.sector.claims,
+                "sectors_positive": self.sector.sectors_positive,
+                "sectors_negative": self.sector.sectors_negative,
+                "read_mode": self.sector.read_mode,
             },
             "funds": [
                 {
@@ -93,6 +119,18 @@ class Findings:
                     "news_signal": f.news_signal,
                     "attribution": f.attribution,
                     "divergence": f.divergence,
+                    "pos_exposure_pct": f.pos_exposure_pct,
+                    "neg_exposure_pct": f.neg_exposure_pct,
+                    "pos_sectors": f.pos_sectors,
+                    "neg_sectors": f.neg_sectors,
+                    "exposure_sector": f.exposure_sector,
+                    "top_holdings": f.top_holdings,
+                    "mixed_exposure_pct": f.mixed_exposure_pct,
+                    "mixed_sectors": f.mixed_sectors,
+                    "news_tilt": f.news_tilt,
+                    "alignment": f.alignment,
+                    "mechanism": f.mechanism,
+                    "direct_holdings": f.direct_holdings,
                     "verdict": f.verdict,
                     "confidence": f.confidence,
                     "limits": [{"code": l.code, "message": l.message} for l in f.limits],

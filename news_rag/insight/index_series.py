@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -54,13 +55,55 @@ def _yf_return_pct(ticker: str, days: int) -> float | None:
         if hist is None or hist.empty or len(hist) < 2:
             return None
         end = float(hist["Close"].iloc[-1])
-        lookback = min(max(days, 5), len(hist) - 1)
-        start = float(hist["Close"].iloc[-1 - lookback])
+        # `days` are calendar days: use the last bar on or before (last date - days)
+        cutoff = hist.index[-1] - timedelta(days=max(days, 5))
+        earlier = hist[hist.index <= cutoff]
+        start = float(earlier["Close"].iloc[-1]) if not earlier.empty else float(hist["Close"].iloc[0])
         if start == 0:
             return None
         return round(((end - start) / start) * 100.0, 2)
     except Exception:
         return None
+
+
+# ETFs that track a sector index and have clean price history when the index symbol does not.
+_SECTOR_ETF_FALLBACK = {
+    "automobiles": ("AUTOBEES.NS", "Nifty Auto (via ETF)"),
+    "auto components": ("AUTOBEES.NS", "Nifty Auto (via ETF)"),
+    "banks": ("BANKBEES.NS", "Nifty Bank (via ETF)"),
+    "information technology": ("ITBEES.NS", "Nifty IT (via ETF)"),
+    "it - software": ("ITBEES.NS", "Nifty IT (via ETF)"),
+    "pharmaceuticals & biotechnology": ("PHARMABEES.NS", "Nifty Pharma (via ETF)"),
+    "construction": ("INFRABEES.NS", "Nifty Infra (via ETF)"),
+}
+
+
+_RANK_SECTORS = (
+    "Banks",
+    "It - Software",
+    "Pharmaceuticals & Biotechnology",
+    "Automobiles",
+    "Telecom - Services",
+    "Petroleum Products",
+    "Cement & Cement Products",
+    "Diversified Fmcg",
+)
+
+
+def worst_sector_by_return(window_days: int = 365) -> tuple[str, float | None]:
+    """Sector with the lowest index return over the window. Empty if none could be priced."""
+    ranked: list[tuple[str, float]] = []
+    for name in _RANK_SECTORS:
+        row = index_return_for_sector(name, window_days=window_days)
+        if row.get("substituted_broad_index"):
+            continue
+        pct = row.get("return_pct")
+        if isinstance(pct, (int, float)):
+            ranked.append((name, float(pct)))
+    if not ranked:
+        return "", None
+    ranked.sort(key=lambda item: item[1])
+    return ranked[0]
 
 
 def index_return_for_sector(
@@ -83,6 +126,12 @@ def index_return_for_sector(
         substituted = True
 
     pct = _yf_return_pct(ticker, window_days)
+    if pct is None and not substituted:
+        etf = _SECTOR_ETF_FALLBACK.get(sector_label.strip().lower())
+        if etf:
+            etf_pct = _yf_return_pct(etf[0], window_days)
+            if etf_pct is not None:
+                ticker, label, pct = etf[0], etf[1], etf_pct
     if pct is None and not substituted:
         ticker = nifty50_ticker()
         label = "Nifty 50 (broad proxy; sector index history unavailable)"

@@ -1,0 +1,9 @@
+{
+  "sector_label": "Telecom - Services",
+  "benchmark_label": "Telecom - Services",
+  "yfinance_ticker": "^CNXIT",
+  "return_pct": -10.11,
+  "window_days": 180,
+  "substituted_broad_index": false,
+  "cached_at": 1791889891.0648358
+}

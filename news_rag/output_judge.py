@@ -8,18 +8,14 @@ from typing import TYPE_CHECKING, Any
 from news_rag.config import get_settings
 from news_rag.llm_client import call_json_llm, contract_model, llm_api_key_configured
 from news_rag.llm_text import parse_json_from_text
+from news_rag.prompts import build_judge_prompt
 
 if TYPE_CHECKING:
     from news_rag.query_log import QueryLogger
 
 NO_DATA_MSG = "We do not have information related to this query in our data."
 
-JUDGE_FALLBACK_PROMPT = """Score the draft answer against the question and context (0.0 to 1.0 each).
-Return JSON only:
-{"answers_query":0.9,"grounded":0.9,"on_topic":0.9,"no_advice":1.0,"no_extra":0.9,"pass":true}
-The planner may request NAV, holdings, and news — those are NOT "extra".
-no_extra penalizes only unrelated facts the user did not ask for and the planner did not request.
-pass is informational only; the answer is always shown to the user."""
+JUDGE_FALLBACK_PROMPT = build_judge_prompt()
 
 JUDGE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -29,6 +25,14 @@ JUDGE_RESPONSE_SCHEMA: dict[str, Any] = {
         "on_topic": {"type": "number"},
         "no_advice": {"type": "number"},
         "no_extra": {"type": "number"},
+        "insight_depth": {"type": "number"},
+        "causal_discipline": {"type": "number"},
+        "has_final_summary": {"type": "boolean"},
+        "has_disclaimer": {"type": "boolean"},
+        "window_stated": {"type": "boolean"},
+        "no_outlets_or_dates": {"type": "boolean"},
+        "news_recap_flag": {"type": "boolean"},
+        "fix_instructions": {"type": "string"},
         "pass": {"type": "boolean"},
     },
     "required": ["answers_query", "grounded", "on_topic", "no_advice", "no_extra", "pass"],
@@ -110,10 +114,23 @@ def judge_answer(
             "on_topic": float(parsed.get("on_topic") or parsed.get("answers_query") or 0),
             "no_extra": float(parsed.get("no_extra") or 0),
             "no_advice": float(parsed.get("no_advice") or 0),
+            "insight_depth": float(parsed.get("insight_depth") or parsed.get("on_topic") or 0),
+            "causal_discipline": float(parsed.get("causal_discipline") or parsed.get("grounded") or 0),
         }
         usable = _scores_usable(scores, truncated=bool(res.truncated)) and bool(parsed)
-        passed = bool(parsed.get("pass")) and all(scores[k] >= thr for k in scores if k != "no_advice")
+        passed = bool(parsed.get("pass"))
+        if not passed:
+            passed = (
+                scores["answers_query"] >= max(thr, 0.7)
+                and scores["grounded"] >= max(thr, 0.8)
+                and scores.get("no_advice", 0) >= 1.0
+                and scores.get("insight_depth", 0) >= 0.6
+                and scores.get("causal_discipline", 0) >= 0.7
+                and not bool(parsed.get("news_recap_flag"))
+            )
         if scores.get("no_extra", 0) < 0.7:
+            passed = False
+        if parsed.get("no_outlets_or_dates") is False:
             passed = False
         if not usable:
             passed = False

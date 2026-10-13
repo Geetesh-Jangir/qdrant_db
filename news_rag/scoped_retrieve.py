@@ -99,6 +99,7 @@ def retrieve_scoped_news(
     direction: str | None = None,
     query_log: QueryLogger | None = None,
     ignore_question_time_hints: bool = False,
+    body_char_limit: int | None = None,
 ) -> list[dict]:
     settings = get_settings()
     scope = scope or ScopeRefinement()
@@ -195,7 +196,8 @@ def retrieve_scoped_news(
         if scope.news_topics and mode == "event_only" and not _topic_match(row, scope.news_topics):
             continue
         raw_text = str(row.get("scraped_text") or row.get("snippet") or "")
-        snippet = _trim_snippet(raw_text, settings.snippet_chars)
+        char_cap = int(body_char_limit or 0) or int(settings.snippet_chars)
+        snippet = _trim_snippet(raw_text, char_cap)
         article_entities = {str(n).lower() for n in (row.get("entity_names") or [])}
         title_lower = str(row.get("title") or "").lower()
         exact_entity_match = bool(entity_set & article_entities) or any(n in title_lower for n in entity_set)
@@ -215,6 +217,7 @@ def retrieve_scoped_news(
                 "event_type": row.get("event_type"),
                 "primary_industry": row.get("primary_industry"),
                 "snippet": snippet,
+                "scraped_text": snippet,
                 "max_impact": impact,
                 "_vector_score": float(row.get("_vector_score") or 0.0),
                 "_rrf_score": combined_score,

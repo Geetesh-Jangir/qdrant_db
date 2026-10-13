@@ -26,8 +26,11 @@ class Settings(BaseSettings):
     qdrant_api_key: str = ""
     qdrant_collection: str = "news_articles"
 
-    # Insight LLM: set RAG_LLM_PROVIDER=gemini or deepseek (default gemini).
-    rag_llm_provider: str = "gemini"
+    # Insight LLM: anthropic (default), gemini, or deepseek. Gemini is the fallback when primary fails.
+    rag_llm_provider: str = Field(
+        default="anthropic",
+        validation_alias=AliasChoices("RAG_LLM_PROVIDER", "rag_llm_provider"),
+    )
     # Agent-1: cheap JSON router after fast paths (flash-lite). Set false for rules-only.
     rag_use_llm_router: bool = Field(
         default=True,
@@ -37,10 +40,29 @@ class Settings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-flash"
+    # Reasoning tokens count against max_tokens and truncate small JSON stages (brief, judge).
+    # Keep off for structured-JSON stages; set DEEPSEEK_THINKING=true only for free-form answers.
+    deepseek_thinking: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("DEEPSEEK_THINKING", "deepseek_thinking"),
+    )
+
+    anthropic_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("ANTHROPIC_API_KEY", "anthropic_api_key"),
+    )
+    anthropic_model: str = Field(
+        default="claude-haiku-5-5",
+        validation_alias=AliasChoices("ANTHROPIC_MODEL", "anthropic_model"),
+    )
+    anthropic_base_url: str = Field(
+        default="https://api.anthropic.com",
+        validation_alias=AliasChoices("ANTHROPIC_BASE_URL", "anthropic_base_url"),
+    )
 
     gemini_api_key: str = ""
     gemini_model: str = "gemini-3.5-flash-lite"
-    gemini_composer_model: str = "gemini-3.8-flash"
+    gemini_composer_model: str = "gemini-3.5-flash-lite"
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
     # Dedicated cheap model for query routing and answer contract planning (default: flash-lite)
@@ -54,6 +76,11 @@ class Settings(BaseSettings):
     llm_max_tokens: int = Field(
         default=2000,
         validation_alias=AliasChoices("LLM_MAX_TOKENS", "DEEPSEEK_MAX_TOKENS"),
+    )
+    # None or 0 = no HTTP timeout on LLM requests (wait until the provider responds).
+    llm_http_timeout_sec: float | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LLM_HTTP_TIMEOUT_SEC", "llm_http_timeout_sec"),
     )
 
     app_token: str = ""
@@ -113,8 +140,20 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("INSIGHT_DRIVEN_BY_SHARE_PCT", "insight_driven_by_share_pct"),
     )
     insight_use_llm_interpret: bool = Field(
-        default=False,
+        default=True,
         validation_alias=AliasChoices("INSIGHT_USE_LLM_INTERPRET", "insight_use_llm_interpret"),
+    )
+    insight_use_llm_news_reader: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_USE_LLM_NEWS_READER", "insight_use_llm_news_reader"),
+    )
+    insight_use_llm_analyst: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_USE_LLM_ANALYST", "insight_use_llm_analyst"),
+    )
+    insight_llm_article_chars: int = Field(
+        default=3500,
+        validation_alias=AliasChoices("INSIGHT_LLM_ARTICLE_CHARS", "insight_llm_article_chars"),
     )
     rag_warmup_embeddings: bool = Field(
         default=True,

@@ -59,9 +59,11 @@ Requires corpus already in Qdrant from at least one pipeline run.
 **Insight LLM (`.env`):** default is DeepSeek. For Google Gemini:
 
 ```env
-RAG_LLM_PROVIDER=gemini
+RAG_LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your_anthropic_api_key
+ANTHROPIC_MODEL=claude-haiku-5-5
 GEMINI_API_KEY=your_google_ai_studio_key
-GEMINI_MODEL=gemini-3.5-flash-lite
+GEMINI_MODEL=gemini-2.5-flash-lite
 ```
 
 Restart uvicorn after changing `.env`. `GET /health` shows `llm_provider` and `llm_model`.
@@ -131,17 +133,18 @@ Workflow env already sets: `FRESH_START_EACH_RUN=false`, `FRESH_START_CLEAR_QDRA
 |--------|--------|
 | `QDRANT_URL` | Same cluster as pipeline |
 | `QDRANT_API_KEY` | Same |
-| `DEEPSEEK_API_KEY` | If `RAG_LLM_PROVIDER=deepseek` (default) |
-| `GEMINI_API_KEY` | If `RAG_LLM_PROVIDER=gemini` |
+| `ANTHROPIC_API_KEY` | If `RAG_LLM_PROVIDER=anthropic` (default) |
+| `GEMINI_API_KEY` | Fallback when Anthropic fails; required if `RAG_LLM_PROVIDER=gemini` |
+| `DEEPSEEK_API_KEY` | If `RAG_LLM_PROVIDER=deepseek` |
 
 ### Optional for RAG
 
 | Secret | Notes |
 |--------|--------|
-| `RAG_LLM_PROVIDER` | `deepseek` (default) or `gemini` |
+| `RAG_LLM_PROVIDER` | `anthropic` (default), `gemini`, or `deepseek` |
 | `DEEPSEEK_MODEL` | e.g. `deepseek-chat` or `deepseek-flash` |
 | `DEEPSEEK_BASE_URL` | Default `https://api.deepseek.com` |
-| `GEMINI_MODEL` | Default `gemini-3.5-flash-lite` (older `gemini-2.5-flash-lite` may 404 for new keys) |
+| `GEMINI_MODEL` | Default `gemini-2.5-flash-lite` |
 | `APP_TOKEN` | If set, smoke test sends `X-App-Token` header |
 
 **Do not** commit `.env`. Only store these in GitHub Secrets (and local `.env`).

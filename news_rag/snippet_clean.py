@@ -55,6 +55,12 @@ _INLINE_IST_TIME = re.compile(
     r"\b\d{1,2}\s+\w{3,9}\s+\d{4},?\s*\d{1,2}:\d{2}\s*(?:AM|PM)?\s*IST\b",
     re.I,
 )
+_PUBLISHED_ON = re.compile(
+    r"\b(?:Published|Last\s+Updated)\s+On\s*\w{3,9}\s*\d{1,2},?\s*\d{4}"
+    r"(?:\s*\|\s*\d{1,2}:\d{2}\s*(?:AM|PM)?\s*(?:IST)?)?",
+    re.I,
+)
+_LISTEN = re.compile(r"\bListen to (?:this|the) article\b[^.]{0,40}", re.I)
 _BROKEN_END = re.compile(
     r"\b(?:on|the|a|an|to|of|for|and|or|in|at|as|by|with|from|that|which|"
     r"their|its|india'?s?)\s*\.\s*$",
@@ -90,6 +96,8 @@ def clean_scraped_snippet(text: str) -> str:
     cleaned = _UPDATED_LINE.sub(" ", cleaned)
     cleaned = _PUBLISH_TIMESTAMP.sub(" ", cleaned)
     cleaned = _INLINE_IST_TIME.sub(" ", cleaned)
+    cleaned = _PUBLISHED_ON.sub(" ", cleaned)
+    cleaned = _LISTEN.sub(" ", cleaned)
     cleaned = _WEEKDAY_DATE.sub(" ", cleaned)
     cleaned = _EARLY_TRADING_DATE.sub(" during early trading", cleaned)
     cleaned = _AGENCY.sub(" ", cleaned)
@@ -155,6 +163,20 @@ def sanitize_analyst_bullet(text: str) -> str:
         return ""
     if looks_like_raw_scrape(cleaned):
         return ""
+    return cleaned
+
+
+def polish_insight_sentence(text: str, *, max_chars: int = 200) -> str:
+    """Short investor-facing line: strip scrape junk, cap length, one clean sentence."""
+    cleaned = sanitize_analyst_bullet(text or "")
+    if not cleaned:
+        return ""
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if len(cleaned) > max_chars:
+        cut = cleaned[:max_chars].rsplit(" ", 1)[0]
+        cleaned = cut.rstrip(" ,;:-") + "."
+    if cleaned and cleaned[-1] not in ".!?":
+        cleaned += "."
     return cleaned
 
 
