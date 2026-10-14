@@ -1,0 +1,2 @@
+*.sh text eol=lf
+deploy/lightsail/*.sh text eol=lf
