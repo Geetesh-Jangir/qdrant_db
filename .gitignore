@@ -10,6 +10,7 @@ deploy/cloudflare/worker/.wrangler/
 data/qdrant_storage/
 data/news_runs/*.json
 data/news_runs/*.log
+data/news_runs_daily/
 data/rag_query_logs/
 data/qdrant_inspect/
 data/news_scrape_cache/
@@ -25,3 +26,5 @@ data/fund_holdings_aggregate/*.rating_patch.*
 
 # Optional large embedding cache for fund fuzzy match (run scripts/build_fund_name_embeddings.py)
 data/fund_name_embeddings.json
+
+lightsail_logs/news_runs

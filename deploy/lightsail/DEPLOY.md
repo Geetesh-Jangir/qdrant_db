@@ -84,6 +84,32 @@ Pipeline keys already in `.env` are reused (`QDRANT_*`, `JEV_*` if you use Jev).
 
 ---
 
+## Daily ingest (midnight, 08:00, and 16:00 IST)
+
+`install.sh` installs three cron jobs for user `ubuntu` in **Asia/Kolkata**: **00:00**, **08:00**, and **16:00**.
+
+Each run uses:
+
+- `GOOGLE_NEWS_WHEN=1d` and an empty `NEWS_DATE_RANGE` (Google `when:1d`, not `after`/`before`)
+- `NEWS_WINDOW_HOURS=24`
+- `HOLDINGS_LIMIT=500`, `SECTORS_LIMIT=30`, macros on
+- `NEWS_CORPUS_MODE=true` so existing articles stay
+
+Historical backfill is unchanged and still writes under `data/news_runs/YYYY-MM-DD/`. Daily logs are separate:
+
+- Pipeline files: `/opt/news-rag/data/news_runs_daily/`
+- Cron wrapper: `/opt/news-rag/data/news_runs_daily/cron/daily_*.log`
+
+If a backfill or another pipeline process is already running when a slot starts, that slot **skips** and does not start later when backfill ends. The next midnight, 08:00, or 16:00 slot tries again. Run it by hand after backfill finishes if you do not want to wait. A 500/30 run can take hours and shares RAM with Ask.
+
+```bash
+crontab -u ubuntu -l
+sudo -u ubuntu /opt/news-rag/deploy/lightsail/run-daily-pipeline.sh
+tail -f /opt/news-rag/data/news_runs_daily/cron/daily_*.log
+```
+
+---
+
 ## 4. Updates (after you push from your PC)
 
 Use branch **`v2`** (not `ask-a-question` — that was an old branch name). If `git pull` says *divergent branches*, sync without merging:

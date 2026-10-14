@@ -64,7 +64,7 @@ export PYTHONPATH="${NEWS_RAG_DIR}"
 .venv/bin/python scripts/download_embedding_model.py
 
 mkdir -p data/rag_query_logs data/embedding_models data/fund_holdings_aggregate data/nav_cache \
-  data/news_runs data/news_backfill data/news_failures
+  data/news_runs data/news_backfill data/news_failures data/news_runs_daily/cron
 if id "${SERVICE_USER}" &>/dev/null; then
   ${SUDO} chown -R "${SERVICE_USER}:${SERVICE_USER}" "${NEWS_RAG_DIR}"
 fi
@@ -136,6 +136,12 @@ fi
 
 if id "${SERVICE_USER}" &>/dev/null; then
   ${SUDO} chown -R "${SERVICE_USER}:${SERVICE_USER}" "${NEWS_RAG_DIR}" || true
+fi
+
+if [[ -f deploy/lightsail/install-daily-cron.sh ]]; then
+  chmod +x deploy/lightsail/install-daily-cron.sh deploy/lightsail/run-daily-pipeline.sh
+  NEWS_RAG_DIR="${NEWS_RAG_DIR}" SERVICE_USER="${SERVICE_USER}" \
+    ${SUDO} bash deploy/lightsail/install-daily-cron.sh
 fi
 
 echo "==> Done. Open Lightsail firewall: HTTP 80, SSH 22. Do not open ${RAG_PORT} publicly."
