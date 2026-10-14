@@ -415,11 +415,14 @@ def gather_evidence(gctx: GatherContext, *, max_rounds: int | None = None) -> Ev
                 if facet == "sector_impact_direction":
                     ctx["_sector_picks"] = data.get("sector_picks") or []
                 if facet in ("exposure_link", "fund_screen"):
-                    existing = {f.get("isin") for f in shortlist}
-                    for row in _extract_funds_from_result(data):
-                        if row.get("isin") and row["isin"] not in existing:
-                            shortlist.append(row)
-                            existing.add(row["isin"])
+                    if any(f.get("named") for f in shortlist):
+                        pass  # keep user-named schemes; do not dilute with sector screens
+                    else:
+                        existing = {f.get("isin") for f in shortlist}
+                        for row in _extract_funds_from_result(data):
+                            if row.get("isin") and row["isin"] not in existing:
+                                shortlist.append(row)
+                                existing.add(row["isin"])
             reason = f"{len(good)}/{len(results)} runs ok" if len(results) > 1 else ""
             _update_ledger(ledger_map, facet, "satisfied", reason, tool_name)
 

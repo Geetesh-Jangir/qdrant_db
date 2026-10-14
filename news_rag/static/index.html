@@ -111,8 +111,23 @@
       line-height: 1.55;
       margin: 0 0 1rem;
     }
-    .insight-body {
-      font-size: 0.98rem;
+    .insight-body table.insight-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.4rem 0 1rem;
+      font-size: 0.92rem;
+    }
+    .insight-body table.insight-table th,
+    .insight-body table.insight-table td {
+      text-align: left;
+      padding: 0.35rem 0.5rem;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+    }
+    .insight-body table.insight-table th { color: #64748b; font-weight: 600; }
+    .insight-body table.insight-table td:nth-child(n+2),
+    .insight-body table.insight-table th:nth-child(n+2) { text-align: right; white-space: nowrap; }
+    .insight-body {      font-size: 0.98rem;
       color: #334155;
       line-height: 1.7;
       margin: 0 0 0.85rem;
@@ -231,6 +246,10 @@
     function formatMarkdown(text) {
       if (!text) return "";
       let formatted = escapeHtml(text);
+      formatted = formatted.replace(
+        /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+        '<a href="$2" target="_blank" rel="noopener">$1</a>'
+      );
       formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="emph">$1</strong>');
       formatted = formatted.replace(/(^|[^*])\*(.+?)\*(?!\*)/g, "$1<em>$2</em>");
       return formatted;
@@ -244,6 +263,28 @@
       return t;
     }
 
+    function renderInsightTable(rows) {
+      const table = document.createElement("table");
+      table.className = "insight-table";
+      const body = document.createElement("tbody");
+      let headerDone = false;
+      for (const row of rows) {
+        const cells = row.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+        if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+        const tr = document.createElement("tr");
+        const tag = headerDone ? "td" : "th";
+        headerDone = true;
+        for (const cell of cells) {
+          const el = document.createElement(tag);
+          el.innerHTML = formatMarkdown(cell);
+          tr.appendChild(el);
+        }
+        body.appendChild(tr);
+      }
+      table.appendChild(body);
+      return table;
+    }
+
     function renderMarkdown(text) {
       const root = document.createElement("div");
       const lines = normalizeMarkdown(text).split("\n");
@@ -253,8 +294,21 @@
         list = null;
         listKind = "";
       }
-      for (const raw of lines) {
+      let i = 0;
+      while (i < lines.length) {
+        const raw = lines[i];
         const line = raw.trim();
+        if (line.startsWith("|")) {
+          flushList();
+          const rows = [];
+          while (i < lines.length && lines[i].trim().startsWith("|")) {
+            rows.push(lines[i].trim());
+            i += 1;
+          }
+          root.appendChild(renderInsightTable(rows));
+          continue;
+        }
+        i += 1;
         if (!line) {
           flushList();
           continue;

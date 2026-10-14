@@ -39,7 +39,7 @@ _REGISTRY: dict[str, ToolSpec] = {}
 
 # When several tools can satisfy a facet, the first eligible one in this list is used.
 FACET_TOOL_PREFERENCE: dict[str, list[str]] = {
-    "news_drivers": ["macro_news_enhanced", "layered_news", "sector_news_signal", "market_pulse"],
+    "news_drivers": ["fund_portfolio_news", "macro_news_enhanced", "layered_news", "sector_news_signal", "market_pulse"],
     "entity_state_over_time": ["layered_news", "index_series", "market_pulse"],
     "benchmark": ["index_series"],
     "exposure_link": ["driver_affected_funds", "sector_funds", "screen_funds"],
@@ -55,7 +55,7 @@ FACET_TOOL_PREFERENCE: dict[str, list[str]] = {
     "relationship_trace": ["trace_relationships"],
     "macro_driver_map": ["macro_sector_impact"],
     "fund_vs_index": ["sector_alignment"],
-    "holding_drivers": ["holding_news"],
+    "holding_drivers": ["fund_portfolio_news", "holding_news"],
     "stock_holders": ["stock_holders"],
     "peer_compare": ["compare_funds"],
     "commodity_spot": ["metals_spot"],

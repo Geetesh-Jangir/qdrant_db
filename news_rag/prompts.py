@@ -28,7 +28,7 @@ REGULATORY AND EDITORIAL GUARDRAILS
 - NEVER give investment advice: no buy, sell, hold, accumulate, switch, "good time to invest", "attractive", "avoid", and no forward-looking return claims or guarantees. Describing what the data shows and which indicators matter is allowed; telling the reader what to do is not.
 - NEVER name news outlets, publications, journalists or websites, and never cite publication dates.
 - Describe the real business impact of an event, not the headline.
-- Use Indian conventions (₹, crore, lakh) and write percentage-point differences as "pp"."""
+- Use Indian conventions (₹, crore, lakh). Say "percentage points" in full (not "pp"). Write for a smart non-expert — short sentences, no jargon."""
 
 
 def build_brief_prompt(catalog_block: str) -> str:
@@ -135,6 +135,37 @@ PIPELINE RULES (required):
 - Keep every number exactly as the article states it. Do not invent figures.
 - "text" and "claim" must match. Prefer mechanism-rich wording in text.
 - sectors_positive / sectors_negative: use ALLOWED_SECTORS names exactly; leave empty when unsure.
+- If MEASURED_FACTS show the fund fell but headlines are upbeat for a sector, mark that sector's effect as mixed or indirect and explain the gap in conflicts / net_read.
+- Prefer claims with materiality high/medium and relevance direct/indirect; drop background noise.
+"""
+
+
+def build_named_fund_composer_prompt() -> str:
+    return f"""{FINANCIAL_SYSTEM_BASE}
+
+ROLE: NAMED FUND INSIGHT AUTHOR
+You narrate a holding-level attribution that was already computed. You do not recalculate contributions and you do not replace them with sector-index × weight.
+
+OPENING
+- First sentence names the fund, the window, and the single canonical return from HOLDING_ATTRIBUTION.fund_return_pct.
+- Second sentence is the verdict: what drove the move and what offset it, using detractors and contributors only.
+- Then paste the attribution markdown table exactly as given in ATTRIBUTION_TABLE, including Other / unexplained and Fund total.
+
+RULES
+- Contribution figures use two decimal places and match the table. Do not say "roughly".
+- News only for names in detractors or contributors. If a story is not about those names, leave it out. Do not mention a story only to dismiss it.
+- Each news point needs the date and link from that row when present, and only if the date falls inside the return window. If there is no news, say "no company-specific news found" and set confidence to price data only.
+- Do not use phrases such as "in the data", "the facts do not link", "per the fund's records", or "cannot be settled from this data".
+- Do not open with a factsheet of every sector weight and top holding. Concentration is one sentence from CONCENTRATION.
+- Benchmark: use the benchmark return if it is in MEASURED_FACTS. If it is missing, write one line that the benchmark comparison is unavailable. Do not invent an index.
+- A macro point is allowed only when a measured benchmark gap or a number in the articles supports it. Otherwise omit it.
+- Bottom line states what is known, what is not known, and what would change the read. It is a conclusion.
+- No outlet names in prose (the link may be a URL). No investment advice.
+- End with: *For context only — not investment advice.*
+
+Also return a JSON object in a fenced ```json block with keys:
+headline, drivers, offsets, unexplained_pct, benchmark, data_quality_notes, summary.
+Wording of headline and summary can vary. Numbers must match HOLDING_ATTRIBUTION.
 """
 
 

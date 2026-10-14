@@ -134,7 +134,7 @@ def run_until_compose(
     if query_log is not None:
         query_log.log_pipeline("news_reader", "start", articles=len(evidence.articles))
     try:
-        news_read = read_news(q, brief, evidence.articles, query_log=query_log)
+        news_read = read_news(q, brief, evidence.articles, query_log=query_log, evidence=evidence)
     except Exception as exc:  # noqa: BLE001 - the reader must never sink the answer
         news_read = None
         pipeline_errors.append({"stage": "news_reader", "tool": "", "message": str(exc)[:200]})
@@ -152,12 +152,32 @@ def run_until_compose(
         query_log.log_pipeline("compute", "start")
     findings = compute_findings(brief, evidence, news_read)
 
-    # Verify-driven repair pass: retry gather for named fund if compute yielded empty funds
-    if brief.funds and not findings.funds:
-        if query_log is not None:
-            query_log.write(f"REPAIR: missing findings.funds for {brief.funds}, retrying gather")
+    # Repair pass: named fund in the brief but compute used sector screens / empty rows.
+    named_isins = set()
+    if brief.funds:
         from news_rag.fund_search import get_fund_index
+
         idx = get_fund_index()
+        for fund_name in brief.funds:
+            detail, _, _ = idx.lookup_extracted_fund(name=fund_name)
+            if detail and detail.get("isin"):
+                named_isins.add(str(detail["isin"]).upper())
+    findings_missing_named = bool(named_isins) and not any(
+        (f.isin or "").upper() in named_isins for f in findings.funds
+    )
+    if brief.funds and (not findings.funds or findings_missing_named):
+        if query_log is not None:
+            query_log.write(f"REPAIR: missing named fund in findings for {brief.funds}, re-fetching composition/returns")
+        from news_rag.fund_search import get_fund_index
+        from news_rag.insight.gather import _run_tool
+
+        idx = get_fund_index()
+        base_ctx = {
+            "question": q,
+            "fund_names": list(brief.funds),
+            "window_days": brief.window_days,
+            "return_window": brief.return_window(),
+        }
         for fund_name in brief.funds:
             detail, _, _ = idx.lookup_extracted_fund(name=fund_name)
             if not detail:
@@ -166,18 +186,16 @@ def run_until_compose(
                     detail = hits[0]
             if detail and detail.get("isin"):
                 isin = str(detail["isin"])
-                from news_rag.tools.fund_composition import run as run_comp
-                from news_rag.tools.fund_return_series import run as run_ret
-                comp_res = run_comp({"isin": isin, "window_days": brief.window_days})
-                if comp_res.get("ok"):
-                    evidence.items.append(
-                        EvidenceItem("fund_composition", "fund_composition", isin, comp_res.get("data", {}))
-                    )
-                ret_res = run_ret({"isin": isin, "window_days": brief.window_days})
-                if ret_res.get("ok"):
-                    evidence.items.append(
-                        EvidenceItem("return_series", "fund_return_series", isin, ret_res.get("data", {}))
-                    )
+                fctx = {**base_ctx, "isin": isin, "fund_name": detail.get("fund_short_name") or fund_name}
+                for tool, facet in (
+                    ("fund_composition", "fund_composition"),
+                    ("fund_return_series", "return_series"),
+                    ("fund_nav", "fund_facts_nav"),
+                ):
+                    res = _run_tool(tool, fctx)
+                    if res.get("ok"):
+                        data = res.get("data") if isinstance(res.get("data"), dict) else res
+                        evidence.items.append(EvidenceItem(facet, tool, isin, data if isinstance(data, dict) else {}))
         evidence = enrich_named_fund_why(q, brief, evidence, query_log=query_log)
         findings = compute_findings(brief, evidence, news_read)
 
@@ -236,6 +254,7 @@ def compose(
         query_log=query_log,
         pipeline_errors=pipeline_errors,
         analysis_brief=analysis_brief,
+        news_read=news_read,
     )
     if query_log is not None:
         mode = (composed.answer_trace or {}).get("mode", "structured")
@@ -285,7 +304,7 @@ def compose(
     outcome = "ok" if (insight or "").strip() else "no_data"
     return {
         "insight": insight,
-        "insight_summary": composed.headline or insight[:280],
+        "insight_summary": composed.headline or insight,
         "insight_headline": composed.headline,
         "insight_narrative": composed.narrative,
         "insight_closing_summary": composed.closing_summary,

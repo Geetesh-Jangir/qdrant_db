@@ -106,6 +106,40 @@ def worst_sector_by_return(window_days: int = 365) -> tuple[str, float | None]:
     return ranked[0]
 
 
+def benchmark_return_for_scheme(
+    benchmark_name: str,
+    *,
+    category: str = "",
+    window_days: int = 30,
+) -> dict[str, Any]:
+    """Scheme benchmark from the fund catalog; uses Nifty 50 when the index has no price feed."""
+    raw = (benchmark_name or "").strip()
+    low = raw.lower()
+    cat = (category or "").lower()
+    ticker = nifty50_ticker()
+    label = raw or "Nifty 50"
+    proxy_note = ""
+    if "bse 100" in low or "large cap" in cat or "mid cap" in cat:
+        proxy_note = " (Nifty 50 used as a tradable proxy for the move)"
+    elif "nifty 50" not in low and "sensex" not in low and raw:
+        proxy_note = " (Nifty 50 used as a broad-market proxy)"
+    key = f"scheme_bench_{label}_{window_days}"
+    cached = _read_cache(key)
+    if cached is not None:
+        return cached
+    pct = _yf_return_pct(ticker, window_days)
+    out = {
+        "benchmark_label": label + proxy_note,
+        "return_pct": pct,
+        "yfinance_ticker": ticker,
+        "window_days": window_days,
+        "scheme_benchmark_raw": raw,
+    }
+    if pct is not None:
+        _write_cache(key, out)
+    return out
+
+
 def index_return_for_sector(
     sector_label: str,
     *,

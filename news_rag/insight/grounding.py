@@ -87,6 +87,11 @@ def strip_media_attribution(text: str) -> str:
 def tidy_prose(text: str) -> str:
     text = re.sub(r"(?<!\d)\s*per\s*cent\b", "", text or "", flags=re.I)
     text = re.sub(r"\*{2,}\s*\*{2,}", "", text)
+    text = re.sub(r"\broughly\s+\*\*\s*\*\*", "", text)
+    text = re.sub(r"\bworth\s+roughly\s+\*\*\s*pp\*\*", "", text, flags=re.I)
+    text = re.sub(r"\(\s*approx\.?\s*\)", "", text, flags=re.I)
+    text = re.sub(r"\bapprox\.?\s*pp\b", "", text, flags=re.I)
+    text = re.sub(r"\s+pp\b(?!\w)", "", text, flags=re.I)
     text = re.sub(r"\bbetween\s+and\b", "", text, flags=re.I)
     text = re.sub(r"\(\s*\)", "", text)
     text = re.sub(r"\s+,", ",", text)

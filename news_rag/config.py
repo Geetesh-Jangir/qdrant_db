@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     retrieve_max_articles: int = 30
     snippet_chars: int = 2500
     insight_max_bullets: int = 5
-    insight_bullet_max_chars: int = 600
+    insight_bullet_max_chars: int = 0  # 0 = no character cap on insight bullets (fund brief path)
     insight_summary_max_words: int = 300
     min_relevance: int = 2
     embedding_model: str = EMBEDDING_MODEL
@@ -162,8 +162,12 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("INSIGHT_USE_LLM_ANALYST", "insight_use_llm_analyst"),
     )
     insight_llm_article_chars: int = Field(
-        default=3500,
+        default=6000,
         validation_alias=AliasChoices("INSIGHT_LLM_ARTICLE_CHARS", "insight_llm_article_chars"),
+    )
+    insight_composer_max_articles: int = Field(
+        default=8,
+        validation_alias=AliasChoices("INSIGHT_COMPOSER_MAX_ARTICLES", "insight_composer_max_articles"),
     )
     rag_warmup_embeddings: bool = Field(
         default=True,

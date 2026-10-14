@@ -23,7 +23,7 @@ from news_rag.llm_client import call_json_llm, llm_api_key_configured, router_mo
 from news_rag.query_log import clip_log_text
 from news_rag.prompts import build_news_reader_prompt
 
-MAX_ARTICLES = 10
+MAX_ARTICLES = 8
 MAX_CLAIMS = 8
 
 READER_SCHEMA: dict[str, Any] = {
@@ -105,6 +105,8 @@ class NewsRead:
     articles: list[dict[str, Any]] = field(default_factory=list)
     mode: str = "none"  # llm | heuristic | none
     dropped_claims: int = 0
+    net_read: str = ""
+    conflicts: list[str] = field(default_factory=list)
 
     def positive_names(self) -> list[str]:
         return [s.name for s in self.sectors_positive]
@@ -146,6 +148,8 @@ class NewsRead:
             "sectors_negative": [{"name": s.name, "reason": s.reason} for s in self.sectors_negative],
             "articles_read": len(self.articles),
             "dropped_claims": self.dropped_claims,
+            "net_read": self.net_read,
+            "conflicts": list(self.conflicts),
         }
 
 
@@ -171,8 +175,26 @@ def _impact(a: dict[str, Any]) -> float:
         return 0.0
 
 
-def select_articles(articles: list[dict[str, Any]], limit: int = MAX_ARTICLES) -> list[dict[str, Any]]:
-    """Highest impact first, one article per title, newest breaks ties."""
+def select_articles(
+    articles: list[dict[str, Any]],
+    limit: int = MAX_ARTICLES,
+    *,
+    brief: QuestionBrief | None = None,
+    evidence: Any = None,
+    question: str = "",
+) -> list[dict[str, Any]]:
+    """Quality-ranked articles: impact, readable body, holding/sector relevance."""
+    from news_rag.insight.article_quality import filter_quality_articles
+
+    if brief is not None:
+        return filter_quality_articles(
+            articles,
+            brief=brief,
+            evidence=evidence,
+            question=question,
+            char_limit=_article_char_limit(),
+            limit=limit,
+        )
     seen: set[str] = set()
     uniq: list[dict[str, Any]] = []
     for a in articles:
@@ -259,13 +281,29 @@ def _target_label(brief: QuestionBrief) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _build_user_prompt(question: str, brief: QuestionBrief, arts: list[dict[str, Any]], allowed: list[str]) -> str:
+def _build_user_prompt(
+    question: str,
+    brief: QuestionBrief,
+    arts: list[dict[str, Any]],
+    allowed: list[str],
+    measured: dict[str, Any] | None = None,
+) -> str:
+    import json
+
     lines = [
         f"QUESTION: {question}",
         f"TARGET: {_target_label(brief)}",
         f"ALLOWED_SECTORS: {', '.join(allowed) if allowed else '(none)'}",
         "",
-        "ARTICLES:",
+        "MEASURED_FACTS (authoritative fund numbers). "
+        "If HOLDING_ATTRIBUTION is present, drivers are the detractor and contributor stocks, not a sector index. "
+        "If news tone disagrees with fund_return_pct, say so in conflicts; do not claim the fund rose when the return is negative. "
+        "Cite news only for companies listed as movers:",
+        json.dumps(measured or {}, ensure_ascii=False, indent=2),
+        "",
+        _mover_line(measured),
+        "",
+        "ARTICLES (full body — read for mechanisms and links to the movers):",
     ]
     for i, a in enumerate(arts, 1):
         tag = f"{_date(a)} | tagged {a.get('direction') or 'n/a'} impact {a.get('max_impact') or 'n/a'}"
@@ -273,6 +311,23 @@ def _build_user_prompt(question: str, brief: QuestionBrief, arts: list[dict[str,
         lines.append(_body(a))
         lines.append("")
     return "\n".join(lines)
+
+
+def _mover_line(measured: dict[str, Any] | None) -> str:
+    names: list[str] = []
+    block = (measured or {}).get("holding_attribution") or {}
+    funds = block.get("funds") if isinstance(block, dict) else []
+    for fund in funds or []:
+        attr = fund.get("attribution") if isinstance(fund, dict) else None
+        if not isinstance(attr, dict):
+            continue
+        for row in (attr.get("detractors") or []) + (attr.get("contributors") or []):
+            name = str(row.get("name") or "").strip()
+            if name and name not in names:
+                names.append(name)
+    if not names:
+        return "MOVERS: (none computed — judge relevance from the question and holdings in MEASURED_FACTS)."
+    return "MOVERS (cite only these names): " + ", ".join(names)
 
 
 def _direction_to_sentiment(direction: str) -> str:
@@ -326,7 +381,7 @@ def _clean_claims(
         sent = str(item.get("sentiment") or "neutral").lower()
         if sent not in ("positive", "negative", "neutral"):
             sent = "neutral"
-        claim_text = polish_insight_sentence(text, max_chars=220) or text
+        claim_text = polish_insight_sentence(text, max_chars=0) or text
         out.append(
             NewsClaim(
                 text=claim_text,
@@ -357,17 +412,29 @@ def _clean_sector_calls(raw: Any, allowed: list[str]) -> list[SectorCall]:
         if not name or name in seen:
             continue
         seen.add(name)
-        reason = polish_insight_sentence(str(item.get("reason") or ""), max_chars=180)
+        reason = polish_insight_sentence(str(item.get("reason") or ""), max_chars=0)
         out.append(SectorCall(name=name, reason=reason))
     return out
 
 
+def _claim_priority(item: dict[str, Any]) -> int:
+    mat = str(item.get("materiality") or "medium").lower()
+    rel = str(item.get("relevance") or "indirect").lower()
+    score = {"high": 3, "medium": 2, "low": 1}.get(mat, 2)
+    score += {"direct": 3, "indirect": 2, "background": 0}.get(rel, 1)
+    return score
+
+
 def _llm_read(
-    question: str, brief: QuestionBrief, arts: list[dict[str, Any]], query_log: Any
+    question: str,
+    brief: QuestionBrief,
+    arts: list[dict[str, Any]],
+    query_log: Any,
+    measured: dict[str, Any] | None = None,
 ) -> NewsRead | None:
     settings = get_settings()
     allowed = _allowed_sector_names()
-    user = _build_user_prompt(question, brief, arts, allowed)
+    user = _build_user_prompt(question, brief, arts, allowed, measured)
     try:
         res = call_json_llm(
             system_prompt=READER_SYSTEM,
@@ -387,7 +454,12 @@ def _llm_read(
     parsed = res.parsed if isinstance(res.parsed, dict) else {}
     if not parsed.get("claims"):
         return None
-    claims, dropped = _clean_claims(parsed.get("claims") or [], arts)
+    raw_claims = sorted(
+        [c for c in (parsed.get("claims") or []) if isinstance(c, dict)],
+        key=_claim_priority,
+        reverse=True,
+    )
+    claims, dropped = _clean_claims(raw_claims, arts)
     if not claims:
         return None
     tone = str(parsed.get("tone") or "unclear").lower()
@@ -401,6 +473,8 @@ def _llm_read(
         tone_reason = sanitize_analyst_bullet(str(parsed.get("net_read") or "")) or str(
             parsed.get("net_read") or ""
         ).strip()
+    conflicts = [str(x).strip() for x in (parsed.get("conflicts") or []) if str(x).strip()]
+    net_read = sanitize_analyst_bullet(str(parsed.get("net_read") or "")) or str(parsed.get("net_read") or "").strip()
     return NewsRead(
         tone=tone,
         tone_reason=tone_reason,
@@ -411,6 +485,8 @@ def _llm_read(
         articles=arts,
         mode="llm",
         dropped_claims=dropped,
+        net_read=net_read,
+        conflicts=conflicts,
     )
 
 
@@ -494,15 +570,19 @@ def read_news(
     articles: list[dict[str, Any]],
     *,
     query_log: Any = None,
+    evidence: Any = None,
 ) -> NewsRead:
-    arts = select_articles(articles)
+    from news_rag.insight.measured_facts import measured_facts_block
+
+    arts = select_articles(articles, brief=brief, evidence=evidence, question=question)
     if not arts:
         return NewsRead(mode="none")
+    measured = measured_facts_block(brief, evidence)
     settings = get_settings()
     use_llm = bool(getattr(settings, "insight_use_llm_news_reader", True)) and llm_api_key_configured(settings)
     result: NewsRead | None = None
     if use_llm:
-        result = _llm_read(question, brief, arts, query_log)
+        result = _llm_read(question, brief, arts, query_log, measured)
     if result is None:
         result = _heuristic_read(brief, arts)
     if query_log is not None:

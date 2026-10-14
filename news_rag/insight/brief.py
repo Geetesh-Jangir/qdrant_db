@@ -501,11 +501,28 @@ def validate_brief_plan(brief: QuestionBrief, question: str) -> list[str]:
     if brief.funds:
         from news_rag.insight.fund_why import named_fund_why
 
-        for f in ["fund_facts_nav", "fund_composition", "return_series"]:
+        for f in ["fund_facts_nav", "fund_composition", "return_series", "fund_vs_index"]:
             if f not in needs:
                 needs.append(f)
-        if not named_fund_why(q, brief) and "news_drivers" not in needs:
+        if "news_drivers" not in needs:
             needs.append("news_drivers")
+        if "holding_drivers" not in needs:
+            needs.append("holding_drivers")
+        # Sector peer-ranking facets are for "which funds in X sector" — not a named scheme question.
+        if not has_sector and not (brief.drivers and wants_funds):
+            needs = [
+                f
+                for f in needs
+                if f
+                not in (
+                    "exposure_link",
+                    "fund_screen",
+                    "peer_rank",
+                    "relationship_trace",
+                    "sector_impact_direction",
+                    "market_overview",
+                )
+            ]
     elif has_sector and wants_funds:
         for f in ["news_drivers", "entity_state_over_time", "benchmark", "exposure_link", "fund_composition", "return_series"]:
             if f not in needs:
@@ -828,6 +845,15 @@ def build_question_brief(
         broad.discard("sector_impact_direction")
     if not brief.primary_sector():
         broad |= {"benchmark", "entity_state_over_time"}
+    if brief.funds and not brief.primary_sector():
+        broad |= {
+            "exposure_link",
+            "fund_screen",
+            "peer_rank",
+            "relationship_trace",
+            "sector_impact_direction",
+            "market_overview",
+        }
     extras = [f for f in llm_needs if f not in broad or f in det_needs]
     brief.evidence_needs = list(dict.fromkeys(det_needs + extras))
     brief.evidence_needs = validate_brief_plan(brief, q)

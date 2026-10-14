@@ -30,7 +30,10 @@ class FundFinding:
     return_window_pct: float | None = None
     monthly_returns: list[dict[str, Any]] = field(default_factory=list)
     benchmark_return_pct: float | None = None
+    scheme_benchmark: str = ""
     relative_to_benchmark_pct: float | None = None
+    nav: float | None = None
+    nav_date: str = ""
     news_signal: str = "unknown"
     impact_score: float | None = None
     attribution: dict[str, float] = field(default_factory=dict)

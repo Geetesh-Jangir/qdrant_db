@@ -89,9 +89,38 @@ def verify_answer(
     if ungrounded:
         gaps.append("grounding:ungrounded_numbers_in_answer")
 
+    gaps.extend(_attribution_judge(insight_text, evidence))
+
     return VerifyResult(
         passed=not gaps,
         gaps=list(dict.fromkeys(gaps)),
         retry_facets=[],
         ungrounded_removed=ungrounded,
     )
+
+
+def _attribution_judge(insight_text: str, evidence: EvidenceSet) -> list[str]:
+    """Contributions must add up, and the write-up must follow the largest holding detractors."""
+    from news_rag.insight.holding_attribution import arithmetic_ok
+
+    gaps: list[str] = []
+    blob = (insight_text or "").lower()
+    for item in evidence.by_facet("fund_attribution"):
+        data = item.data if isinstance(item.data, dict) else {}
+        for fund in data.get("funds") or []:
+            if not isinstance(fund, dict):
+                continue
+            attr = fund.get("attribution") if isinstance(fund.get("attribution"), dict) else {}
+            if not attr or not attr.get("all_priced"):
+                continue
+            if not arithmetic_ok(attr):
+                gaps.append("attribution:contributions_do_not_sum")
+            detractors = attr.get("detractors") or []
+            if not detractors:
+                continue
+            top = str(detractors[0].get("name") or "")
+            if top and top.lower() not in blob:
+                gaps.append("attribution:top_detractor_missing")
+            if "main drag" in blob and top and top.lower() not in blob:
+                gaps.append("attribution:conclusion_contradicts_holdings")
+    return gaps

@@ -448,13 +448,19 @@ def run_fund_return_series_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_fund_nav_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
+    from news_rag.insight.blocks.compute import _window_pct_from_nav_payload
     from news_rag.tools import run_fund_nav
 
     detail = _resolve_fund_detail(ctx)
     if not detail:
         return _fail("fund_not_found")
     need = DataNeed(tool="fund_nav", fund_ref=detail.get("isin") or "", top_n=5)
-    return run_fund_nav(detail, need)
+    out = run_fund_nav(detail, need)
+    if out.get("ok") and isinstance(out.get("data"), dict):
+        wp = _window_pct_from_nav_payload(out["data"], _s(ctx, "return_window", "1M"))
+        if wp is not None:
+            out["data"]["window_pct"] = wp
+    return out
 
 
 def run_trace_relationships_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -589,6 +595,21 @@ def _named_fund_no_sector(ctx: dict[str, Any]) -> bool:
     return bool(ctx.get("fund_names")) and not ctx.get("sector_name")
 
 
+def _has_sector(ctx: dict[str, Any]) -> bool:
+    return bool(_s(ctx, "sector_name")) or bool(ctx.get("sector_keys"))
+
+
+def _not_named_fund_only(ctx: dict[str, Any]) -> bool:
+    """Sector/screen ranking tools — not when the user named one mutual fund scheme."""
+    if ctx.get("fund_names") and not _has_sector(ctx) and not _s(ctx, "stock_name"):
+        return False
+    return True
+
+
+def _layered_news_ctx(ctx: dict[str, Any]) -> bool:
+    return not _named_fund_no_sector(ctx)
+
+
 def build_default_registry() -> None:
     register(
         ToolSpec(
@@ -599,6 +620,7 @@ def build_default_registry() -> None:
             avoid_when="The question is about one named fund (use fund_portfolio_news) or only about market-wide macro (use macro_news_enhanced / market_pulse).",
             args=(("sector_name", "canonical sector label"), ("window_days", "look-back window")),
             limits="Needs a sector or search phrase. Honors date/impact/source filters from the API request.",
+            applies=_layered_news_ctx,
             run=run_layered_news_adapter,
             cost=2,
         )
@@ -675,6 +697,7 @@ def build_default_registry() -> None:
             avoid_when="The user named a driver (rates, crude) with no sector — use driver_affected_funds. Not for AMC/category screens — use screen_funds.",
             args=(("sector_keys", "canonical sector keys"), ("question", "used to detect 'highly impacted'")),
             limits="'Highly impacted' keeps funds with >= 8% in the sector, relaxing to 5/2/0% if too few.",
+            applies=_has_sector,
             run=run_sector_funds_adapter,
             cost=2,
         )
@@ -702,6 +725,7 @@ def build_default_registry() -> None:
             when_to_use="'Best performing large-cap funds', 'funds from AMC X', 'funds holding stock Y with positive returns'.",
             avoid_when="The user wants impact of news on funds (use sector_funds / driver_affected_funds).",
             args=(("question", "category / AMC / stock are parsed from it"), ("direction", "positive|negative|any"), ("return_window", "1W|1M|3M|1Y")),
+            applies=_not_named_fund_only,
             run=run_screen_funds_adapter,
             cost=2,
         )

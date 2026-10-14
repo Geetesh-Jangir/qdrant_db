@@ -1,0 +1,9 @@
+{
+  "sector_label": "Retailing",
+  "benchmark_label": "Nifty 50 (broad proxy; sector index history unavailable)",
+  "yfinance_ticker": "^NSEI",
+  "return_pct": -3.0,
+  "window_days": 30,
+  "substituted_broad_index": true,
+  "cached_at": 1791962553.737913
+}

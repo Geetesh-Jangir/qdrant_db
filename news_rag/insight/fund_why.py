@@ -1,12 +1,7 @@
-"""Why a named fund moved: its sectors, those sector indexes, then holdings.
+"""Why a named fund moved: holding-level attribution, then news on the biggest movers.
 
-Order, always:
-  1. The fund's own return over the question window.
-  2. Its largest real sectors (not cash, tenor buckets, or "Mutual Funds").
-  3. Each sector's index return over the same window.
-  4. News for the sectors that moved the same way as the fund.
-  5. The fund's holdings in those sectors. If a stock moved the other way,
-     pull that stock's news. If it moved the same way, the sector news is the reason.
+Contribution is weight × stock return, computed before any narrative.
+Sector index × weight is not used as the drag.
 """
 
 from __future__ import annotations
@@ -22,7 +17,7 @@ _SKIP_SECTOR = re.compile(
     re.I,
 )
 _WHY_RE = re.compile(
-    r"\bwhy\b|\bdown\b|\bup\b|\bfell\b|\brose\b|\bperform\w*|\bdoing\b|\bmoved\b",
+    r"\bwhy\b|\bhappen\w*\b|\bdown\b|\bup\b|\bfell\b|\brose\b|\bperform\w*|\bdoing\b|\bmoved\b",
     re.I,
 )
 
@@ -44,77 +39,148 @@ def enrich_named_fund_why(
     if not comps:
         return evidence
 
-    from news_rag.insight.index_series import index_return_for_sector
-    from news_rag.tools import run_layered_news
+    from news_rag.insight.holding_attribution import attribute_rows
 
     window = int(brief.window_days or 30)
     payloads: list[dict[str, Any]] = []
-    targets: list[str] = []
+    mover_names: list[str] = []
 
     for item in comps[:2]:
         data = item.data
         isin = str(data.get("isin") or item.entity_key or "")
-        fund_ret = _fund_return(evidence, isin)
-        sectors = [
-            s for s in (data.get("sectors") or [])
-            if isinstance(s, dict) and s.get("sector") and not _SKIP_SECTOR.search(str(s.get("sector")))
-        ][:4]
-        drags: list[dict[str, Any]] = []
-        for sector in sectors[:3]:
-            name = str(sector.get("sector"))
-            weight = float(sector.get("percentage") or 0)
-            idx = index_return_for_sector(name, window_days=window)
-            idx_ret = idx.get("return_pct")
-            same = _same_sign(fund_ret, idx_ret)
-            news_line, articles = _sector_news(run_layered_news, question, name, window)
-            for art in articles:
-                art["_attr_sector"] = name
-                art["_attr_isin"] = isin
-            _append_articles(evidence, articles)
-            holdings = _holdings_for_sector(
-                data.get("holdings") or [], name, fund_ret, idx_ret, question, window, allow_fallback=same
-            )
-            drags.append(
-                {
-                    "sector": name,
-                    "weight_pct": round(weight, 1),
-                    "index_return_pct": idx_ret,
-                    "index_label": idx.get("benchmark_label") or name,
-                    "same_direction": same,
-                    "news": news_line,
-                    "holdings": holdings,
-                }
-            )
-            if same or (fund_ret is None and idx_ret is not None):
-                targets.append(name)
-        payloads.append({"isin": isin, "fund_return_pct": fund_ret, "drags": drags})
+        fund_ret, alternate_ret = _fund_return_detail(evidence, isin)
+        priced = _price_holdings(data.get("holdings") or [], window)
+        attr = attribute_rows(priced, fund_return_pct=fund_ret)
+        movers = _unique_movers(attr)
+        for row in movers:
+            arts = _news_for_holding(str(row["name"]), question, window)
+            if arts:
+                row["news"] = _plain_news(arts[0])
+                row["news_title"] = str(arts[0].get("title") or "")
+                row["news_url"] = str(arts[0].get("url") or "")
+                row["news_date"] = str(arts[0].get("published_at") or arts[0].get("date") or "")[:10]
+                row["confidence"] = "price_and_news"
+                for art in arts:
+                    art["_attr_isin"] = isin
+                    art["_attr_holding"] = row["name"]
+                _append_articles(evidence, arts)
+            else:
+                row["confidence"] = "price_only"
+            mover_names.append(str(row["name"]))
+        for bucket in ("detractors", "contributors", "rows"):
+            by_name = {str(r["name"]): r for r in movers}
+            for r in attr.get(bucket) or []:
+                extra = by_name.get(str(r.get("name")))
+                if extra:
+                    r.update({k: extra[k] for k in ("news", "news_title", "news_url", "news_date", "confidence") if k in extra})
+        payloads.append(
+            {
+                "isin": isin,
+                "fund_name": data.get("fund_name"),
+                "fund_return_pct": fund_ret,
+                "alternate_return_pct": alternate_ret,
+                "window_days": window,
+                "window_label": brief.window_label,
+                "attribution": attr,
+                "drags": [
+                    {
+                        "sector": r.get("sector") or r.get("name"),
+                        "weight_pct": r.get("weight_pct"),
+                        "approx_contribution_pct": r.get("contribution_pct"),
+                        "holdings": [r],
+                    }
+                    for r in (attr.get("detractors") or [])
+                ],
+            }
+        )
 
-    if targets:
-        brief.raw["attribution_target"] = ", ".join(dict.fromkeys(targets))
+    if mover_names:
+        brief.raw["attribution_target"] = ", ".join(dict.fromkeys(mover_names))
     evidence.items.append(
         EvidenceItem(facet="fund_attribution", tool="fund_why", entity_key="", data={"funds": payloads})
     )
     if query_log is not None:
-        query_log.write(
-            "FUND_WHY funds="
-            + str(len(payloads))
-            + " sectors="
-            + ",".join(targets[:4])
-        )
+        top = mover_names[:6]
+        query_log.write("FUND_WHY funds=" + str(len(payloads)) + " movers=" + ",".join(top))
     return evidence
 
 
 def _fund_return(evidence: EvidenceSet, isin: str) -> float | None:
+    val, _alt = _fund_return_detail(evidence, isin)
+    return val
+
+
+def _fund_return_detail(evidence: EvidenceSet, isin: str) -> tuple[float | None, float | None]:
+    """Canonical return, plus one alternate figure when a second series disagrees."""
     key = (isin or "").upper()
+    canonical: float | None = None
+    seen: list[float] = []
     for item in evidence.by_facet("return_series") + evidence.by_facet("fund_facts_nav"):
-        d = item.data
+        d = item.data if isinstance(item.data, dict) else {}
         if key and str(d.get("isin") or item.entity_key or "").upper() not in ("", key):
             continue
-        for field in ("return_pct", "window_return_pct", "return_1m_pct"):
+        for field in ("window_pct", "return_pct", "window_return_pct", "return_1m_pct"):
             val = d.get(field)
             if isinstance(val, (int, float)):
-                return float(val)
-    return None
+                rounded = round(float(val), 2)
+                seen.append(rounded)
+                if canonical is None and field in ("window_pct", "return_pct"):
+                    canonical = rounded
+    if canonical is None and seen:
+        canonical = seen[0]
+    alternate = next((v for v in seen if canonical is not None and abs(v - canonical) > 0.15), None)
+    return canonical, alternate
+
+
+def _price_holdings(holdings: list[Any], window: int) -> list[dict[str, Any]]:
+    from historical_data.stocks_service import get_stock_profile
+
+    rows: list[dict[str, Any]] = []
+    ranked = [h for h in holdings if isinstance(h, dict) and h.get("name")]
+    ranked.sort(key=lambda h: -float(h.get("percentage") or 0))
+    for h in ranked[:30]:
+        name = str(h.get("name"))
+        profile = get_stock_profile(name) or {}
+        if window <= 10:
+            raw = profile.get("return_1w")
+        else:
+            raw = profile.get("return_1m")
+        try:
+            ret = round(float(raw), 2) if raw is not None else None
+        except (TypeError, ValueError):
+            ret = None
+        rows.append(
+            {
+                "name": name,
+                "industry": str(h.get("industry") or ""),
+                "sector": str(h.get("industry") or ""),
+                "weight_pct": float(h.get("percentage") or 0),
+                "return_pct": ret,
+            }
+        )
+    return rows
+
+
+def _unique_movers(attr: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in list(attr.get("detractors") or []) + list(attr.get("contributors") or []):
+        name = str(row.get("name") or "")
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(dict(row))
+    return out
+
+
+def _news_for_holding(name: str, question: str, window: int) -> list[dict[str, Any]]:
+    from news_rag.holdings_market import fetch_dedicated_holding_news
+
+    try:
+        arts = fetch_dedicated_holding_news(name, question, window_days=window, limit=2) or []
+    except Exception:
+        return []
+    return [a for a in arts if isinstance(a, dict)][:1]
 
 
 def _sector_matches(sector: str, industry: str) -> bool:

@@ -25,7 +25,12 @@ from news_rag.insight.grounding import (
     strip_media_attribution,
     strip_ungrounded_numbers,
 )
-from news_rag.prompts import build_composer_prompt, build_interpret_hybrid_prompt
+from news_rag.prompts import (
+    build_composer_prompt,
+    build_interpret_hybrid_prompt,
+    build_named_fund_composer_prompt,
+)
+from news_rag.insight.measured_facts import measured_facts_block
 from news_rag.snippet_clean import article_text_usable, polish_insight_sentence, starts_mid_sentence
 from news_rag.llm_client import (
     call_insight_llm,
@@ -49,6 +54,9 @@ INTERPRET_SCHEMA: dict[str, Any] = {
 }
 
 INTERPRET_SYSTEM = build_interpret_hybrid_prompt()
+
+# Final answers are not truncated to a fixed character budget (0 = no cap in polish_insight_sentence).
+_INSIGHT_TEXT_CAP = 0
 
 
 def _composer_user_content(packet: dict[str, Any], analysis_brief: dict[str, Any] | None) -> str:
@@ -243,9 +251,11 @@ def _dedupe_parenthetical_cites(text: str) -> str:
     return re.sub(r"\(([^()]+)\)", repl, text or "")
 
 
-def _valid_llm_text(text: str, *, max_chars: int) -> bool:
+def _valid_llm_text(text: str, *, max_chars: int = 0) -> bool:
     t = (text or "").strip()
-    return bool(t) and len(t) <= max_chars and not _ADVICE_RE.search(t)
+    if not t or _ADVICE_RE.search(t):
+        return False
+    return max_chars <= 0 or len(t) <= max_chars
 
 
 def _pct(v: float | None, signed: bool = False) -> str:
@@ -576,128 +586,296 @@ def _factor(raw: str) -> str:
     text = strip_media_attribution(clean_scraped_snippet(raw or ""))
     text = re.sub(r"\b(?:TV18|CNBC-TV18|Moneycontrol|Published|Listen to this article)\b", " ", text, flags=re.I)
     text = re.sub(r"\s+", " ", text).strip()
+    if len(text) < 70 or text.endswith("..") or "share price opened" in text.lower():
+        return ""
     parts = [p.strip() for p in re.split(r"(?<=[.!?])\s+", text) if len(p.strip()) > 55]
     if not parts:
         return ""
     sentence = parts[0]
     if not re.match(r"^[A-Z]", sentence):
         return ""
-    if re.search(r"\b(shares? jump|target raised|published|listen)\b", sentence, re.I):
+    if re.search(
+        r"\b(shares? jump|target raised|published|listen|matrix of macro|must try and make sense)\b",
+        sentence,
+        re.I,
+    ):
         return ""
-    if len(sentence) > 160:
-        sentence = sentence[:160].rsplit(" ", 1)[0].rstrip(" ,;:-")
-        if sentence[-1] not in ".!?":
-            sentence += "."
     return sentence
 
 
-def _fund_why_narrative(brief: QuestionBrief, findings: Findings) -> str:
-    """Sectioned explanation: what happened, then each sector, then the stocks that matter."""
-    blocks: list[str] = []
-    period = _period(brief.window_label)
-    for f in findings.funds[:1]:
-        if not f.drag_sectors:
+def _top_sectors_by_weight(f: FundFinding, limit: int = 3) -> list[dict[str, Any]]:
+    rows = [s for s in (f.sector_mix or []) if isinstance(s, dict) and s.get("sector")]
+    rows.sort(key=lambda s: -float(s.get("percentage") or 0))
+    return rows[:limit]
+
+
+def _claim_matches_sector(claim_text: str, sector: str, fund: FundFinding | None = None) -> bool:
+    from news_rag.insight.article_quality import claim_matches_label
+
+    extra: set[str] = set()
+    if fund:
+        for h in fund.top_holdings or []:
+            if not isinstance(h, dict):
+                continue
+            sec = str(h.get("sector") or "").strip().lower()
+            label = (sector or "").strip().lower()
+            if sec and label and (sec == label or sec in label or label in sec):
+                extra |= {t for t in re.findall(r"[a-z]{3,}", str(h.get("name") or "").lower())}
+    return claim_matches_label(claim_text, sector, extra)
+
+
+def _format_claim_bullet(c: dict[str, Any], *, label: str = "") -> str:
+    text = polish_insight_sentence(str(c.get("text") or ""), max_chars=_INSIGHT_TEXT_CAP).rstrip(".")
+    if not text or not article_text_usable(text) or starts_mid_sentence(text):
+        return ""
+    prefix = f"**{label}:** " if label else ""
+    return f"• {prefix}{text}"
+
+
+def _diverse_news_bullets(
+    findings: Findings,
+    f: FundFinding,
+    brief: QuestionBrief | None = None,
+    *,
+    limit: int = 0,
+) -> tuple[list[str], set[int]]:
+    """One bullet per portfolio sleeve + macro — avoid repeating the same story."""
+    s = findings.sector
+    if not s or not s.claims:
+        return [], set()
+    claims = list(s.claims)
+    cap = limit if limit > 0 else len(claims)
+    sector_order: list[str] = []
+    for d in f.drag_sectors[:4]:
+        name = str(d.get("sector") or "").strip()
+        if name and name not in sector_order:
+            sector_order.append(name)
+    for row in _top_sectors_by_weight(f, 5):
+        name = str(row.get("sector") or "").strip()
+        if name and name not in sector_order:
+            sector_order.append(name)
+
+    lines: list[str] = []
+    used: set[int] = set()
+    for sec in sector_order:
+        if len(lines) >= cap:
+            break
+        for i, c in enumerate(claims):
+            if i in used:
+                continue
+            if _claim_matches_sector(str(c.get("text") or ""), sec, f):
+                line = _format_claim_bullet(c, label=sec)
+                if line:
+                    lines.append(line)
+                    used.add(i)
+                break
+
+    if brief and brief.drivers:
+        driver_terms: set[str] = set()
+        for d in brief.drivers:
+            driver_terms |= {t for t in re.findall(r"[a-z]{3,}", str(d).replace("_", " ").lower())}
+        for i, c in enumerate(claims):
+            if len(lines) >= cap or i in used:
+                continue
+            text = str(c.get("text") or "").lower()
+            if driver_terms and any(t in text for t in driver_terms):
+                label = "Drivers: " + ", ".join(d.replace("_", " ") for d in brief.drivers[:2])
+                line = _format_claim_bullet(c, label=label)
+                if line:
+                    lines.append(line)
+                    used.add(i)
+
+    for i, c in enumerate(claims):
+        if len(lines) >= cap or i in used:
             continue
-        name = _short_fund_name(f.fund_name)
-        move = _down_up(f.return_window_pct) or "little changed"
-        blocks.append("**What happened**")
-        blocks.append("")
-        blocks.append(
-            f"**{name}** is {move} over the last **{period}**. "
-            "The check below uses the fund's own sectors, each sector index, and the stocks inside those sectors."
+        line = _format_claim_bullet(c)
+        if line:
+            lines.append(line)
+            used.add(i)
+    return lines, used
+
+
+def _claim_for_sector(
+    findings: Findings, sector: str, *, skip_indices: set[int] | None = None
+) -> tuple[str, int | None]:
+    skip = skip_indices or set()
+    key = (sector or "").strip().lower()
+    if not key:
+        return "", None
+    for i, c in enumerate(findings.sector.claims if findings.sector else []):
+        if i in skip:
+            continue
+        text = str(c.get("text") or "")
+        if _claim_matches_sector(text, sector):
+            polished = polish_insight_sentence(text, max_chars=_INSIGHT_TEXT_CAP).rstrip(".")
+            if polished:
+                return polished, i
+    return "", None
+
+
+def _holding_story(drag: dict[str, Any]) -> str:
+    for h in drag.get("holdings") or []:
+        if not isinstance(h, dict) or not h.get("name"):
+            continue
+        story = _factor(str(h.get("news") or ""))
+        if story:
+            wt = float(h.get("weight_pct") or 0)
+            wt_bit = f" ({wt:.1f}% of the fund)" if wt else ""
+            return f"**{h.get('name')}**{wt_bit}: {story.rstrip('.')}."
+    return ""
+
+
+def _named_fund_snapshot(brief: QuestionBrief, f: FundFinding) -> list[str]:
+    """NAV, recent return, largest sleeves — no index laundry list."""
+    lines: list[str] = []
+    name = _short_fund_name(f.fund_name)
+    period = _period(brief.window_label)
+    move = _down_up(f.return_window_pct) or "little changed"
+    if f.nav is not None:
+        date_bit = f" (as of **{f.nav_date}**)" if f.nav_date else ""
+        lines.append(f"**Latest NAV:** **₹{f.nav:.2f}**{date_bit}.")
+    if f.return_window_pct is not None:
+        lines.append(f"**Recent move:** {move} over the last **{period}**.")
+    if f.scheme_benchmark and not f.benchmark_return_pct:
+        lines.append(f"**Stated benchmark:** {f.scheme_benchmark} (index return not in our feed for this window).")
+    top_sec = _top_sectors_by_weight(f, 3)
+    if top_sec:
+        mix = ", ".join(
+            f"**{s.get('sector')}** {float(s.get('percentage') or 0):.0f}%"
+            for s in top_sec
         )
+        lines.append(f"**Largest sector weights:** {mix}.")
+    if f.top_holdings:
+        holds = ", ".join(
+            f"**{h.get('name')}** ({float(h.get('percentage') or 0):.1f}%)"
+            for h in f.top_holdings[:5]
+            if h.get("name")
+        )
+        if holds:
+            lines.append(f"**Top holdings:** {holds}.")
+    return lines
+
+
+def _fund_why_narrative(brief: QuestionBrief, findings: Findings) -> str:
+    """News-led insight: snapshot, diverse news, then portfolio sleeves (no duplicate bullets)."""
+    blocks: list[str] = []
+    for f in findings.funds[:1]:
+        blocks.append("### At a glance\n")
+        blocks.extend(_named_fund_snapshot(brief, f))
         blocks.append("")
-        for drag in f.drag_sectors[:3]:
-            sector = str(drag.get("sector") or "This sector")
-            weight = float(drag.get("weight_pct") or 0)
-            idx_v = drag.get("index_return_pct")
-            idx = _down_up(idx_v)
-            index_name = str(drag.get("index_label") or f"the {sector} index")
-            aligned = _same_way(f.return_window_pct, idx_v)
-            blocks.append(f"**{sector}** — **{weight:.0f}%** of the fund")
+
+        news_lines, used_claims = _diverse_news_bullets(findings, f, brief)
+        if news_lines:
+            blocks.append("### What the news is saying\n")
+            blocks.extend(news_lines)
             blocks.append("")
-            if idx and aligned is True:
-                meaning = f"**{index_name}** is {idx}. It moved with the fund, so this is part of the result."
-            elif idx and aligned is False:
-                meaning = f"**{index_name}** is {idx}. It did not move with the fund, so this is not what drove the result."
-            elif idx:
-                meaning = f"**{index_name}** is {idx}, too small to call a driver."
-            else:
-                meaning = "No sector index was available for this window."
-            factor = _factor(str(drag.get("news") or ""))
-            if factor:
-                meaning += f" One factor in the background: {factor}"
-            blocks.append(meaning)
-            lines: list[str] = []
-            for h in (drag.get("holdings") or [])[:3]:
-                if not isinstance(h, dict) or not h.get("name"):
+
+        drags = list(f.drag_sectors[:3])
+        if len(drags) < 2 and f.sector_mix:
+            seen = {str(d.get("sector")) for d in drags}
+            for s in _top_sectors_by_weight(f, 4):
+                name = str(s.get("sector") or "")
+                if name and name not in seen:
+                    drags.append(
+                        {
+                            "sector": name,
+                            "weight_pct": s.get("percentage"),
+                            "index_return_pct": s.get("index_return_pct"),
+                            "index_label": s.get("index_label"),
+                            "news": "",
+                            "holdings": [],
+                        }
+                    )
+                    seen.add(name)
+                if len(drags) >= 3:
+                    break
+
+        if drags:
+            blocks.append("### How this maps to the portfolio\n")
+            for drag in drags[:3]:
+                sector = str(drag.get("sector") or "").strip()
+                if not sector:
                     continue
-                hret = h.get("return_pct")
-                if not isinstance(hret, (int, float)):
+                weight = float(drag.get("weight_pct") or 0)
+                blocks.append(f"**{sector}** — about **{weight:.0f}%** of the fund.")
+                hold_line = _holding_story(drag)
+                if hold_line:
+                    blocks.append(hold_line)
+                    blocks.append("")
                     continue
-                weight_h = float(h.get("weight_pct") or 0)
-                stock_aligned = _same_way(idx_v, hret)
-                move_h = _down_up(hret)
-                if stock_aligned is True:
-                    note = "This added to the sector move."
-                elif stock_aligned is False:
-                    note = "This offset the sector move."
-                    own = _factor(str(h.get("news") or ""))
-                    if own:
-                        note += f" Separate factor: {own}"
+                extra, idx = _claim_for_sector(findings, sector, skip_indices=used_claims)
+                if extra:
+                    blocks.append(extra.rstrip(".") + ".")
+                    if idx is not None:
+                        used_claims.add(idx)
+                elif _factor(str(drag.get("news") or "")):
+                    blocks.append(_factor(str(drag.get("news") or "")).rstrip(".") + ".")
                 else:
-                    note = ""
-                weight_bit = f"{weight_h:.1f}% of the fund, " if weight_h else ""
-                lines.append(f"• **{h.get('name')}** — {weight_bit}{move_h}. {note}".rstrip())
-            if lines:
+                    idx_v = drag.get("index_return_pct")
+                    if isinstance(idx_v, (int, float)):
+                        blocks.append(
+                            f"The sector index moved {_down_up(idx_v)} in this window — "
+                            f"combine that with the **{sector}** headline above."
+                        )
+                    else:
+                        blocks.append(
+                            f"News for **{sector}** is in the section above; the weight means it can sway the fund."
+                        )
                 blocks.append("")
-                blocks.append("\n".join(lines))
-            blocks.append("")
     return "\n".join(blocks).strip()
 
 
 def _fund_why_headline(brief: QuestionBrief, findings: Findings) -> str:
-    f = next((x for x in findings.funds if x.drag_sectors), None)
+    f = findings.funds[0] if findings.funds else None
     if not f:
         return ""
     name = _short_fund_name(f.fund_name)
-    top = f.drag_sectors[0]
-    sector = top.get("sector") or "its largest sector"
-    weight = float(top.get("weight_pct") or 0)
     move = _down_up(f.return_window_pct) or "little changed"
+    nav = ""
+    if f.nav is not None:
+        nav = f" — NAV **₹{f.nav:.2f}**" + (f" (**{f.nav_date}**)" if f.nav_date else "")
+    lead_sector = ""
+    names: list[str] = []
+    for d in f.drag_sectors[:3]:
+        sec = str(d.get("sector") or "").strip()
+        if sec and sec not in names:
+            names.append(sec)
+    if not names:
+        names = [str(s.get("sector")) for s in _top_sectors_by_weight(f, 3) if s.get("sector")]
+    if names:
+        joined = ", ".join(f"**{n}**" for n in names[:3])
+        lead_sector = f" Largest sleeves in the story: {joined}."
     return (
-        f"**{name}** is {move} over **{_period(brief.window_label)}**. "
-        f"**{sector}**, **{weight:.0f}%** of the portfolio, is the first place to look."
+        f"**{name}**{nav} is {move} over **{_period(brief.window_label)}**."
+        + lead_sector
     )
 
 
 def _fund_why_closing(brief: QuestionBrief, findings: Findings) -> str:
-    f = next((x for x in findings.funds if x.drag_sectors), None)
+    f = findings.funds[0] if findings.funds else None
+    s = findings.sector
     if not f:
         return ""
-    name = _short_fund_name(f.fund_name)
-    move = _down_up(f.return_window_pct) or "little changed"
-    same = [d for d in f.drag_sectors if _same_way(f.return_window_pct, d.get("index_return_pct")) is True]
-    parts = [f"**{name}** is {move} over **{_period(brief.window_label)}**."]
-    if same:
-        lead = same[0]
-        idx = _down_up(lead.get("index_return_pct"))
-        parts.append(
-            f"**{lead.get('sector')}** is **{float(lead.get('weight_pct') or 0):.0f}%** of the fund"
-            + (f" and its index is {idx}, which supports that result." if idx else ".")
+    period = _period(brief.window_label)
+    move = _down_up(f.return_window_pct) or "moved"
+    sleeves = ", ".join(
+        f"**{str(d.get('sector'))}** ({float(d.get('weight_pct') or 0):.0f}%)"
+        for d in f.drag_sectors[:3]
+        if d.get("sector")
+    )
+    tone = (s.tone_reason if s else "") or ""
+    tone = polish_insight_sentence(tone, max_chars=_INSIGHT_TEXT_CAP).rstrip(".") if tone else ""
+    if tone and not re.search(r"not in the data|holdings and returns are not", tone, re.I):
+        return f"**Bottom line:** Over **{period}** the fund {move}. {tone}."
+    if sleeves:
+        return (
+            f"**Bottom line:** Over **{period}** the fund {move}. "
+            f"The story is spread across {sleeves} — read the news bullets by theme rather than one single driver."
         )
-    else:
-        parts.append("No single sector index moved with the fund, so the result is spread across individual holdings.")
-    off = []
-    for d in f.drag_sectors:
-        for h in d.get("holdings") or []:
-            if isinstance(h, dict) and h.get("name") and _same_way(d.get("index_return_pct"), h.get("return_pct")) is False:
-                off.append(str(h.get("name")))
-    if off[:2]:
-        parts.append(
-            f"**{'** and **'.join(off[:2])}** did not follow their sector, so their own factors matter for those stocks."
-        )
-    return " ".join(parts)
+    return (
+        f"**Bottom line:** Over **{period}** the fund {move}; the mix of sector and macro headlines above "
+        "is a better guide than any one line item."
+    )
 
 
 def _assemble(
@@ -977,18 +1155,263 @@ def _structured_compose(
 # ---------------------------------------------------------------------------
 
 
-def _article_context_for_interpret(evidence: EvidenceSet | None, *, limit: int = 6) -> list[dict[str, str]]:
+def _article_context_for_interpret(
+    evidence: EvidenceSet | None,
+    brief: QuestionBrief | None = None,
+    *,
+    question: str = "",
+    limit: int | None = None,
+) -> list[dict[str, str]]:
     if not evidence or not evidence.articles:
         return []
     from news_rag.insight.news_reader import _body, select_articles
 
+    settings = get_settings()
+    cap = limit or int(getattr(settings, "insight_composer_max_articles", 8))
+    arts = select_articles(
+        evidence.articles,
+        limit=cap,
+        brief=brief,
+        evidence=evidence,
+        question=question,
+    )
     out: list[dict[str, str]] = []
-    for art in select_articles(evidence.articles, limit=limit):
+    for i, art in enumerate(arts, 1):
         body = _body(art)
         if not body:
             continue
-        out.append({"title": str(art.get("title") or "").strip()[:220], "body": body})
+        out.append(
+            {
+                "index": i,
+                "title": str(art.get("title") or "").strip(),
+                "impact": art.get("max_impact"),
+                "direction": art.get("direction"),
+                "body": body,
+            }
+        )
     return out
+
+
+def _named_fund_llm_packet(
+    question: str,
+    brief: QuestionBrief,
+    findings: Findings,
+    evidence: EvidenceSet,
+    news_read: Any = None,
+    analysis_brief: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    packet = _facts(question, brief, findings, evidence)
+    packet["measured_facts"] = measured_facts_block(brief, evidence)
+    packet["full_articles"] = _article_context_for_interpret(evidence, brief, question=question)
+    packet["cross_cutting"] = list(findings.cross_cutting)
+    if news_read is not None:
+        packet["news_reader"] = {
+            "tone": news_read.tone,
+            "tone_reason": news_read.tone_reason,
+            "net_read": getattr(news_read, "net_read", "") or "",
+            "conflicts": list(getattr(news_read, "conflicts", []) or []),
+            "themes": list(news_read.themes or []),
+            "claims": [
+                {"text": c.text, "sentiment": c.sentiment, "article": c.article}
+                for c in (news_read.claims or [])
+            ],
+            "sectors_positive": [{"name": s.name, "reason": s.reason} for s in news_read.sectors_positive],
+            "sectors_negative": [{"name": s.name, "reason": s.reason} for s in news_read.sectors_negative],
+        }
+    if analysis_brief:
+        packet["analysis_brief"] = analysis_brief
+    return packet
+
+
+def _named_fund_block(evidence: EvidenceSet) -> dict[str, Any]:
+    for item in evidence.by_facet("fund_attribution"):
+        funds = (item.data or {}).get("funds") if isinstance(item.data, dict) else None
+        if funds and isinstance(funds[0], dict):
+            return funds[0]
+    return {}
+
+
+_META_SENTENCE = re.compile(
+    r"[^.!?\n]*(in the data|the facts do not|per the fund'?s records|cannot be settled from this data)[^.!?\n]*[.!?]?",
+    re.I,
+)
+
+
+def _strip_meta_language(text: str) -> str:
+    cleaned = _META_SENTENCE.sub("", text or "")
+    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+
+
+def _ensure_attribution_table(text: str, block: dict[str, Any]) -> str:
+    from news_rag.insight.holding_attribution import render_attribution_table
+
+    attr = block.get("attribution") if isinstance(block.get("attribution"), dict) else {}
+    if not attr or not attr.get("rows"):
+        return text
+    table = render_attribution_table(attr)
+    if "| Holding |" in (text or ""):
+        return text
+    parts = (text or "").split("\n", 1)
+    head = parts[0].strip()
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    return f"{head}\n\n{table}\n\n{rest}".strip()
+
+
+def _named_fund_llm_compose(
+    question: str,
+    brief: QuestionBrief,
+    findings: Findings,
+    evidence: EvidenceSet,
+    structured: ComposedInsight,
+    *,
+    news_read: Any = None,
+    query_log: Any = None,
+    pipeline_errors: list[dict[str, str]] | None = None,
+    analysis_brief: dict[str, Any] | None = None,
+) -> ComposedInsight | None:
+    block = _named_fund_block(evidence)
+    attr = block.get("attribution") if isinstance(block.get("attribution"), dict) else {}
+    if attr.get("rows"):
+        from news_rag.insight.holding_attribution import render_investor_answer
+
+        fund = findings.funds[0] if findings.funds else None
+        text = render_investor_answer(
+            fund_name=_short_fund_name(getattr(fund, "fund_name", "") or block.get("fund_name") or (brief.funds[0] if brief.funds else "The fund")),
+            window_label=str(block.get("window_label") or brief.window_label or ""),
+            attr=attr,
+            benchmark_name=str(getattr(fund, "scheme_benchmark", "") or ""),
+            benchmark_return_pct=getattr(fund, "benchmark_return_pct", None),
+            alternate_return_pct=block.get("alternate_return_pct"),
+        )
+        headline = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+        if query_log is not None:
+            query_log.write("INTERPRET mode=named_fund_attribution")
+        return ComposedInsight(
+            headline=headline,
+            narrative=text,
+            bullets=[],
+            closing_summary="",
+            display=text,
+            sub_ask_coverage=[a.text for a in sorted(brief.sub_asks, key=lambda a: a.order or 0)],
+            answer_trace={
+                "mode": "named_fund_attribution",
+                "structured": {
+                    "headline": headline,
+                    "fund_return_pct": attr.get("fund_return_pct"),
+                    "window_label": block.get("window_label") or brief.window_label,
+                    "drivers": attr.get("detractors"),
+                    "offsets": attr.get("contributors"),
+                    "unexplained_pct": attr.get("unexplained_pct"),
+                    "explained_pct": attr.get("explained_pct"),
+                    "benchmark": {
+                        "name": getattr(fund, "scheme_benchmark", "") if fund else "",
+                        "return_pct": getattr(fund, "benchmark_return_pct", None) if fund else None,
+                    },
+                    "data_quality_notes": (
+                        [f"alternate_return_pct={block.get('alternate_return_pct')}"]
+                        if block.get("alternate_return_pct") is not None
+                        else []
+                    ),
+                },
+            },
+        )
+
+    settings = get_settings()
+    if not llm_api_key_configured(settings):
+        return None
+    packet = _named_fund_llm_packet(
+        question, brief, findings, evidence, news_read, analysis_brief
+    )
+    block = _named_fund_block(evidence)
+    from news_rag.insight.holding_attribution import render_attribution_table
+
+    attr = block.get("attribution") if isinstance(block.get("attribution"), dict) else {}
+    table = render_attribution_table(attr) if attr else ""
+    user = _composer_user_content(packet, analysis_brief)
+    user += (
+        "\n\nHOLDING_ATTRIBUTION:\n"
+        + json.dumps(
+            {
+                "fund_return_pct": block.get("fund_return_pct"),
+                "window_label": block.get("window_label"),
+                "return_notes": block.get("return_notes"),
+                "detractors": attr.get("detractors"),
+                "contributors": attr.get("contributors"),
+                "explained_pct": attr.get("explained_pct"),
+                "unexplained_pct": attr.get("unexplained_pct"),
+                "top_sector": attr.get("top_sector"),
+                "top_sector_weight_pct": attr.get("top_sector_weight_pct"),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n\nATTRIBUTION_TABLE:\n"
+        + table
+        + "\n\nCONCENTRATION: "
+        + (
+            f"{attr.get('top_sector')} is {float(attr.get('top_sector_weight_pct') or 0):.2f}% of the holdings priced."
+            if attr.get("top_sector")
+            else "Concentration not available."
+        )
+        + "\n\nNarrate HOLDING_ATTRIBUTION. Keep ATTRIBUTION_TABLE unchanged. "
+        "Do not call a sector the main drag unless its stocks are the largest detractors."
+    )
+    try:
+        res = call_insight_llm(
+            system_prompt=build_named_fund_composer_prompt(),
+            user_content=user,
+            model_override=composer_model(settings),
+            max_tokens=4500,
+            temperature=0.2,
+            query_log=query_log,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _pipeline_note(pipeline_errors, "compose", str(exc))
+        return None
+    text = ((res.raw_text if res else "") or "").strip()
+    if len(text) < 80:
+        return None
+    text = re.sub(r"```json.*?```", "", text, flags=re.S).strip()
+    text = _strip_meta_language(text)
+    text = _ensure_attribution_table(text, block)
+    violations = check_composer_guardrails(text, packet, findings.evidence_text)
+    if violations:
+        text = scrub_composer_text(text, packet, findings.evidence_text)
+    text = _drop_pipeline_voice(strip_media_attribution(text))
+    if "not investment advice" not in text.lower():
+        text = text.rstrip() + "\n\n*For context only — not investment advice.*"
+    headline = structured.headline
+    for line in text.splitlines():
+        if line.strip():
+            headline = line.lstrip("#").strip()
+            break
+    return ComposedInsight(
+        headline=headline,
+        narrative=text,
+        bullets=[],
+        closing_summary="",
+        display=text,
+        sub_ask_coverage=[a.text for a in sorted(brief.sub_asks, key=lambda a: a.order or 0)],
+        answer_trace={
+            "mode": "named_fund_llm",
+            "findings": findings.to_dict(),
+            "structured": {
+                "headline": headline,
+                "fund_return_pct": block.get("fund_return_pct"),
+                "window_label": block.get("window_label"),
+                "drivers": attr.get("detractors"),
+                "offsets": attr.get("contributors"),
+                "unexplained_pct": attr.get("unexplained_pct"),
+                "explained_pct": attr.get("explained_pct"),
+                "benchmark": packet.get("benchmark"),
+                "data_quality_notes": block.get("return_notes") or [],
+                "concentration": {
+                    "top_sector": attr.get("top_sector"),
+                    "top_sector_weight_pct": attr.get("top_sector_weight_pct"),
+                },
+            },
+        },
+    )
 
 
 def _fund_why_compose(
@@ -1020,8 +1443,9 @@ def _facts(
         },
         "sector": None,
         "funds": [],
-        "missing_data": [l.message for l in findings.limits] or [e.facet for e in (evidence.ledger if evidence else []) if e.status == "unavailable"],
-        "article_context": _article_context_for_interpret(evidence),
+        "missing_data": [],
+        "article_context": _article_context_for_interpret(evidence, brief, question=question),
+        "measured_facts": measured_facts_block(brief, evidence),
         "stock": _stock_quote(evidence, brief),
     }
     if s:
@@ -1247,13 +1671,13 @@ def _hybrid_compose(
 
     headline = str(parsed.get("headline") or "")
     headline, _ = _render_citations(headline, claims)
-    if not _valid_llm_text(headline, max_chars=300):
+    if not _valid_llm_text(headline):
         headline = _structured_headline(brief, findings)
         fallbacks.append("headline")
 
     sector_read = str(parsed.get("sector_read") or "")
     sector_read, cited = _render_citations(sector_read, claims)
-    if not _valid_llm_text(sector_read, max_chars=1000) or (claims and cited == 0):
+    if not _valid_llm_text(sector_read) or (claims and cited == 0):
         sector_read = _structured_sector_read(findings) or "Not enough news in this run to judge the sector."
         fallbacks.append("sector_read")
 
@@ -1264,7 +1688,7 @@ def _hybrid_compose(
         text = str(lines_by_isin.get(f.isin.upper()) or "")
         text, _ = _render_citations(text, claims)
         text = text.strip().rstrip(".")
-        if _valid_llm_text(text, max_chars=330):
+        if _valid_llm_text(text):
             fund_lines[f.isin] = text
         else:
             fund_lines[f.isin] = _structured_fund_line(f)
@@ -1276,7 +1700,7 @@ def _hybrid_compose(
     if findings.sector and not findings.funds:
         must_name = [str(x.get("name") or "") for x in (findings.sector.sectors_negative or [])[:2]]
     named_ok = not must_name or any(n and n.lower() in closing.lower() for n in must_name)
-    if not _valid_llm_text(closing, max_chars=580) or not named_ok:
+    if not _valid_llm_text(closing) or not named_ok:
         closing = _structured_closing(findings, brief, question)
         fallbacks.append("closing")
 
@@ -1307,6 +1731,7 @@ def compose_from_findings(
     query_log: Any = None,
     pipeline_errors: list[dict[str, str]] | None = None,
     analysis_brief: dict[str, Any] | None = None,
+    news_read: Any = None,
 ) -> ComposedInsight:
     settings = get_settings()
 
@@ -1329,15 +1754,37 @@ def compose_from_findings(
             answer_trace={"mode": "unmatched_fund", "findings": findings.to_dict()},
         )
 
+    named_fund_focus = bool(brief.funds) and not brief.primary_sector() and not brief.drivers
     structured = (
         _fund_why_compose(question, brief, findings, evidence)
-        if (brief.funds and any(f.drag_sectors for f in findings.funds))
+        if named_fund_focus or (brief.funds and any(f.drag_sectors for f in findings.funds))
         else _structured_compose(question, brief, findings, evidence)
     )
 
     use_llm = bool(getattr(settings, "insight_use_llm_interpret", True)) and llm_api_key_configured(settings)
     if query_log is not None:
-        query_log.write(f"INTERPRET_MODE hybrid_llm={use_llm} funds={len(findings.funds)}")
+        query_log.write(
+            f"INTERPRET_MODE hybrid_llm={use_llm} named_fund_structured={named_fund_focus} funds={len(findings.funds)}"
+        )
+    if named_fund_focus and findings.funds and use_llm:
+        llm_named = _named_fund_llm_compose(
+            question,
+            brief,
+            findings,
+            evidence,
+            structured,
+            news_read=news_read,
+            query_log=query_log,
+            pipeline_errors=pipeline_errors,
+            analysis_brief=analysis_brief,
+        )
+        if llm_named is not None:
+            if query_log is not None:
+                query_log.write("INTERPRET mode=named_fund_llm")
+            return llm_named
+        if query_log is not None:
+            query_log.write("INTERPRET mode=named_fund_structured_fallback")
+        return structured
     if not use_llm:
         return structured
 

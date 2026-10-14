@@ -54,6 +54,58 @@ def _match_fund_rows(evidence: EvidenceSet) -> list[dict[str, Any]]:
     return rows
 
 
+def _top_holdings_with_returns(
+    rows: list[Any], *, limit: int = 8, enrich_prices: bool = False
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    profile_fn = None
+    if enrich_prices:
+        try:
+            from historical_data.stocks_service import get_stock_profile
+
+            profile_fn = get_stock_profile
+        except ImportError:
+            profile_fn = None
+    for h in rows[:limit]:
+        if not isinstance(h, dict) or not h.get("name"):
+            continue
+        name = str(h.get("name"))
+        row: dict[str, Any] = {
+            "name": name,
+            "percentage": round(float(h.get("percentage") or 0), 2),
+        }
+        if profile_fn:
+            prof = profile_fn(name) or {}
+            ret = prof.get("return_1m")
+            if ret is not None:
+                try:
+                    row["return_pct"] = round(float(ret), 2)
+                except (TypeError, ValueError):
+                    pass
+        out.append(row)
+    return out
+
+
+def _window_pct_from_nav_payload(data: dict[str, Any], return_window: str = "") -> float | None:
+    """Map fund_nav / catalog returns into a single window % for compute."""
+    for key in ("window_pct", "return_pct"):
+        try:
+            if data.get(key) is not None:
+                return float(data[key])
+        except (TypeError, ValueError):
+            pass
+    rets = data.get("returns") if isinstance(data.get("returns"), dict) else {}
+    rw = (return_window or "1M").upper().replace(" ", "")
+    alias = {"1W": "1w", "1M": "1m", "3M": "3m", "6M": "6m", "1Y": "1y", "YTD": "ytd"}
+    for k in (alias.get(rw, rw.lower()), "1m", "3m", "6m", "1y"):
+        try:
+            if rets.get(k) is not None:
+                return float(rets[k])
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _named_fund_rows(evidence: EvidenceSet) -> list[dict[str, Any]]:
     """Funds the user named: built from composition/holdings when no ranking tool produced rows."""
     rows: list[dict[str, Any]] = []
@@ -377,6 +429,10 @@ def _build_evidence_text(findings: Findings) -> str:
         for sm in f.sector_mix:
             vals.append(sm.get("percentage"))
             vals.append(sm.get("index_return_pct"))
+            pct = sm.get("percentage")
+            if pct is not None:
+                lines.append(f"{int(round(float(pct)))}")
+                lines.append(f"{round(float(pct), 1)}")
             lines.append(f"{tag}_sector_mix={sm.get('sector')}")
         for h in f.top_holdings:
             vals.append(h.get("percentage"))
@@ -386,8 +442,16 @@ def _build_evidence_text(findings: Findings) -> str:
             lines.append(f"{tag}_{m.get('month')}={m.get('return_pct')}")
         if f.exposure_pct is not None:
             lines.append(f"{tag}_exposure={f.exposure_pct}")
+        if f.nav is not None:
+            lines.append(f"{tag}_nav={f.nav}")
+            lines.append(f"{round(float(f.nav), 2)}")
+            lines.append(f"{round(float(f.nav), 4)}")
+        if f.nav_date:
+            lines.append(f"{tag}_nav_date={f.nav_date}")
         if f.return_window_pct is not None:
             lines.append(f"{tag}_return={f.return_window_pct}")
+        if f.scheme_benchmark:
+            lines.append(f"{tag}_benchmark_name={f.scheme_benchmark}")
         if f.relative_to_benchmark_pct is not None:
             lines.append(f"{tag}_vs_index={f.relative_to_benchmark_pct}")
         lines.append(f"{tag}_tilt={f.news_tilt} alignment={f.alignment}")
@@ -396,6 +460,9 @@ def _build_evidence_text(findings: Findings) -> str:
         for drag in f.drag_sectors[:4]:
             vals.append(drag.get("weight_pct"))
             vals.append(drag.get("index_return_pct"))
+            vals.append(drag.get("approx_contribution_pct"))
+            if drag.get("approx_contribution_pct") is not None:
+                lines.append(f"{tag}_sector_contrib={drag.get('approx_contribution_pct')}")
             lines.append(f"{tag}_drag={drag.get('sector')} index={drag.get('index_return_pct')} news={drag.get('news')}")
             for h in drag.get("holdings") or []:
                 if isinstance(h, dict):
@@ -475,7 +542,10 @@ def compute_findings(
             FindingLimit("benchmark_substitute", "Sector index unavailable; used broad market proxy.")
         )
 
-    fund_rows = _match_fund_rows(evidence) or _named_fund_rows(evidence)
+    if brief.funds:
+        fund_rows = _named_fund_rows(evidence) or _match_fund_rows(evidence)
+    else:
+        fund_rows = _match_fund_rows(evidence) or _named_fund_rows(evidence)
     asked = (brief.direction or "any").strip().lower()
     if asked in ("positive", "negative"):
         fund_rows = [
@@ -556,6 +626,8 @@ def compute_findings(
         )
         window_pct = ret_data.get("window_pct")
         if window_pct is None:
+            window_pct = _window_pct_from_nav_payload(ret_data, brief.return_window())
+        if window_pct is None:
             for k in ("return_pct", "return_1m_pct", "return_3m_pct", "return_1y_pct"):
                 try:
                     if ret_data.get(k) is not None:
@@ -568,10 +640,20 @@ def compute_findings(
                     pass
         monthly = ret_data.get("monthly") if isinstance(ret_data.get("monthly"), list) else []
 
+        nav_item = _item_for_isin(evidence, "fund_facts_nav", isin) or {}
+        scheme_bench_raw = str(nav_item.get("benchmark") or "")
+        scheme_bench_label = scheme_bench_raw
+        # Do not substitute Nifty for scheme TRI benchmarks — only compare when we have a priced index.
         rel = None
-        if window_pct is not None and bench_pct is not None:
-            rel = round(float(window_pct) - float(bench_pct), 2)
+        bench_for_fund = bench_pct
+        if window_pct is not None and bench_for_fund is not None:
+            rel = round(float(window_pct) - float(bench_for_fund), 2)
         fund_ret_f = float(window_pct) if window_pct is not None else None
+        nav_val = nav_item.get("nav")
+        try:
+            nav_f = float(nav_val) if nav_val is not None else None
+        except (TypeError, ValueError):
+            nav_f = None
 
         # ---- news -> fund link ----
         pos_exp, neg_exp, mix_exp, pos_rows, neg_rows, mix_rows = _news_link_for_fund(
@@ -610,11 +692,9 @@ def compute_findings(
                 isin=isin,
                 exposure_pct=exposure_f if exposure_f is not None else (round(topic_share, 2) or None),
                 exposure_sector=str(row.get("affected_sector") or (sector_label if sector_label != "sector" else "")),
-                top_holdings=[
-                    {"name": h.get("name"), "percentage": round(float(h.get("percentage") or 0), 2)}
-                    for h in (comp.get("holdings") or [])[:5]
-                    if isinstance(h, dict) and h.get("name")
-                ],
+                top_holdings=_top_holdings_with_returns(
+                    comp.get("holdings") or [], limit=8, enrich_prices=bool(brief.funds)
+                ),
                 exposure_sectors=breakdown,
                 other_top_sectors=other_sectors,
                 sector_mix=sector_mix,
@@ -622,7 +702,10 @@ def compute_findings(
                 as_on=str(comp.get("as_on") or ""),
                 return_window_pct=fund_ret_f,
                 monthly_returns=monthly,
-                benchmark_return_pct=float(bench_pct) if bench_pct is not None else None,
+                nav=nav_f,
+                nav_date=str(nav_item.get("nav_date") or ""),
+                benchmark_return_pct=float(bench_for_fund) if bench_for_fund is not None else None,
+                scheme_benchmark=scheme_bench_label or scheme_bench_raw,
                 relative_to_benchmark_pct=rel,
                 news_signal=news_dir,
                 divergence=divergence,
@@ -650,4 +733,19 @@ def compute_findings(
     findings.evidence_text = _build_evidence_text(findings)
     if sector_finding.news_direction != "unknown":
         findings.cross_cutting.append(f"Sector news tone: {sector_finding.news_direction}")
+    if news_read and findings.funds:
+        f0 = findings.funds[0]
+        ret = f0.return_window_pct
+        if ret is not None and news_read.tone == "positive" and ret < -0.4:
+            findings.cross_cutting.append(
+                "reconcile: fund return is negative in the measured window while headline tone is positive — "
+                "explain drag from sector index moves or non-news sleeves."
+            )
+        elif ret is not None and news_read.tone == "negative" and ret > 0.4:
+            findings.cross_cutting.append(
+                "reconcile: fund return is positive while headline tone is negative — "
+                "other holdings or sectors likely offset the negative news."
+            )
+        for c in news_read.conflicts:
+            findings.cross_cutting.append(f"news_conflict: {c}")
     return findings

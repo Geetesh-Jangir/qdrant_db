@@ -198,12 +198,12 @@ def sanitize_analyst_bullet(text: str) -> str:
 
 
 def polish_insight_sentence(text: str, *, max_chars: int = 200) -> str:
-    """Short investor-facing line: strip scrape junk, cap length, one clean sentence."""
+    """Investor-facing line: strip scrape junk; optional length cap (max_chars <= 0 = no cap)."""
     cleaned = sanitize_analyst_bullet(text or "")
     if not cleaned:
         return ""
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if len(cleaned) > max_chars:
+    if max_chars > 0 and len(cleaned) > max_chars:
         cut = cleaned[:max_chars].rsplit(" ", 1)[0]
         cleaned = cut.rstrip(" ,;:-") + "."
     if cleaned and cleaned[-1] not in ".!?":
