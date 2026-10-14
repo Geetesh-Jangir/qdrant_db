@@ -18,10 +18,11 @@ if id "${SERVICE_USER}" &>/dev/null; then
 fi
 
 TMP="$(mktemp)"
+CRON_LOG="${NEWS_RAG_DIR}/data/news_runs_daily/cron/cron.log"
 cat > "${TMP}" <<EOF
-30 18 * * * ${SCRIPT}
-30 2 * * * ${SCRIPT}
-30 10 * * * ${SCRIPT}
+30 18 * * * ${SCRIPT} >> ${CRON_LOG} 2>&1
+30 2 * * * ${SCRIPT} >> ${CRON_LOG} 2>&1
+30 10 * * * ${SCRIPT} >> ${CRON_LOG} 2>&1
 EOF
 
 if ! crontab -u "${SERVICE_USER}" "${TMP}"; then

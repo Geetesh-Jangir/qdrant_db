@@ -102,10 +102,12 @@ Historical backfill is unchanged and still writes under `data/news_runs/YYYY-MM-
 
 If a backfill or another pipeline process is already running when a slot starts, that slot **skips** and does not start later when backfill ends. The next midnight, 08:00, or 16:00 slot tries again. Run it by hand after backfill finishes if you do not want to wait. A 500/30 run can take hours and shares RAM with Ask.
 
+Every cron slot appends one line to `/opt/news-rag/data/news_runs_daily/cron/cron.log` (`daily success`, `daily failed`, or `daily skipped`). The full pipeline output for that slot is `daily_<utcstamp>.log` in the same folder. Cron also copies its output into `cron.log`.
+
 ```bash
 crontab -u ubuntu -l
-sudo -u ubuntu /opt/news-rag/deploy/lightsail/run-daily-pipeline.sh
-tail -f /opt/news-rag/data/news_runs_daily/cron/daily_*.log
+tail -f /opt/news-rag/data/news_runs_daily/cron/cron.log
+sudo journalctl -t news-daily -f
 ```
 
 ---

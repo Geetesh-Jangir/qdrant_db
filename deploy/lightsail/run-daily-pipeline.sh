@@ -9,15 +9,24 @@ LOG_DIR="${NEWS_RAG_DIR}/data/news_runs_daily/cron"
 mkdir -p "${LOG_DIR}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 LOG="${LOG_DIR}/daily_${STAMP}.log"
+RUNLOG="${LOG_DIR}/cron.log"
+
+note() {
+  local line
+  line="$(date -u -Iseconds) $*"
+  echo "${line}" >>"${RUNLOG}"
+  echo "${line}" >>"${LOG}"
+  logger -t news-daily -- "${line}" 2>/dev/null || true
+}
 
 exec 9>"${LOCK}"
 if ! flock -n 9; then
-  echo "$(date -u -Iseconds) daily skipped: ${LOCK} already held" | tee -a "${LOG}"
+  note "daily skipped: ${LOCK} already held"
   exit 0
 fi
 
 if pgrep -f '[p]ython.*-m news_pipeline' >/dev/null 2>&1; then
-  echo "$(date -u -Iseconds) daily skipped: news_pipeline or backfill_days already running" | tee -a "${LOG}"
+  note "daily skipped: news_pipeline or backfill_days already running"
   exit 0
 fi
 
@@ -47,7 +56,7 @@ export RUN_SUMMARY_DIR=data/news_runs_daily
 
 VENV_PY="${NEWS_RAG_DIR}/.venv/bin/python"
 if [[ ! -x "${VENV_PY}" ]]; then
-  echo "$(date -u -Iseconds) daily failed: missing ${VENV_PY}" | tee -a "${LOG}"
+  note "daily failed: missing ${VENV_PY}"
   exit 1
 fi
 
@@ -56,6 +65,16 @@ fi
   echo "GOOGLE_NEWS_WHEN=${GOOGLE_NEWS_WHEN} NEWS_WINDOW_HOURS=${NEWS_WINDOW_HOURS}"
   echo "HOLDINGS_LIMIT=${HOLDINGS_LIMIT} SECTORS_LIMIT=${SECTORS_LIMIT} MACRO_NEWS_ENABLED=${MACRO_NEWS_ENABLED}"
   echo "RUN_SUMMARY_DIR=${RUN_SUMMARY_DIR} NEWS_DATE_RANGE=(unset)"
-  "${VENV_PY}" -m news_pipeline
-  echo "==> daily pipeline finished $(date -u -Iseconds) exit=$?"
 } >>"${LOG}" 2>&1
+
+set +e
+"${VENV_PY}" -m news_pipeline >>"${LOG}" 2>&1
+code=$?
+set -e
+
+if [[ "${code}" -eq 0 ]]; then
+  note "daily success exit=0 detail=${LOG}"
+else
+  note "daily failed exit=${code} detail=${LOG}"
+fi
+exit "${code}"
