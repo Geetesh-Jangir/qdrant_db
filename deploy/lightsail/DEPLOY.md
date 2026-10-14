@@ -78,6 +78,10 @@ Expect `"ok":true`, `"sector_ranking_index":true`, and `"holdings_archive":true`
 
 Open **`http://PUBLIC_IP/`** → ask a question → **Get Insight** (first ask may take 1–3 minutes).
 
+Open **`http://PUBLIC_IP/backfill`** to run historical ingest on this instance. Start and end dates are both included. The page shows the pipeline log while the job runs (one `news_pipeline` process per day, then the pause you set). Completed days are stored in `data/news_backfill/` and skipped if you start the same range again. The job runs inside the `news-rag` process, so `sudo systemctl restart news-rag` stops it.
+
+Pipeline keys already in `.env` are reused (`QDRANT_*`, `JEV_*` if you use Jev). The page forces `NEWS_CORPUS_MODE=true` so older articles are kept.
+
 ---
 
 ## 4. Updates (after you push from your PC)
@@ -92,6 +96,7 @@ source .venv/bin/activate
 pip install -r requirements.txt -r news_rag/requirements.txt
 deactivate
 sudo systemctl restart news-rag
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1/backfill
 ```
 
 ---

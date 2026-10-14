@@ -63,7 +63,8 @@ pip install -r news_rag/requirements.txt
 export PYTHONPATH="${NEWS_RAG_DIR}"
 .venv/bin/python scripts/download_embedding_model.py
 
-mkdir -p data/rag_query_logs data/embedding_models data/fund_holdings_aggregate data/nav_cache
+mkdir -p data/rag_query_logs data/embedding_models data/fund_holdings_aggregate data/nav_cache \
+  data/news_runs data/news_backfill data/news_failures
 if id "${SERVICE_USER}" &>/dev/null; then
   ${SUDO} chown -R "${SERVICE_USER}:${SERVICE_USER}" "${NEWS_RAG_DIR}"
 fi

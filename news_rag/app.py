@@ -27,6 +27,9 @@ from news_rag.llm_client import (
 from news_rag.query_log import new_fund_brief_logger, new_query_logger
 from news_rag.fund_brief import generate_fund_brief
 from news_rag.ask_engine import run_ask_engine, stream_ask_engine
+from news_rag.backfill_job import snapshot as backfill_snapshot
+from news_rag.backfill_job import start as start_backfill
+from news_rag.backfill_job import stop as stop_backfill
 from news_rag.embed import embeddings_ready
 from news_rag.sector_fund_ranking import sector_ranking_data_available
 from news_rag.stock_fund_ranking import holdings_archive_available
@@ -81,6 +84,14 @@ class FundBriefRequest(BaseModel):
     isin: str = Field(min_length=10, max_length=20)
 
 
+class BackfillRequest(BaseModel):
+    start_date: str = Field(min_length=8, max_length=16)
+    end_date: str = Field(min_length=8, max_length=16)
+    holdings: int = Field(default=50, ge=1, le=2000)
+    sectors: int = Field(default=10, ge=0, le=80)
+    pause_sec: int = Field(default=600, ge=0, le=86400)
+
+
 class AskRequest(BaseModel):
     question: str = Field(min_length=3, max_length=2000)
     stock: str | None = Field(default=None, max_length=200)
@@ -132,6 +143,50 @@ def fund_page() -> FileResponse:
 @app.get("/fund-search")
 def fund_search_page() -> FileResponse:
     return _html_page("fund_search.html")
+
+
+@app.get("/backfill")
+def backfill_page() -> FileResponse:
+    return _html_page("backfill.html")
+
+
+@app.get("/api/backfill/status")
+def backfill_status(
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    return backfill_snapshot()
+
+
+@app.post("/api/backfill/start")
+def backfill_start(
+    body: BackfillRequest,
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    try:
+        return start_backfill(
+            start_date=body.start_date,
+            end_date=body.end_date,
+            holdings=body.holdings,
+            sectors=body.sectors,
+            pause_sec=body.pause_sec,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.post("/api/backfill/stop")
+def backfill_stop(
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    return stop_backfill()
 
 
 @app.get("/api/funds/search")

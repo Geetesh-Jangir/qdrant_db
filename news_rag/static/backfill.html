@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Historical news backfill</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; background: #f8fafc; }
+    body { max-width: 860px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .nav { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.9rem; margin-bottom: 1.5rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; }
+    .nav a { color: #2563eb; text-decoration: none; font-weight: 500; }
+    h1 { font-size: 1.6rem; margin: 0 0 0.35rem; }
+    .sub { color: #64748b; margin: 0 0 1.25rem; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.25rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.85rem; }
+    label { display: block; font-size: 0.82rem; font-weight: 600; margin-bottom: 0.35rem; }
+    input { width: 100%; box-sizing: border-box; font: inherit; border: 1px solid #cbd5e1; border-radius: 8px; padding: 0.55rem 0.7rem; }
+    .actions { display: flex; gap: 0.6rem; margin-top: 1rem; }
+    button { background: #1d4ed8; color: #fff; border: none; border-radius: 8px; padding: 0.65rem 1.1rem; font-weight: 600; cursor: pointer; }
+    button.stop { background: #b91c1c; }
+    button:disabled { opacity: 0.55; cursor: wait; }
+    .status { margin-top: 1rem; font-weight: 600; }
+    .status.running { color: #1d4ed8; }
+    .status.done { color: #15803d; }
+    .status.failed, .status.stopped { color: #b91c1c; }
+    pre {
+      margin-top: 0.75rem; background: #0f172a; color: #e2e8f0; border-radius: 10px;
+      padding: 1rem; min-height: 280px; max-height: 520px; overflow: auto;
+      font-size: 0.78rem; line-height: 1.45; white-space: pre-wrap;
+    }
+    .hint { font-size: 0.82rem; color: #64748b; margin-top: 0.75rem; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">Ask a Question</a>
+    <a href="/fund">Fund News Brief</a>
+    <a href="/fund-search">Fund Search & Explorer</a>
+    <a href="/backfill">Historical backfill</a>
+  </div>
+  <script src="/static/rag-api.js?v=4"></script>
+  <h1>Historical news backfill</h1>
+  <p class="sub">Runs the news pipeline once for each calendar day from start through end. Both dates are included. Live log below updates while the job runs.</p>
+  <div class="card">
+    <form id="form">
+      <div class="grid">
+        <div>
+          <label for="start">Start date</label>
+          <input id="start" type="date" required />
+        </div>
+        <div>
+          <label for="end">End date</label>
+          <input id="end" type="date" required />
+        </div>
+        <div>
+          <label for="holdings">Number of holdings</label>
+          <input id="holdings" type="number" min="1" max="2000" value="50" required />
+        </div>
+        <div>
+          <label for="sectors">Number of sectors</label>
+          <input id="sectors" type="number" min="0" max="80" value="10" required />
+        </div>
+        <div>
+          <label for="pause">Pause between successful days (seconds)</label>
+          <input id="pause" type="number" min="0" max="86400" value="600" required />
+        </div>
+      </div>
+      <div class="actions">
+        <button type="submit" id="startBtn">Start backfill</button>
+        <button type="button" class="stop" id="stopBtn">Stop</button>
+      </div>
+    </form>
+    <div id="status" class="status">Idle</div>
+    <pre id="log">Waiting for a run. Pipeline output appears here.</pre>
+    <p class="hint">A failed day stops the range and is retried on the next start for the same dates. Completed days are skipped via the checkpoint under data/news_backfill.</p>
+  </div>
+  <script>
+    const form = document.getElementById("form");
+    const startBtn = document.getElementById("startBtn");
+    const stopBtn = document.getElementById("stopBtn");
+    const statusEl = document.getElementById("status");
+    const logEl = document.getElementById("log");
+    let timer = null;
+
+    function paint(data) {
+      const status = data.status || "idle";
+      statusEl.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+      statusEl.className = "status " + status;
+      const lines = data.log || [];
+      const atBottom = logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 40;
+      logEl.textContent = lines.length ? lines.join("\n") : "Waiting for a run. Pipeline output appears here.";
+      if (atBottom) logEl.scrollTop = logEl.scrollHeight;
+      const busy = status === "running" || status === "stopping";
+      startBtn.disabled = busy;
+      stopBtn.disabled = !busy;
+    }
+
+    async function refresh() {
+      const response = await fetch(ragUrl("api/backfill/status"));
+      paint(await parseRagJsonResponse(response));
+    }
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      startBtn.disabled = true;
+      const body = {
+        start_date: document.getElementById("start").value,
+        end_date: document.getElementById("end").value,
+        holdings: Number(document.getElementById("holdings").value),
+        sectors: Number(document.getElementById("sectors").value),
+        pause_sec: Number(document.getElementById("pause").value),
+      };
+      const response = await fetch(ragUrl("api/backfill/start"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      try {
+        paint(await parseRagJsonResponse(response));
+      } catch (err) {
+        statusEl.textContent = err.message;
+        statusEl.className = "status failed";
+        startBtn.disabled = false;
+      }
+    });
+
+    stopBtn.addEventListener("click", async () => {
+      const response = await fetch(ragUrl("api/backfill/stop"), { method: "POST" });
+      paint(await parseRagJsonResponse(response));
+    });
+
+    refresh().catch((err) => { statusEl.textContent = err.message; });
+    timer = setInterval(() => { refresh().catch(() => {}); }, 2000);
+  </script>
+</body>
+</html>
