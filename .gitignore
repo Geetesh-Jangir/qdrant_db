@@ -28,3 +28,4 @@ data/fund_holdings_aggregate/*.rating_patch.*
 data/fund_name_embeddings.json
 
 lightsail_logs/news_runs
+lightsail_logs/news_runs_daily
