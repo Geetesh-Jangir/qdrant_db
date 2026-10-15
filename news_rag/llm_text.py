@@ -27,6 +27,11 @@ def extract_assistant_text(data: dict[str, Any]) -> str:
 
 
 def extract_anthropic_text(data: dict[str, Any]) -> str:
+    import json
+
+    for block in data.get("content") or []:
+        if isinstance(block, dict) and block.get("type") == "tool_use" and isinstance(block.get("input"), dict):
+            return json.dumps(block["input"], ensure_ascii=False)
     chunks: list[str] = []
     for block in data.get("content") or []:
         if isinstance(block, dict) and block.get("type") == "text":

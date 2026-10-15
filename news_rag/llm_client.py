@@ -248,10 +248,50 @@ def call_insight_llm(
     model_override: str | None = None,
     max_tokens: int | None = None,
     temperature: float = 0.25,
+    stage: str = "composer",
 ) -> LlmCallResult:
     settings = get_settings()
     provider = _effective_provider(settings)
     chosen_max = max_tokens or settings.llm_max_tokens
+    stage_token = _current_llm_stage.set(stage)
+    if query_log is not None:
+        query_log.log_llm_start(
+            stage=stage,
+            provider=provider,
+            model=(model_override or "").strip() or (
+                settings.anthropic_model if provider == "anthropic" else llm_model(settings)
+            ),
+            max_tokens=chosen_max,
+            system_chars=len(system_prompt or ""),
+            user_chars=len(user_content or ""),
+        )
+    try:
+        return _call_insight_llm_body(
+            settings,
+            provider,
+            system_prompt=system_prompt,
+            user_content=user_content,
+            query_log=query_log,
+            model_override=model_override,
+            max_tokens=chosen_max,
+            temperature=temperature,
+        )
+    finally:
+        _current_llm_stage.reset(stage_token)
+
+
+def _call_insight_llm_body(
+    settings: Settings,
+    provider: str,
+    *,
+    system_prompt: str,
+    user_content: str,
+    query_log: QueryLogger | None,
+    model_override: str | None,
+    max_tokens: int,
+    temperature: float,
+) -> LlmCallResult:
+    chosen_max = max_tokens
     if provider == "anthropic":
         anthropic_model = (model_override or "").strip() or settings.anthropic_model
         try:
@@ -413,6 +453,7 @@ def call_json_llm(
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_json=True,
+                response_schema=response_schema,
                 query_log=query_log,
             )
         if active_provider == "gemini":
@@ -520,7 +561,7 @@ def call_json_llm(
                 parsed_summary=_summarize_parsed_for_log(
                     stage, result.parsed if isinstance(result.parsed, dict) else None
                 ),
-                raw_preview=result.raw_text if result.truncated else "",
+                raw_preview=result.raw_text or "",
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
                 total_tokens=result.total_tokens,
@@ -570,7 +611,7 @@ def call_json_llm(
             truncated=result.truncated,
             repaired=result.repaired,
             parsed_summary=_summarize_parsed_for_log(stage, result.parsed if isinstance(result.parsed, dict) else None),
-            raw_preview=result.raw_text if result.truncated else "",
+            raw_preview="" if isinstance(result.parsed, dict) else (result.raw_text or ""),
             input_tokens=result.input_tokens,
             output_tokens=result.output_tokens,
             total_tokens=result.total_tokens,
@@ -587,6 +628,7 @@ def _call_anthropic(
     max_tokens: int | None = None,
     temperature: float = 0.25,
     response_json: bool = False,
+    response_schema: dict[str, Any] | None = None,
     query_log: QueryLogger | None,
 ) -> LlmCallResult:
     api_key = (settings.anthropic_api_key or "").strip()
@@ -618,6 +660,16 @@ def _call_anthropic(
         payload["output_config"] = {"effort": effort}
         if not getattr(settings, "anthropic_thinking", False):
             payload["thinking"] = {"type": "disabled"}
+    use_tools = bool(response_schema) and bool(getattr(settings, "insight_json_tool_use", True))
+    if use_tools:
+        payload["tools"] = [
+            {
+                "name": "emit_result",
+                "description": "Return the structured JSON result for this step.",
+                "input_schema": response_schema,
+            }
+        ]
+        payload["tool_choice"] = {"type": "tool", "name": "emit_result"}
 
     started = time.perf_counter()
     headers = {
@@ -627,6 +679,12 @@ def _call_anthropic(
     }
     with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
         response = client.post(url, headers=headers, json=payload)
+        if response.status_code == 400 and use_tools and "tool" in response.text.lower():
+            if query_log is not None:
+                query_log.write(f"anthropic_retry_without_tool_use body={response.text[:200]}")
+            payload.pop("tools", None)
+            payload.pop("tool_choice", None)
+            response = client.post(url, headers=headers, json=payload)
         if response.status_code == 400 and is_v5 and ("thinking" in response.text or "effort" in response.text):
             if query_log is not None:
                 query_log.write(

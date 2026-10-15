@@ -88,10 +88,15 @@ def test_composer_guardrails():
     violations = check_composer_guardrails(outlet, packet, evidence_text)
     assert any("outlet" in v.lower() for v in violations)
 
-    # Date violation
-    date_text = "On 16 Sep the fund declined 2.5%."
+    # Parenthetical publication citation is a date violation. A bare event date is not.
+    date_text = "The fund declined 2.5% (16 Sep)."
     violations = check_composer_guardrails(date_text, packet, evidence_text)
     assert any("dates" in v.lower() for v in violations)
+    event_date = "On 16 Sep the fund declined 2.5%."
+    assert not any(
+        "dates" in v.lower()
+        for v in check_composer_guardrails(event_date, packet, evidence_text)
+    )
 
     # Investment advice violation
     advice = "You should sell HDFC Top 100 right now."

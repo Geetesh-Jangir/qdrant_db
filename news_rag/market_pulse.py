@@ -324,6 +324,104 @@ def market_pulse_representatives_from_clusters(
     return rows
 
 
+def _collect_pulse_pool_batched(
+    question: str,
+    *,
+    window_days: int,
+    per_query_cap: int,
+    filter_kwargs: dict[str, Any],
+    query_log: QueryLogger | None,
+) -> dict[str, dict[str, Any]] | None:
+    """One Qdrant round trip for the eight static macro queries. None means fall back."""
+    from news_rag.config import get_settings
+    from news_rag.embed import embed_query
+    from news_rag.parse import parse_time_window
+    from news_rag.qdrant_reader import build_filter, get_qdrant_reader
+
+    settings = get_settings()
+    limit = int(getattr(settings, "insight_pulse_vector_limit", 24) or 24)
+    try:
+        vectors = [embed_query(semantic) for semantic, _key in MACRO_QUERY_SPECS]
+        published_from, published_to, _label = parse_time_window(
+            "",
+            date_from=filter_kwargs.get("date_from"),
+            date_to=filter_kwargs.get("date_to"),
+            default_days=window_days,
+        )
+        direction = filter_kwargs.get("direction")
+        if direction not in ("positive", "negative"):
+            direction = None
+        filt = build_filter(
+            entity_names=None,
+            published_from=published_from,
+            published_to=published_to,
+            min_relevance=settings.min_relevance,
+            min_impact=filter_kwargs.get("min_impact"),
+            source=filter_kwargs.get("source") or None,
+            direction=direction,
+        )
+        batches = get_qdrant_reader().query_vectors_batch(vectors, filt, limit, with_body=False)
+    except Exception as exc:
+        if query_log is not None:
+            query_log.write(f"MARKET_PULSE batch_fallback {exc}")
+        return None
+
+    pool: dict[str, dict[str, Any]] = {}
+    for (_semantic, theme_key), rows in zip(MACRO_QUERY_SPECS, batches):
+        for row in _tag_pulse_rows(_rank_batch_rows(rows, question), theme_key)[:per_query_cap]:
+            dedupe = article_dedupe_key(row)
+            if not dedupe:
+                continue
+            prev = pool.get(dedupe)
+            if prev is None or int(row.get("max_impact") or 0) > int(prev.get("max_impact") or 0):
+                pool[dedupe] = row
+    return pool
+
+
+def _rank_batch_rows(rows: list[dict[str, Any]], question: str) -> list[dict[str, Any]]:
+    """RRF-rank light payload hits and hydrate bodies for the kept rows."""
+    from news_rag.config import get_settings
+    from news_rag.qdrant_reader import get_qdrant_reader
+
+    settings = get_settings()
+    min_score = settings.retrieve_min_vector_score
+    kept = [row for row in rows if float(row.get("score") or 0) >= min_score]
+    allow_recap = any(word in (question or "").lower() for word in ("price", "target", "rating", "recap"))
+    ranked: list[dict[str, Any]] = []
+    k = 60.0
+    for rank, row in enumerate(kept):
+        if not allow_recap and row.get("event_type") == "price_recap":
+            continue
+        impact = int(row.get("max_impact") or 0)
+        ranked.append(
+            {
+                **row,
+                "max_impact": impact,
+                "_rrf_score": 1.0 / (k + rank + 1) + 0.01 * impact,
+                "_vector_score": float(row.get("score") or 0),
+            }
+        )
+    ranked.sort(key=lambda item: (item["_rrf_score"], item["max_impact"]), reverse=True)
+    final = ranked[:8]
+    get_qdrant_reader().hydrate_bodies(final)
+    from news_rag.scoped_retrieve import _trim_snippet
+
+    cap = int(settings.snippet_chars)
+    for item in final:
+        snippet = _trim_snippet(str(item.get("scraped_text") or ""), cap)
+        item["snippet"] = snippet
+        item["scraped_text"] = snippet
+    return final
+
+
+def _tag_pulse_rows(rows: list[dict[str, Any]], theme_key: str) -> list[dict[str, Any]]:
+    for row in rows:
+        row["_pulse_query"] = theme_key
+        row["_news_layer"] = "macro"
+        row["_search_focus"] = f"pulse_{theme_key}"
+    return rows
+
+
 def _fetch_one_macro_query(
     semantic: str,
     theme_key: str,
@@ -337,6 +435,8 @@ def _fetch_one_macro_query(
 
     # Vector search already scopes by semantic query; full-sentence topic filter dropped all hits.
     scope = ScopeRefinement(search_mode="event_only", news_topics=[])
+    from news_rag.config import get_settings
+
     rows = retrieve_scoped_news(
         semantic,
         scope=scope,
@@ -344,6 +444,7 @@ def _fetch_one_macro_query(
         window_days=window_days,
         query_log=query_log,
         ignore_question_time_hints=True,
+        vector_limit=int(getattr(get_settings(), "insight_pulse_vector_limit", 24) or 24),
         **filter_kwargs,
     )
     for row in rows:
@@ -362,9 +463,18 @@ def _collect_pulse_pool(
     filter_kwargs: dict[str, Any],
 ) -> dict[str, dict[str, Any]]:
     pool: dict[str, dict[str, Any]] = {}
-    from news_rag.embed import embed_query
+    from news_rag.embed import warmup_query_vectors
 
-    embed_query(MACRO_QUERY_SPECS[0][0])
+    warmup_query_vectors([semantic for semantic, _key in MACRO_QUERY_SPECS])
+    batched = _collect_pulse_pool_batched(
+        question,
+        window_days=window_days,
+        per_query_cap=per_query_cap,
+        filter_kwargs=filter_kwargs,
+        query_log=query_log,
+    )
+    if batched is not None:
+        return batched
     with ThreadPoolExecutor(max_workers=max(1, min(8, len(MACRO_QUERY_SPECS)))) as pool_exec:
         futs = {
             pool_exec.submit(
@@ -400,6 +510,7 @@ def run_market_pulse(
     window_days: int | None = None,
     query_log: QueryLogger | None = None,
     per_query_cap: int = 6,
+    light: bool = False,
     **filter_kwargs: Any,
 ) -> dict[str, Any]:
     """Multi-query macro retrieval + theme clustering (market-wide questions only)."""
@@ -472,7 +583,8 @@ def run_market_pulse(
             "score": round(c.score, 3),
             "sectors": c.sectors,
             "entities": c.entities,
-            "articles": c.articles,
+            # Insight path only needs theme labels; nested article lists duplicate the pool.
+            "articles": [] if light else c.articles,
         }
         for c in clusters
     ]

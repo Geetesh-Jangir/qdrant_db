@@ -1,0 +1,9 @@
+{
+  "sector_label": "Petroleum Products",
+  "benchmark_label": "Nifty 50 (broad proxy; sector index history unavailable)",
+  "yfinance_ticker": "^NSEI",
+  "return_pct": 3.44,
+  "window_days": 7,
+  "substituted_broad_index": true,
+  "cached_at": 1792070660.6776123
+}

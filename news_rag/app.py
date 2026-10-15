@@ -46,10 +46,29 @@ def _warmup_embeddings_background() -> None:
 
     def _run() -> None:
         try:
-            from news_rag.embed import embed_query
+            from news_rag.embed import embed_query, warmup_query_vectors
+            from news_rag.market_pulse import MACRO_QUERY_SPECS
+            from news_rag.qdrant_reader import get_qdrant_reader
 
             embed_query("warmup")
+            warmup_query_vectors([text for text, _key in MACRO_QUERY_SPECS])
+            missing = get_qdrant_reader().missing_payload_indexes()
+            if missing:
+                logger.warning("qdrant payload indexes missing: %s", ", ".join(missing))
             logger.info("embedding warmup finished")
+            # Load the slow one-time indexes now so the first question does not pay for them.
+            from news_rag.fund_search import get_fund_index
+            from news_rag.insight.gather import _prewarm_tool_modules
+            from news_rag.insight.plan import plan_system_prompt
+            from news_rag.news_entity_resolve import resolve_corpus_entity
+            from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
+
+            plan_system_prompt()
+            _prewarm_tool_modules()
+            get_fund_index().sample_fund_names(1)
+            get_sector_fund_ranking_index()
+            resolve_corpus_entity("HDFC Bank")
+            logger.info("pipeline warmup finished")
         except Exception as exc:
             logger.warning("embedding warmup failed: %s", exc)
 

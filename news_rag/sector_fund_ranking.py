@@ -408,6 +408,64 @@ def get_sector_fund_ranking_index() -> SectorFundRankingIndex:
         return _index
 
 
+def top_sector_names(n: int = 50) -> list[str]:
+    """Canonical sector names with the most funds, from aggregated_sectors.csv."""
+    import csv
+
+    idx = get_sector_fund_ranking_index()
+    path = _REPO_ROOT / "data" / "fund_holdings_aggregate" / "aggregated_sectors.csv"
+    if not path.is_file():
+        return list(idx.sector_names)[:n]
+    rows: list[tuple[int, str]] = []
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            name = str(row.get("sector") or "").strip()
+            try:
+                count = int(row.get("fund_count") or 0)
+            except ValueError:
+                count = 0
+            if name:
+                rows.append((count, name))
+    rows.sort(key=lambda item: item[0], reverse=True)
+    out: list[str] = []
+    for _count, name in rows:
+        canon = idx._sector_fold.get(name.casefold())
+        if canon and canon not in out:
+            out.append(canon)
+        if len(out) >= n:
+            break
+    return out
+
+
+def candidate_sector_names(
+    articles: list[dict[str, Any]] | None = None,
+    extra: list[str] | None = None,
+    *,
+    cap: int = 50,
+) -> list[str]:
+    """Top sectors by fund count, plus sectors the articles or rules already named."""
+    idx = get_sector_fund_ranking_index()
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        canon = idx._sector_fold.get(str(name or "").strip().casefold())
+        if canon and canon not in seen:
+            seen.add(canon)
+            ordered.append(canon)
+
+    for name in top_sector_names(cap):
+        add(name)
+    for art in articles or []:
+        if not isinstance(art, dict):
+            continue
+        for name in art.get("sector_names") or []:
+            add(str(name))
+    for name in extra or []:
+        add(name)
+    return ordered
+
+
 def rank_funds_by_sector_exposure(
     sector_keys: list[str],
     *,

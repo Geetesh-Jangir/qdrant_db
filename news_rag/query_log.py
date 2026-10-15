@@ -15,6 +15,12 @@ from news_rag.config import get_settings
 
 # Human-readable purpose for each LLM `stage=` passed to call_json_llm / call_insight_llm.
 LLM_STAGE_CATALOG: dict[str, dict[str, str]] = {
+    "plan": {
+        "pipeline": "insight_graph",
+        "phase": "plan",
+        "purpose": "Read the question once and decide scope, entities, time frame, tools, news depth, sub-queries and answer style.",
+        "output": "JSON plan: scope, understanding, entities, time, tool_calls, news, compute, sub_queries, presentation",
+    },
     "brief": {
         "pipeline": "insight_v2",
         "phase": "1_brief",
@@ -33,6 +39,18 @@ LLM_STAGE_CATALOG: dict[str, dict[str, str]] = {
         "purpose": "Pick which sectors the retrieved news helps or hurts (used for driver-led questions).",
         "output": "JSON: sectors[{name, direction, reason}]",
     },
+    "insight_analyst": {
+        "pipeline": "insight_v2",
+        "phase": "3b_analyst",
+        "purpose": "Turn measured facts and the news digest into a ranked analysis brief for the composer.",
+        "output": "JSON: headline, observed, attribution, mechanisms, net_takeaways",
+    },
+    "composer": {
+        "pipeline": "insight_v2",
+        "phase": "4_interpret",
+        "purpose": "Write the user-facing answer from the question, the plan's presentation choices, measured data and optional news.",
+        "output": "Prose insight in the style the plan asked for",
+    },
     "interpret": {
         "pipeline": "insight_v2",
         "phase": "4_interpret",
@@ -50,12 +68,6 @@ LLM_STAGE_CATALOG: dict[str, dict[str, str]] = {
         "phase": "agent",
         "purpose": "Legacy ask agent tool-planning round (not used in insight_v2 default path).",
         "output": "JSON: tools / status",
-    },
-    "composer": {
-        "pipeline": "legacy",
-        "phase": "compose",
-        "purpose": "Legacy final answer composer.",
-        "output": "JSON: headline, narrative, bullets",
     },
     "router": {
         "pipeline": "legacy",
@@ -118,6 +130,7 @@ class QueryLogger:
         self.llm_output_tokens = 0
         self._summary: dict[str, Any] = {"query_id": query_id, "kind": kind, "events": []}
         self._llm_journal: list[dict[str, Any]] = []
+        self._prompt_sizes: dict[int, dict[str, int]] = {}
         self._pipeline_stages: list[dict[str, Any]] = []
         self._file_lock = threading.Lock()
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -204,7 +217,10 @@ class QueryLogger:
             model=model,
             purpose=info.get("purpose"),
             pipeline_phase=info.get("phase"),
+            system_chars=system_chars,
+            user_chars=user_chars,
         )
+        self._prompt_sizes[call_index] = {"system_chars": system_chars, "user_chars": user_chars}
         return call_index
 
     def log_llm_result(
@@ -239,8 +255,9 @@ class QueryLogger:
             f"finish={finish_reason or 'unknown'} truncated={truncated} repaired={repaired}{token_bit} "
             f"parsed_summary={clip_log_text(parsed_summary, 400)}"
         )
-        if raw_preview and truncated:
-            self.write(f"LLM_TRUNCATED_PREVIEW call_index={call_index} text={clip_log_text(raw_preview, 300)}")
+        if raw_preview:
+            tag = "LLM_TRUNCATED_PREVIEW" if truncated else "LLM_PARSE_FAIL_PREVIEW"
+            self.write(f"{tag} call_index={call_index} text={clip_log_text(raw_preview, 400)}")
         self.note(
             "llm_done",
             call_index=call_index,
@@ -489,6 +506,7 @@ class QueryLogger:
             f"cumulative_input_tokens={self.llm_input_tokens} "
             f"cumulative_output_tokens={self.llm_output_tokens}"
         )
+        sizes = self._prompt_sizes.get(self.llm_calls) or {}
         self._llm_journal.append(
             {
                 "call_index": self.llm_calls,
@@ -499,6 +517,8 @@ class QueryLogger:
                 "output_tokens": output_tokens,
                 "duration_sec": round(duration_sec, 3),
                 "http_status": http_status,
+                "system_chars": sizes.get("system_chars"),
+                "user_chars": sizes.get("user_chars"),
             }
         )
 
@@ -545,6 +565,34 @@ class QueryLogger:
             extra=extra,
         )
 
+    def stage_summary(self) -> dict[str, Any]:
+        """Per-stage seconds and token totals for the JSON sidecar."""
+        pipeline_seconds: dict[str, float] = {}
+        for entry in self._pipeline_stages:
+            if entry.get("event") == "done" and entry.get("seconds") is not None:
+                pipeline_seconds[str(entry.get("phase") or "")] = float(entry["seconds"])
+        by_stage: dict[str, dict[str, Any]] = {}
+        for call in self._llm_journal:
+            stage = str(call.get("stage") or "json")
+            bucket = by_stage.setdefault(
+                stage,
+                {
+                    "calls": 0,
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "duration_sec": 0.0,
+                    "system_chars": 0,
+                    "user_chars": 0,
+                },
+            )
+            bucket["calls"] += 1
+            bucket["input_tokens"] += int(call.get("input_tokens") or 0)
+            bucket["output_tokens"] += int(call.get("output_tokens") or 0)
+            bucket["duration_sec"] = round(bucket["duration_sec"] + float(call.get("duration_sec") or 0), 3)
+            bucket["system_chars"] += int(call.get("system_chars") or 0)
+            bucket["user_chars"] += int(call.get("user_chars") or 0)
+        return {"pipeline_seconds": pipeline_seconds, "llm_by_stage": by_stage}
+
     def finish(
         self,
         *,
@@ -569,6 +617,7 @@ class QueryLogger:
                 "llm_output_tokens": self.llm_output_tokens,
                 "llm_total_tokens": self.llm_input_tokens + self.llm_output_tokens,
                 "pipeline_stages": self._pipeline_stages,
+                "stage_summary": self.stage_summary(),
                 "total_seconds": total_seconds,
                 "log_file": str(self.log_path),
             }
@@ -610,6 +659,7 @@ class QueryLogger:
             "deepseek_calls": self.llm_calls,
             "deepseek_input_tokens": self.llm_input_tokens,
             "deepseek_output_tokens": self.llm_output_tokens,
+            "llm_calls_detail": list(self._llm_journal),
         }
 
 
@@ -624,6 +674,7 @@ def attach_query_log_meta(result: dict[str, Any], meta: dict[str, Any]) -> None:
     result["deepseek_calls"] = meta["deepseek_calls"]
     result["deepseek_input_tokens"] = meta["deepseek_input_tokens"]
     result["deepseek_output_tokens"] = meta["deepseek_output_tokens"]
+    result["llm_calls_detail"] = meta.get("llm_calls_detail") or []
 
 
 def _kv(fields: dict[str, Any]) -> str:

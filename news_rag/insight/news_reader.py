@@ -241,7 +241,22 @@ def _numbers(text: str) -> set[str]:
     return {m.replace(",", "") for m in re.findall(r"\d+(?:,\d{3})*(?:\.\d+)?", text or "")}
 
 
-def _allowed_sector_names() -> list[str]:
+def _allowed_sector_names(
+    articles: list[dict[str, Any]] | None = None,
+    brief: QuestionBrief | None = None,
+) -> list[str]:
+    try:
+        from news_rag.sector_fund_ranking import candidate_sector_names, get_sector_fund_ranking_index
+
+        cap = int(getattr(get_settings(), "insight_sector_candidate_cap", 50) or 50)
+        extra = [brief.primary_sector()] if brief and brief.primary_sector() else []
+        names = candidate_sector_names(articles, extra, cap=cap)
+        return names or list(get_sector_fund_ranking_index().sector_names)
+    except Exception:
+        return []
+
+
+def _full_sector_names() -> list[str]:
     try:
         from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
 
@@ -299,7 +314,7 @@ def _build_user_prompt(
         "If HOLDING_ATTRIBUTION is present, drivers are the detractor and contributor stocks, not a sector index. "
         "If news tone disagrees with fund_return_pct, say so in conflicts; do not claim the fund rose when the return is negative. "
         "Cite news only for companies listed as movers:",
-        json.dumps(measured or {}, ensure_ascii=False, indent=2),
+        json.dumps(measured or {}, ensure_ascii=False, separators=(",", ":")),
         "",
         _mover_line(measured),
         "",
@@ -433,7 +448,8 @@ def _llm_read(
     measured: dict[str, Any] | None = None,
 ) -> NewsRead | None:
     settings = get_settings()
-    allowed = _allowed_sector_names()
+    allowed = _allowed_sector_names(arts, brief)
+    full_allowed = _full_sector_names() or allowed
     user = _build_user_prompt(question, brief, arts, allowed, measured)
     try:
         res = call_json_llm(
@@ -479,8 +495,8 @@ def _llm_read(
         tone=tone,
         tone_reason=tone_reason,
         claims=claims,
-        sectors_positive=_clean_sector_calls(parsed.get("sectors_positive"), allowed),
-        sectors_negative=_clean_sector_calls(parsed.get("sectors_negative"), allowed),
+        sectors_positive=_clean_sector_calls(parsed.get("sectors_positive"), full_allowed),
+        sectors_negative=_clean_sector_calls(parsed.get("sectors_negative"), full_allowed),
         themes=themes,
         articles=arts,
         mode="llm",

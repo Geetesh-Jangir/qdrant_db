@@ -83,7 +83,7 @@ def verify_answer(
             if findings.funds and not any(f.monthly_returns for f in findings.funds):
                 gaps.append("success:monthly_pattern_missing")
 
-    allowed = cores_in_text(findings.evidence_text)
+    allowed = cores_in_text(_grounding_blob(findings, evidence))
     cleaned = strip_ungrounded_numbers(insight_text, allowed)
     ungrounded = cleaned != insight_text
     if ungrounded:
@@ -91,12 +91,34 @@ def verify_answer(
 
     gaps.extend(_attribution_judge(insight_text, evidence))
 
+    retry: list[str] = []
+    for entry in evidence.ledger:
+        if entry.status == "unavailable" and not entry.implied and entry.facet not in retry:
+            retry.append(entry.facet)
+    if any(gap == "funds:none_found" for gap in gaps) and "exposure_link" not in retry:
+        retry.append("exposure_link")
+
     return VerifyResult(
         passed=not gaps,
         gaps=list(dict.fromkeys(gaps)),
-        retry_facets=[],
+        retry_facets=retry,
         ungrounded_removed=ungrounded,
     )
+
+
+def _grounding_blob(findings: Findings, evidence: EvidenceSet) -> str:
+    """Numbers the answer may use: measured evidence, claims, and the article bodies they came from."""
+    parts = [findings.evidence_text or ""]
+    sector = findings.sector
+    if sector is not None:
+        parts.append(sector.tone_reason or "")
+        parts.append(sector.news_summary or "")
+        for claim in sector.claims or []:
+            parts.append(str(claim.get("text") or ""))
+    for art in (evidence.articles or [])[:8]:
+        parts.append(str(art.get("title") or ""))
+        parts.append(str(art.get("scraped_text") or art.get("snippet") or "")[:4000])
+    return "\n".join(parts)
 
 
 def _attribution_judge(insight_text: str, evidence: EvidenceSet) -> list[str]:

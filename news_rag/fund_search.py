@@ -719,12 +719,24 @@ class FundIndex:
             self._entries_by_isin = entries_by_isin
             self._loaded = True
 
-    def sample_fund_names(self, n: int = 2) -> list[str]:
-        """Pick n catalog funds, preferring different AMCs, for an unnamed comparison."""
+    def sample_fund_names(self, n: int = 2, name_contains: str = "") -> list[str]:
+        """Pick n catalog funds, preferring different AMCs, for an unnamed comparison.
+
+        `name_contains` is a hint chosen by the planner (for example "flexi"); every word must
+        appear in the fund name. When it matches too few funds it is ignored.
+        """
         import random
 
         self._ensure_loaded()
         pool = [e for e in self._entries if e.get("fund_name")]
+        words = [w for w in re.split(r"\s+", (name_contains or "").lower().strip()) if w]
+        if words:
+            hinted = [e for e in pool if all(w in str(e.get("fund_name")).lower() for w in words)]
+            if len(hinted) >= max(1, n):
+                pool = hinted
+                words = ["_hinted_"]
+            else:
+                words = []
         # Random picks should have a meaningful sector mix: skip debt/liquid/gilt/gold-type schemes.
         _non_equity = re.compile(
             r"gilt|liquid|overnight|debt|bond|money market|treasury|duration|credit risk|banking & psu|"
@@ -743,7 +755,7 @@ class FundIndex:
             e for e in pool
             if _equity.search(str(e.get("fund_name"))) and not _non_equity.search(str(e.get("fund_name")))
         ]
-        if len(equity_pool) >= 5:
+        if len(equity_pool) >= 5 and words != ["_hinted_"]:
             pool = equity_pool
         n = max(1, n)
         if len(pool) <= n:

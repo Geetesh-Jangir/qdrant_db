@@ -33,6 +33,19 @@ _PAYLOAD_FIELDS = [
     "scraped_text",
 ]
 
+# Ranking does not need article bodies. Bodies are fetched only for the rows we keep.
+_LIGHT_PAYLOAD_FIELDS = [name for name in _PAYLOAD_FIELDS if name != "scraped_text"]
+
+_PAYLOAD_INDEX_KEYS = (
+    "published_at",
+    "max_relevance",
+    "max_impact",
+    "direction",
+    "entity_names",
+)
+
+_reader_singleton: "QdrantReader | None" = None
+
 
 def filter_spec(
     *,
@@ -180,21 +193,77 @@ class QdrantReader:
         vector: list[float],
         filt: Filter,
         limit: int,
+        *,
+        with_body: bool = True,
     ) -> list[dict]:
         response = self._client.query_points(
             collection_name=self._collection,
             query=vector,
             query_filter=filt,
             limit=limit,
-            with_payload=_PAYLOAD_FIELDS,
+            with_payload=_PAYLOAD_FIELDS if with_body else _LIGHT_PAYLOAD_FIELDS,
             search_params=SearchParams(hnsw_ef=128),
         )
-        rows = []
-        for point in response.points:
-            row = dict(point.payload or {})
-            row["score"] = float(point.score or 0.0)
-            rows.append(row)
-        return rows
+        return [_point_row(point) for point in response.points]
+
+    def query_vectors_batch(
+        self,
+        vectors: list[list[float]],
+        filt: Filter,
+        limit: int,
+        *,
+        with_body: bool = False,
+    ) -> list[list[dict]]:
+        """One HTTP round trip for several vectors that share a filter."""
+        from qdrant_client.models import QueryRequest
+
+        if not vectors:
+            return []
+        payload = _PAYLOAD_FIELDS if with_body else _LIGHT_PAYLOAD_FIELDS
+        requests = [
+            QueryRequest(
+                query=vector,
+                filter=filt,
+                limit=limit,
+                with_payload=payload,
+                params=SearchParams(hnsw_ef=128),
+            )
+            for vector in vectors
+        ]
+        responses = self._client.query_batch_points(
+            collection_name=self._collection,
+            requests=requests,
+        )
+        return [[_point_row(point) for point in response.points] for response in responses]
+
+    def hydrate_bodies(self, rows: list[dict]) -> None:
+        """Fill scraped_text for the rows we will actually read."""
+        ids = [row.get("_point_id") for row in rows if row.get("_point_id") is not None and not row.get("scraped_text")]
+        if not ids:
+            return
+        points = self._client.retrieve(
+            collection_name=self._collection,
+            ids=ids,
+            with_payload=["scraped_text"],
+            with_vectors=False,
+        )
+        by_id = {point.id: str((point.payload or {}).get("scraped_text") or "") for point in points}
+        for row in rows:
+            body = by_id.get(row.get("_point_id"))
+            if body:
+                row["scraped_text"] = body
+
+    def missing_payload_indexes(self) -> list[str]:
+        try:
+            info = self._client.get_collection(self._collection)
+        except Exception:
+            return list(_PAYLOAD_INDEX_KEYS)
+        schema = getattr(info, "payload_schema", None) or {}
+        if hasattr(schema, "keys"):
+            present = {str(key) for key in schema.keys()}
+        else:
+            present = set()
+        return [key for key in _PAYLOAD_INDEX_KEYS if key not in present]
 
     def scroll_filtered(self, filt: Filter, limit: int) -> list[dict]:
         collected: list[dict] = []
@@ -213,3 +282,18 @@ class QdrantReader:
             if offset is None or not batch:
                 break
         return collected[:limit]
+
+
+def _point_row(point: Any) -> dict:
+    row = dict(point.payload or {})
+    row["score"] = float(point.score or 0.0)
+    row["_point_id"] = point.id
+    return row
+
+
+def get_qdrant_reader() -> QdrantReader:
+    """Reuse one client (and its HTTP connection) across retrieval calls."""
+    global _reader_singleton
+    if _reader_singleton is None:
+        _reader_singleton = QdrantReader()
+    return _reader_singleton

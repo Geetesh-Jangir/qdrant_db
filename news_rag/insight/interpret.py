@@ -22,6 +22,8 @@ from news_rag.insight.gather import EvidenceSet
 from news_rag.insight.grounding import (
     cores_in_text,
     finalize_text_fields,
+    mentions_publication_date,
+    publication_date_keys,
     strip_media_attribution,
     strip_ungrounded_numbers,
 )
@@ -102,10 +104,10 @@ def _composer_user_content(packet: dict[str, Any], analysis_brief: dict[str, Any
             "(returns, category, top sectors, overlap). Say they were chosen at random. "
             "Do not ask the user to name funds, and do not switch to other funds."
         )
-    parts.append("FACTS PACKET:\n" + json.dumps(packet, ensure_ascii=False, indent=2))
+    parts.append("FACTS PACKET:\n" + json.dumps(packet, ensure_ascii=False, separators=(",", ":")))
     if analysis_brief:
         parts.append(
-            "ANALYSIS BRIEF:\n" + json.dumps(analysis_brief, ensure_ascii=False, indent=2)
+            "ANALYSIS BRIEF:\n" + json.dumps(analysis_brief, ensure_ascii=False, separators=(",", ":"))
         )
     return "\n\n".join(parts)
 
@@ -130,10 +132,35 @@ _DATE_RE = re.compile(
 )
 
 
-def scrub_composer_text(text: str, packet: dict[str, Any], evidence_text: str) -> str:
-    """Remove only the offending sentences/numbers instead of discarding the whole answer."""
+def grounding_cores(evidence_text: str, packet: dict[str, Any] | None = None, *extra: str) -> set[str]:
+    """One allowed-number set for the composer and for verify."""
     allowed = cores_in_text(evidence_text)
-    allowed.update(cores_in_text(json.dumps(packet, ensure_ascii=False)))
+    for blob in extra:
+        allowed.update(cores_in_text(blob))
+    if packet:
+        allowed.update(cores_in_text(json.dumps(packet, ensure_ascii=False, separators=(",", ":"))))
+    return allowed
+
+
+def published_date_keys_from_evidence(evidence: EvidenceSet | None) -> set[str]:
+    keys: set[str] = set()
+    if evidence is None:
+        return keys
+    for art in evidence.articles or []:
+        keys.update(publication_date_keys(str(art.get("published_at") or "")))
+    return keys
+
+
+def scrub_composer_text(
+    text: str,
+    packet: dict[str, Any],
+    evidence_text: str,
+    *,
+    published_keys: set[str] | None = None,
+) -> str:
+    """Remove only the offending sentences/numbers instead of discarding the whole answer."""
+    allowed = grounding_cores(evidence_text, packet)
+    keys = published_keys or set()
     kept_lines: list[str] = []
     for line in (text or "").splitlines():
         if not line.strip() or line.lstrip().startswith("#"):
@@ -142,23 +169,32 @@ def scrub_composer_text(text: str, packet: dict[str, Any], evidence_text: str) -
         sentences = re.split(r"(?<=[.!?])\s+", line)
         ok = [
             s for s in sentences
-            if not (_ADVICE_RE.search(s) or _OUTLET_RE.search(s) or _DATE_RE.search(s))
+            if not (
+                _ADVICE_RE.search(s)
+                or _OUTLET_RE.search(s)
+                or mentions_publication_date(s, keys)
+            )
         ]
         kept_lines.append(" ".join(ok))
     scrubbed = "\n".join(kept_lines)
     return strip_ungrounded_numbers(scrubbed, allowed)
 
 
-def check_composer_guardrails(text: str, packet: dict[str, Any], evidence_text: str) -> list[str]:
+def check_composer_guardrails(
+    text: str,
+    packet: dict[str, Any],
+    evidence_text: str,
+    *,
+    published_keys: set[str] | None = None,
+) -> list[str]:
     violations: list[str] = []
     if _ADVICE_RE.search(text):
         violations.append("Contains investment advice.")
     if _OUTLET_RE.search(text):
         violations.append("Mentions news outlet names.")
-    if _DATE_RE.search(text):
+    if mentions_publication_date(text, published_keys or set()):
         violations.append("Mentions publication dates.")
-    allowed = cores_in_text(evidence_text)
-    allowed.update(cores_in_text(json.dumps(packet, ensure_ascii=False)))
+    allowed = grounding_cores(evidence_text, packet)
     cleaned = strip_ungrounded_numbers(text, allowed)
     if cleaned != text:
         violations.append("Contains ungrounded numbers.")
@@ -971,7 +1007,9 @@ def _assemble(
 
 
 _PIPELINE_VOICE = re.compile(
-    r"facts packet|structured facts|no fund isin|holdings were not|were not supplied|"
+    r"facts packet|structured facts|\bpacket\b|holding_attribution|attribution_table|"
+    r"if you can supply|i will write the full|"
+    r"no fund isin|holdings were not|were not supplied|"
     r"retrieval implementation|backend processing|average tagged impact",
     re.I,
 )
@@ -1155,6 +1193,14 @@ def _structured_compose(
 # ---------------------------------------------------------------------------
 
 
+def _composer_body_limit(brief: QuestionBrief) -> int:
+    settings = get_settings()
+    full = int(getattr(settings, "insight_composer_max_articles", 8) or 8)
+    if not getattr(settings, "insight_use_news_digest", True):
+        return full
+    return int(getattr(settings, "insight_composer_body_articles", 4) or 4)
+
+
 def _article_context_for_interpret(
     evidence: EvidenceSet | None,
     brief: QuestionBrief | None = None,
@@ -1202,7 +1248,6 @@ def _named_fund_llm_packet(
 ) -> dict[str, Any]:
     packet = _facts(question, brief, findings, evidence)
     packet["measured_facts"] = measured_facts_block(brief, evidence)
-    packet["full_articles"] = _article_context_for_interpret(evidence, brief, question=question)
     packet["cross_cutting"] = list(findings.cross_cutting)
     if news_read is not None:
         packet["news_reader"] = {
@@ -1316,102 +1361,14 @@ def _named_fund_llm_compose(
             },
         )
 
-    settings = get_settings()
-    if not llm_api_key_configured(settings):
+    if not attr.get("rows"):
+        if query_log is not None:
+            query_log.write(
+                "INTERPRET skip named_fund_attribution reason=no_rows "
+                "facet_fund_attribution="
+                + ("yes" if evidence.by_facet("fund_attribution") else "no")
+            )
         return None
-    packet = _named_fund_llm_packet(
-        question, brief, findings, evidence, news_read, analysis_brief
-    )
-    block = _named_fund_block(evidence)
-    from news_rag.insight.holding_attribution import render_attribution_table
-
-    attr = block.get("attribution") if isinstance(block.get("attribution"), dict) else {}
-    table = render_attribution_table(attr) if attr else ""
-    user = _composer_user_content(packet, analysis_brief)
-    user += (
-        "\n\nHOLDING_ATTRIBUTION:\n"
-        + json.dumps(
-            {
-                "fund_return_pct": block.get("fund_return_pct"),
-                "window_label": block.get("window_label"),
-                "return_notes": block.get("return_notes"),
-                "detractors": attr.get("detractors"),
-                "contributors": attr.get("contributors"),
-                "explained_pct": attr.get("explained_pct"),
-                "unexplained_pct": attr.get("unexplained_pct"),
-                "top_sector": attr.get("top_sector"),
-                "top_sector_weight_pct": attr.get("top_sector_weight_pct"),
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-        + "\n\nATTRIBUTION_TABLE:\n"
-        + table
-        + "\n\nCONCENTRATION: "
-        + (
-            f"{attr.get('top_sector')} is {float(attr.get('top_sector_weight_pct') or 0):.2f}% of the holdings priced."
-            if attr.get("top_sector")
-            else "Concentration not available."
-        )
-        + "\n\nNarrate HOLDING_ATTRIBUTION. Keep ATTRIBUTION_TABLE unchanged. "
-        "Do not call a sector the main drag unless its stocks are the largest detractors."
-    )
-    try:
-        res = call_insight_llm(
-            system_prompt=build_named_fund_composer_prompt(),
-            user_content=user,
-            model_override=composer_model(settings),
-            max_tokens=4500,
-            temperature=0.2,
-            query_log=query_log,
-        )
-    except Exception as exc:  # noqa: BLE001
-        _pipeline_note(pipeline_errors, "compose", str(exc))
-        return None
-    text = ((res.raw_text if res else "") or "").strip()
-    if len(text) < 80:
-        return None
-    text = re.sub(r"```json.*?```", "", text, flags=re.S).strip()
-    text = _strip_meta_language(text)
-    text = _ensure_attribution_table(text, block)
-    violations = check_composer_guardrails(text, packet, findings.evidence_text)
-    if violations:
-        text = scrub_composer_text(text, packet, findings.evidence_text)
-    text = _drop_pipeline_voice(strip_media_attribution(text))
-    if "not investment advice" not in text.lower():
-        text = text.rstrip() + "\n\n*For context only — not investment advice.*"
-    headline = structured.headline
-    for line in text.splitlines():
-        if line.strip():
-            headline = line.lstrip("#").strip()
-            break
-    return ComposedInsight(
-        headline=headline,
-        narrative=text,
-        bullets=[],
-        closing_summary="",
-        display=text,
-        sub_ask_coverage=[a.text for a in sorted(brief.sub_asks, key=lambda a: a.order or 0)],
-        answer_trace={
-            "mode": "named_fund_llm",
-            "findings": findings.to_dict(),
-            "structured": {
-                "headline": headline,
-                "fund_return_pct": block.get("fund_return_pct"),
-                "window_label": block.get("window_label"),
-                "drivers": attr.get("detractors"),
-                "offsets": attr.get("contributors"),
-                "unexplained_pct": attr.get("unexplained_pct"),
-                "explained_pct": attr.get("explained_pct"),
-                "benchmark": packet.get("benchmark"),
-                "data_quality_notes": block.get("return_notes") or [],
-                "concentration": {
-                    "top_sector": attr.get("top_sector"),
-                    "top_sector_weight_pct": attr.get("top_sector_weight_pct"),
-                },
-            },
-        },
-    )
 
 
 def _fund_why_compose(
@@ -1425,6 +1382,8 @@ def _facts(
     brief: QuestionBrief,
     findings: Findings,
     evidence: EvidenceSet | None = None,
+    *,
+    include_article_bodies: bool = True,
 ) -> dict[str, Any]:
     s = findings.sector
     list_dir = (brief.direction or "any").strip().lower()
@@ -1444,7 +1403,16 @@ def _facts(
         "sector": None,
         "funds": [],
         "missing_data": [],
-        "article_context": _article_context_for_interpret(evidence, brief, question=question),
+        "article_context": (
+            _article_context_for_interpret(
+                evidence,
+                brief,
+                question=question,
+                limit=_composer_body_limit(brief),
+            )
+            if include_article_bodies
+            else []
+        ),
         "measured_facts": measured_facts_block(brief, evidence),
         "stock": _stock_quote(evidence, brief),
     }
@@ -1561,15 +1529,21 @@ def _llm_compose_from_packet(
     if not text:
         return None
 
-    violations = check_composer_guardrails(text, packet, findings.evidence_text)
+    published_keys = published_date_keys_from_evidence(evidence)
+    violations = check_composer_guardrails(
+        text, packet, findings.evidence_text, published_keys=published_keys
+    )
     if violations:
         if query_log is not None:
             query_log.write(f"COMPOSER guardrails_violated count={len(violations)}: {violations}")
         original = text
         only_numbers = violations == ["Contains ungrounded numbers."]
-        if only_numbers:
-            # Cheap, lossless fix: drop just the numbers that are not in the data.
-            text = scrub_composer_text(original, packet, findings.evidence_text)
+        date_or_numbers = set(violations) <= {"Contains ungrounded numbers.", "Mentions publication dates."}
+        if only_numbers or date_or_numbers:
+            # Cheap, lossless fix: drop just the numbers or date citations that are not in the data.
+            text = scrub_composer_text(
+                original, packet, findings.evidence_text, published_keys=published_keys
+            )
         else:
             repair_user = (
                 f"{user_content}\n\n---\nYour previous draft had guardrail violations:\n\n{original}\n\n"
@@ -1591,13 +1565,19 @@ def _llm_compose_from_packet(
                 text_repair = ((res_repair.raw_text if res_repair else "") or "").strip()
                 if (
                     len(text_repair) >= max(200, int(len(original) * 0.5))
-                    and not check_composer_guardrails(text_repair, packet, findings.evidence_text)
+                    and not check_composer_guardrails(
+                        text_repair, packet, findings.evidence_text, published_keys=published_keys
+                    )
                 ):
                     text = text_repair
                 else:
-                    text = scrub_composer_text(original, packet, findings.evidence_text)
+                    text = scrub_composer_text(
+                        original, packet, findings.evidence_text, published_keys=published_keys
+                    )
             except Exception:
-                text = scrub_composer_text(original, packet, findings.evidence_text)
+                text = scrub_composer_text(
+                    original, packet, findings.evidence_text, published_keys=published_keys
+                )
         if len(text.strip()) < 200:
             return None
 
@@ -1720,6 +1700,46 @@ def _hybrid_compose(
         "findings": findings.to_dict(),
     }
     return out
+
+
+def insight_from_streamed_text(
+    question: str,
+    brief: QuestionBrief,
+    findings: Findings,
+    evidence: EvidenceSet,
+    streamed_text: str,
+) -> ComposedInsight:
+    """Reuse text already streamed to the client instead of calling the composer again."""
+    packet = _facts(question, brief, findings, evidence)
+    published_keys = published_date_keys_from_evidence(evidence)
+    text = scrub_composer_text(
+        streamed_text,
+        packet,
+        findings.evidence_text,
+        published_keys=published_keys,
+    )
+    text = _drop_pipeline_voice(strip_media_attribution(text))
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    headline = ""
+    for line in lines:
+        if line.startswith("#"):
+            headline = line.lstrip("#").strip()
+            break
+        if line and not headline:
+            headline = line
+            break
+    disclaimer = "For context only — not investment advice."
+    if disclaimer.lower() not in text.lower():
+        text = text.rstrip() + f"\n\n{disclaimer}"
+    return ComposedInsight(
+        headline=headline or _structured_headline(brief, findings),
+        narrative=text,
+        bullets=[],
+        closing_summary=disclaimer,
+        display=text,
+        sub_ask_coverage=[a.text for a in sorted(brief.sub_asks, key=lambda a: a.order or 0)],
+        answer_trace={"mode": "streamed_composer", "findings": findings.to_dict()},
+    )
 
 
 def compose_from_findings(

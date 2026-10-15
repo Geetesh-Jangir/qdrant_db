@@ -129,7 +129,7 @@ def facet_to_tool_names() -> dict[str, list[str]]:
     return out
 
 
-def registry_prompt_block() -> str:
+def registry_prompt_block(compact: bool = False) -> str:
     """Planner-facing tool catalog. The planner never names tools — it names facets."""
     lines = [
         "FACETS you may list in evidence_needs (gather maps each facet to the best tool):",
@@ -138,6 +138,10 @@ def registry_prompt_block() -> str:
         "TOOL CATALOG (tool: facets it fills):",
     ]
     for spec in sorted(_REGISTRY.values(), key=lambda s: s.name):
+        if compact:
+            when = (spec.when_to_use or spec.description or "").strip().split(".")[0]
+            lines.append(f"- {spec.name}: fills [{', '.join(sorted(spec.provides))}] — {when}")
+            continue
         provides = ", ".join(sorted(spec.provides))
         lines.append(f"- {spec.name}: fills [{provides}]")
         if spec.description:

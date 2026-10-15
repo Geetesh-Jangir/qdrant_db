@@ -10,7 +10,7 @@ from news_rag.article_pool import article_dedupe_key
 from news_rag.config import get_settings
 from news_rag.embed import embed_query
 from news_rag.parse import parse_time_window
-from news_rag.qdrant_reader import QdrantReader, build_filter, filter_spec
+from news_rag.qdrant_reader import build_filter, filter_spec
 from news_rag.query_plan import ScopeRefinement, SearchMode
 
 if TYPE_CHECKING:
@@ -100,6 +100,8 @@ def retrieve_scoped_news(
     query_log: QueryLogger | None = None,
     ignore_question_time_hints: bool = False,
     body_char_limit: int | None = None,
+    vector_limit: int | None = None,
+    query_vector: list[float] | None = None,
 ) -> list[dict]:
     settings = get_settings()
     scope = scope or ScopeRefinement()
@@ -146,15 +148,18 @@ def retrieve_scoped_news(
         )
         query_log.log_filters(spec, post_filters={"scoped": True, "mode": mode})
 
-    reader = QdrantReader()
+    from news_rag.qdrant_reader import get_qdrant_reader
+
+    reader = get_qdrant_reader()
     query_text = semantic_query or question
     t_embed = time.perf_counter()
-    vector = embed_query(query_text.strip())
+    vector = query_vector if query_vector is not None else embed_query(query_text.strip())
     if query_log is not None:
         query_log.log_step("embed_query", time.perf_counter() - t_embed, vector_dim=len(vector))
 
     t_vec = time.perf_counter()
-    vector_rows = reader.query_vector(vector, filt, settings.retrieve_vector_limit)
+    hit_limit = int(vector_limit or settings.retrieve_vector_limit)
+    vector_rows = reader.query_vector(vector, filt, hit_limit, with_body=False)
     if query_log is not None:
         query_log.log_step("qdrant_query_vector", time.perf_counter() - t_vec, hits=len(vector_rows))
 
@@ -221,6 +226,7 @@ def retrieve_scoped_news(
                 "max_impact": impact,
                 "_vector_score": float(row.get("_vector_score") or 0.0),
                 "_rrf_score": combined_score,
+                "_point_id": row.get("_point_id"),
             }
         )
 
@@ -230,6 +236,13 @@ def retrieve_scoped_news(
         if len(final) >= 8:
             break
         final.append(item)
+    reader.hydrate_bodies(final)
+    for item in final:
+        raw_text = str(item.get("scraped_text") or item.get("snippet") or "")
+        char_cap = int(body_char_limit or 0) or int(settings.snippet_chars)
+        snippet = _trim_snippet(raw_text, char_cap)
+        item["snippet"] = snippet
+        item["scraped_text"] = snippet
 
     if query_log is not None:
         query_log.write(f"RETRIEVE kept={len(final)} dropped={len(ranked) - len(final)}")

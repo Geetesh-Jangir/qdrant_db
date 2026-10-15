@@ -64,6 +64,55 @@ def number_is_grounded(core: str, allowed: set[str]) -> bool:
     return core in allowed or unsigned in allowed or f"-{unsigned}" in allowed
 
 
+_CITE_DATE_RE = re.compile(
+    r"\(\s*\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*"
+    r"(?:\s+\d{4})?\s*\)",
+    re.I,
+)
+_PROSE_DATE_RE = re.compile(
+    r"\b(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*"
+    r"|(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2})\b",
+    re.I,
+)
+
+
+def publication_date_keys(published_at: str) -> set[str]:
+    """Normalized forms of an article timestamp, for citation checks."""
+    raw = str(published_at or "").strip()
+    if len(raw) < 10 or not raw[:4].isdigit():
+        return set()
+    try:
+        year, month, day = int(raw[:4]), int(raw[5:7]), int(raw[8:10])
+    except ValueError:
+        return set()
+    full = ("", "january", "february", "march", "april", "may", "june",
+            "july", "august", "september", "october", "november", "december")
+    short = ("", "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
+    if not 1 <= month <= 12:
+        return set()
+    keys = {
+        f"{day} {full[month]}",
+        f"{day} {short[month]}",
+        f"{full[month]} {day}",
+        f"{short[month]} {day}",
+        f"{day} {full[month]} {year}",
+        f"{day} {short[month]} {year}",
+    }
+    return keys
+
+
+def mentions_publication_date(text: str, published_keys: set[str]) -> bool:
+    """True for outlet-style date citations, not for event dates in prose."""
+    if _CITE_DATE_RE.search(text or ""):
+        return True
+    if not published_keys:
+        return False
+    for match in _PROSE_DATE_RE.finditer(text or ""):
+        if match.group(0).lower() in published_keys:
+            return True
+    return False
+
+
 def cores_in_text(blob: str) -> set[str]:
     cores: set[str] = set()
     for match in _ANY_NUMBER_RE.finditer(blob or ""):
@@ -85,7 +134,8 @@ def strip_media_attribution(text: str) -> str:
 
 
 def tidy_prose(text: str) -> str:
-    text = re.sub(r"(?<!\d)\s*per\s*cent\b", "", text or "", flags=re.I)
+    # Drop a stray "per cent" only when it is not the unit of a number ("6.1 percent" stays).
+    text = re.sub(r"(?<![\d.])\s+per\s*cent\b", "", text or "", flags=re.I)
     text = re.sub(r"\*{2,}\s*\*{2,}", "", text)
     text = re.sub(r"\broughly\s+\*\*\s*\*\*", "", text)
     text = re.sub(r"\bworth\s+roughly\s+\*\*\s*pp\*\*", "", text, flags=re.I)

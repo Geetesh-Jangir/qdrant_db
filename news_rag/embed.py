@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _encoder: Any | None = None
 _embeddings_ready: bool = False
 _encoder_lock = threading.Lock()
+_vector_cache: dict[str, list[float]] = {}
 
 
 def embeddings_ready() -> bool:
@@ -82,12 +83,24 @@ def _build_encoder() -> Any:
 
 
 def embed_query(text: str) -> list[float]:
+    """Embed a query. Identical texts reuse a process-local vector cache."""
     global _encoder, _embeddings_ready
+    raw = (text or "").strip()
+    query = raw if raw.startswith(QUERY_PREFIX) else QUERY_PREFIX + raw
+    cached = _vector_cache.get(query)
+    if cached is not None:
+        _embeddings_ready = True
+        return cached
     if _encoder is None:
         with _encoder_lock:
             if _encoder is None:
                 _encoder = _build_encoder()
-    query = text if text.startswith(QUERY_PREFIX) else QUERY_PREFIX + text
-    vec = _encoder.embed_query(query)
+    vec = [float(x) for x in _encoder.embed_query(query)]
+    _vector_cache[query] = vec
     _embeddings_ready = True
     return vec
+
+
+def warmup_query_vectors(texts: list[str]) -> None:
+    for text in texts:
+        embed_query(text)

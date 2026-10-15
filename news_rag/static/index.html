@@ -78,6 +78,14 @@
       word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
     
+    .usage {
+      margin-top: 1rem; background: #f8fafc; border: 1px solid #e2e8f0;
+      border-radius: 10px; padding: 0.85rem 1rem; font-size: 0.88rem;
+    }
+    .usage h3 { margin: 0 0 0.4rem; font-size: 0.92rem; color: #0f172a; }
+    .usage table { width: 100%; border-collapse: collapse; margin-top: 0.45rem; }
+    .usage th, .usage td { text-align: left; padding: 0.25rem 0.4rem; border-bottom: 1px solid #e2e8f0; }
+    .usage th { color: #64748b; font-weight: 600; }
     .sources { margin-top: 1.75rem; }
     .sources h2 { font-size: 1.05rem; margin: 0 0 0.75rem; color: #0f172a; font-weight: 700; }
     .card {
@@ -196,6 +204,7 @@
       <h2>💡 Summary Insight</h2>
       <div id="insight"></div>
       <p class="meta" id="meta"></p>
+      <div id="usage" class="usage hidden"></div>
       <p class="meta-log hidden" id="debugLog"></p>
     </div>
     <div class="sources">
@@ -211,6 +220,7 @@
     const resultEl = document.getElementById("result");
     const insightEl = document.getElementById("insight");
     const metaEl = document.getElementById("meta");
+    const usageEl = document.getElementById("usage");
     const debugLogEl = document.getElementById("debugLog");
     const sourcesEl = document.getElementById("sources");
     const statusEl = document.getElementById("status");
@@ -619,6 +629,64 @@
       }
     }
 
+    function renderUsage(data) {
+      const calls = Array.isArray(data.llm_calls_detail) ? data.llm_calls_detail : [];
+      const runs = (data.research && data.research.tool_runs) || [];
+      const tools = [];
+      for (const row of runs) {
+        const name = row && row.tool;
+        if (name && !tools.includes(name)) tools.push(name);
+      }
+      const input = data.llm_input_tokens;
+      const output = data.llm_output_tokens;
+      if (input == null && output == null && !calls.length && !tools.length) {
+        usageEl.classList.add("hidden");
+        usageEl.innerHTML = "";
+        return;
+      }
+      usageEl.classList.remove("hidden");
+      usageEl.innerHTML = "";
+      const title = document.createElement("h3");
+      title.textContent = "This answer";
+      usageEl.appendChild(title);
+      const totals = document.createElement("p");
+      totals.className = "card-meta";
+      const n = data.llm_calls != null ? data.llm_calls : calls.length;
+      totals.textContent =
+        `${n} LLM call${n === 1 ? "" : "s"} · input tokens ${input ?? "—"} · output tokens ${output ?? "—"}`;
+      usageEl.appendChild(totals);
+      const toolLine = document.createElement("p");
+      toolLine.className = "card-meta";
+      toolLine.textContent = tools.length ? "Tools: " + tools.join(", ") : "Tools: none";
+      usageEl.appendChild(toolLine);
+      if (!calls.length) return;
+      const table = document.createElement("table");
+      const head = document.createElement("tr");
+      for (const label of ["#", "Stage", "Model", "Input", "Output", "Seconds"]) {
+        const th = document.createElement("th");
+        th.textContent = label;
+        head.appendChild(th);
+      }
+      table.appendChild(head);
+      for (const call of calls) {
+        const tr = document.createElement("tr");
+        for (const value of [
+          call.call_index,
+          call.stage || "",
+          call.model || "",
+          call.input_tokens,
+          call.output_tokens,
+          call.duration_sec,
+        ]) {
+          const td = document.createElement("td");
+          td.textContent = value == null ? "" : String(value);
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      }
+      usageEl.appendChild(table);
+    }
+
     function showPipelineIssues(data) {
       const pipeErrs = data && data.pipeline_errors ? data.pipeline_errors : [];
       if (!pipeErrs.length) {
@@ -657,6 +725,7 @@
           : "";
       metaEl.textContent =
         `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources · intent ${data.intent || "?"}${windowPart}${scorePart}`;
+      renderUsage(data);
       if (data.query_log_file) {
         debugLogEl.textContent = "Debug log: " + data.query_log_file
           + (data.query_summary_json ? " · JSON: " + data.query_summary_json : "");

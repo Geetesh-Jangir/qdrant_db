@@ -97,6 +97,7 @@ def run_market_pulse_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         _s(ctx, "question", "market overview"),
         window_days=int(ctx.get("window_days") or 7),
         body_char_limit=_insight_body_char_limit(),
+        light=True,
     )
 
 
@@ -313,6 +314,7 @@ def run_affected_sectors_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
             question=_s(ctx, "question") + hint,
             articles=packed,
             direction=asked,
+            extra_sectors=[r["name"] for r in rules if r.get("name")],
         )
     except Exception:
         picks = []
@@ -456,6 +458,9 @@ def run_fund_nav_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         return _fail("fund_not_found")
     need = DataNeed(tool="fund_nav", fund_ref=detail.get("isin") or "", top_n=5)
     out = run_fund_nav(detail, need)
+    if out.get("ok") and isinstance(out.get("data"), dict) and out["data"].get("nav") in (None, ""):
+        # The upstream fund API answered without a NAV (for example a 502): that is a failure, not data.
+        return _fail("nav_unavailable_upstream")
     if out.get("ok") and isinstance(out.get("data"), dict):
         wp = _window_pct_from_nav_payload(out["data"], _s(ctx, "return_window", "1M"))
         if wp is not None:
@@ -514,7 +519,20 @@ def run_compare_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
             details.append(d)
     if len(details) < 2:
         return _fail("need_two_funds")
-    return run_compare_funds(details, compare_on="all", return_window=_s(ctx, "return_window", "1M"))
+    out = run_compare_funds(details, compare_on="all", return_window=_s(ctx, "return_window", "1M"))
+    if out.get("ok") and ctx.get("overlap"):
+        from news_rag.fund_search import extract_top_holdings
+
+        sets = []
+        for detail in details:
+            names = {str(h.get("name") or "").lower() for h in extract_top_holdings(detail, limit=30)}
+            sets.append(names)
+        shared = set.intersection(*sets) if sets else set()
+        data = out.get("data") if isinstance(out.get("data"), dict) else {}
+        data["shared_holdings"] = sorted(shared)[:20]
+        data["shared_count"] = len(shared)
+        out["data"] = data
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -880,3 +898,6 @@ def build_default_registry() -> None:
             cost=1,
         )
     )
+    from news_rag.insight.layer_tools import register_layer_tools
+
+    register_layer_tools()

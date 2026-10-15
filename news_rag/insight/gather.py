@@ -73,6 +73,8 @@ class GatherContext:
     direction: str | None = None
     fan_out_cap: int = 8
     query_log: Any = None
+    # Planner-chosen tools: facet -> tool name. A forced facet never falls back to another provider.
+    forced_tools: dict[str, str] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +95,11 @@ def _base_ctx(gctx: GatherContext) -> dict[str, Any]:
         "sector_name": sector,
         "sector_keys": list(b.sector_keys),
         "subject": sector or (b.drivers[0] if b.drivers else "") or (b.funds[0] if b.funds else ""),
-        "semantic_query": sector or driver_text or commodity or gctx.question[:200],
+        "semantic_query": str(b.raw.get("news_query") or "").strip()
+        or sector
+        or driver_text
+        or commodity
+        or gctx.question[:200],
         "drivers": list(b.drivers),
         "driver_direction": b.driver_direction,
         "fund_names": list(b.funds),
@@ -110,7 +116,29 @@ def _base_ctx(gctx: GatherContext) -> dict[str, Any]:
     }
 
 
-def _seed_named_funds(brief: QuestionBrief) -> list[dict[str, Any]]:
+def _pick(
+    forced: dict[str, str] | None,
+    facet: str,
+    ctx: dict[str, Any],
+    exclude: set[str] | frozenset[str] = frozenset(),
+) -> ToolSpec | None:
+    """Planner-chosen tool for a facet, else the registry default."""
+    name = (forced or {}).get(facet)
+    if name:
+        spec = get_tool(name)
+        if spec is None or name in exclude:
+            return None
+        if spec.applies is not None:
+            try:
+                if not spec.applies(ctx):
+                    return None
+            except Exception:  # noqa: BLE001
+                return None
+        return spec
+    return pick_tool_for_facet(facet, ctx, exclude=exclude)
+
+
+def _seed_named_funds(brief: QuestionBrief, cap: int = 8) -> list[dict[str, Any]]:
     """Funds the user named are the shortlist from the start (no exposure tool needed)."""
     if not brief.funds:
         return []
@@ -118,7 +146,7 @@ def _seed_named_funds(brief: QuestionBrief) -> list[dict[str, Any]]:
 
     idx = get_fund_index()
     out: list[dict[str, Any]] = []
-    for name in brief.funds[:4]:
+    for name in brief.funds[: max(1, cap)]:
         detail, _amb, _close = idx.lookup_extracted_fund(name=name)
         if detail and detail.get("isin"):
             out.append(
@@ -210,14 +238,17 @@ def _prewarm_tool_modules() -> None:
 
 
 def _close_dependencies(
-    facets: list[str], ctx: dict[str, Any], ledger: dict[str, LedgerEntry]
+    facets: list[str],
+    ctx: dict[str, Any],
+    ledger: dict[str, LedgerEntry],
+    forced: dict[str, str] | None = None,
 ) -> None:
     """Add facets that the chosen tools need first (e.g. driver_affected_funds needs news)."""
     queue = list(facets)
     seen = set(queue)
     while queue:
         facet = queue.pop(0)
-        spec = pick_tool_for_facet(facet, ctx)
+        spec = _pick(forced, facet, ctx)
         if not spec:
             continue
         for dep in sorted(spec.requires):
@@ -253,14 +284,14 @@ def gather_evidence(gctx: GatherContext, *, max_rounds: int | None = None) -> Ev
 
     evidence = EvidenceSet()
     ctx = _base_ctx(gctx)
-    shortlist = _seed_named_funds(gctx.brief)
+    shortlist = _seed_named_funds(gctx.brief, gctx.fan_out_cap)
     ledger_map: dict[str, LedgerEntry] = {
         f: LedgerEntry(facet=f, status="missing") for f in gctx.brief.evidence_needs
     }
     ctx["_articles"] = evidence.articles
     ctx["_funds"] = shortlist
     ctx["_composition"] = {}
-    _close_dependencies(list(ledger_map), ctx, ledger_map)
+    _close_dependencies(list(ledger_map), ctx, ledger_map, gctx.forced_tools)
 
     tried: dict[str, set[str]] = {f: set() for f in ledger_map}
     cache: dict[tuple[str, str], dict[str, Any]] = {}
@@ -280,7 +311,7 @@ def gather_evidence(gctx: GatherContext, *, max_rounds: int | None = None) -> Ev
 
         jobs: list[tuple[str, dict[str, Any], str, str]] = []  # (tool, ctx, facet, isin)
         for facet in pending:
-            spec = pick_tool_for_facet(facet, ctx, exclude=tried[facet])
+            spec = _pick(gctx.forced_tools, facet, ctx, exclude=tried[facet])
             if spec is None:
                 reason = "all_providers_failed" if tried[facet] else "no_applicable_tool"
                 _update_ledger(ledger_map, facet, "unavailable", reason)
@@ -329,6 +360,8 @@ def gather_evidence(gctx: GatherContext, *, max_rounds: int | None = None) -> Ev
             if key not in cache and key not in to_run:
                 to_run[key] = jctx
         if to_run:
+            if gctx.query_log is not None and any(name == "affected_sectors" for name, _ in to_run):
+                gctx.query_log.log_pipeline("affected_sectors", "start")
             with ThreadPoolExecutor(max_workers=6) as pool:
                 futs = {pool.submit(_run_tool, k[0], c): k for k, c in to_run.items()}
                 for fut in as_completed(futs):
@@ -339,6 +372,13 @@ def gather_evidence(gctx: GatherContext, *, max_rounds: int | None = None) -> Ev
                         cache[key] = {"ok": False, "error": str(exc)}
                     res = cache[key]
                     if gctx.query_log is not None:
+                        if key[0] == "affected_sectors":
+                            gctx.query_log.log_pipeline(
+                                "affected_sectors",
+                                "done",
+                                seconds=round(float(res.get("elapsed_ms") or 0) / 1000.0, 3),
+                                ok=bool(res.get("ok")),
+                            )
                         gctx.query_log.log_tool_invocation(
                             tool=key[0],
                             facet=",".join(sorted({j[2] for j in jobs if (j[0], j[3]) == key})),
@@ -357,8 +397,16 @@ def gather_evidence(gctx: GatherContext, *, max_rounds: int | None = None) -> Ev
             good = [(n, i, r) for n, i, r in results if r.get("ok")]
             tool_name = results[0][0]
             tried[facet].add(tool_name)
+            elapsed_ms = max((float(r.get("elapsed_ms") or 0) for _n, _i, r in results), default=0.0)
             evidence.tool_runs.append(
-                {"tool": tool_name, "facet": facet, "ok": bool(good), "round": round_i, "runs": len(results)}
+                {
+                    "tool": tool_name,
+                    "facet": facet,
+                    "ok": bool(good),
+                    "round": round_i,
+                    "runs": len(results),
+                    "elapsed_ms": round(elapsed_ms, 1),
+                }
             )
             if not good:
                 # Try the tool's declared fallbacks (same ctx), then another provider next round.

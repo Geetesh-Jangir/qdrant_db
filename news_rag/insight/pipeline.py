@@ -109,6 +109,10 @@ def run_until_compose(
             "done",
             seconds=round(time.perf_counter() - t0, 3),
             source=brief.raw.get("source", "llm"),
+            tier=brief.raw.get("tier", ""),
+            funds=len(brief.funds or []),
+            facets=len(brief.evidence_needs or []),
+            evidence_needs=brief.evidence_needs,
         )
 
     gctx = GatherContext(
@@ -128,7 +132,24 @@ def run_until_compose(
     evidence = gather_evidence(gctx)
     evidence = enrich_named_fund_why(q, brief, evidence, query_log=query_log)
     if query_log is not None:
-        query_log.log_pipeline("gather", "done", seconds=round(time.perf_counter() - t0, 3))
+        slow = max(evidence.tool_runs, key=lambda row: float(row.get("elapsed_ms") or 0), default=None)
+        why = {
+            "fund_portfolio_news": "searches news for the fund holdings",
+            "sector_alignment": "aligns holdings with sector moves",
+            "market_pulse": "runs the macro news queries",
+            "layered_news": "retrieves scoped articles",
+            "affected_sectors": "asks the model which sectors the news hits",
+        }
+        query_log.log_pipeline(
+            "gather",
+            "done",
+            seconds=round(time.perf_counter() - t0, 3),
+            tools=len(evidence.tool_runs),
+            articles=len(evidence.articles),
+            slowest_tool=(slow or {}).get("tool", ""),
+            slowest_seconds=round(float((slow or {}).get("elapsed_ms") or 0) / 1000.0, 3),
+            slowest_why=why.get(str((slow or {}).get("tool") or ""), ""),
+        )
 
     t0 = time.perf_counter()
     if query_log is not None:
@@ -213,11 +234,21 @@ def run_until_compose(
         )
         query_log.log_pipeline("compute", "done", seconds=round(time.perf_counter() - t0, 3))
 
+    t_analyst = time.perf_counter()
+    if query_log is not None:
+        query_log.log_pipeline("insight_analyst", "start")
     analysis_brief = run_insight_analyst(
         q, brief, findings, evidence, query_log=query_log
     )
-    if query_log is not None and analysis_brief:
-        query_log.write("ANALYST ok takeaways=" + str(len(analysis_brief.get("net_takeaways") or [])))
+    if query_log is not None:
+        query_log.log_pipeline(
+            "insight_analyst",
+            "done" if analysis_brief else "skip",
+            seconds=round(time.perf_counter() - t_analyst, 3),
+            takeaways=len((analysis_brief or {}).get("net_takeaways") or []),
+        )
+        if analysis_brief:
+            query_log.write("ANALYST ok takeaways=" + str(len(analysis_brief.get("net_takeaways") or [])))
 
     return {
         "question": q,
@@ -240,22 +271,30 @@ def compose(
     pipeline_errors: list[dict[str, str]] | None = None,
     query_log: QueryLogger | None = None,
     analysis_brief: dict[str, Any] | None = None,
+    streamed_text: str | None = None,
 ) -> dict[str, Any]:
     t0 = time.perf_counter()
     if query_log is not None:
         query_log.log_pipeline("interpret", "start")
     if pipeline_errors is None:
         pipeline_errors = []
-    composed = compose_from_findings(
-        question,
-        brief,
-        findings,
-        evidence,
-        query_log=query_log,
-        pipeline_errors=pipeline_errors,
-        analysis_brief=analysis_brief,
-        news_read=news_read,
-    )
+    if (streamed_text or "").strip():
+        from news_rag.insight.interpret import insight_from_streamed_text
+
+        composed = insight_from_streamed_text(
+            question, brief, findings, evidence, streamed_text or ""
+        )
+    else:
+        composed = compose_from_findings(
+            question,
+            brief,
+            findings,
+            evidence,
+            query_log=query_log,
+            pipeline_errors=pipeline_errors,
+            analysis_brief=analysis_brief,
+            news_read=news_read,
+        )
     if query_log is not None:
         mode = (composed.answer_trace or {}).get("mode", "structured")
         query_log.log_interpret(mode=mode, bullets=len(composed.bullets), chars=len(composed.display or ""))
@@ -298,6 +337,7 @@ def compose(
         "findings": findings.to_dict(),
         "news_read": news_read.to_dict() if news_read else None,
         "verify_gaps": verify.gaps,
+        "retry_facets": verify.retry_facets,
         "tool_runs": evidence.tool_runs,
     }
 
@@ -337,6 +377,101 @@ def compose(
     }
 
 
+def _maybe_retry_gather(
+    state: dict[str, Any],
+    result: dict[str, Any],
+    *,
+    query_log: QueryLogger | None,
+) -> dict[str, Any]:
+    """One extra gather round when a required facet came back unavailable."""
+    if state.get("refused"):
+        return result
+    settings = get_settings()
+    if not getattr(settings, "insight_verify_retry", True):
+        return result
+    retry = list((result.get("research") or {}).get("retry_facets") or [])
+    if not retry:
+        return result
+    brief = state["brief"]
+    evidence = state["evidence"]
+    if query_log is not None:
+        query_log.log_pipeline("verify_retry", "start", facets=retry)
+    saved = list(brief.evidence_needs)
+    brief.evidence_needs = retry
+    gctx = GatherContext(
+        question=state["question"],
+        brief=brief,
+        fan_out_cap=int(getattr(settings, "insight_fan_out_cap", 8)),
+        query_log=query_log,
+    )
+    try:
+        extra = gather_evidence(gctx, max_rounds=2)
+    finally:
+        brief.evidence_needs = saved
+    seen = {str(a.get("url") or a.get("title") or "").lower() for a in evidence.articles}
+    for art in extra.articles:
+        key = str(art.get("url") or art.get("title") or "").lower()
+        if key and key not in seen:
+            evidence.articles.append(art)
+            seen.add(key)
+    evidence.items.extend(extra.items)
+    by_facet = {entry.facet: entry for entry in evidence.ledger}
+    for entry in extra.ledger:
+        prev = by_facet.get(entry.facet)
+        if prev is None or entry.status == "satisfied":
+            by_facet[entry.facet] = entry
+    evidence.ledger = list(by_facet.values())
+    findings = compute_findings(brief, evidence, state.get("news_read"))
+    state["findings"] = findings
+    state["evidence"] = evidence
+    if query_log is not None:
+        query_log.log_pipeline("verify_retry", "done", facets=retry)
+    return compose(
+        question=state["question"],
+        brief=brief,
+        evidence=evidence,
+        findings=findings,
+        news_read=state.get("news_read"),
+        pipeline_errors=state.get("pipeline_errors"),
+        query_log=query_log,
+        analysis_brief=state.get("analysis_brief"),
+    )
+
+
+def _try_graph(
+    question: str,
+    *,
+    date_from: str | None,
+    date_to: str | None,
+    min_impact: int | None,
+    source: str | None,
+    direction: str | None,
+    query_log: QueryLogger | None,
+    prior_brief_context: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Plan-driven node graph. None means the planner was unavailable: use the older pipeline."""
+    settings = get_settings()
+    if not getattr(settings, "insight_graph_pipeline", True) or not llm_api_key_configured(settings):
+        return None
+    from news_rag.insight.graph import run_graph_pipeline
+
+    try:
+        return run_graph_pipeline(
+            question,
+            date_from=date_from,
+            date_to=date_to,
+            min_impact=min_impact,
+            source=source,
+            direction=direction,
+            query_log=query_log,
+            prior_context=prior_brief_context,
+        )
+    except Exception as exc:  # noqa: BLE001 - the older pipeline is the safety net
+        if query_log is not None:
+            query_log.write(f"GRAPH_FALLBACK reason={type(exc).__name__}: {str(exc)[:200]}")
+        return None
+
+
 def run_insight_pipeline(
     question: str,
     *,
@@ -348,6 +483,18 @@ def run_insight_pipeline(
     query_log: QueryLogger | None = None,
     prior_brief_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    graph_result = _try_graph(
+        (question or "").strip(),
+        date_from=date_from,
+        date_to=date_to,
+        min_impact=min_impact,
+        source=source,
+        direction=direction,
+        query_log=query_log,
+        prior_brief_context=prior_brief_context,
+    )
+    if graph_result is not None:
+        return graph_result
     state = run_until_compose(
         question,
         date_from=date_from,
@@ -361,7 +508,7 @@ def run_insight_pipeline(
     if state.get("refused"):
         return state
 
-    return compose(
+    result = compose(
         question=state["question"],
         brief=state["brief"],
         evidence=state["evidence"],
@@ -371,6 +518,7 @@ def run_insight_pipeline(
         query_log=query_log,
         analysis_brief=state.get("analysis_brief"),
     )
+    return _maybe_retry_gather(state, result, query_log=query_log)
 
 
 async def stream_insight_pipeline(
@@ -387,6 +535,28 @@ async def stream_insight_pipeline(
     try:
         yield f"event: status\ndata: {json.dumps({'stage': 'planning', 'message': 'Analyzing question...'})}\n\n"
         await asyncio.sleep(0)
+
+        graph_result = await asyncio.to_thread(
+            _try_graph,
+            (question or "").strip(),
+            date_from=date_from,
+            date_to=date_to,
+            min_impact=min_impact,
+            source=source,
+            direction=direction,
+            query_log=query_log,
+            prior_brief_context=prior_brief_context,
+        )
+        if graph_result is not None:
+            text = str(graph_result.get("insight") or "")
+            if text:
+                yield f"event: delta\ndata: {json.dumps({'text': text})}\n\n"
+                await asyncio.sleep(0)
+            if query_log is not None:
+                meta = query_log.finish_from_ask_result(graph_result, question=question)
+                attach_query_log_meta(graph_result, meta)
+            yield f"event: done\ndata: {json.dumps(graph_result)}\n\n"
+            return
 
         state = run_until_compose(
             question,
@@ -422,6 +592,7 @@ async def stream_insight_pipeline(
         await asyncio.sleep(0)
 
         settings = get_settings()
+        streamed_parts: list[str] = []
         if llm_api_key_configured(settings) and not (brief.funds and not findings.funds):
             packet = _facts(question, brief, findings, evidence)
             prompt = build_composer_prompt()
@@ -436,6 +607,7 @@ async def stream_insight_pipeline(
                     query_log=query_log,
                 ):
                     if chunk:
+                        streamed_parts.append(chunk)
                         yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
                         await asyncio.sleep(0)
             except Exception as exc:  # noqa: BLE001
@@ -455,6 +627,7 @@ async def stream_insight_pipeline(
             pipeline_errors=pipeline_errors,
             query_log=query_log,
             analysis_brief=analysis_brief,
+            streamed_text="".join(streamed_parts) if streamed_parts else None,
         )
         if query_log is not None:
             meta = query_log.finish_from_ask_result(full_res, question=question)

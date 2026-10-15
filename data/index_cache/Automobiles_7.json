@@ -1,0 +1,9 @@
+{
+  "sector_label": "Automobiles",
+  "benchmark_label": "Nifty Auto (via ETF)",
+  "yfinance_ticker": "AUTOBEES.NS",
+  "return_pct": 3.84,
+  "window_days": 7,
+  "substituted_broad_index": false,
+  "cached_at": 1792070660.1968813
+}

@@ -169,6 +169,52 @@ class Settings(BaseSettings):
         default=8,
         validation_alias=AliasChoices("INSIGHT_COMPOSER_MAX_ARTICLES", "insight_composer_max_articles"),
     )
+    # Bodies kept for the composer after the news reader has already digested the rest.
+    insight_composer_body_articles: int = Field(
+        default=4,
+        validation_alias=AliasChoices("INSIGHT_COMPOSER_BODY_ARTICLES", "insight_composer_body_articles"),
+    )
+    insight_pulse_vector_limit: int = Field(
+        default=24,
+        validation_alias=AliasChoices("INSIGHT_PULSE_VECTOR_LIMIT", "insight_pulse_vector_limit"),
+    )
+    insight_json_tool_use: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_JSON_TOOL_USE", "insight_json_tool_use"),
+    )
+    insight_brief_tiering: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_BRIEF_TIERING", "insight_brief_tiering"),
+    )
+    insight_prune_market_facets: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_PRUNE_MARKET_FACETS", "insight_prune_market_facets"),
+    )
+    insight_sector_candidate_cap: int = Field(
+        default=50,
+        validation_alias=AliasChoices("INSIGHT_SECTOR_CANDIDATE_CAP", "insight_sector_candidate_cap"),
+    )
+    insight_analyst_mode: str = Field(
+        default="auto",
+        validation_alias=AliasChoices("INSIGHT_ANALYST_MODE", "insight_analyst_mode"),
+    )
+    # Plan-driven node graph: one planner call chooses tools, window, news depth and answer style.
+    insight_graph_pipeline: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_GRAPH_PIPELINE", "insight_graph_pipeline"),
+    )
+    insight_graph_news_chars: int = Field(
+        default=1400,
+        validation_alias=AliasChoices("INSIGHT_GRAPH_NEWS_CHARS", "insight_graph_news_chars"),
+    )
+    insight_verify_retry: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_VERIFY_RETRY", "insight_verify_retry"),
+    )
+    insight_use_news_digest: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_USE_NEWS_DIGEST", "insight_use_news_digest"),
+    )
     rag_warmup_embeddings: bool = Field(
         default=True,
         validation_alias=AliasChoices("RAG_WARMUP_EMBEDDINGS", "rag_warmup_embeddings"),

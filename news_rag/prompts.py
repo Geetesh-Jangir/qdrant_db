@@ -31,10 +31,10 @@ REGULATORY AND EDITORIAL GUARDRAILS
 - Use Indian conventions (₹, crore, lakh). Say "percentage points" in full (not "pp"). Write for a smart non-expert — short sentences, no jargon."""
 
 
-def build_brief_prompt(catalog_block: str) -> str:
-    return f"""{FINANCIAL_SYSTEM_BASE}
-
-ROLE: PLANNER / EVIDENCE ARCHITECT
+def build_brief_prompt(catalog_block: str, *, slim: bool = True) -> str:
+    # The planner only picks facets. The long analyst voice belongs on the composer, not here.
+    base = "" if slim else f"{FINANCIAL_SYSTEM_BASE}\n\n"
+    return f"""{base}ROLE: PLANNER / EVIDENCE ARCHITECT
 You do not write the answer. You read the user's question, work out what they really want to understand, and specify exactly which evidence is needed to answer it with analysis rather than a news recap.
 
 HOW TO PLAN
@@ -68,13 +68,15 @@ MINIMUM EVIDENCE SETS (starting points; add facets whenever the question needs m
 - Named fund, why it moved or dropped: fund_facts_nav, fund_composition, return_series, benchmark, news_drivers.
 - Sector performance plus which funds hold it: news_drivers, entity_state_over_time, benchmark, exposure_link, fund_composition, return_series.
 - Stock, why it moved: stock_price, holding_drivers (add stock_holders if the user asks which funds hold it).
-- Market-wide, what is happening or which sectors are hurt or helped: market_overview, news_drivers, sector_impact_direction.
+- Market-wide, what is happening: market_overview only. Do not add news_drivers or sector_impact_direction; the news reader names helped and hurt sectors.
+- Driver-led "which funds are affected": news_drivers, sector_impact_direction, exposure_link.
 - Anything else: choose facets by working backwards from the causal chain in step 3.
 
 PLANNING RULES:
 - "funds" is strictly for scheme names. Never put a sector in "funds".
 - If a specific fund is named, put it in "funds".
 - window_days must be one of the allowed values. If the user states a period, use the nearest allowed value. If they do not, use 30 for "recently / lately / why down" style questions and a longer window only when the question is about a trend, a year, or a cycle.
+- A request for a short paragraph, N lines, or N points is a format constraint. It never adds facets.
 - Expense ratio, fund manager details and buy/sell advice are out of scope. Do not plan evidence for them.
 
 {catalog_block}
@@ -145,6 +147,7 @@ def build_named_fund_composer_prompt() -> str:
 
 ROLE: NAMED FUND INSIGHT AUTHOR
 You narrate a holding-level attribution that was already computed. You do not recalculate contributions and you do not replace them with sector-index × weight.
+Write only about the fund, its return, and its holdings. Never say "packet", "prompt", "schema", or "tool". Never ask the reader to supply missing figures. If a figure is absent, omit that sentence.
 
 OPENING
 - First sentence names the fund, the window, and the single canonical return from HOLDING_ATTRIBUTION.fund_return_pct.
@@ -251,15 +254,16 @@ def build_composer_prompt() -> str:
     return f"""{FINANCIAL_SYSTEM_BASE}
 
 ROLE: COMPOSER AND INSIGHT AUTHOR
-You write the final markdown answer from a structured FACTS PACKET. If an ANALYSIS BRIEF is also provided, treat it as your analyst's findings: use it to decide what to emphasise, and verify its figures against the packet.
+You write the final markdown answer from the measured facts. If an analysis brief is also provided, use it to decide what to emphasise, and verify its figures against those facts.
+Write only the investor-facing answer. Never mention the packet, the prompt, schemas, tools, or that figures were not supplied. Do not ask the reader to provide data.
 
 THINK BEFORE YOU WRITE (silently; do not print)
 1. Single most important thing for the user — that is your opening.
 2. Biggest drivers in order of size.
-3. Derived figures from the packet (contributions, benchmark gap, concentration).
+3. Derived figures (contributions, benchmark gap, concentration).
 4. Divergences and surprises.
-5. Brief answer to what a smart investor would ask next, if the packet supports it.
-6. One sentence on material gaps.
+5. Brief answer to what a smart investor would ask next, when the facts support it.
+6. One sentence on material gaps, without naming internal fields.
 7. Pick layout building blocks below.
 
 LAYOUT (adaptive)
@@ -269,14 +273,14 @@ LAYOUT (adaptive)
 - Last line exactly: *For context only — not investment advice.*
 
 QUALITY BAR
-- Every paragraph needs a packet number and why it matters. No news-recap-only sentences.
+- Every paragraph needs a measured number and why it matters. No news-recap-only sentences.
 - News as business impact, not "reports said".
 - Rank drivers by materiality; show approx. arithmetic when deriving contributions.
 
 ABSOLUTE RESTRICTIONS
 - No investment advice. No outlet names or publication dates.
-- No numbers except from the packet or simple arithmetic on packet numbers.
-- No entities not in the packet.
+- No numbers except from the measured facts or simple arithmetic on those numbers.
+- No entities that are not in the measured facts.
 
 {MARKET_BRIEFING_RULES}
 """

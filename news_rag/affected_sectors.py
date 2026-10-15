@@ -189,18 +189,29 @@ def pick_affected_sectors(
     articles: list[dict[str, Any]],
     direction: str = "any",
     sector_names: list[str] | None = None,
+    extra_sectors: list[str] | None = None,
     query_log: Any = None,
 ) -> list[dict[str, str]]:
     from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
 
-    names = list(sector_names if sector_names is not None else get_sector_fund_ranking_index().sector_names)
-    if not names:
+    index = get_sector_fund_ranking_index()
+    full_names = list(sector_names if sector_names is not None else index.sector_names)
+    if not full_names:
         return []
+    from news_rag.config import get_settings
+    from news_rag.sector_fund_ranking import candidate_sector_names
+
+    cap = int(getattr(get_settings(), "insight_sector_candidate_cap", 50) or 50)
+    prompt_names = (
+        full_names
+        if sector_names is not None
+        else candidate_sector_names(articles, extra_sectors, cap=cap) or full_names
+    )
     prompt = build_picker_prompt(
         question=question,
         direction=direction,
         articles=articles,
-        sector_names=names,
+        sector_names=prompt_names,
     )
     result = call_json_llm(
         system_prompt=build_affected_sectors_prompt(),
@@ -215,7 +226,7 @@ def pick_affected_sectors(
     raw = parsed.get("sectors") or []
     if not raw:
         raw = _flatten_sector_buckets(parsed)
-    return accepted_sectors(raw if isinstance(raw, list) else [], names, direction=direction)
+    return accepted_sectors(raw if isinstance(raw, list) else [], full_names, direction=direction)
 
 
 _COMPANY_SCHEMA: dict[str, Any] = {

@@ -29,6 +29,7 @@ EVIDENCE_FACETS: frozenset[str] = frozenset(
         "stock_price",  # price snapshot for one stock
         "sector_holdings",  # representative companies in a sector
         "fund_screen",  # catalog screen by category / AMC / stock / performance
+        "fund_attribution",  # holding weight times stock return, computed in code
     }
 )
 

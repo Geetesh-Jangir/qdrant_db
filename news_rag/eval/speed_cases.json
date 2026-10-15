@@ -1,0 +1,11 @@
+[
+  {"id": "market_now", "tier": "t0", "question": "whats happening in the market right now and can you tell me this in short paragraph?"},
+  {"id": "market_5_lines", "tier": "t0", "question": "whats happening in the market right now and can you tell me this in short paragraph of 5 lines only?"},
+  {"id": "market_10_points", "tier": "t0", "question": "whats happening in the market right now and can you tell me this in only 10 points?"},
+  {"id": "auto_funds", "tier": "t1", "question": "How is the automobile sector doing? Which funds are highly impacted positively or negatively?"},
+  {"id": "crude_funds", "tier": "t1", "question": "Which funds are affected by the crude oil price increase?"},
+  {"id": "named_fund", "tier": "t2", "question": "Why is HDFC Flexi Cap Fund down recently?"},
+  {"id": "compare_funds", "tier": "t2", "question": "Compare HDFC Flexi Cap Fund and Parag Parikh Flexi Cap Fund"},
+  {"id": "stock_price", "tier": "t1", "question": "What is the share price of Maruti Suzuki and which funds hold it?"},
+  {"id": "gold", "tier": "t1", "question": "How is gold and silver doing right now?"}
+]

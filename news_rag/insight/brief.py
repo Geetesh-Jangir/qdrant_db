@@ -67,7 +67,21 @@ BRIEF_SCHEMA: dict[str, Any] = {
     "required": ["goal", "evidence_needs", "success_criteria"],
 }
 
-BRIEF_SYSTEM = build_brief_prompt(registry_prompt_block())
+def _brief_system(*, full: bool = False) -> str:
+    ensure_registry()
+    return build_brief_prompt(registry_prompt_block(compact=not full), slim=not full)
+
+
+def question_tier(question: str, heur: QuestionBrief) -> str:
+    """T0 market snapshot, T1 sector or driver, T2 named fund or comparison."""
+    q = question or ""
+    if heur.funds or _COMPARE_RE.search(q):
+        return "t2"
+    if heur.primary_sector() or heur.drivers or heur.stocks:
+        return "t1"
+    if asks_market_briefing(q):
+        return "t0"
+    return "t1"
 
 
 
@@ -206,9 +220,14 @@ _RANDOM_ONE_FUND_RE = re.compile(
 def random_fund_count(question: str) -> int:
     """How many unnamed funds the user wants us to pick at random (0 = none)."""
     q = question or ""
+    if not (_RANDOM_FUNDS_RE.search(q) or _RANDOM_ONE_FUND_RE.search(q)):
+        return 0
     if asks_random_fund_compare(q):
         return 2
-    return 1 if _RANDOM_ONE_FUND_RE.search(q) else 0
+    counted = re.search(r"\b(two|three|both|couple|2|3)\b", q, re.I)
+    if counted:
+        return {"two": 2, "three": 3, "both": 2, "couple": 2, "2": 2, "3": 3}[counted.group(1).lower()]
+    return 1
 
 
 def asks_market_briefing(question: str) -> bool:
@@ -501,13 +520,24 @@ def validate_brief_plan(brief: QuestionBrief, question: str) -> list[str]:
     if brief.funds:
         from news_rag.insight.fund_why import named_fund_why
 
-        for f in ["fund_facts_nav", "fund_composition", "return_series", "fund_vs_index"]:
+        why = named_fund_why(q, brief)
+        for f in ["fund_facts_nav", "fund_composition", "return_series"]:
             if f not in needs:
                 needs.append(f)
-        if "news_drivers" not in needs:
-            needs.append("news_drivers")
-        if "holding_drivers" not in needs:
-            needs.append("holding_drivers")
+        if why:
+            for f in ["fund_vs_index", "news_drivers", "holding_drivers"]:
+                if f not in needs:
+                    needs.append(f)
+        else:
+            # A profile or a compare does not search holding news or sector alignment.
+            needs = [
+                f
+                for f in needs
+                if f not in ("fund_vs_index", "news_drivers", "holding_drivers", "benchmark")
+            ]
+            if _COMPARE_RE.search(q) or random_fund_count(q) >= 2:
+                if "peer_compare" not in needs:
+                    needs.append("peer_compare")
         # Sector peer-ranking facets are for "which funds in X sector" — not a named scheme question.
         if not has_sector and not (brief.drivers and wants_funds):
             needs = [
@@ -551,7 +581,22 @@ def validate_brief_plan(brief: QuestionBrief, question: str) -> list[str]:
         if "news_drivers" not in needs:
             needs.insert(0, "news_drivers")
 
-    return validate_facets(list(dict.fromkeys(needs)))
+    needs = validate_facets(list(dict.fromkeys(needs)))
+    from news_rag.config import get_settings
+
+    market_only = (
+        asks_market_briefing(q)
+        and not brief.funds
+        and not has_sector
+        and not brief.drivers
+        and not brief.stocks
+    )
+    if market_only and getattr(get_settings(), "insight_prune_market_facets", True):
+        # One news path. Sector direction comes from the news reader, not a second LLM.
+        needs = [f for f in needs if f not in ("news_drivers", "sector_impact_direction", "benchmark")]
+        if "market_overview" not in needs:
+            needs.append("market_overview")
+    return needs
 
 
 
@@ -695,6 +740,23 @@ def build_question_brief(
 
     settings = get_settings()
     heur = _heuristic_brief(q)
+    tier = question_tier(q, heur)
+    if getattr(settings, "insight_brief_tiering", True) and (
+        tier == "t0" or random_fund_count(q) > 0
+    ):
+        heur.evidence_needs = validate_brief_plan(heur, q)
+        source = "heuristic_t0" if tier == "t0" else "heuristic_random_funds"
+        heur.raw["source"] = source
+        heur.raw["tier"] = tier
+        _log_brief(
+            query_log,
+            heur,
+            source,
+            tier=tier,
+            random_funds=random_fund_count(q),
+            why_path=False,
+        )
+        return heur
     if not llm_api_key_configured(settings):
         _log_brief(query_log, heur, "heuristic", reason="no_llm_key")
         return heur
@@ -707,11 +769,11 @@ def build_question_brief(
         "funds_detected": heur.funds,
         "direction_detected": heur.direction,
     }
-    user = f"Question:\n{q}\n{prior_blob}\nLocal hints (may be empty): {hints}\n\n{registry_prompt_block()}"
+    user = f"Question:\n{q}\n{prior_blob}\nLocal hints (may be empty): {hints}\n"
     parsed: dict[str, Any] = {}
     try:
         res = call_json_llm(
-            system_prompt=BRIEF_SYSTEM,
+            system_prompt=_brief_system(full=(tier == "t2")),
             user_content=user,
             context_blocks=[],
             model_override=router_model(settings),

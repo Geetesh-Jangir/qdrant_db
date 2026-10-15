@@ -32,8 +32,10 @@ def enrich_named_fund_why(
     evidence: EvidenceSet,
     *,
     query_log: Any = None,
+    force: bool = False,
 ) -> EvidenceSet:
-    if not named_fund_why(question, brief):
+    """`force` lets the planner decide that holding attribution is wanted (no keyword check)."""
+    if not force and not named_fund_why(question, brief):
         return evidence
     comps = evidence.by_facet("fund_composition") or evidence.by_facet("fund_facts_holdings")
     if not comps:
@@ -52,8 +54,9 @@ def enrich_named_fund_why(
         priced = _price_holdings(data.get("holdings") or [], window)
         attr = attribute_rows(priced, fund_return_pct=fund_ret)
         movers = _unique_movers(attr)
+        news_by_name = _news_for_movers(movers, question, window)
         for row in movers:
-            arts = _news_for_holding(str(row["name"]), question, window)
+            arts = news_by_name.get(str(row["name"]), [])
             if arts:
                 row["news"] = _plain_news(arts[0])
                 row["news_title"] = str(arts[0].get("title") or "")
@@ -103,6 +106,24 @@ def enrich_named_fund_why(
         top = mover_names[:6]
         query_log.write("FUND_WHY funds=" + str(len(payloads)) + " movers=" + ",".join(top))
     return evidence
+
+
+def _news_for_movers(movers: list[dict[str, Any]], question: str, window: int) -> dict[str, list[dict[str, Any]]]:
+    """News for every top mover at once; each lookup is an independent search."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    names = [str(r["name"]) for r in movers]
+    if not names:
+        return {}
+
+    def one(name: str) -> list[dict[str, Any]]:
+        try:
+            return _news_for_holding(name, question, window) or []
+        except Exception:  # noqa: BLE001 - one failed search must not drop the others
+            return []
+
+    with ThreadPoolExecutor(max_workers=min(6, len(names))) as pool:
+        return dict(zip(names, pool.map(one, names)))
 
 
 def _fund_return(evidence: EvidenceSet, isin: str) -> float | None:
