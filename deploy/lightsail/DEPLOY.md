@@ -84,9 +84,9 @@ Pipeline keys already in `.env` are reused (`QDRANT_*`, `JEV_*` if you use Jev).
 
 ---
 
-## Daily ingest (midnight, 08:00, and 16:00 IST)
+## Daily ingest (17:00 IST / 5 PM, once per day)
 
-`install.sh` installs three cron jobs for user `ubuntu`: **00:00**, **08:00**, and **16:00 IST**. Ubuntu cron does not accept `CRON_TZ`, so on a UTC Lightsail clock the lines are `30 18`, `30 2`, and `30 10` (those UTC times are midnight, 08:00, and 16:00 IST).
+`install.sh` installs one cron job for user `ubuntu`: **17:00 IST (5 PM)**. Ubuntu cron does not accept `CRON_TZ`, so on a UTC Lightsail clock the line is `30 11` (11:30 UTC = 17:00 IST).
 
 Each run uses:
 
@@ -100,7 +100,7 @@ Historical backfill is unchanged and still writes under `data/news_runs/YYYY-MM-
 - Pipeline files: `/opt/news-rag/data/news_runs_daily/`
 - Cron wrapper: `/opt/news-rag/data/news_runs_daily/cron/daily_*.log`
 
-If a backfill or another pipeline process is already running when a slot starts, that slot **skips** and does not start later when backfill ends. The next midnight, 08:00, or 16:00 slot tries again. Run it by hand after backfill finishes if you do not want to wait. A 500/30 run can take hours and shares RAM with Ask.
+If a backfill or another pipeline process is already running when the daily slot starts, that run **skips** and does not start later when backfill ends. The next 17:00 IST slot tries again. Run it by hand after backfill finishes if you do not want to wait. A 500/30 run can take hours and shares RAM with Ask.
 
 Every cron slot appends one line to `/opt/news-rag/data/news_runs_daily/cron/cron.log` (`daily success`, `daily failed`, or `daily skipped`). The full pipeline output for that slot is `daily_<utcstamp>.log` in the same folder. Cron also copies its output into `cron.log`.
 

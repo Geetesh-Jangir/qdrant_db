@@ -2,8 +2,8 @@
   "sector_label": "Banks",
   "benchmark_label": "Banks",
   "yfinance_ticker": "^NSEBANK",
-  "return_pct": -2.0,
+  "return_pct": -1.54,
   "window_days": 30,
   "substituted_broad_index": false,
-  "cached_at": 1791962546.4880662
+  "cached_at": 1792480083.4895034
 }

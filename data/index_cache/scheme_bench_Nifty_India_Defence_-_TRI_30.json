@@ -1,0 +1,8 @@
+{
+  "benchmark_label": "Nifty India Defence - TRI (Nifty 50 used as a broad-market proxy)",
+  "return_pct": -1.96,
+  "yfinance_ticker": "^NSEI",
+  "window_days": 30,
+  "scheme_benchmark_raw": "Nifty India Defence - TRI",
+  "cached_at": 1792480972.7464507
+}

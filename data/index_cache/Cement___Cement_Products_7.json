@@ -1,9 +1,9 @@
 {
   "sector_label": "Cement & Cement Products",
-  "benchmark_label": "Nifty 50 (broad proxy; sector index history unavailable)",
-  "yfinance_ticker": "^NSEI",
-  "return_pct": 3.44,
+  "benchmark_label": "Cement & Cement Products",
+  "yfinance_ticker": "^CNXINFRA",
+  "return_pct": -0.22,
   "window_days": 7,
-  "substituted_broad_index": true,
-  "cached_at": 1792070661.1330547
+  "substituted_broad_index": false,
+  "cached_at": 1792478429.0585668
 }

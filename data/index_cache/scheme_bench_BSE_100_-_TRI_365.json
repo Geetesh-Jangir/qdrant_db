@@ -1,0 +1,8 @@
+{
+  "benchmark_label": "BSE 100 - TRI (Nifty 50 used as a tradable proxy for the move)",
+  "return_pct": -10.97,
+  "yfinance_ticker": "^NSEI",
+  "window_days": 365,
+  "scheme_benchmark_raw": "BSE 100 - TRI",
+  "cached_at": 1792478123.910864
+}

@@ -27,5 +27,7 @@ data/fund_holdings_aggregate/*.rating_patch.*
 # Optional large embedding cache for fund fuzzy match (run scripts/build_fund_name_embeddings.py)
 data/fund_name_embeddings.json
 
+lightsail_logs/
 lightsail_logs/news_runs
 lightsail_logs/news_runs_daily
+lightsail_logs/news_backfill
