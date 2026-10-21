@@ -44,8 +44,8 @@ jobs:
       QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
       FRESH_START_EACH_RUN: "false"
       FRESH_START_CLEAR_QDRANT: "false"
-      NEWS_CORPUS_MODE: "false"
-      RETENTION_DAYS: "30"
+      NEWS_CORPUS_MODE: "true"
+      RETENTION_DAYS: "0"
       NEWS_DATE_RANGE: ${{ inputs.date_range }}
       HOLDINGS_LIMIT: ${{ inputs.holdings_limit }}
       SECTORS_LIMIT: ${{ inputs.sectors_limit }}

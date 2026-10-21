@@ -296,7 +296,7 @@ class Settings(BaseSettings):
     # 0 = never delete by age. Ignored when news_corpus_mode is true.
     retention_days: int = 0
     # Accumulate articles in Qdrant across runs; skip retention deletes and never wipe the collection.
-    news_corpus_mode: bool = False
+    news_corpus_mode: bool = True
     # Global title dedupe vs existing corpus. 0 hours = all stored articles; 0 limit = no cap.
     corpus_title_dedupe_hours: int = 0
     corpus_title_dedupe_limit: int = 0
