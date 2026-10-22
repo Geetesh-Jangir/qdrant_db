@@ -1,0 +1,31 @@
+name = "failed-source-scraper"
+main = "src/index.ts"
+compatibility_date = "2024-11-12"
+
+# Must match the account you used in `wrangler login`. If deploy says Authentication error 10000,
+# delete node_modules/.cache/wrangler/wrangler-account.json or set account_id from: wrangler whoami
+# account_id = "562939f6d8f179d58ad141ea0c55962d"
+
+# No R2 required. POST /run with { "items": [...] } returns JSON; save on your PC via scripts/run-scrape-local.ps1
+#
+# Optional R2 (needs card on Cloudflare): uncomment and create bucket news-scrape-data
+# [[r2_buckets]]
+# binding = "SCRAPE_BUCKET"
+# bucket_name = "news-scrape-data"
+
+[vars]
+BATCH_SIZE = "10"
+MAX_BODY_CHARS = "400"
+SCRAPER_REQUEST_TIMEOUT_SECONDS = "20"
+SCRAPER_DEFAULT_DOMAIN_DELAY_SECONDS = "5"
+SCRAPER_MIN_DOMAIN_DELAY_SECONDS = "3"
+SCRAPER_MAX_DOMAIN_DELAY_SECONDS = "10"
+SCRAPER_MAX_RETRIES = "3"
+SCRAPER_BACKOFF_BASE_SECONDS = "2"
+SCRAPER_BACKOFF_MAX_SECONDS = "30"
+SCRAPER_MAX_RETRY_AFTER_SECONDS = "60"
+SCRAPER_MAX_CONCURRENT_PER_DOMAIN = "1"
+SCRAPER_BODY_EXCERPT_CHARS = "500"
+# SCRAPER_DOMAIN_DELAYS = "ndtvprofit.com=8,moneycontrol.com=6"
+
+# wrangler secret put SCRAPE_TRIGGER_SECRET

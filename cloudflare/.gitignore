@@ -1,0 +1,7 @@
+scrape-worker/node_modules/
+scrape-worker/.wrangler/
+scrape-worker/.dev.vars
+output/*.json
+!output/.gitkeep
+worker-url.txt
+input/failed_sources.json
