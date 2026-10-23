@@ -14,7 +14,6 @@ from news_rag.macro_impact_map import (
     macro_impact_entry,
     normalize_driver,
 )
-from news_rag.query_analyzer import PLANNER_SYSTEM
 from news_rag.sector_alignment import (
     return_sign,
     signs_opposite,
@@ -28,11 +27,9 @@ def _clear_caches():
     clear_macro_impact_cache()
 
 
-def test_planner_lists_new_tools():
+def test_allowed_tool_names_include_alignment_and_macro_impact():
     assert "sector_holding_alignment" in ALLOWED_PLANNER_TOOLS
     assert "macro_sector_impact" in ALLOWED_PLANNER_TOOLS
-    assert "sector_holding_alignment" in PLANNER_SYSTEM
-    assert "macro_sector_impact" in PLANNER_SYSTEM
 
 
 def test_return_sign_and_opposite():

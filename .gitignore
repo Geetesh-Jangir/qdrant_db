@@ -31,3 +31,14 @@ lightsail_logs/
 lightsail_logs/news_runs
 lightsail_logs/news_runs_daily
 lightsail_logs/news_backfill
+
+# Cloudflare scrape worker (local npm + generated run output)
+cloudflare/scrape-worker/node_modules/
+cloudflare/scrape-worker/.wrangler/
+cloudflare/output/scrape_errors.json
+cloudflare/output/scraped_articles.json
+cloudflare/output/scraped_403_retry.json
+cloudflare/output/scrape_403_remaining_errors.json
+cloudflare/output/run_state.json
+cloudflare/output/run_403_state.json
+cloudflare/worker-url.txt

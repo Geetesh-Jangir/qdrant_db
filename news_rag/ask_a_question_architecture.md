@@ -1,5 +1,7 @@
 # Ask a Question — how it works, layer by layer
 
+> **Note:** This file is a long historical walkthrough. For the maintained architecture summary, use [`docs/ASK_A_QUESTION_FEATURE.md`](../docs/ASK_A_QUESTION_FEATURE.md). Sections below that describe the removed v1 planner (`query_analyzer`, `plan_enrich`) are obsolete.
+
 This document explains the **Ask a Question** feature (`POST /api/ask`). It is written so you can follow one question from the browser to the final insight: which code runs, which tools fire, what the LLM sees, and what comes back.
 
 The live path is **insight v2** (legacy `query_router` / `ask_agent` / `ask_composer` removed):

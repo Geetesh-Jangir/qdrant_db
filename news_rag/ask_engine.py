@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-from news_rag.config import get_settings
 from news_rag.insight.pipeline import run_insight_pipeline, stream_insight_pipeline
 
 if TYPE_CHECKING:
@@ -26,8 +25,6 @@ def run_ask_engine(
     if query_log is not None:
         query_log.write(f"PIPELINE name=insight_v2 path=brief→gather→compute→interpret→verify→judge")
         query_log.write(f"QUESTION: {q[:500]}")
-    # Legacy env flag kept for scripts that toggle v1; v1 path removed — always v2.
-    _ = get_settings().ask_pipeline_v2
     return run_insight_pipeline(
         q,
         date_from=date_from,

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-from news_rag.ask_plan import AskPlan, PlannedTool
-from news_rag.plan_enrich import enrich_ask_plan
 from news_rag.tools import enrich_rankings_with_nav
 
 
@@ -46,13 +44,3 @@ def test_enrich_rankings_with_nav_any(mock_nav):
     ]
     res = enrich_rankings_with_nav(candidates, direction="any", top_n=2, sort_by="performance")
     assert res[0]["isin"] == "INF1"
-
-
-def test_plan_enrich_keeps_market_tools():
-    plan = AskPlan(
-        tools=[PlannedTool(tool="common_market_news"), PlannedTool(tool="sector_news")],
-        affected_funds="none",
-    )
-    q = "market sectors and mutual funds working well"
-    enriched = enrich_ask_plan(q, plan)
-    assert enriched.affected_funds == "none"

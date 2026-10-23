@@ -30,7 +30,7 @@ from news_rag.insight.gather import EvidenceSet, GatherContext, gather_evidence
 from news_rag.insight.plan import Plan, make_plan, plan_to_brief, tools_to_facets
 from news_rag.llm_client import call_insight_llm, composer_model, llm_api_key_configured
 from news_rag.query_log import QueryLogger
-from news_rag.query_analyzer import ADVICE_NOTE
+from news_rag.guardrails import ADVICE_NOTE
 
 DISCLAIMER = "*For context only — not investment advice.*"
 DEFAULT_OUT_OF_SCOPE = (

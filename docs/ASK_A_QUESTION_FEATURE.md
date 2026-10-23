@@ -11,7 +11,7 @@ This document describes how the **Ask a Question** feature works in this reposit
 | Orchestration | `news_rag/insight/pipeline.py` | brief → gather → news_reader → compute → analyst → interpret → verify |
 | Logging | `news_rag/query_log.py` | One file per ask under `data/rag_query_logs/ask_*.log` |
 
-There is **no v1 ask agent** in the default path; `ASK_PIPELINE_V2` is kept for scripts but the engine always runs v2.
+There is **no v1 ask agent**; the engine always runs insight v2 (`ASK_PIPELINE_V2` in `.env` is ignored, kept for compatibility).
 
 ---
 

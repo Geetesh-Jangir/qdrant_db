@@ -137,6 +137,7 @@ class Settings(BaseSettings):
     retrieve_min_vector_score: float = 0.35
     tool_timeout_sec: float = 25.0
     judge_min_score: float = 0.65
+    # Ignored: v1 ask path removed. Kept so old .env values do not break startup.
     ask_pipeline_v2: bool = Field(
         default=True,
         validation_alias=AliasChoices("ASK_PIPELINE_V2", "ask_pipeline_v2"),

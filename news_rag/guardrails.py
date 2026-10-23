@@ -13,6 +13,12 @@ ADVICE_DISCLAIMER = (
     "We do not provide price predictions, forward-looking forecasts, or investment advice."
 )
 
+# Shown in API responses (`advice_note`); keep in sync with composer disclaimers.
+ADVICE_NOTE = (
+    "We provide fund data and news context only — not buy/sell/hold advice, "
+    "target prices, or predictions."
+)
+
 _OUT_OF_DOMAIN_MSG = (
     "This question is outside our financial data scope. "
     "Ask about mutual funds, sectors, stocks, commodities, or recent market news in India."

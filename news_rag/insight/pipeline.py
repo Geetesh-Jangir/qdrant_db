@@ -27,7 +27,7 @@ from news_rag.llm_client import (
 from news_rag.output_judge import JudgeResult
 # from news_rag.output_judge import judge_answer  # disabled temporarily
 from news_rag.prompts import build_composer_prompt
-from news_rag.query_analyzer import ADVICE_NOTE
+from news_rag.guardrails import ADVICE_NOTE
 from news_rag.query_log import attach_query_log_meta
 
 if True:
