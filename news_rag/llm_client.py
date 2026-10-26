@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import contextvars
+import hashlib
 import json
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -185,6 +186,83 @@ def router_model(settings: Settings | None = None) -> str:
     if (settings.rag_router_model or "").strip():
         return settings.rag_router_model.strip()
     return llm_model(settings)
+
+
+def planner_provider(settings: Settings | None = None) -> str:
+    """Provider for the structured planner node (may differ from composer)."""
+    settings = settings or get_settings()
+    raw = (settings.rag_planner_provider or "").strip().lower()
+    if raw in ("anthropic", "gemini", "deepseek"):
+        if raw == "anthropic" and not (settings.anthropic_api_key or "").strip():
+            if _gemini_fallback_available(settings):
+                return "gemini"
+        if raw == "gemini" and not (settings.gemini_api_key or "").strip():
+            return _effective_provider(settings)
+        return raw
+    return llm_provider(settings)
+
+
+def planner_model(settings: Settings | None = None) -> str:
+    settings = settings or get_settings()
+    override = (settings.rag_planner_model or "").strip()
+    if override:
+        return override
+    if planner_provider(settings) == "gemini":
+        return (settings.gemini_model or "gemini-3.5-flash-lite").strip()
+    return router_model(settings)
+
+
+_GEMINI_PLANNER_CACHE: dict[str, tuple[str, float]] = {}
+
+
+def _gemini_cached_content_ref(
+    settings: Settings,
+    *,
+    model: str,
+    system_prompt: str,
+    query_log: QueryLogger | None,
+    ttl_sec: int = 3600,
+) -> str | None:
+    """Create or reuse Gemini context cache for large static planner prompts."""
+    if len(system_prompt) < 3500:
+        return None
+    api_key = (settings.gemini_api_key or "").strip().strip('"')
+    if not api_key:
+        return None
+    digest = hashlib.sha256(f"{model}|{system_prompt}".encode()).hexdigest()[:20]
+    now = time.time()
+    hit = _GEMINI_PLANNER_CACHE.get(digest)
+    if hit and hit[1] > now:
+        return hit[0]
+
+    base = settings.gemini_base_url.rstrip("/")
+    url = f"{base}/cachedContents"
+    payload = {
+        "model": f"models/{model}",
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "ttl": f"{int(ttl_sec)}s",
+    }
+    try:
+        with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
+            response = client.post(
+                url,
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+    except Exception as exc:
+        if query_log is not None:
+            query_log.write(f"gemini_context_cache_create_failed error={str(exc)[:160]}")
+        return None
+
+    name = str(data.get("name") or "").strip()
+    if not name:
+        return None
+    _GEMINI_PLANNER_CACHE[digest] = (name, now + float(ttl_sec) - 30.0)
+    if query_log is not None:
+        query_log.write(f"gemini_context_cache_created name={name[:48]}")
+    return name
 
 
 def contract_model(settings: Settings | None = None) -> str:
@@ -418,6 +496,7 @@ def call_json_llm(
     system_prompt: str,
     user_content: str,
     model_override: str | None = None,
+    provider_override: str | None = None,
     max_tokens: int = 600,
     temperature: float = 0.0,
     query_log: QueryLogger | None = None,
@@ -425,9 +504,10 @@ def call_json_llm(
     response_schema: dict[str, Any] | None = None,
     stage: str | None = None,
     _repair_attempt: bool = False,
+    enable_gemini_context_cache: bool = False,
 ) -> LlmCallResult:
     settings = get_settings()
-    provider = _effective_provider(settings)
+    provider = (provider_override or "").strip().lower() or _effective_provider(settings)
     chosen_model = model_override or router_model(settings)
     parts = _blocks_to_parts(context_blocks, user_content)
     joined = "\n\n".join(parts)
@@ -444,6 +524,15 @@ def call_json_llm(
         if active_provider == "gemini":
             return chosen_model if provider == "gemini" else settings.gemini_model
         return chosen_model if provider == "deepseek" else settings.deepseek_model
+
+    gemini_cache_ref: str | None = None
+    if enable_gemini_context_cache and provider == "gemini":
+        gemini_cache_ref = _gemini_cached_content_ref(
+            settings,
+            model=_model_for("gemini"),
+            system_prompt=system_prompt + schema_text,
+            query_log=query_log,
+        )
 
     def _invoke(active_provider: str) -> LlmCallResult:
         if active_provider == "anthropic":
@@ -470,6 +559,7 @@ def call_json_llm(
                 response_schema=response_schema,
                 user_parts=parts,
                 query_log=query_log,
+                cached_content_name=gemini_cache_ref if active_provider == provider else None,
             )
         return _call_deepseek(
             settings,
@@ -861,6 +951,7 @@ def _call_gemini(
     response_schema: dict[str, Any] | None = None,
     user_parts: list[str] | None = None,
     query_log: QueryLogger | None,
+    cached_content_name: str | None = None,
 ) -> LlmCallResult:
     api_key = (settings.gemini_api_key or "").strip().strip('"')
     if not api_key:
@@ -884,11 +975,16 @@ def _call_gemini(
         contents = [{"role": "user", "parts": [{"text": part}]} for part in user_parts]
     else:
         contents = [{"role": "user", "parts": [{"text": user_content}]}]
-    payload = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
+    payload: dict[str, Any] = {
         "contents": contents,
         "generationConfig": gen_config,
     }
+    if cached_content_name:
+        payload["cachedContent"] = cached_content_name
+        if query_log is not None:
+            query_log.write(f"gemini_context_cache_use name={cached_content_name[:48]}")
+    else:
+        payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
     started = time.perf_counter()
     has_fallback = bool((settings.deepseek_api_key or "").strip())
     max_retries = 1 if has_fallback else 3
@@ -968,204 +1064,3 @@ def _call_gemini(
             cache_creation_tokens=0,
         )
     return result
-
-
-def _stream_deepseek(
-    settings: Settings,
-    system_prompt: str,
-    user_content: str,
-    *,
-    model: str | None = None,
-    max_tokens: int | None = None,
-    temperature: float = 0.25,
-) -> Iterator[str]:
-    api_key = (settings.deepseek_api_key or "").strip()
-    if not api_key:
-        raise RuntimeError("Set DEEPSEEK_API_KEY in .env")
-    url = settings.deepseek_base_url.rstrip("/") + "/chat/completions"
-    chosen_model = model or settings.deepseek_model
-    chosen_max_tokens = max_tokens or settings.llm_max_tokens
-    payload = {
-        "model": chosen_model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_content},
-        ],
-        "max_tokens": chosen_max_tokens,
-        "temperature": temperature,
-        "stream": True,
-    }
-    if not getattr(settings, "deepseek_thinking", False):
-        payload["thinking"] = {"type": "disabled"}
-
-    with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
-        with client.stream(
-            "POST",
-            url,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-        ) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                data_str = line[6:].strip()
-                if data_str == "[DONE]":
-                    break
-                try:
-                    chunk = json.loads(data_str)
-                    choices = chunk.get("choices") or []
-                    if choices:
-                        delta = choices[0].get("delta") or {}
-                        content = delta.get("content") or ""
-                        if content:
-                            yield content
-                except Exception:
-                    continue
-
-
-def _stream_gemini(
-    settings: Settings,
-    system_prompt: str,
-    user_content: str,
-    *,
-    model: str | None = None,
-    max_tokens: int | None = None,
-    temperature: float = 0.25,
-) -> Iterator[str]:
-    api_key = (settings.gemini_api_key or "").strip().strip('"')
-    if not api_key:
-        raise RuntimeError("Set GEMINI_API_KEY in .env")
-    chosen_model = (model or settings.gemini_model).strip()
-    base = settings.gemini_base_url.rstrip("/")
-    url = f"{base}/models/{chosen_model}:streamGenerateContent?alt=sse&key={api_key}"
-    chosen_max_tokens = max_tokens or settings.llm_max_tokens
-    payload = {
-        "contents": [{"role": "user", "parts": [{"text": user_content}]}],
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {
-            "temperature": temperature,
-            "maxOutputTokens": chosen_max_tokens,
-        },
-    }
-    with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
-        with client.stream(
-            "POST",
-            url,
-            headers={"Content-Type": "application/json"},
-            json=payload,
-        ) as response:
-            response.raise_for_status()
-            for line in response.iter_lines():
-                if not line or not line.startswith("data: "):
-                    continue
-                data_str = line[6:].strip()
-                try:
-                    chunk = json.loads(data_str)
-                    candidates = chunk.get("candidates") or []
-                    if candidates:
-                        content = candidates[0].get("content") or {}
-                        parts = content.get("parts") or []
-                        for p in parts:
-                            txt = p.get("text") or ""
-                            if txt:
-                                yield txt
-                except Exception:
-                    continue
-
-
-def stream_text_llm(
-    *,
-    system_prompt: str,
-    user_content: str,
-    model_override: str | None = None,
-    max_tokens: int = 2000,
-    temperature: float = 0.2,
-    query_log: QueryLogger | None = None,
-) -> Iterator[str]:
-    """Stream response tokens for composer using Anthropic, Gemini, or DeepSeek with fallback."""
-    settings = get_settings()
-    provider = _effective_provider(settings)
-    if provider == "anthropic":
-        try:
-            result = _call_anthropic(
-                settings,
-                system_prompt,
-                user_content,
-                model=model_override or settings.anthropic_model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                query_log=query_log,
-            )
-            if result.raw_text:
-                yield result.raw_text
-            return
-        except Exception as exc:
-            if _gemini_fallback_available(settings):
-                if query_log is not None:
-                    query_log.write(f"anthropic_stream_failed_falling_back_to_gemini error={exc}")
-                yield from _stream_gemini(
-                    settings,
-                    system_prompt,
-                    user_content,
-                    model=model_override or composer_model(settings),
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
-                return
-            raise
-    if provider == "deepseek" and not deepseek_in_cooldown():
-        try:
-            yield from _stream_deepseek(
-                settings,
-                system_prompt,
-                user_content,
-                model=model_override or settings.deepseek_model,
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
-            return
-        except Exception as exc:
-            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None and exc.response.status_code == 402:
-                _mark_deepseek_402(query_log)
-            elif "402" in str(exc) or "insufficient balance" in str(exc).lower():
-                _mark_deepseek_402(query_log)
-            if settings.gemini_api_key and settings.gemini_api_key.strip():
-                if query_log is not None:
-                    query_log.write(f"deepseek_stream_failed_falling_back_to_gemini error={exc}")
-                yield from _stream_gemini(
-                    settings,
-                    system_prompt,
-                    user_content,
-                    model=model_override or composer_model(settings),
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
-                return
-            raise
-    else:
-        try:
-            yield from _stream_gemini(
-                settings,
-                system_prompt,
-                user_content,
-                model=model_override or composer_model(settings),
-                max_tokens=max_tokens,
-                temperature=temperature,
-            )
-        except Exception as exc:
-            if settings.deepseek_api_key and settings.deepseek_api_key.strip() and not deepseek_in_cooldown():
-                if query_log is not None:
-                    query_log.write(f"gemini_stream_failed_falling_back_to_deepseek error={exc}")
-                yield from _stream_deepseek(
-                    settings,
-                    system_prompt,
-                    user_content,
-                    model=model_override or settings.deepseek_model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                )
-                return
-            raise
-
-

@@ -87,23 +87,38 @@ def attribute_rows(
     }
 
 
-def render_attribution_table(attr: dict[str, Any]) -> str:
+def render_attribution_table(attr: dict[str, Any], *, include_contribution: bool = False) -> str:
+    if include_contribution:
+        lines = [
+            "| Holding | Weight % | Return % | Contribution (pp) |",
+            "| --- | ---: | ---: | ---: |",
+        ]
+        for r in attr.get("rows") or []:
+            ret = r.get("return_pct")
+            contrib = r.get("contribution_pct")
+            lines.append(
+                f"| {short_holding_name(str(r.get('name') or ''))} | {r.get('weight_pct'):.2f} | "
+                f"{'' if ret is None else f'{ret:.2f}'} | "
+                f"{'' if contrib is None else f'{contrib:.2f}'} |"
+            )
+        if attr.get("unexplained_pct") is not None:
+            lines.append(f"| Other / unexplained |  |  | {float(attr['unexplained_pct']):.2f} |")
+        if attr.get("fund_return_pct") is not None:
+            lines.append(f"| Fund total |  |  | {float(attr['fund_return_pct']):.2f} |")
+        return "\n".join(lines)
+
     lines = [
-        "| Holding | Weight % | Return % | Contribution (pp) |",
-        "| --- | ---: | ---: | ---: |",
+        "| Holding | Weight % | Return % |",
+        "| --- | ---: | ---: |",
     ]
     for r in attr.get("rows") or []:
         ret = r.get("return_pct")
-        contrib = r.get("contribution_pct")
         lines.append(
             f"| {short_holding_name(str(r.get('name') or ''))} | {r.get('weight_pct'):.2f} | "
-            f"{'' if ret is None else f'{ret:.2f}'} | "
-            f"{'' if contrib is None else f'{contrib:.2f}'} |"
+            f"{'' if ret is None else f'{ret:.2f}'} |"
         )
-    if attr.get("unexplained_pct") is not None:
-        lines.append(f"| Other / unexplained |  |  | {float(attr['unexplained_pct']):.2f} |")
     if attr.get("fund_return_pct") is not None:
-        lines.append(f"| Fund total |  |  | {float(attr['fund_return_pct']):.2f} |")
+        lines.append(f"| Fund return (window) |  | {float(attr['fund_return_pct']):.2f} |")
     return "\n".join(lines)
 
 
@@ -169,13 +184,33 @@ def company_news_line(news: str, name: str, *, title: str = "") -> str:
     return ""
 
 
-def _join_names(rows: list[dict[str, Any]]) -> str:
-    names = [short_holding_name(str(r.get("name") or "")) for r in rows if r.get("name")]
-    if not names:
+def _holding_move_stats(row: dict[str, Any]) -> str:
+    weight = row.get("weight_pct")
+    ret = row.get("return_pct")
+    bits: list[str] = []
+    if weight is not None:
+        bits.append(f"weight {float(weight):.2f}%")
+    if ret is not None:
+        sign = "+" if float(ret) > 0 else ""
+        bits.append(f"return {sign}{float(ret):.2f}%")
+    return ", ".join(bits)
+
+
+def _format_holding_move_line(row: dict[str, Any]) -> str:
+    name = short_holding_name(str(row.get("name") or ""))
+    stats = _holding_move_stats(row)
+    if stats:
+        return f"{name} ({stats})"
+    return name
+
+
+def _join_holding_moves(rows: list[dict[str, Any]]) -> str:
+    bits = [_format_holding_move_line(r) for r in rows if r.get("name")]
+    if not bits:
         return ""
-    if len(names) == 1:
-        return names[0]
-    return ", ".join(names[:-1]) + " and " + names[-1]
+    if len(bits) == 1:
+        return bits[0]
+    return ", ".join(bits[:-1]) + " and " + bits[-1]
 
 
 def render_investor_answer(
@@ -193,8 +228,6 @@ def render_investor_answer(
     ret = attr.get("fund_return_pct")
     detractors = list(attr.get("detractors") or [])
     contributors = list(attr.get("contributors") or [])
-    drag_sum = round(sum(float(r["contribution_pct"]) for r in detractors), 2) if detractors else None
-    off_sum = round(sum(float(r["contribution_pct"]) for r in contributors), 2) if contributors else None
     window = window_label or "the measured window"
     name = fund_name or "The fund"
 
@@ -204,33 +237,25 @@ def render_investor_answer(
         opening = f"**{name}** returned **{float(ret):.2f}%** over **{window}**."
 
     bits: list[str] = []
-    if detractors and drag_sum is not None:
-        bits.append(
-            f"{_join_names(detractors)} pulled it down by **{drag_sum:.2f}** percentage points."
-        )
-    if contributors and off_sum is not None:
-        bits.append(
-            f"{_join_names(contributors)} offset **{off_sum:+.2f}** percentage points."
-        )
-    if attr.get("explained_pct") is not None and attr.get("unexplained_pct") is not None:
-        bits.append(
-            f"Holdings with a price explain **{float(attr['explained_pct']):.2f}** percentage points. "
-            f"**{float(attr['unexplained_pct']):.2f}** percentage points are not explained by those holdings."
-        )
+    if detractors:
+        bits.append(f"**Detractors:** {_join_holding_moves(detractors)}.")
+    if contributors:
+        bits.append(f"**Contributors:** {_join_holding_moves(contributors)}.")
 
     sections = [opening, "", " ".join(bits), "", "### What moved the fund", "", render_attribution_table(attr), ""]
 
     news_lines: list[str] = []
     for row in detractors + contributors:
         label = short_holding_name(str(row.get("name") or ""))
-        contrib = float(row.get("contribution_pct") or 0)
         line = company_news_line(str(row.get("news") or ""), label, title=str(row.get("news_title") or ""))
         if not line:
             continue
         url = str(row.get("news_url") or "").strip()
         if url:
             line = f"{line} [source]({url})"
-        news_lines.append(f"- **{label}** ({contrib:+.2f} percentage points): {line}")
+        stats = _holding_move_stats(row)
+        prefix = f"- **{label}** ({stats}): " if stats else f"- **{label}**: "
+        news_lines.append(prefix + line)
     if news_lines:
         sections.extend(["### What the news adds", ""] + news_lines + [""])
 

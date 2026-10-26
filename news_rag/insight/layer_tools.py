@@ -10,8 +10,6 @@ from typing import Any
 
 from news_rag.insight.registry import ToolSpec, register
 
-WINDOWS = ("1D", "1W", "1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y")
-MACRO_SERIES = ("crude", "brent", "wti", "usdinr", "gold", "silver", "yield")
 # Default `crude` uses ICE Brent (BZ=F) — closer to India import basket than WTI.
 _SERIES_TICKER = {
     "crude": ("BZ=F", "Brent crude (ICE)"),
@@ -67,114 +65,6 @@ ARG_HELP: dict[str, str] = {
 }
 
 
-def _clamp_int(value: Any, lo: int, hi: int, default: int) -> int:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return default
-    return max(lo, min(hi, number))
-
-
-def _windows(value: Any, default: tuple[str, ...]) -> list[str]:
-    raw = value if isinstance(value, list) else []
-    out = [str(v).strip().upper() for v in raw if str(v).strip().upper() in WINDOWS]
-    return out or list(default)
-
-
-def clamp_tool_args(name: str, args: Any) -> dict[str, Any]:
-    """Keep only known args and force them into range. Unknown keys are dropped."""
-    src = args if isinstance(args, dict) else {}
-    if name == "fund_snapshot":
-        return {"windows": _windows(src.get("windows"), ("1M",))}
-    if name == "fund_portfolio":
-        out: dict[str, Any] = {
-            "top_n_holdings": _clamp_int(src.get("top_n_holdings"), 1, 50, 3),
-            "top_n_sectors": _clamp_int(src.get("top_n_sectors"), 1, 20, 3),
-            "include_count": bool(src.get("include_count")),
-        }
-        find = str(src.get("find") or "").strip()
-        if find:
-            out["find"] = find[:80]
-        return out
-    if name == "fund_return_series":
-        return {"window_days": _clamp_int(src.get("window_days"), 7, 365, 180)}
-    if name == "fund_attribution":
-        return {
-            "window_days": _clamp_int(src.get("window_days"), 7, 365, 30),
-            "top_n": _clamp_int(src.get("top_n"), 3, 12, 3),
-        }
-    if name == "index_return":
-        return {
-            "index": str(src.get("index") or "nifty50").strip()[:80] or "nifty50",
-            "window_days": _clamp_int(src.get("window_days"), 1, 365, 30),
-        }
-    if name == "sector_ranking":
-        return {
-            "window_days": _clamp_int(src.get("window_days"), 7, 365, 30),
-            "top_n": _clamp_int(src.get("top_n"), 3, 12, 6),
-        }
-    if name == "macro_series":
-        series = [str(v).strip().lower() for v in (src.get("series") or []) if str(v).strip().lower() in MACRO_SERIES]
-        return {
-            "series": series or ["crude", "usdinr"],
-            "window_days": _clamp_int(src.get("window_days"), 1, 365, 30),
-        }
-    if name == "stock_snapshot":
-        return {"windows": _windows(src.get("windows"), ("1W", "1M"))}
-    if name == "compare_funds":
-        return {"overlap": bool(src.get("overlap"))}
-    if name in ("sector_holdings", "stock_holders"):
-        return {"top_n": _clamp_int(src.get("top_n"), 1, 20, 5)}
-    if name == "screen_funds":
-        window = str(src.get("return_window") or "1M").strip().upper()
-        return {"return_window": window if window in WINDOWS else "1M"}
-    return {}
-
-
-NEWS_SCOPES = ("holdings", "sectors", "macro", "stock", "sector", "market")
-
-
-def clamp_news_scope(raw: Any, *, default_window: int) -> dict[str, Any] | None:
-    if not isinstance(raw, dict):
-        return None
-    scope = str(raw.get("scope") or "").strip().lower()
-    if scope not in NEWS_SCOPES:
-        return None
-    source = raw.get("source")
-    if isinstance(source, list):
-        topics = [str(v).strip() for v in source if str(v).strip()][:8]
-        source_kind = "list"
-    else:
-        topics = []
-        source_kind = "layer1"
-    direction = str(raw.get("direction") or "any").strip().lower()
-    if direction not in ("any", "positive", "negative"):
-        direction = "any"
-    if scope == "market":
-        if source_kind == "list" and topics:
-            default_top = min(len(topics), 8)
-        else:
-            from news_rag.insight.market_news import MARKET_PULSE_THEME_COUNT
-
-            default_top = MARKET_PULSE_THEME_COUNT
-        top_n = _clamp_int(raw.get("top_n"), 1, 8, default_top)
-        default_articles = 3
-    else:
-        top_n = _clamp_int(raw.get("top_n"), 1, 15, 3)
-        default_articles = 2
-    return {
-        "scope": scope,
-        "source": source_kind,
-        "topics": topics,
-        "top_n": top_n,
-        "window_days": _clamp_int(raw.get("window_days"), 1, 180, default_window),
-        "direction": direction,
-        "articles_per_entity": _clamp_int(raw.get("articles_per_entity"), 1, 4, default_articles),
-        "chars_per_article": _clamp_int(raw.get("chars_per_article"), 200, 1600, 900),
-        "required": bool(raw.get("required", True)),
-    }
-
-
 # ---------------------------------------------------------------------------
 # Adapters
 # ---------------------------------------------------------------------------
@@ -193,19 +83,18 @@ def run_fund_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
     if not out.get("ok"):
         return out
     data = dict(out.get("data") or {})
-    windows = set(ctx.get("windows") or ["1M"])
+    windows = list(ctx.get("windows") or ["1W", "1M", "3M", "6M", "1Y"])
     rets = data.get("returns") if isinstance(data.get("returns"), dict) else {}
-    key_map = {
-        "1D": "1D", "1W": "1W", "1M": "1M", "3M": "3M", "6M": "6M",
-        "1Y": "1Y", "3Y": "3Y", "5Y": "5Y",
-    }
-    picked = {key_map[w]: rets.get(key_map[w]) for w in windows if key_map.get(w) and rets.get(key_map[w]) is not None}
-    # Catalog keys vary (return_1m, 1M, ...). Keep any key that mentions the window.
-    if not picked and rets:
+    want = {str(w).upper() for w in windows}
+    picked: dict[str, Any] = {}
+    for w in sorted(want, key=len):
         for key, val in rets.items():
+            if val is None:
+                continue
             label = str(key).upper().replace("RETURN_", "").replace("_PCT", "")
-            if label in windows or any(w in label for w in windows):
-                picked[str(key)] = val
+            if label == w:
+                picked[w] = val
+                break
     data["returns"] = picked or rets
     data.pop("isin", None)
     return {"ok": True, "data": data}
@@ -213,6 +102,7 @@ def run_fund_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
 
 def run_fund_portfolio(ctx: dict[str, Any]) -> dict[str, Any]:
     from news_rag.fund_search import (
+        aggregate_sectors_from_holdings,
         extract_top_holdings,
         extract_top_sectors,
         normalize_holding_row,
@@ -236,6 +126,23 @@ def run_fund_portfolio(ctx: dict[str, Any]) -> dict[str, Any]:
         if n_sec
         else []
     )
+    sectors_from_holdings = False
+    holdings_fallback = False
+    if n_sec and not sectors:
+        rolled = aggregate_sectors_from_holdings(
+            extract_top_holdings(detail, limit=300),
+            limit=max(n_sec, 20),
+        )
+        if rolled:
+            sectors = [normalize_sector_row(s) for s in rolled]
+            sectors_from_holdings = True
+        elif not n_hold:
+            n_hold = n_sec
+            holdings = [
+                normalize_holding_row(h)
+                for h in extract_top_holdings(detail, limit=max(n_hold, 50))
+            ][:n_hold]
+            holdings_fallback = True
     find = str(ctx.get("find") or "").strip().lower()
     matched = [h for h in holdings if find and find in str(h.get("name") or "").lower()] if find else []
     data: dict[str, Any] = {
@@ -243,6 +150,8 @@ def run_fund_portfolio(ctx: dict[str, Any]) -> dict[str, Any]:
         "as_on": detail.get("as_on"),
         "holdings": (matched or holdings)[:n_hold] if n_hold else [],
         "sectors": sectors[:n_sec] if n_sec else [],
+        "sectors_from_holdings": sectors_from_holdings,
+        "holdings_fallback": holdings_fallback,
     }
     if ctx.get("include_count") or find:
         data["holding_count"] = len(extract_top_holdings(detail, limit=500))
@@ -292,10 +201,28 @@ def run_index_return_tool(ctx: dict[str, Any]) -> dict[str, Any]:
     window = int(ctx.get("window_days") or 30)
     low = index.lower()
     if low in ("benchmark", "scheme") and ctx.get("fund_names"):
+        from news_rag.insight.index_series import nifty50_reference_returns, scheme_benchmark_metadata
+
         detail = _detail(ctx)
-        bench = str((detail or {}).get("benchmark") or "Nifty 50")
-        row = benchmark_return_for_scheme(bench, category=str((detail or {}).get("category") or ""), window_days=window)
-        return {"ok": row.get("return_pct") is not None, "data": row, "error": "" if row.get("return_pct") is not None else "no_price"}
+        bench = str((detail or {}).get("benchmark") or "")
+        meta = scheme_benchmark_metadata(bench)
+        nifty_by_window: dict[str, float | None] = {}
+        for label, days in (("1W", 7), ("1M", 30), ("3M", 90), ("6M", 180), ("1Y", 365)):
+            ref = nifty50_reference_returns(window_days=days)
+            nifty_by_window[label] = ref.get("return_pct")
+        row = {
+            **meta,
+            "nifty50_reference": {
+                "name": "Nifty 50",
+                "returns_pct": nifty_by_window,
+                "note": "Broad market reference only — not the scheme benchmark index return.",
+            },
+        }
+        return {
+            "ok": any(v is not None for v in nifty_by_window.values()),
+            "data": row,
+            "error": "",
+        }
     if low in ("nifty", "nifty50", "nifty 50"):
         row = index_return_for_sector("Nifty 50", window_days=window)
         row["benchmark_label"] = "Nifty 50"

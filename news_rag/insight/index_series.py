@@ -109,38 +109,46 @@ def worst_sector_by_return(window_days: int = 365) -> tuple[str, float | None]:
     return ranked[0]
 
 
+def scheme_benchmark_metadata(benchmark_name: str) -> dict[str, Any]:
+    """Catalog benchmark name only — no implied index return."""
+    raw = (benchmark_name or "").strip()
+    return {
+        "scheme_benchmark_name": raw or "Not listed",
+        "indexed_returns_available": False,
+    }
+
+
+def nifty50_reference_returns(*, window_days: int = 30) -> dict[str, Any]:
+    """Nifty 50 price return — label as market reference, never as scheme benchmark."""
+    ticker = nifty50_ticker()
+    key = f"nifty50_ref_{window_days}"
+    cached = _read_cache(key)
+    if cached is not None:
+        return cached
+    pct = _yf_return_pct(ticker, window_days)
+    out = {
+        "reference_name": "Nifty 50",
+        "return_pct": pct,
+        "yfinance_ticker": ticker,
+        "window_days": window_days,
+        "is_scheme_benchmark": False,
+    }
+    if pct is not None:
+        _write_cache(key, out)
+    return out
+
+
 def benchmark_return_for_scheme(
     benchmark_name: str,
     *,
     category: str = "",
     window_days: int = 30,
 ) -> dict[str, Any]:
-    """Scheme benchmark from the fund catalog; uses Nifty 50 when the index has no price feed."""
-    raw = (benchmark_name or "").strip()
-    low = raw.lower()
-    cat = (category or "").lower()
-    ticker = nifty50_ticker()
-    label = raw or "Nifty 50"
-    proxy_note = ""
-    if "bse 100" in low or "large cap" in cat or "mid cap" in cat:
-        proxy_note = " (Nifty 50 used as a tradable proxy for the move)"
-    elif "nifty 50" not in low and "sensex" not in low and raw:
-        proxy_note = " (Nifty 50 used as a broad-market proxy)"
-    key = f"scheme_bench_{label}_{window_days}"
-    cached = _read_cache(key)
-    if cached is not None:
-        return cached
-    pct = _yf_return_pct(ticker, window_days)
-    out = {
-        "benchmark_label": label + proxy_note,
-        "return_pct": pct,
-        "yfinance_ticker": ticker,
-        "window_days": window_days,
-        "scheme_benchmark_raw": raw,
-    }
-    if pct is not None:
-        _write_cache(key, out)
-    return out
+    """Deprecated path: returns Nifty 50 reference only, not scheme benchmark performance."""
+    _ = category
+    meta = scheme_benchmark_metadata(benchmark_name)
+    ref = nifty50_reference_returns(window_days=window_days)
+    return {**meta, **ref, "scheme_benchmark_raw": meta.get("scheme_benchmark_name")}
 
 
 def index_return_for_sector(

@@ -327,17 +327,6 @@ def _sector_label_in_text(sector_key: str, text: str) -> bool:
     return False
 
 
-def sectors_from_article_industries(articles: list[dict]) -> list[str]:
-    """Infer sector keys from industry_names only (not stock/ETF entity tags)."""
-    labels: list[str] = []
-    for a in articles:
-        for ind in a.get("industry_names") or []:
-            labels.append(str(ind))
-    idx = get_sector_fund_ranking_index()
-    keys = idx.resolve_sector_keys(labels)
-    return [k for k in keys if k.casefold() not in _ARTICLE_INFER_BLOCKLIST]
-
-
 _index: SectorFundRankingIndex | None = None
 _index_lock = threading.Lock()
 def sector_ranking_index_path() -> Path:
@@ -347,13 +336,6 @@ def sector_ranking_index_path() -> Path:
 
 def sector_ranking_data_available() -> bool:
     return sector_ranking_index_path().is_file()
-
-
-def clear_sector_fund_ranking_index_cache() -> None:
-    """Call after uploading sector_to_isin_weights.json (no restart required)."""
-    global _index
-    with _index_lock:
-        _index = None
 
 
 def get_sector_fund_ranking_index() -> SectorFundRankingIndex:

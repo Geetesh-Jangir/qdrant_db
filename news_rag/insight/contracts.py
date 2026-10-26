@@ -94,6 +94,8 @@ class ExecutionPlan(BaseModel):
     max_words: int = 220
     lead_with: str = ""
     presentation_notes: str = ""
+    concept_brief: str = ""
+    requires_compose: bool = False
     asks_for_advice: bool = False
     asks_not_supported: list[str] = Field(default_factory=list)
     sub_queries: list[dict[str, Any]] = Field(default_factory=list)
@@ -102,6 +104,9 @@ class ExecutionPlan(BaseModel):
     # Routing metadata
     routed_by: str = ""     # "slot_router" or "planner"
     confidence: float = 1.0
+    # Planner's own reading of the question (count + portfolio slice). Not regex.
+    planner_count: int = 0
+    planner_portfolio_slice: str = ""
 
     @property
     def wave1_calls(self) -> list[ToolCall]:
@@ -175,29 +180,51 @@ class EvidencePack(BaseModel):
     token_budget: int = 12000
     data_pack: dict[str, Any] = Field(default_factory=dict)
     news_grouped: dict[str, Any] = Field(default_factory=dict)
+    performance_digest: dict[str, Any] = Field(default_factory=dict)
+    display_tables: dict[str, str] = Field(default_factory=dict)
+    display_table_policy: dict[str, Any] = Field(default_factory=dict)
     coverage: dict[str, Any] = Field(default_factory=dict)
     missing: list[str] = Field(default_factory=list)
 
     def compact(self) -> dict[str, Any]:
         """Serialise for the composer prompt, respecting the token budget."""
         import json
+
+        from news_rag.insight.pack_sanitize import (
+            merge_holding_pp_into_performance,
+            sanitize_data_pack_for_composer,
+        )
+        from news_rag.insight.pack_trim import trim_news_grouped
+
+        data_pack, pp_internal = sanitize_data_pack_for_composer(self.data_pack)
+        performance = merge_holding_pp_into_performance(self.performance_digest, pp_internal)
+
         out: dict[str, Any] = {}
-        if self.data_pack:
-            out["DATA"] = self.data_pack
-        if self.news_grouped:
-            out["NEWS"] = self.news_grouped
+        if performance:
+            out["PERFORMANCE"] = performance
+        if self.display_tables:
+            out["DISPLAY"] = self.display_tables
+        if data_pack:
+            out["DATA"] = data_pack
+        news = self.news_grouped
+        if news:
+            out["NEWS"] = news
         if self.missing:
             out["MISSING"] = self.missing
         if self.coverage:
             out["COVERAGE"] = self.coverage
         if self.limitations:
             out["LIMITATIONS"] = self.limitations
-        # Trim if over budget
         text = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
-        if len(text) > self.token_budget * 4:  # rough char→token ratio
-            # Drop news bodies first
-            if "NEWS" in out:
-                del out["NEWS"]
+        budget_chars = self.token_budget * 4
+        if len(text) > budget_chars and "NEWS" in out:
+            for cap in (18, 12, 8):
+                out["NEWS"] = trim_news_grouped(news, max_articles=cap)
+                text = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
+                if len(text) <= budget_chars:
+                    break
+            if len(text) > budget_chars:
+                out["NEWS"] = trim_news_grouped(news, max_articles=6)
         return out
 
 

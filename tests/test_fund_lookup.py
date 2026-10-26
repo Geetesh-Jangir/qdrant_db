@@ -63,6 +63,59 @@ def test_extract_nav_without_fund_word() -> None:
     assert "PPFAS" in short_name or "Parag Parikh" in short_name
 
 
+def test_absl_nifty_50_etf_not_momentum_200() -> None:
+    for question, expected_isin in (
+        ("what are the top 5 sectors of absl nifty 50 etf", "INF209KB19D1"),
+        ("INF209KB19D1", "INF209KB19D1"),
+        ("Aditya Birla Sun Life Nifty 50 ETF", "INF209KB19D1"),
+    ):
+        detail, ambiguous, _ = resolve_fund_for_query(question)
+        assert not ambiguous, question
+        assert detail is not None, question
+        assert detail.get("isin") == expected_isin, (question, detail.get("fund_short_name"))
+
+
+def test_angel_one_nifty_total_market_index_from_catalog() -> None:
+    for question in (
+        "what are the top 5 sectors of angel one nifty total market index fund",
+        "what are the top 5 sectors of angel one total market index fund",
+    ):
+        detail, ambiguous, _ = resolve_fund_for_query(question)
+        assert not ambiguous, question
+        assert detail is not None, question
+        assert detail.get("isin") == "INF1J2R01031"
+
+
+def test_absl_conservative_hybrid_active_fof() -> None:
+    q = "what are the top 5 sectors of absl Conservative Hybrid Active FOF"
+    detail, ambiguous, _ = resolve_fund_for_query(q)
+    assert not ambiguous
+    assert detail is not None
+    assert detail.get("isin") == "INF084M01044"
+    name = (detail.get("fund_short_name") or "").lower()
+    assert "conservative hybrid active" in name
+
+
+def test_absl_nifty_50_index_fund_when_fund_wording() -> None:
+    detail, ambiguous, _ = resolve_fund_for_query("what are the top 5 sectors of absl nifty 50 fund")
+    assert not ambiguous
+    assert detail is not None
+    assert detail.get("isin") == "INF209K01LB2"
+
+
+def test_absl_and_ppfas_shorthand() -> None:
+    for question, needle in (
+        ("top 3 sectors of absl large cap", "aditya birla"),
+        ("ppfas large cap sectors", "parag parikh"),
+        ("what are the top holdings of ppfas flexi cap", "parag parikh"),
+    ):
+        detail, ambiguous, _ = resolve_fund_for_query(question)
+        assert not ambiguous, question
+        assert detail is not None, question
+        name = (detail.get("fund_short_name") or detail.get("fund_name") or "").lower()
+        assert needle in name, (question, name)
+
+
 def test_invested_hdfc_large_cap_not_large_mid() -> None:
     q = (
         "I have invested in the HDFC large cap fund, "

@@ -9,7 +9,6 @@ entirely for instant lookup answers (<500ms).
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
@@ -23,12 +22,132 @@ from news_rag.insight.contracts import (
 logger = logging.getLogger(__name__)
 
 
+def _fund_performance_digest(data_pack: dict[str, Any]) -> dict[str, Any]:
+    """Compact NAV/returns/benchmark for composer — kept even when NEWS is trimmed."""
+    for key, block in data_pack.items():
+        if not str(key).startswith("fund:") or not isinstance(block, dict):
+            continue
+        snap = block.get("snapshot")
+        if not isinstance(snap, dict):
+            snap = block if block.get("nav") is not None else {}
+        if not snap:
+            continue
+        name = (
+            snap.get("fund_name")
+            or snap.get("fund_short_name")
+            or str(key).replace("fund:", "")
+        )
+        digest: dict[str, Any] = {"fund_name": name}
+        nav = snap.get("nav")
+        if nav is not None:
+            digest["nav"] = nav
+        day = snap.get("day_change_pct")
+        if day is None:
+            day = snap.get("day_change")
+        if day is not None:
+            digest["day_change_pct"] = day
+        rets = snap.get("returns")
+        if isinstance(rets, dict) and rets:
+            digest["returns_pct"] = {
+                str(k).upper().replace("RETURN_", ""): v
+                for k, v in rets.items()
+                if v is not None
+            }
+        if snap.get("category"):
+            digest["category"] = snap.get("category")
+        if snap.get("benchmark"):
+            digest["scheme_benchmark_name"] = snap.get("benchmark")
+        if snap.get("nav_date"):
+            digest["nav_date"] = snap.get("nav_date")
+        if snap.get("high_52w") is not None:
+            digest["52_week_high"] = snap.get("high_52w")
+        if snap.get("low_52w") is not None:
+            digest["52_week_low"] = snap.get("low_52w")
+        r52 = snap.get("52_week_range")
+        if isinstance(r52, dict) and r52.get("low") is not None:
+            digest["52_week_range"] = r52
+
+        series = block.get("return_series")
+        if isinstance(series, dict):
+            wr = series.get("fund_return")
+            if wr is None:
+                wr = series.get("window_pct")
+            if wr is not None:
+                digest["nav_history_window_pct"] = wr
+                digest["nav_history_window_days"] = series.get("window_days")
+
+        attr = block.get("attribution")
+        if isinstance(attr, dict):
+            if attr.get("fund_return") is not None:
+                digest["attribution_fund_return_pct"] = attr.get("fund_return")
+            from news_rag.insight.pack_sanitize import _display_holding_row, _internal_contribution_row
+
+            top_pos = []
+            internal_pos = []
+            for row in (attr.get("contributors") or attr.get("top_contributors") or [])[:3]:
+                if isinstance(row, dict):
+                    top_pos.append(_display_holding_row(row))
+                    internal_pos.append(_internal_contribution_row(row))
+            top_neg = []
+            internal_neg = []
+            for row in (attr.get("detractors") or [])[:3]:
+                if isinstance(row, dict):
+                    top_neg.append(_display_holding_row(row))
+                    internal_neg.append(_internal_contribution_row(row))
+            if top_pos:
+                digest["top_contributors"] = top_pos
+            if top_neg:
+                digest["top_detractors"] = top_neg
+            if internal_pos or internal_neg:
+                digest["holding_contribution_pp_internal"] = {
+                    "contributors": internal_pos,
+                    "detractors": internal_neg,
+                }
+
+        insights = block.get("fund_insights")
+        if isinstance(insights, dict):
+            if insights.get("category"):
+                digest["category"] = insights.get("category")
+            if insights.get("category_average_returns_pct"):
+                digest["category_average_returns_pct"] = insights["category_average_returns_pct"]
+            if insights.get("fund_returns_short_horizon_pct"):
+                digest["fund_returns_short_horizon_pct"] = insights["fund_returns_short_horizon_pct"]
+        vs = block.get("vs_benchmark")
+        if isinstance(vs, dict):
+            digest["vs_benchmark"] = vs
+            if vs.get("benchmark_name"):
+                digest["benchmark_name"] = vs.get("benchmark_name")
+        if isinstance(insights, dict) and insights.get("comparison_periods"):
+            digest["comparison_periods"] = insights["comparison_periods"]
+        if isinstance(insights, dict) and insights.get("fund_returns_pct"):
+            digest["fund_returns_pct"] = insights["fund_returns_pct"]
+
+        bench = data_pack.get("market")
+        if isinstance(bench, dict):
+            idx = bench.get("index_return") or bench
+            if isinstance(idx, dict):
+                if idx.get("scheme_benchmark_name"):
+                    digest["scheme_benchmark_name"] = idx.get("scheme_benchmark_name")
+                nifty_block = idx.get("nifty50_reference")
+                if isinstance(nifty_block, dict):
+                    by_w = nifty_block.get("returns_pct")
+                    if isinstance(by_w, dict) and by_w:
+                        digest["nifty50_returns_pct"] = {
+                            str(k).upper(): v for k, v in by_w.items() if v is not None
+                        }
+                    digest["nifty50_reference_note"] = nifty_block.get("note")
+
+        return digest
+    return {}
+
+
 def build_evidence_pack(
     plan: ExecutionPlan,
     wave1_results: list[dict[str, Any]],
     wave2_results: list[dict[str, Any]],
     *,
     token_budget: int = 10000,
+    question: str = "",
 ) -> EvidencePack:
     """Join Wave 1 and Wave 2 results into a structured EvidencePack."""
     rows: list[EvidenceRow] = []
@@ -176,12 +295,27 @@ def build_evidence_pack(
         "has_news": bool(news_grouped),
     }
 
+    perf = _fund_performance_digest(data_pack)
+    from news_rag.insight.fund_display import build_fund_display_tables
+
+    from news_rag.insight.display_table_policy import (
+        filter_display_tables,
+        resolve_display_table_policy,
+    )
+
+    all_tables = build_fund_display_tables(data_pack, digest=perf, question=question)
+    table_policy = resolve_display_table_policy(question, plan)
+    display_tables = filter_display_tables(all_tables, table_policy)
+
     return EvidencePack(
         rows=rows,
         limitations=limitations,
         token_budget=token_budget,
         data_pack=data_pack,
         news_grouped=news_grouped,
+        performance_digest=perf,
+        display_tables=display_tables,
+        display_table_policy=table_policy.for_composer(),
         coverage=coverage,
         missing=missing,
     )
@@ -312,6 +446,22 @@ def _render_fund_managers_markdown(mgr: dict[str, Any], plan: ExecutionPlan) -> 
     return "\n".join(lines)
 
 
+def _portfolio_sections_from_plan(plan: ExecutionPlan) -> list[str]:
+    from news_rag.insight.portfolio_plan import portfolio_sections_from_plan
+
+    return portfolio_sections_from_plan(plan)
+
+
+def _portfolio_top_n(plan: ExecutionPlan) -> int:
+    for call in plan.tool_calls:
+        if call.tool == "get_portfolio_data":
+            try:
+                return max(1, min(20, int((call.arguments or {}).get("top_n") or 3)))
+            except (TypeError, ValueError):
+                return 5
+    return 5
+
+
 def render_data_only_template(
     pack: EvidencePack,
     plan: ExecutionPlan,
@@ -321,6 +471,9 @@ def render_data_only_template(
     Returns None if the data doesn't have the required structure,
     triggering fall-through to the composer LLM.
     """
+    if plan.requires_compose or (plan.concept_brief or "").strip():
+        return None
+
     data = pack.data_pack
     if not data:
         return None
@@ -334,6 +487,26 @@ def render_data_only_template(
         mgr_block = f_data.get("managers")
         if isinstance(mgr_block, dict) and (mgr_block.get("current") or mgr_block.get("past")):
             return _render_fund_managers_markdown(mgr_block, plan)
+
+        dt = pack.display_tables or {}
+        if dt.get("category_average_table") and plan.goal and "category average" in plan.goal.lower():
+            name = dt.get("_title") or (plan.funds[0] if plan.funds else "Fund")
+            cat = (f_data.get("fund_insights") or {}).get("category") or ""
+            lines = [f"### Category average — {name}"]
+            if cat:
+                lines.append(f"**Category:** {cat}")
+            lines.append("")
+            lines.append(dt["category_average_table"])
+            if dt.get("vs_benchmark_table"):
+                lines.extend(["", "### Fund vs benchmark (1Y / 3Y / 5Y)", "", dt["vs_benchmark_table"]])
+            return "\n".join(lines)
+
+        if dt.get("vs_benchmark_table") and plan.answer_mode == AnswerMode.DATA_ONLY:
+            name = dt.get("_title") or (plan.funds[0] if plan.funds else "Fund")
+            lines = [f"### Returns — {name}", "", dt["vs_benchmark_table"]]
+            if dt.get("short_horizon_vs_category_table"):
+                lines.extend(["", dt["short_horizon_vs_category_table"]])
+            return "\n".join(lines)
 
         snap = f_data.get("snapshot") or (f_data if f_data.get("nav") is not None else {})
         if snap and snap.get("nav") is not None:
@@ -381,23 +554,65 @@ def render_data_only_template(
             if _holding_label(h) != "—" and _holding_weight_pct(h) > 0
         ]
 
-        if sector_rows and not holding_rows:
-            lines = [f"### Top sector allocation — {fund_name}"]
+        cap = _portfolio_top_n(plan)
+        sections = _portfolio_sections_from_plan(plan)
+        sectors_only = sections == ["sectors"]
+        holdings_only = sections == ["holdings"]
+
+        if holdings_only:
+            lines = [f"### Top {cap} holdings — {fund_name}"]
+            if not holding_rows:
+                lines.append("\nNo holding weights are available for this fund.")
+                return "\n".join(lines)
+            lines.append("\n| Stock / company | Sector | Weight (%) |")
+            lines.append("| --- | --- | ---: |")
+            for h in holding_rows[:cap]:
+                lines.append(
+                    f"| {_holding_label(h)} | {h.get('sector') or h.get('industry') or '—'} | "
+                    f"{_holding_weight_pct(h):.2f}% |"
+                )
+            return "\n".join(lines)
+
+        if sector_rows and (sectors_only or not holding_rows):
+            lines = [f"### Top {cap} sectors — {fund_name}"]
+            if p_data.get("sectors_from_holdings"):
+                lines.append(
+                    "\n_No equity sector file for this scheme; weights below are rolled up from holding asset types._"
+                )
             lines.append("\n| Sector | Weight (%) |")
-            lines.append("|---|---:|")
-            for s in sector_rows[:10]:
+            lines.append("| --- | ---: |")
+            for s in sector_rows[:cap]:
                 lines.append(f"| {_sector_label(s)} | {_sector_weight_pct(s):.2f}% |")
+            if len(sector_rows) < cap:
+                lines.append("")
+                lines.append(
+                    f"_Only {len(sector_rows)} sector weights are available in the latest portfolio data._"
+                )
+            return "\n".join(lines)
+
+        if sectors_only and holding_rows:
+            lines = [f"### Top {cap} — {fund_name}"]
+            lines.append(
+                "\n_This scheme does not publish an equity sector breakdown; top portfolio constituents are shown instead._"
+            )
+            lines.append("\n| Constituent | Asset type | Weight (%) |")
+            lines.append("| --- | --- | ---: |")
+            for h in holding_rows[:cap]:
+                lines.append(
+                    f"| {_holding_label(h)} | {h.get('sector') or h.get('industry') or '—'} | "
+                    f"{_holding_weight_pct(h):.2f}% |"
+                )
             return "\n".join(lines)
 
         lines = [f"### Portfolio — {fund_name}"]
-        if sector_rows:
+        if sector_rows and not sectors_only:
             lines.append("\n**Top sector allocations**")
             lines.append("\n| Sector | Weight (%) |")
             lines.append("|---|---:|")
             for s in sector_rows[:10]:
                 lines.append(f"| {_sector_label(s)} | {_sector_weight_pct(s):.2f}% |")
 
-        if holding_rows:
+        if holding_rows and not sectors_only:
             lines.append("\n**Top holdings**")
             lines.append("\n| Stock / company | Sector | Weight (%) |")
             lines.append("|---|---|---:|")

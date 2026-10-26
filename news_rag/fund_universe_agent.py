@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from news_rag.config import get_settings
 from historical_data.nav_service import get_fund_nav_history
-from news_rag.json_util import safe_json_dumps
-from news_rag.llm_client import call_insight_llm, llm_api_key_configured
-from news_rag.llm_text import parse_json_from_text
 from news_rag.query_log import QueryLogger
 
 logger = logging.getLogger(__name__)

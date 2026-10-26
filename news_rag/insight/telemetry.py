@@ -1,7 +1,6 @@
 """Telemetry collector for the ask pipeline.
 
-Normalizes LLM usage from any provider (Anthropic, Gemini, DeepSeek) into
-a common format and tracks phase/tool timing for SSE events.
+Tracks phase and tool timing and formats SSE events.
 """
 
 from __future__ import annotations
@@ -10,77 +9,12 @@ import json
 import time
 from typing import Any
 
-from news_rag.insight.contracts import (
-    LLMUsageRecord,
-    RequestTelemetry,
-)
+from news_rag.insight.contracts import RequestTelemetry
 
 
 def new_telemetry() -> RequestTelemetry:
     """Create a fresh telemetry instance for one ask request."""
     return RequestTelemetry()
-
-
-def normalize_llm_usage(
-    raw_usage: dict[str, Any] | None,
-    *,
-    provider: str = "",
-    model: str = "",
-    stage: str = "",
-    total_ms: float = 0.0,
-    ttft_ms: float | None = None,
-) -> LLMUsageRecord:
-    """Normalize usage dicts from different LLM providers into a common shape.
-
-    Handles Anthropic (input_tokens, output_tokens, cache_read_input_tokens),
-    Gemini (promptTokenCount, candidatesTokenCount, cachedContentTokenCount),
-    and DeepSeek / OpenAI-compatible (prompt_tokens, completion_tokens).
-    """
-    u = raw_usage or {}
-
-    # --- input tokens ---
-    input_tokens = (
-        u.get("input_tokens")              # Anthropic
-        or u.get("prompt_tokens")           # OpenAI / DeepSeek
-        or u.get("promptTokenCount")        # Gemini
-        or 0
-    )
-
-    # --- output tokens ---
-    output_tokens = (
-        u.get("output_tokens")             # Anthropic
-        or u.get("completion_tokens")       # OpenAI / DeepSeek
-        or u.get("candidatesTokenCount")    # Gemini
-        or 0
-    )
-
-    # --- cached input ---
-    cached = (
-        u.get("cache_read_input_tokens")    # Anthropic
-        or u.get("cachedContentTokenCount") # Gemini
-        or u.get("cached_tokens")           # generic
-    )
-    cached_input = int(cached) if cached is not None else None
-
-    uncached = None
-    if cached_input is not None:
-        uncached = max(0, int(input_tokens) - cached_input)
-
-    # source: did the API return usage or did we estimate?
-    usage_source = "api" if u else "estimated"
-
-    return LLMUsageRecord(
-        stage=stage,
-        provider=provider,
-        model=model,
-        input_tokens=int(input_tokens),
-        output_tokens=int(output_tokens),
-        cached_input_tokens=cached_input,
-        uncached_input_tokens=uncached,
-        ttft_ms=ttft_ms,
-        total_ms=total_ms,
-        usage_source=usage_source,
-    )
 
 
 def sse_event(
@@ -152,11 +86,6 @@ def event_quality_check(
 ) -> str:
     telemetry.quality_state = state
     return sse_event("quality_check", {"state": state, **detail}, telemetry)
-
-
-def event_fallback(telemetry: RequestTelemetry, reason: str) -> str:
-    telemetry.fallback_used = True
-    return sse_event("fallback", {"reason": reason}, telemetry)
 
 
 def event_answer_completed(

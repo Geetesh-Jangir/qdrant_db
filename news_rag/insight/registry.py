@@ -121,14 +121,6 @@ def pick_tool_for_facet(
     return sorted(eligible, key=lambda t: (t.cost, t.name))[0]
 
 
-def facet_to_tool_names() -> dict[str, list[str]]:
-    out: dict[str, list[str]] = {f: [] for f in EVIDENCE_FACETS}
-    for spec in _REGISTRY.values():
-        for f in spec.provides:
-            out.setdefault(f, []).append(spec.name)
-    return out
-
-
 def registry_prompt_block(compact: bool = False) -> str:
     """Planner-facing tool catalog. The planner never names tools — it names facets."""
     lines = [

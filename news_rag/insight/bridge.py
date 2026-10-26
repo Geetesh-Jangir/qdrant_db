@@ -108,6 +108,7 @@ def evaluate_wave2(
     wave1_results: list[dict[str, Any]],
     *,
     deadline_remaining_ms: float = 10000.0,
+    question: str = "",
 ) -> list[ToolCall]:
     """Evaluate whether to run Wave 2 and return the tool calls to execute.
 
@@ -139,11 +140,39 @@ def evaluate_wave2(
     # Pre-planned wave 2 calls from plan
     planned_wave2 = plan.wave2_calls
 
-    if trigger == "none":
+    try:
+        from news_rag.tools import asks_fund_related_news
+
+        fund_news_ask = asks_fund_related_news(question)
+    except Exception:
+        fund_news_ask = False
+
+    if trigger == "none" and not fund_news_ask:
         return []
 
     should_fire = False
     entities = _extract_top_entities_from_results(wave1_results)
+
+    if fund_news_ask and plan.answer_mode != AnswerMode.DATA_ONLY:
+        should_fire = True
+        if not planned_wave2:
+            from news_rag.insight.fund_news_scope import infer_fund_news_layers
+
+            layers = infer_fund_news_layers(question)
+            scope = "all" if len(layers) >= 2 else next(iter(layers), "all")
+            return [
+                ToolCall(
+                    tool="search_financial_news",
+                    arguments={
+                        "scope": scope,
+                        "top_n": 8,
+                        "window_days": min(plan.window_days, 30),
+                    },
+                    wave=2,
+                    required=False,
+                    why="Fund news ask — layered holdings/sectors/macro retrieval",
+                )
+            ][:max_calls]
 
     if trigger == "always":
         should_fire = True
@@ -164,6 +193,9 @@ def evaluate_wave2(
         if entities["sectors"] or entities["holdings"]:
             should_fire = True
             logger.info("Bridge: material_sector trigger fired (sectors=%s)", entities["sectors"])
+
+    if fund_news_ask and plan.answer_mode != AnswerMode.DATA_ONLY:
+        should_fire = True
 
     if not should_fire:
         logger.debug("Bridge: Wave 2 trigger '%s' did not fire", trigger)

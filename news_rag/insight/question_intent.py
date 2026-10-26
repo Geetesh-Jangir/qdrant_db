@@ -167,6 +167,33 @@ def resolve_question_intent(question: str) -> QuestionIntent:
             answer_mode="INSIGHT_FUSION",
         )
 
+    from news_rag.fund_rupeestop_metrics import asks_fund_category_average
+    from news_rag.tools import asks_fund_related_news
+
+    if funds and asks_fund_category_average(q):
+        return QuestionIntent(
+            kind="fund_category_average",
+            confidence=0.94,
+            primary_tool="get_fund_data",
+            summary="Category average returns for the fund's peer group (1Y/3Y/5Y from RupeeStop).",
+            tool_args_hint={"modules": ["snapshot"]},
+            answer_mode="DATA_ONLY",
+        )
+
+    if funds and asks_fund_related_news(q):
+        return QuestionIntent(
+            kind="fund_news",
+            confidence=0.92,
+            primary_tool="get_fund_data",
+            summary="Fund returns + portfolio context, then layered news (holdings/sectors/macro).",
+            tool_args_hint={
+                "modules": ["snapshot", "return_series", "attribution"],
+                "sections": ["holdings", "sectors"],
+                "top_n": 5,
+            },
+            answer_mode="INSIGHT_FUSION",
+        )
+
     if funds:
         return QuestionIntent(
             kind="fund_overview",
@@ -202,12 +229,24 @@ def plan_matches_intent(plan: ExecutionPlan, intent: QuestionIntent) -> bool:
                 mods = (c.arguments or {}).get("modules") or []
                 return "managers" in mods
         return False
+    if intent.kind == "fund_news":
+        return (
+            "get_fund_data" in tools
+            and "get_portfolio_data" in tools
+            and "search_financial_news" in tools
+        )
+    if intent.kind == "fund_portfolio":
+        return "get_portfolio_data" in tools and "search_financial_news" not in tools
     return True
 
 
 def prefers_planner_over_slot(question: str) -> bool:
     """Compound or pick-one-fund asks need tool chaining the slot router does not plan."""
     q = question or ""
+    from news_rag.tools import asks_fund_related_news
+
+    if asks_fund_related_news(q):
+        return False
     if re.search(
         r"\b(?:about|overall|tell me about|how is|overview|summarize|summary)\b",
         q,
@@ -225,23 +264,33 @@ def prefers_planner_over_slot(question: str) -> bool:
     return False
 
 
-def intent_hint_for_planner(question: str) -> str:
-    intent = resolve_question_intent(question)
-    if intent.kind == "unknown":
+def planner_supplement_for_question(question: str) -> str:
+    """Optional non-binding context for the planner (catalog resolution only)."""
+    q = (question or "").strip()
+    if not q:
         return ""
-    lines = [
-        "DETERMINISTIC INTENT HINT (verify against the question — override if wrong):",
-        f"- kind: {intent.kind}",
-        f"- confidence: {intent.confidence:.2f}",
-        f"- primary_tool: {intent.primary_tool}",
-        f"- answer_mode: {intent.answer_mode}",
-        f"- summary: {intent.summary}",
-    ]
-    if intent.tool_args_hint:
-        lines.append(f"- suggested_arguments: {intent.tool_args_hint}")
+    lines: list[str] = []
+    try:
+        from news_rag.fund_search import resolve_fund_for_query
+
+        detail, ambiguous, close = resolve_fund_for_query(q)
+        if detail:
+            name = str(detail.get("fund_name") or detail.get("fund_short_name") or "").strip()
+            isin = str(detail.get("isin") or "").strip()
+            if name:
+                lines.append(
+                    f"Optional catalog resolution (use only if it matches what the user meant): "
+                    f"{name}" + (f" ({isin})" if isin else "")
+                )
+        if ambiguous and close:
+            lines.append(f"Ambiguous scheme phrases in catalog: {', '.join(close[:4])}")
+    except Exception:
+        pass
     from news_rag.tools import screen_hints_from_question
 
-    hints = screen_hints_from_question(question)
+    hints = screen_hints_from_question(q)
     if any(hints.values()):
-        lines.append(f"- parsed_hints: {hints}")
-    return "\n".join(lines)
+        lines.append(f"Parsed screen hints (non-binding): {hints}")
+    if not lines:
+        return ""
+    return "REFERENCE (does not override your tool choice):\n" + "\n".join(lines)

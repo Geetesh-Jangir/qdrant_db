@@ -134,39 +134,3 @@ def build_data_pack(evidence: EvidenceSet, *, max_chars: int = MAX_PACK_CHARS) -
     return pack
 
 
-def missing_items(evidence: EvidenceSet) -> list[str]:
-    out: list[str] = []
-    for entry in evidence.ledger:
-        if entry.status == "satisfied" or entry.implied:
-            continue
-        out.append(FACET_LABELS.get(entry.facet, entry.facet).replace("_", " "))
-    return list(dict.fromkeys(out))
-
-
-def select_news(
-    evidence: EvidenceSet,
-    brief: Any,
-    *,
-    depth: str,
-    question: str,
-    detailed_chars: int,
-) -> list[dict[str, Any]]:
-    """Articles the writer may read. Depth none passes nothing."""
-    if depth == "none" or not evidence.articles:
-        return []
-    from news_rag.insight.news_reader import _body, select_articles
-
-    limit, chars = (4, 380) if depth == "headlines" else (6, detailed_chars)
-    arts = select_articles(evidence.articles, limit=limit, brief=brief, evidence=evidence, question=question)
-    rows: list[dict[str, Any]] = []
-    for art in arts:
-        body = _body(art, chars)
-        title = str(art.get("title") or "").strip()
-        if not (title or body):
-            continue
-        row: dict[str, Any] = {"headline": title, "text": body}
-        if art.get("direction") in ("positive", "negative"):
-            row["tone"] = art["direction"]
-        row["_article"] = art  # stripped before serialising
-        rows.append(row)
-    return rows

@@ -546,17 +546,33 @@
       table.className = "insight-table";
       const body = document.createElement("tbody");
       let headerDone = false;
+      let columnCount = 0;
+      let headerLabels = [];
       for (const row of rows) {
-        const cells = row.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+        let cells = row.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
         if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
+        if (!headerDone) {
+          columnCount = cells.length;
+          headerLabels = cells.map((c) => c.toLowerCase());
+        } else if (columnCount > 0) {
+          while (cells.length < columnCount) cells.push("-");
+          if (cells.length > columnCount) cells = cells.slice(0, columnCount);
+        }
         const tr = document.createElement("tr");
         const tag = headerDone ? "td" : "th";
         headerDone = true;
         cells.forEach((cell, colIdx) => {
           const el = document.createElement(tag);
-          if (colIdx > 0 && (tag === "th" || looksNumericCell(cell))) {
-            el.classList.add("insight-num");
-          }
+          const label = headerLabels[colIdx] || "";
+          const labelCol =
+            colIdx === 0 ||
+            /^(holding|metric|period|stock|name|sector|company)\b/.test(label);
+          const numericCol =
+            !labelCol &&
+            (tag === "th" ||
+              looksNumericCell(cell) ||
+              /(weight|return|pp|avg|bench|fund|nav|change|high|low|pct|%)/.test(label));
+          if (numericCol) el.classList.add("insight-num");
           el.innerHTML = formatMarkdown(cell);
           tr.appendChild(el);
         });

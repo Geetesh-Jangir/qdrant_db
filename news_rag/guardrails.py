@@ -101,23 +101,3 @@ def check_guardrails(question: str) -> GuardrailResult:
     return GuardrailResult("pass")
 
 
-def refusal_response(result: GuardrailResult) -> dict:
-    return {
-        "insight": result.message,
-        "insight_summary": result.message,
-        "insight_bullets": [],
-        "sources": [],
-        "intent": "refused",
-        "insight_source": "guardrail",
-        "outcome": "refused",
-        "refused": True,
-        "refusal_reason": result.reason,
-        "sections": [
-            {
-                "id": "guard",
-                "style": "refusal",
-                "text": result.message,
-            }
-        ],
-        "sub_queries": [],
-    }

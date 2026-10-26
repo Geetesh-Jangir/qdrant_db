@@ -10,10 +10,9 @@ Slot rules replace bulky prompt examples to minimize prompt bloat and overfittin
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
-from news_rag.insight.brief import QuestionBrief, SubAsk, nearest_return_window
+from news_rag.insight.brief import QuestionBrief, SubAsk
 from news_rag.insight.capabilities.catalog import (
     CAPABILITIES,
     capability_catalog_text,
@@ -27,8 +26,8 @@ from news_rag.insight.contracts import (
     ToolCall,
     Wave2Policy,
 )
-from news_rag.insight.registry import all_tools, ensure_registry, get_tool, tools_providing
-from news_rag.llm_client import call_json_llm, llm_api_key_configured, router_model
+from news_rag.insight.registry import ensure_registry, get_tool
+from news_rag.llm_client import call_json_llm, llm_api_key_configured
 
 # Backwards compatibility alias
 Plan = ExecutionPlan
@@ -101,6 +100,23 @@ PLAN_SCHEMA: dict[str, Any] = {
                 "label": {"type": "string"},
             },
         },
+        "request": {
+            "type": "object",
+            "description": (
+                "Your reading of the question before tools. Interpret meaning, including misspellings. "
+                "count is the number the user asked for (0 if they did not ask for a count). "
+                "portfolio_slice is holdings, sectors, both, or none."
+            ),
+            "properties": {
+                "count": {"type": "integer"},
+                "portfolio_slice": {
+                    "type": "string",
+                    "enum": ["holdings", "sectors", "both", "none"],
+                },
+                "reading": {"type": "string"},
+            },
+            "required": ["count", "portfolio_slice", "reading"],
+        },
         "tool_calls": {
             "type": "array",
             "items": {
@@ -108,7 +124,7 @@ PLAN_SCHEMA: dict[str, Any] = {
                 "properties": {
                     "tool": {"type": "string", "enum": list(CAPABILITIES.keys())},
                     "arguments": {"type": "object"},
-                    "wave": {"type": "integer", "enum": [1, 2]},
+                    "wave": {"type": "string", "enum": ["1", "2"]},
                     "required": {"type": "boolean"},
                     "why": {"type": "string"},
                 },
@@ -148,8 +164,42 @@ PLAN_SCHEMA: dict[str, Any] = {
             },
         },
     },
-    "required": ["scope", "understanding", "tool_calls"],
+    "required": ["scope", "understanding", "request", "tool_calls"],
 }
+
+
+def _apply_planner_request(tool_calls: list[ToolCall], request: dict[str, Any]) -> tuple[int, str]:
+    """Copy the planner's own count and portfolio slice onto tool arguments.
+
+    This does not re-read the question with regex. If the planner understood
+    'top 5' and 'holdings only', those fields win over a lazy default of 3 / both.
+    """
+    slice_name = str(request.get("portfolio_slice") or "none").strip().lower()
+    if slice_name not in ("holdings", "sectors", "both", "none"):
+        slice_name = "none"
+    try:
+        count = int(request.get("count") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    count = max(0, min(50, count))
+    section_map = {
+        "holdings": ["holdings"],
+        "sectors": ["sectors"],
+        "both": ["holdings", "sectors"],
+    }
+    sections = section_map.get(slice_name)
+    for call in tool_calls:
+        args = dict(call.arguments or {})
+        if call.tool == "get_portfolio_data":
+            if sections:
+                args["sections"] = sections
+            if count >= 1:
+                args["top_n"] = count
+            call.arguments = args
+        elif call.tool == "screen_funds_by_exposure" and count >= 1 and slice_name == "none":
+            args["top_n"] = min(20, count)
+            call.arguments = args
+    return count, slice_name
 
 
 def _str_list(value: Any) -> list[str]:
@@ -240,7 +290,10 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
             continue
         raw_args = raw_tc.get("arguments") or raw_tc.get("args") or {}
         valid_args = validate_capability_args(tool_name, raw_args if isinstance(raw_args, dict) else {})
-        wave = int(raw_tc.get("wave") or 1)
+        try:
+            wave = int(raw_tc.get("wave") or 1)
+        except (TypeError, ValueError):
+            wave = 1
         if wave not in (1, 2):
             wave = 1
         tool_calls.append(ToolCall(
@@ -250,6 +303,9 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
             required=bool(raw_tc.get("required", True)),
             why=str(raw_tc.get("why") or ""),
         ))
+
+    request = data.get("request") if isinstance(data.get("request"), dict) else {}
+    planner_count, planner_slice = _apply_planner_request(tool_calls, request)
 
     # Wave 2 Policy
     policy = Wave2Policy(
@@ -302,6 +358,8 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
         reasoning_depth=reasoning_depth,
         routed_by="planner",
         confidence=0.9,
+        planner_count=planner_count,
+        planner_portfolio_slice=planner_slice,
     )
     return plan
 
@@ -379,6 +437,11 @@ def plan_to_brief(plan: ExecutionPlan, *, sector_keys: list[str], funds: list[st
 _SYSTEM_CACHE: str | None = None
 
 
+def _invalidate_plan_system_cache() -> None:
+    global _SYSTEM_CACHE
+    _SYSTEM_CACHE = None
+
+
 def plan_system_prompt() -> str:
     global _SYSTEM_CACHE
     if _SYSTEM_CACHE is not None:
@@ -391,76 +454,89 @@ Read the user's question and emit ONE structured JSON ExecutionPlan using ONLY t
 ### CAPABILITY TOOLS
 {catalog}
 
-### DISAMBIGUATION (same meaning, different words)
-Treat these as DIFFERENT capabilities even if wording is similar:
-| User means | Tool | Wrong tool |
-| Funds with heavy **sector** exposure (banking, IT, "invested in banking sector") | screen_funds_by_exposure | get_portfolio_data |
-| **Stocks inside** one named fund ("top 5 stocks of HDFC Large Cap", "what does the fund hold") | get_portfolio_data (sections holdings and/or sectors) | screen_funds_by_exposure |
-| **Funds holding a stock** (invested in HDFC Bank, exposure to Reliance) | screen_funds_by_exposure (stock reverse lookup) | get_portfolio_data |
-| One fund NAV / returns / managers | get_fund_data | screen_funds_by_exposure |
+### FIELDS THE PARSER ACCEPTS
+Optional fields may be omitted. Do not invent field names.
+- `understanding.intent`: lookup, overview, explain_cause, compare, rank, outlook. A definition or a SIP/FIRE calculation uses lookup.
+- `understanding.answer_mode`: DATA_ONLY, NEWS_ONLY, INSIGHT_FUSION.
+- `entities.funds`, `entities.sectors`, `entities.stocks`: string arrays, as the user wrote them. Correct an obvious misspelling of a name they did give. Do not invent a fund they did not name.
+- `entities.drivers`: objects {{"id", "direction"}}. id is one of: {', '.join(DRIVER_IDS)}. direction is up, down, tighten, ease, weaken, or strengthen. Do not use macro_drivers.
+- `request`: count (integer), portfolio_slice (holdings, sectors, both, none), reading (one sentence). Required when the question is about what is inside one fund. Otherwise set portfolio_slice to none and count to 0.
+- `tool_calls[].wave`: 1 or 2. An integer is preferred. The strings "1" and "2" are also accepted.
+- `wave_2_policy.trigger`: none, negative_return, material_sector, always. There is no high_weight_holding trigger.
+- `scope.direct_reply`: set only when the whole answer is one glossary sentence. Omit it for calculations. An empty string is the same as omitting it.
+- `scope.kind`: in_scope or out_of_scope. out_of_scope means the question is not about Indian funds, stocks, or markets. Then tool_calls is [] and response_shape is short_answer.
 
-If a DETERMINISTIC INTENT HINT is provided below the question, follow it unless it clearly contradicts the question.
+### DISAMBIGUATION
+| User means | Tool | Do not use |
+| Funds with heavy sector exposure, or which funds hold a stock | screen_funds_by_exposure | get_portfolio_data |
+| Stocks or holdings inside one named fund | get_portfolio_data sections ["holdings"], top_n from the question | screen_funds_by_exposure, and do not also request sectors |
+| Sectors inside one scheme | get_portfolio_data sections ["sectors"] only | get_fund_data, news, holdings |
+| Compare two or more named funds | one compare_funds call, arguments mode metrics, overlap, or both | get_fund_data once per fund, and do not pass modules |
+| Market or macro level, no fund named | get_market_snapshot modules index_return, sector_ranking, macro_series, metals_spot, or stock_quote. series crude, brent, wti, usdinr, gold, silver, yield | a macro_impact module or a driver argument on this tool |
+| Which funds a driver hits | screen_funds_by_exposure with driver set to a lowercase id such as crude_oil | get_market_snapshot alone |
+| NAV, returns, or managers of one fund | get_fund_data | screen_funds_by_exposure |
 
-### SLOT RULES
-1. **answer_mode**:
-   - `DATA_ONLY`: Pure metric lookups (NAV, returns, top holdings, benchmark, 52-week high/low, sector rankings). Do NOT call search_financial_news. Wave 2 policy is "none".
-   - `NEWS_ONLY`: General macro news queries without fund numbers (e.g. "latest news on RBI rate hike").
-   - `INSIGHT_FUSION`: Explain moves, "why did fund fall", fund outlook, or multi-factor analysis combining metrics with news.
-2. **Waves**:
-   - Wave 1: Independent data tools needed to answer the question (`get_fund_data`, `get_portfolio_data`, `compare_funds`, `get_market_snapshot`, `screen_funds_by_exposure`).
-   - Wave 2: Run conditionally via `wave_2_policy` (e.g., trigger `search_financial_news` if fund negative return < -2% or holding weight > 5%).
-3. **top_n**: Match the number in the question (e.g. "5 funds", "top 10 holdings" -> top_n: 5 or 10). Default 3 only when no count is given.
-   - Maximum 1 Wave 2 call. Never plan more than 4 total tool calls.
-4. **Entities**:
-   - Extract exact fund names, sector names, stock names as user wrote them. Never invent fund names.
-   - For macro drivers, use IDs: {', '.join(DRIVER_IDS)}.
-5. **Presentation** (composer can mix bullets + tables inside sections when style is sections):
-   - `response_shape`: short_answer (lookup), bullets (lists/holdings), paragraph (brief), table (compare/rankings — prefer ≤4 columns), sections (fusion: ### headings, bullets for drivers, tables for metrics).
-   - `max_words`: 40-80 for lookups, 200-450 for fusions with tables.
+### PLANNER AUTHORITY
+You are the sole routing authority. Read the question as a person would. A misspelling still means the intended word.
 
-### EXAMPLE SHAPES
-Simple NAV lookup:
-{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Check NAV of fund", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "entities": {{"funds": ["HDFC Top 100"]}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot"]}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 50}}}}
+### REQUEST
+The server copies request onto the portfolio tool when the two disagree.
+- count is the number they asked for. "top 5" and "top ten" are 5 and 10. Use 0 only when they asked for no number. Never substitute 3 for 5.
+- portfolio_slice is holdings when they want stocks inside one fund and did not ask for sectors. sectors when they want sector weights only. both only when they asked for both or for the whole portfolio. none otherwise.
+- reading is one corrected sentence.
+Copy count into arguments.top_n and the slice into get_portfolio_data arguments.sections.
 
-Why did fund fall:
-{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Explain recent underperformance", "intent": "explain_cause", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "entities": {{"funds": ["Parag Parikh Flexi Cap"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 3}}, "wave": 1}}], "wave_2_policy": {{"trigger": "negative_return", "threshold": -1.5, "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 280}}}}
+- Glossary only, such as the full form of NAV: tool_calls [], direct_reply one sentence, max_words at most 40, DATA_ONLY.
+- A calculation or plan no tool can compute, such as a stepped-up SIP toward a corpus: tool_calls [], portfolio_slice none, omit direct_reply, max_words at least 400. The composer does the arithmetic and states any missing input as an assumption. Do not answer with a sentence that only says a calculation is required.
+- Concept plus one example, such as what a fund of funds is and name one: screen_funds_by_exposure top_n 1, DATA_ONLY, response_shape sections, presentation_notes telling the composer to explain the concept and then cite the screened scheme.
 
-Pick one auto-sector fund then overview (screen first, then fund facts — pipeline may enrich after screen):
-{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Pick a fund with auto sector exposure and summarize the scheme", "intent": "overview", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "entities": {{"sectors": ["Automobiles"]}}, "tool_calls": [{{"tool": "screen_funds_by_exposure", "arguments": {{"sector": "Automobiles", "direction": "any", "top_n": 1}}, "wave": 1}}, {{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 320}}}}
+### WAVES
+1. DATA_ONLY is a metric lookup. Do not call search_financial_news. trigger is none.
+2. NEWS_ONLY is macro or market news with no fund numbers. Wave 1 may call get_market_snapshot. trigger is always, with one search_financial_news call on wave 2.
+3. INSIGHT_FUSION explains a move or mixes metrics with news.
+4. Wave 1 tools: get_fund_data, get_portfolio_data, compare_funds, get_market_snapshot, screen_funds_by_exposure.
+5. If trigger is always, add the search_financial_news call with wave 2. If trigger is negative_return, material_sector, or none, do not add a wave-2 call. The bridge adds news when the condition is true. For "why did the fund fall", use negative_return and threshold -1.0. For a generic "why did it move", use threshold -2.0.
+6. Fund news ("news related to HDFC Large Cap"): wave 1 get_portfolio_data sections holdings and sectors, wave 2 search_financial_news scope all. Narrow scope only when the user asked for sectors or macro only.
+7. At most one wave-2 call and at most four tool_calls in total.
+8. top_n equals request.count when count is 1 or more. Default 3 only when count is 0.
+9. response_shape: short_answer for a lookup, table for a comparison or a top-N list, sections when metrics and news are combined. max_words 40-80 for lookups, 200-450 when the answer needs sections, at least 400 for a calculation.
+
+### EXAMPLES
+NAV:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Check NAV of fund", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "NAV of HDFC Top 100"}}, "entities": {{"funds": ["HDFC Top 100"]}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot"]}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 50}}}}
+
+Why the fund fell:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Explain the recent drop", "intent": "explain_cause", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "both", "reading": "Why Parag Parikh Flexi Cap fell"}}, "entities": {{"funds": ["Parag Parikh Flexi Cap"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}], "wave_2_policy": {{"trigger": "negative_return", "threshold": -1.0, "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 280}}}}
+
+One auto-sector fund, then its facts and sector news:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Pick one auto-sector fund and summarize it", "intent": "overview", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "request": {{"count": 1, "portfolio_slice": "both", "reading": "One automobile fund, then its portfolio and news"}}, "entities": {{"sectors": ["Automobiles"]}}, "tool_calls": [{{"tool": "screen_funds_by_exposure", "arguments": {{"sector": "Automobiles", "direction": "any", "top_n": 1}}, "wave": 1}}, {{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "sectors", "top_n": 8, "window_days": 30}}, "wave": 2}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 320}}}}
+
+Top sectors only:
+{{"request": {{"count": 5, "portfolio_slice": "sectors", "reading": "Top 5 sectors of Axis Large Cap"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Top 5 sectors of the named scheme", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "entities": {{"funds": ["Axis Large Cap Fund"]}}, "tool_calls": [{{"tool": "get_portfolio_data", "arguments": {{"sections": ["sectors"], "top_n": 5}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "table", "max_words": 80}}}}
+
+Top holdings, including a misspelled word for holdings:
+{{"request": {{"count": 5, "portfolio_slice": "holdings", "reading": "Top 5 holdings of Axis ELSS Tax Saver"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Top 5 holdings of Axis ELSS Tax Saver", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "entities": {{"funds": ["Axis ELSS - Tax Saver Fund"]}}, "tool_calls": [{{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings"], "top_n": 5}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "table", "max_words": 120}}}}
+
+Fund news:
+{{"request": {{"count": 5, "portfolio_slice": "both", "reading": "News relevant to HDFC Large Cap via holdings and sectors"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "News relevant to the fund", "intent": "overview", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "entities": {{"funds": ["HDFC Large Cap Fund"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}, {{"tool": "get_market_snapshot", "arguments": {{"modules": ["index_return"], "index": "nifty50"}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "all", "top_n": 8, "window_days": 30}}, "wave": 2}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 420}}}}
+
+Compare two funds:
+{{"request": {{"count": 0, "portfolio_slice": "none", "reading": "Compare HDFC Top 100 and Axis Bluechip"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Compare two named funds", "intent": "compare", "answer_mode": "DATA_ONLY", "query_class": "standard"}}, "entities": {{"funds": ["HDFC Top 100 Fund", "Axis Bluechip Fund"]}}, "tool_calls": [{{"tool": "compare_funds", "arguments": {{"mode": "both"}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "table", "max_words": 150}}}}
+
+Crude oil up, no fund named:
+{{"request": {{"count": 5, "portfolio_slice": "none", "reading": "Sectors and funds if crude oil rises"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Which sectors and funds benefit if crude rises", "intent": "explain_cause", "answer_mode": "NEWS_ONLY", "query_class": "standard"}}, "entities": {{"drivers": [{{"id": "crude_oil", "direction": "up"}}]}}, "tool_calls": [{{"tool": "get_market_snapshot", "arguments": {{"modules": ["macro_series", "sector_ranking"], "series": ["crude"]}}, "wave": 1}}, {{"tool": "screen_funds_by_exposure", "arguments": {{"driver": "crude_oil", "direction": "positive", "top_n": 5}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "macro", "top_n": 8, "window_days": 7}}, "wave": 2}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 250}}}}
+
+Glossary:
+{{"scope": {{"kind": "in_scope", "direct_reply": "SIP stands for Systematic Investment Plan: a fixed amount invested in a mutual fund at regular intervals."}}, "understanding": {{"goal": "Define SIP", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Definition of SIP"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 40}}}}
+
+Stepped-up SIP illustration:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Illustrate a stepped-up SIP that reaches 2 crore in 20 years", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "SIP plan for a 2 crore goal in 20 years with a 10 percent annual step-up"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 420}}}}
+
+Out of scope:
+{{"scope": {{"kind": "out_of_scope"}}, "understanding": {{"goal": "Not about funds, stocks, or markets", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Outside markets"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 30}}}}
 """
     _SYSTEM_CACHE = prompt.strip()
     return _SYSTEM_CACHE
-
-
-def _reconcile_with_deterministic_route(
-    question: str,
-    llm_plan: ExecutionPlan | None,
-) -> ExecutionPlan | None:
-    """Prefer slot-router DATA_ONLY when the planner picks the wrong capability."""
-    from news_rag.insight.slot_router import slot_route
-    from news_rag.tools import (
-        asks_fund_portfolio_holdings,
-        asks_funds_with_sector_exposure,
-    )
-
-    det = slot_route(question, confidence_threshold=0.0)
-    if det is None or not det.tool_calls:
-        return llm_plan
-    if llm_plan is None or not llm_plan.tool_calls:
-        return det
-    det_tools = {c.tool for c in det.tool_calls}
-    llm_tools = {c.tool for c in llm_plan.tool_calls}
-    q = question or ""
-    if asks_funds_with_sector_exposure(q) and "screen_funds_by_exposure" in det_tools:
-        if "get_portfolio_data" in llm_tools or "screen_funds_by_exposure" not in llm_tools:
-            return det
-    if asks_fund_portfolio_holdings(q) and "get_portfolio_data" in det_tools:
-        if "screen_funds_by_exposure" in llm_tools or "get_portfolio_data" not in llm_tools:
-            return det
-    if det.answer_mode == AnswerMode.DATA_ONLY and det.confidence >= 0.9:
-        if llm_plan.answer_mode != AnswerMode.DATA_ONLY and len(det.tool_calls) <= 2:
-            return det
-    return llm_plan
 
 
 def make_plan(
@@ -475,34 +551,40 @@ def make_plan(
     from news_rag.insight.slot_router import slot_route
 
     settings = get_settings()
-    det_plan = slot_route(question, confidence_threshold=0.0)
+    det_plan = slot_route(question, confidence_threshold=0.88)
     if not llm_api_key_configured(settings):
         return det_plan
 
-    from news_rag.insight.question_intent import intent_hint_for_planner
+    from news_rag.insight.question_intent import planner_supplement_for_question
 
     user = f"Question:\n{question.strip()}"
-    hint = intent_hint_for_planner(question)
-    if hint:
-        user += f"\n\n{hint}"
+    supplement = planner_supplement_for_question(question)
+    if supplement:
+        user += f"\n\n{supplement}"
     if prior_context:
         user += f"\n\nPrevious conversation turns: {prior_context}"
 
     try:
+        from news_rag.llm_client import planner_model, planner_provider
+
         res = call_json_llm(
             system_prompt=plan_system_prompt(),
             user_content=user,
-            model_override=router_model(settings),
+            model_override=planner_model(settings),
+            provider_override=planner_provider(settings),
             max_tokens=1800,
             temperature=0.0,
             query_log=query_log,
             response_schema=PLAN_SCHEMA,
             stage="plan",
+            enable_gemini_context_cache=True,
         )
     except Exception as exc:  # noqa: BLE001
         if query_log is not None:
             query_log.write(f"PLAN_FAIL error={str(exc)[:200]}")
-        return det_plan
+        from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
+
+        return normalize_portfolio_plan_from_question(question, det_plan) if det_plan else det_plan
 
     if telemetry is not None and res is not None:
         telemetry.add_llm_usage(
@@ -518,14 +600,32 @@ def make_plan(
 
     data = res.parsed if isinstance(res.parsed, dict) else {}
     if not data:
-        return det_plan
+        from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
+
+        return normalize_portfolio_plan_from_question(question, det_plan) if det_plan else det_plan
 
     plan = parse_plan(data)
     plan.random_fund_count = min(
         plan.random_fund_count, int(getattr(settings, "insight_fan_out_cap", 8))
     )
-    return _reconcile_with_deterministic_route(question, plan) or det_plan
+    from news_rag.insight.planner_policy import finalize_planner_plan
 
+    plan = finalize_planner_plan(question, plan)
+    if not plan.tool_calls and det_plan and det_plan.tool_calls:
+        if query_log is not None:
+            query_log.write("PLANNER_EMPTY_TOOLS fallback=deterministic_slot_plan")
+        from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
+
+        return normalize_portfolio_plan_from_question(question, det_plan)
+    if query_log is not None:
+        query_log.write(
+            f"PLANNER authoritative tools={plan.tool_names} answer_mode={plan.answer_mode.value} "
+            f"request_count={plan.planner_count} request_slice={plan.planner_portfolio_slice or 'none'}"
+        )
+    return plan
+
+
+_invalidate_plan_system_cache()
 
 __all__ = [
     "PLAN_SCHEMA",
@@ -536,5 +636,4 @@ __all__ = [
     "plan_system_prompt",
     "plan_to_brief",
     "tools_to_facets",
-    "nearest_return_window",
 ]

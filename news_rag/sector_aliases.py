@@ -118,5 +118,3 @@ SECTOR_ALIAS_MAP: dict[str, tuple[str, ...]] = {
 # fmt: on
 
 
-def sorted_aliases_longest_first() -> list[tuple[str, tuple[str, ...]]]:
-    return sorted(SECTOR_ALIAS_MAP.items(), key=lambda kv: len(kv[0]), reverse=True)

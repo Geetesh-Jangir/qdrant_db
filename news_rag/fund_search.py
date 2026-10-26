@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from news_rag.config import get_settings
+from news_rag.fund_catalog import get_amc_catalog, install_amc_catalog
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ _ISIN_ALIASES: dict[str, str] = {
     "INF063A01050": "INF179KA1RZ8",  # HDFC Small Cap Regular Growth
 }
 
-# Colloquial / legacy scheme names → Regular Growth ISIN in our universe.
+# Rare legacy nicknames only — routine resolution uses catalog fuzzy match, not this map.
 _SCHEME_NAME_TO_ISIN: dict[str, str] = {
     "sbi bluechip": "INF200K01180",
     "sbi blue chip": "INF200K01180",
@@ -33,7 +34,6 @@ _SCHEME_NAME_TO_ISIN: dict[str, str] = {
     "icici pru bluechip": "INF109K01BL4",
     "icici prudential bluechip": "INF109K01BL4",
     "hdfc top 100": "INF179K01BE2",
-    "hdfc large cap": "INF179K01BE2",
     "hdfc mid cap opportunities": "INF179K01CR2",
 }
 
@@ -42,6 +42,7 @@ _ISIN_IN_TEXT = re.compile(r"\b(INF[A-Z0-9]{9})\b", re.I)
 _TOKEN_ALIASES: dict[str, str] = {
     "pru": "prudential",
     "ppfas": "parag",
+    "absl": "aditya",
     "parag": "parag",
     "parikh": "parikh",
     "whiteoak": "whiteoak",
@@ -74,6 +75,9 @@ _AMC_HINT_TOKENS: dict[str, tuple[str, ...]] = {
     "kotak": ("kotak",),
     "nippon": ("nippon",),
     "mirae": ("mirae",),
+    "absl": ("absl", "aditya birla sun life", "aditya birla"),
+    "aditya": ("aditya birla", "aditya birla sun life"),
+    "birla": ("aditya birla", "birla sun life"),
     "ppfas": ("ppfas", "parag parikh", "parag"),
     "uti": ("uti",),
     "tata": ("tata",),
@@ -92,6 +96,7 @@ _AMC_HINT_TOKENS: dict[str, tuple[str, ...]] = {
     "pgim": ("pgim",),
     "samco": ("samco",),
     "groww": ("groww",),
+    "angel": ("angel one",),
     "zerodha": ("zerodha", "smallcase"),
     "whiteoak": ("whiteoak", "white oak"),
     "lic": ("lic", "life insurance"),
@@ -103,13 +108,37 @@ _AMC_HINT_TOKENS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _needles_for_amc_hint(hint: str) -> tuple[str, ...]:
+    cat = get_amc_catalog()
+    if cat and cat.hint_tokens:
+        needles = cat.needles_for_hint(hint)
+        if needles != (hint,):
+            return needles
+        if hint in cat.hint_tokens:
+            return cat.hint_tokens[hint]
+    return _AMC_HINT_TOKENS.get(hint, (hint,))
+
+
 def _amc_hints_from_tokens(tokens: list[str]) -> list[str]:
     hints: list[str] = []
     joined = " ".join(tokens)
+    if "angel one" in joined or ("angel" in tokens and "one" in tokens):
+        hints.append("angel")
+    cat = get_amc_catalog()
+    if cat and cat.hint_tokens:
+        for tok in tokens:
+            if tok in cat.hint_tokens:
+                hints.append(tok)
+        for i in range(len(tokens) - 1):
+            pair = f"{tokens[i]} {tokens[i+1]}"
+            if pair in cat.hint_tokens:
+                hints.append(pair)
     for key, needles in _AMC_HINT_TOKENS.items():
+        if key in hints:
+            continue
         if key in tokens or any(n in joined for n in needles):
             hints.append(key)
-    return hints
+    return list(dict.fromkeys(hints))
 
 
 def _entry_matches_amc(entry: dict[str, Any], hints: list[str]) -> bool:
@@ -119,7 +148,7 @@ def _entry_matches_amc(entry: dict[str, Any], hints: list[str]) -> bool:
     name = _normalize_fund_text(str(entry.get("fund_short_name") or entry.get("fund_name") or ""))
     blob = f"{amc} {name}"
     for hint in hints:
-        needles = _AMC_HINT_TOKENS.get(hint, (hint,))
+        needles = _needles_for_amc_hint(hint)
         if any(n in blob for n in needles):
             return True
     return False
@@ -140,6 +169,7 @@ def _normalize_fund_text(text: str) -> str:
     t = re.sub(r"\btop\s*200\b", "large mid cap", t)
     t = re.sub(r"\bopportunities\b", "", t)
     t = re.sub(r"\b&\b", " and ", t)
+    t = re.sub(r"\babsl\b", "aditya birla sun life", t)
     t = re.sub(r"\bppfas\b", "parag parikh ppfas", t)
     t = re.sub(r"\s+", " ", t).strip()
     return t
@@ -202,6 +232,9 @@ def _is_plausible_scheme_phrase(phrase: str) -> bool:
         "etf",
         "ppfas",
         "parag",
+        "absl",
+        "aditya",
+        "birla",
         "defence",
         "defense",
         "banking",
@@ -218,6 +251,12 @@ def _is_plausible_scheme_phrase(phrase: str) -> bool:
         "value",
         "liquid",
         "gilt",
+        "nifty",
+        "index",
+        "etf",
+        "bees",
+        "market",
+        "total",
     )
     if any(m in norm for m in scheme_markers):
         return True
@@ -231,7 +270,13 @@ def _scheme_alias_isin(norm_name: str) -> str | None:
     key = _normalize_fund_text(norm_name)
     key = re.sub(r"\s+-\s+.*$", "", key).strip()
     key = re.sub(r"\s+fund\s*$", "", key).strip()
-    return _SCHEME_NAME_TO_ISIN.get(key)
+    hit = _SCHEME_NAME_TO_ISIN.get(key)
+    if hit:
+        return hit
+    for alias_key, isin in _SCHEME_NAME_TO_ISIN.items():
+        if _normalize_fund_text(alias_key) == key:
+            return isin
+    return None
 
 
 def is_market_fund_discovery_question(question: str) -> bool:
@@ -323,6 +368,21 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
     isin_m = _ISIN_IN_TEXT.search(q)
     isin = isin_m.group(1).upper() if isin_m else ""
 
+    amc_phrase = _extract_amc_scheme_phrase(q)
+    topic_tail = ""
+    topic_m = re.search(
+        r"(?:top\s+\d+\s+)?(?:sectors?|holdings?|stocks?|shares?)\s+(?:in|of|for)\s+(.+?)(?:\?|$)",
+        q,
+        re.I,
+    )
+    if topic_m:
+        topic_tail = _clean_fund_phrase(topic_m.group(1))
+    if topic_tail and _is_plausible_scheme_phrase(topic_tail):
+        if not amc_phrase or _phrase_specificity_score(topic_tail) >= _phrase_specificity_score(amc_phrase):
+            return isin, topic_tail
+    if amc_phrase:
+        return isin, amc_phrase
+
     patterns = [
         r"\binvested\s+in\s+(?:the\s+)?(.+?)(?:\s+fund)?(?:\s*,|\?|$)",
         r"(?:latest|current)\s+(?:nav|net asset value)\s+(?:of|for)\s+(.+?)(?:\?|$)",
@@ -338,7 +398,7 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
         r"\bon\s+((?:the\s+)?(?:[a-z][\w\s&'.-]{2,40}?\s+)?fund)\b",
         r"\bfor\s+((?:the\s+)?(?:[a-z][\w\s&'.-]{2,40}?\s+)?fund)\b",
         r"\b(?:in|of)\s+(.+?fund)\b",
-        r"\b((?:hdfc|icici|sbi|axis|kotak|nippon|mirae|uti|ppfas|parag|whiteoak|bandhan|quant|dsp|tata)\s+[\w\s&'-]{2,40}?)(?:\s+fund)?\b",
+        r"\b((?:hdfc|icici|sbi|axis|kotak|nippon|mirae|uti|ppfas|parag|whiteoak|bandhan|quant|dsp|tata|absl)\s+[\w\s&'-]{2,40}?)(?:\s+fund)?\b",
     ]
     fund_name = ""
     for pat in patterns:
@@ -361,21 +421,151 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
             if _is_plausible_scheme_phrase(candidate):
                 fund_name = candidate
     if not fund_name and not isin:
-        for m in _AMC_SCAN.finditer(q):
-            amc = m.group(1).strip()
-            rest = _extend_amc_phrase_tail(q, m.end(), m.group(2).strip())
-            candidate = _clean_fund_phrase(f"{amc} {rest}")
-            if _is_plausible_scheme_phrase(candidate):
-                fund_name = candidate
-                break
+        late_amc = _extract_amc_scheme_phrase(q)
+        if late_amc:
+            fund_name = late_amc
     return isin, fund_name
 
 
-_AMC_SCAN = re.compile(
-    r"\b(hdfc|icici|sbi|axis|kotak|nippon|mirae|uti|ppfas|parag|whiteoak|bandhan|quant|dsp|tata|motilal|"
-    r"invesco|edelweiss|franklin|hsbc|absl|aditya\s+birla)\s+([\w\s&'-]{2,48}?)(?:\s+fund)?\b",
+# Rebuilt from regular-growth-by-amc.md headers on FundIndex load (see _sync_amc_prefix_from_catalog).
+_AMC_PREFIX_RE = re.compile(r"(?!x)x")
+_AMC_SCAN = _AMC_PREFIX_RE
+
+
+def _sync_amc_prefix_from_catalog() -> None:
+    global _AMC_PREFIX_RE, _AMC_SCAN
+    cat = get_amc_catalog()
+    if cat and cat.prefix_re is not None:
+        _AMC_PREFIX_RE = cat.prefix_re
+        _AMC_SCAN = _AMC_PREFIX_RE
+
+_SCHEME_TAIL_TOPIC_RE = re.compile(
+    r"\s+(?:sectors?|holdings?|stocks?|shares?)(?:\s+(?:allocation|breakdown|exposure))?\s*$",
     re.I,
 )
+
+_PHRASE_TAIL_STOP_WORDS = frozenset(
+    {
+        "what",
+        "which",
+        "how",
+        "why",
+        "when",
+        "where",
+        "who",
+        "top",
+        "are",
+        "the",
+        "of",
+        "for",
+        "in",
+        "on",
+        "at",
+        "to",
+        "a",
+        "an",
+        "is",
+        "was",
+        "were",
+        "me",
+        "my",
+        "sectors",
+        "sector",
+        "holdings",
+        "holding",
+        "stocks",
+        "stock",
+        "shares",
+        "share",
+        "nav",
+        "news",
+        "impact",
+        "affect",
+        "affecting",
+        "tell",
+        "show",
+        "give",
+        "latest",
+        "current",
+    }
+)
+
+
+def _slurp_scheme_tail_from_question(question: str, start: int) -> str:
+    """Read scheme words after AMC prefix (e.g. nifty 50 etf), stopping at question glue words."""
+    raw = (question[start:] or "").lstrip()
+    if not raw:
+        return ""
+    tokens: list[str] = []
+    for m in re.finditer(r"[A-Za-z0-9&]+", raw):
+        word = m.group(0)
+        low = word.lower()
+        if low in _PHRASE_TAIL_STOP_WORDS:
+            break
+        tokens.append(word)
+        if len(tokens) >= 10:
+            break
+    return " ".join(tokens).strip()
+
+
+def _compose_amc_scheme_phrase(question: str, match: re.Match[str]) -> str:
+    amc = match.group(1).strip()
+    tail_start = match.end()
+    rest = _slurp_scheme_tail_from_question(question, tail_start)
+    rest = _extend_amc_phrase_tail(question, tail_start, rest)
+    rest = _SCHEME_TAIL_TOPIC_RE.sub("", rest).strip()
+    rest = re.sub(
+        r"\b(in|over|during|for|within)\s+(?:the\s+)?(?:last|past)\s+.+$",
+        "",
+        rest,
+        flags=re.I,
+    ).strip()
+    return _clean_fund_phrase(f"{amc} {rest}".strip())
+
+
+def _extract_amc_scheme_phrase(question: str) -> str:
+    """AMC shorthand (ABSL, PPFAS, …) + full index/category tail (e.g. nifty 50 etf)."""
+    q = question or ""
+    best = ""
+    best_score = 0.0
+    for m in _AMC_PREFIX_RE.finditer(q):
+        candidate = _compose_amc_scheme_phrase(q, m)
+        if not _is_plausible_scheme_phrase(candidate):
+            continue
+        score = _phrase_specificity_score(candidate)
+        if score > best_score:
+            best_score = score
+            best = candidate
+    return best
+
+
+def _index_benchmark_score_adjustment(norm_query: str, c_norm: str) -> float:
+    """Disambiguate Nifty 50 vs Nifty 200/500 and ETF vs index fund."""
+    q = (norm_query or "").lower()
+    c = (c_norm or "").lower()
+    adj = 0.0
+    if re.search(r"nifty\s*50|nifty50", q) or re.search(r"\bnifty\b.{0,16}\b50\b", q):
+        if re.search(r"nifty\s*50|nifty50", c):
+            adj += 50.0
+        if re.search(r"\b200\b", c) and not re.search(r"\b200\b", q):
+            adj -= 60.0
+        if re.search(r"\b500\b", c) and not re.search(r"\b500\b", q):
+            adj -= 45.0
+        if "momentum" in c and "momentum" not in q:
+            adj -= 35.0
+    if re.search(r"\betf\b", q):
+        if "etf" in c or "exchange traded" in c:
+            adj += 20.0
+        elif "index fund" in c:
+            adj -= 25.0
+    elif re.search(r"\bfund\b", q) and "etf" not in q:
+        if "index fund" in c or re.search(r"\bfund\b", c):
+            adj += 12.0
+        if " etf" in c or c.endswith("etf"):
+            adj -= 18.0
+    if ("equal weight" in c or "equal-weight" in c) and "equal" not in q:
+        adj -= 45.0
+    return adj
 
 _CATEGORY_STEMS = frozenset({"large", "mid", "small", "flexi", "multi", "micro"})
 
@@ -429,24 +619,11 @@ def collect_fund_phrase_candidates(question: str) -> list[str]:
         seen.add(key)
         out.append(cleaned)
 
-    for m in _AMC_SCAN.finditer(q):
-        amc = m.group(1).strip()
-        rest = m.group(2).strip()
-        rest = _extend_amc_phrase_tail(q, m.end(), rest)
-        rest = re.sub(
-            r"\b(in|over|during|for|within)\s+(?:the\s+)?(?:last|past)\s+.+$",
-            "",
-            rest,
-            flags=re.I,
-        ).strip()
-        rest = re.sub(
-            r"\b(?:is|are|was|working|performing|done)\b.*$",
-            "",
-            rest,
-            flags=re.I,
-        ).strip()
-        if rest:
-            add(f"{amc} {rest}")
+    amc_phrase = _extract_amc_scheme_phrase(q)
+    if amc_phrase:
+        add(amc_phrase)
+    for m in _AMC_PREFIX_RE.finditer(q):
+        add(_compose_amc_scheme_phrase(q, m))
 
     isin, name = extract_fund_phrase_from_question(q)
     if isin:
@@ -504,9 +681,9 @@ def resolve_fund_for_query(
     if (isin or "").strip() or (name or "").strip():
         attempts.append(((isin or "").strip(), (name or "").strip()))
     if not discovery:
-        ext_isin, ext_name = extract_fund_phrase_from_question(question)
-        if ext_isin or ext_name:
-            attempts.append((ext_isin, ext_name))
+        ext_isin, _ext_name = extract_fund_phrase_from_question(question)
+        if ext_isin:
+            attempts.append((ext_isin, ""))
         for phrase in collect_fund_phrase_candidates(question):
             if phrase.upper().startswith("INF"):
                 attempts.append((phrase.upper(), ""))
@@ -536,6 +713,9 @@ def resolve_fund_for_query(
 
     if discovery:
         return None, False, []
+
+    if last_ambiguous and last_close:
+        return None, True, last_close
 
     scan_detail, scan_amb, scan_close = _lookup_fund_scan_question(question)
     if scan_detail and not scan_amb:
@@ -655,10 +835,13 @@ class FundIndex:
                 try:
                     text = md_path.read_text(encoding="utf-8")
                     current_amc = ""
+                    amc_headers: list[str] = []
                     for line in text.splitlines():
                         line = line.strip()
                         if line.startswith("## "):
                             current_amc = line.replace("## ", "").strip()
+                            if current_amc:
+                                amc_headers.append(current_amc)
                         elif line.startswith("- ") and "—" in line:
                             parts = line[2:].split("—")
                             if len(parts) >= 2:
@@ -681,7 +864,15 @@ class FundIndex:
                                 }
                                 entries.append(entry)
                                 entries_by_isin[isin.upper()] = entry
-                    logger.info("Loaded %d Regular Growth funds into search index from %s", len(entries), md_path.name)
+                    cat = install_amc_catalog(amc_headers)
+                    _sync_amc_prefix_from_catalog()
+                    logger.info(
+                        "Loaded %d Regular Growth funds (%d AMCs, %d AMC prefixes) from %s",
+                        len(entries),
+                        len(amc_headers),
+                        len(cat.prefixes),
+                        md_path.name,
+                    )
                 except Exception as exc:
                     logger.exception("Failed loading funds from markdown %s: %s", md_path, exc)
 
@@ -723,6 +914,10 @@ class FundIndex:
                             break
                         except Exception:
                             pass
+
+            if get_amc_catalog() is None:
+                install_amc_catalog([])
+                _sync_amc_prefix_from_catalog()
 
             self._entries = entries
             self._entries_by_isin = entries_by_isin
@@ -891,6 +1086,7 @@ class FundIndex:
         facts = raw.get("fund_facts") or {}
         nav = raw.get("nav") or {}
         ret = raw.get("returns") or {}
+        ratios = raw.get("ratios") or {}
         alloc = raw.get("allocations") or {}
         port = raw.get("portfolio") or {}
 
@@ -974,10 +1170,28 @@ class FundIndex:
 
         entry_meta = self._entries_by_isin.get(isin_clean) or {}
 
-        fund_name = ident.get("fund_name") or entry_meta.get("fund_name") or isin_clean
-        fund_short_name = ident.get("fund_short_name") or ident.get("fund_name") or entry_meta.get("fund_short_name") or isin_clean
+        api_name = str(ident.get("fund_name") or "").strip()
+        api_short = str(ident.get("fund_short_name") or ident.get("fund_name") or "").strip()
+        if entry_meta.get("fund_short_name"):
+            fund_name = str(entry_meta.get("fund_name") or api_name or isin_clean)
+            fund_short_name = str(entry_meta.get("fund_short_name"))
+        else:
+            fund_name = api_name or isin_clean
+            fund_short_name = api_short or fund_name
 
-        cat = ident.get("category") or ident.get("sebi_category") or ident.get("sub_category") or entry_meta.get("category") or ""
+        cat = (
+            ident.get("category")
+            or ident.get("sebi_category")
+            or ident.get("morningstar_category_short")
+            or ident.get("sub_category")
+            or entry_meta.get("category")
+            or ""
+        )
+        from news_rag.fund_rupeestop_metrics import normalize_category_average_returns
+
+        category_average_returns = normalize_category_average_returns(
+            ratios.get("category_averages") if isinstance(ratios, dict) else None
+        )
         stype = ident.get("scheme_type") or entry_meta.get("scheme_type") or "Equity"
         plan = ident.get("plan") or entry_meta.get("plan") or "Regular"
         opt = ident.get("option") or entry_meta.get("option") or "Growth"
@@ -999,6 +1213,7 @@ class FundIndex:
             "high_52w": nav.get("high_52w"),
             "low_52w": nav.get("low_52w"),
             "returns": returns_map,
+            "category_average_returns": category_average_returns,
             "sectors": sectors,
             "holdings": holdings,
         }
@@ -1099,13 +1314,21 @@ class FundIndex:
         if alias_isin:
             detail = self.get_fund_detail(alias_isin)
             if detail:
+                entry = self._entries_by_isin.get(alias_isin.upper())
+                if entry:
+                    detail = {
+                        **detail,
+                        "fund_name": entry.get("fund_name") or detail.get("fund_name"),
+                        "fund_short_name": entry.get("fund_short_name") or detail.get("fund_short_name"),
+                        "amc": entry.get("amc") or detail.get("amc"),
+                    }
                 return detail, False, []
 
-        # 2. Search on extracted name only
         norm_name = _normalize_fund_text(clean_name)
         stop_words = {
             "fund", "funds", "mutual", "scheme", "plan", "growth", "regular",
-            "the", "and", "of", "in", "for", "to", "a", "an", "is", "about"
+            "the", "and", "of", "in", "for", "to", "a", "an", "is", "about",
+            "life", "sun",
         }
         q_tokens = [w for w in re.findall(r"\b[a-z0-9]+\b", norm_name) if len(w) >= 2 and w not in stop_words]
         if not q_tokens:
@@ -1119,9 +1342,43 @@ class FundIndex:
             if not pool:
                 return None, False, []
 
+        settings = get_settings()
+        from news_rag.fund_match import (
+            catalog_name_for_match,
+            embedding_best_match,
+            load_fund_embedding_cache,
+            rank_catalog_entries_for_phrase,
+        )
+
+        ranked = rank_catalog_entries_for_phrase(clean_name, pool)
+        accept = float(settings.fund_fuzzy_accept)
+        reject = float(settings.fund_fuzzy_reject)
+        gap = float(settings.fund_fuzzy_ambiguous_gap)
+        if amc_hints:
+            accept = min(accept, 86.0)
+
+        if ranked:
+            top_score, top_entry, _ = ranked[0]
+            second_score = ranked[1][0] if len(ranked) > 1 else 0.0
+            if top_score >= accept:
+                if len(ranked) > 1 and abs(top_score - second_score) < gap:
+                    close = [str(e[1].get("fund_short_name") or "") for e in ranked[:5]]
+                    return None, True, [n for n in close if n]
+                detail = self.get_fund_detail(str(top_entry["isin"]))
+                if detail:
+                    return detail, False, []
+            if reject <= top_score < accept:
+                cache = load_fund_embedding_cache()
+                if cache:
+                    _emb_score, emb_entry = embedding_best_match(clean_name, pool, cache)
+                    if emb_entry is not None and _emb_score >= 0.55:
+                        detail = self.get_fund_detail(str(emb_entry["isin"]))
+                        if detail:
+                            return detail, False, []
+
         scored_candidates: list[tuple[float, dict[str, Any]]] = []
         for entry in pool:
-            c_name = entry.get("fund_short_name") or ""
+            c_name = catalog_name_for_match(entry)
             c_norm = _normalize_fund_text(c_name)
             c_tokens = set(re.findall(r"\b[a-z0-9]+\b", c_norm))
 
@@ -1158,6 +1415,8 @@ class FundIndex:
             if "mid" not in q_tokens and re.search(r"\bmid\b", c_norm) and "large" in q_tokens:
                 score -= 25.0
 
+            score += _index_benchmark_score_adjustment(norm_name, c_norm)
+
             if "us" in c_tokens and "us" not in q_tokens and "international" not in norm_name:
                 score -= 40.0
             if "global" in c_norm and not any(
@@ -1179,31 +1438,12 @@ class FundIndex:
                     continue
                 scored_candidates.append((80.0, entry))
 
-        if not scored_candidates:
-            from news_rag.fund_match import embedding_best_match, fuzzy_rank_entries, load_fund_embedding_cache
+        if not scored_candidates and ranked and ranked[0][0] >= reject:
+            detail = self.get_fund_detail(str(ranked[0][1]["isin"]))
+            if detail:
+                return detail, False, []
 
-            settings = get_settings()
-            fuzzy_hits = fuzzy_rank_entries(clean_name, pool)
-            if fuzzy_hits:
-                top_score, top_entry, _method = fuzzy_hits[0]
-                accept = settings.fund_fuzzy_accept
-                reject = settings.fund_fuzzy_reject
-                gap = settings.fund_fuzzy_ambiguous_gap
-                if top_score >= accept:
-                    second = fuzzy_hits[1][0] if len(fuzzy_hits) > 1 else 0.0
-                    if len(fuzzy_hits) > 1 and abs(top_score - second) < gap:
-                        close = [str(e[1].get("fund_short_name") or "") for e in fuzzy_hits[:5]]
-                        return None, True, [n for n in close if n]
-                    detail = self.get_fund_detail(str(top_entry["isin"]))
-                    return detail, False, []
-                if reject <= top_score < accept:
-                    cache = load_fund_embedding_cache()
-                    if cache:
-                        emb_score, emb_entry = embedding_best_match(clean_name, pool, cache)
-                        if emb_entry is not None and emb_score >= 0.55:
-                            detail = self.get_fund_detail(str(emb_entry["isin"]))
-                            if detail:
-                                return detail, False, []
+        if not scored_candidates:
             return None, False, []
 
         scored_candidates.sort(key=lambda x: (-x[0], str(x[1].get("fund_short_name") or "")))
@@ -1287,6 +1527,31 @@ def normalize_holding_row(raw: dict[str, Any]) -> dict[str, Any]:
         "industry": sector,
         "sector": sector,
     }
+
+
+def aggregate_sectors_from_holdings(
+    holdings: list[dict[str, Any]],
+    *,
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """When the API has no sector file, roll up holding industries (gilt, FOF, etc.)."""
+    buckets: dict[str, float] = {}
+    for h in holdings:
+        label = str(h.get("industry") or h.get("sector") or "").strip() or "Other"
+        try:
+            pct = float(h.get("percentage") or h.get("weight_pct") or 0.0)
+        except (TypeError, ValueError):
+            pct = 0.0
+        if pct <= 0:
+            continue
+        buckets[label] = buckets.get(label, 0.0) + pct
+    total = sum(buckets.values())
+    # Multiple GOI lines rolled into one label can exceed 100% — prefer constituent table instead.
+    if total > 102.0 or (len(buckets) == 1 and total > 99.5):
+        return []
+    rows = [{"sector": name, "percentage": pct} for name, pct in buckets.items()]
+    rows.sort(key=lambda x: x["percentage"], reverse=True)
+    return rows[: max(1, limit)]
 
 
 def normalize_sector_row(raw: dict[str, Any]) -> dict[str, Any]:

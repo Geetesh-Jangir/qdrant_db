@@ -7,7 +7,7 @@ The executor validates args, respects fan-out caps, and uses the TTL cache.
 from __future__ import annotations
 
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
 
 from news_rag.config import get_settings
@@ -52,7 +52,12 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
 
     if "snapshot" in modules:
         from news_rag.insight.layer_tools import run_fund_snapshot
-        snap_ctx = {**ctx, "fund_name": fund_name, "fund_names": [fund_name], "windows": args.get("windows", ["1M"])}
+        snap_ctx = {
+            **ctx,
+            "fund_name": fund_name,
+            "fund_names": [fund_name],
+            "windows": args.get("windows") or ["1W", "1M", "3M", "6M", "1Y"],
+        }
         snap = run_fund_snapshot(snap_ctx)
         if snap.get("ok"):
             results["snapshot"] = snap.get("data", {})
@@ -74,6 +79,22 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
         attr = run_fund_attribution_tool(attr_ctx)
         if attr.get("ok"):
             results["attribution"] = attr.get("data", {})
+
+    if "snapshot" in modules or "vs_benchmark" in modules:
+        from news_rag.fund_search import resolve_fund_for_query
+        from news_rag.fund_rupeestop_metrics import (
+            fetch_vs_benchmark,
+            merge_fund_insight_metrics,
+        )
+
+        detail, _amb, _close = resolve_fund_for_query(fund_name)
+        isin = str((detail or {}).get("isin") or "").strip()
+        vs = fetch_vs_benchmark(isin) if isin else None
+        insights = merge_fund_insight_metrics(detail, vs_benchmark=vs)
+        if insights:
+            results["fund_insights"] = insights
+            if vs:
+                results["vs_benchmark"] = vs
 
     if "managers" in modules:
         from news_rag.fund_search import fetch_fund_managers_for_query
@@ -116,21 +137,128 @@ def _run_compare_funds(fund_names: list[str], args: dict[str, Any], ctx: dict[st
     return run_compare_funds_adapter(compare_ctx)
 
 
-def _run_search_financial_news(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
-    """Delegate to the news fanout system."""
-    from news_rag.insight.news_fanout import NewsTarget, search_targets, grouped_news
+def _portfolio_for_fund_news(ctx: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str]:
+    """Holdings/sectors from Wave 1 or a quick portfolio fetch for layered fund news."""
+    holdings: list[dict[str, Any]] = []
+    sectors: list[dict[str, Any]] = []
+    fund_name = ""
+    for r in ctx.get("wave1_results") or []:
+        if r.get("tool") != "get_portfolio_data" or not r.get("ok"):
+            continue
+        data = r.get("data") if isinstance(r.get("data"), dict) else {}
+        holdings = list(data.get("holdings") or [])
+        sectors = list(data.get("sectors") or [])
+        fund_name = str(r.get("fund") or data.get("fund_name") or "").strip()
+        break
 
-    scope = args.get("scope", "market")
-    topics = args.get("topics", [])
-    top_n = args.get("top_n", 3)
-    window_days = args.get("window_days", 14)
+    names = list(ctx.get("fund_names") or [])
+    if not fund_name and names:
+        fund_name = str(names[0]).strip()
+
+    if holdings or sectors:
+        return holdings, sectors, fund_name
+
+    if not fund_name:
+        return [], [], ""
+
+    from news_rag.fund_search import extract_top_holdings, extract_top_sectors, resolve_fund_for_query
+
+    detail, _amb, _close = resolve_fund_for_query(fund_name)
+    if not detail:
+        return [], [], fund_name
+    fund_name = str(
+        detail.get("fund_short_name") or detail.get("fund_name") or fund_name
+    ).strip()
+    holdings = extract_top_holdings(detail, limit=10)
+    sectors = extract_top_sectors(detail, limit=8)
+    return holdings, sectors, fund_name
+
+
+def _group_layered_articles(articles: list[dict[str, Any]]) -> dict[str, dict[str, list[dict[str, str]]]]:
+    layer_map = {"holding": "holdings", "sector": "sectors", "macro": "macro"}
+    grouped: dict[str, dict[str, list[dict[str, str]]]] = {}
+    for row in articles:
+        if not isinstance(row, dict):
+            continue
+        scope = layer_map.get(str(row.get("_news_layer") or ""), "macro")
+        entity = str(row.get("_news_source_label") or row.get("source") or "general").strip()
+        title = str(row.get("title") or "").strip()
+        text = str(row.get("text") or row.get("summary") or "")[:900]
+        grouped.setdefault(scope, {}).setdefault(entity, []).append(
+            {
+                "title": title,
+                "headline": title,
+                "text": text,
+                "summary": text,
+                "url": str(row.get("url") or ""),
+                "source": str(row.get("source") or ""),
+                "published_at": str(row.get("published_at") or ""),
+                "sentiment": str(row.get("sentiment") or ""),
+                "max_impact": row.get("max_impact"),
+                "direction": row.get("direction"),
+            }
+        )
+    return grouped
+
+
+def _run_search_financial_news(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """Market/stock news fanout, or layered holdings+sectors+macro for named funds."""
+    from news_rag.insight.fund_news_scope import infer_fund_news_layers, layers_to_retrieval_keys
+    from news_rag.insight.news_fanout import NewsTarget, grouped_news, search_targets
+
+    scope = str(args.get("scope") or "market").lower()
+    topics = args.get("topics") or []
+    top_n = int(args.get("top_n") or 3)
+    window_days = int(args.get("window_days") or ctx.get("window_days") or 14)
     direction = args.get("direction")
     if direction == "any":
         direction = None
+    question = str(ctx.get("question") or "")
+
+    use_fund_layers = scope in ("all", "fund", "portfolio") or (
+        scope in ("holdings", "sectors", "macro")
+        and bool(ctx.get("fund_names"))
+    )
+    if use_fund_layers:
+        holdings, sectors, fund_name = _portfolio_for_fund_news(ctx)
+        if holdings or sectors:
+            from news_rag.fund_portfolio_news import retrieve_layered_fund_news
+
+            if scope in ("all", "fund", "portfolio"):
+                layers = layers_to_retrieval_keys(infer_fund_news_layers(question))
+            elif scope == "holdings":
+                layers = frozenset({"holding"})
+            elif scope == "sectors":
+                layers = frozenset({"sector"})
+            else:
+                layers = frozenset({"macro"})
+
+            articles = retrieve_layered_fund_news(
+                holdings=holdings,
+                sectors=sectors,
+                question=question,
+                fund_name=fund_name,
+                window_days=window_days,
+                query_log=ctx.get("query_log"),
+                layers=layers,
+            )
+            grouped = _group_layered_articles(articles)
+            return {
+                "ok": bool(articles),
+                "scope": scope if scope != "fund" else "all",
+                "data": {
+                    "grouped": grouped,
+                    "articles": articles,
+                    "article_count": len(articles),
+                    "fund_name": fund_name,
+                    "layers": sorted(layers),
+                },
+            }
 
     targets: list[NewsTarget] = []
     if scope == "market" and not topics:
         from news_rag.insight.market_news import market_scope_entities
+
         entities = market_scope_entities(source_kind="layer1", topics=[], top_n=top_n)
     elif topics:
         entities = [(t, f"{t} India market news") for t in topics[:top_n]]
@@ -138,15 +266,27 @@ def _run_search_financial_news(args: dict[str, Any], ctx: dict[str, Any]) -> dic
         entities = [(scope, f"{scope} India financial news")]
 
     for entity, query in entities:
-        targets.append(NewsTarget(
-            scope=scope, entity=entity, query=query, window_days=window_days,
-            direction=direction, limit=3, chars=900, required=True,
-        ))
+        targets.append(
+            NewsTarget(
+                scope=scope,
+                entity=entity,
+                query=query,
+                window_days=window_days,
+                direction=direction,
+                limit=3,
+                chars=900,
+                required=True,
+            )
+        )
 
     search_targets(targets)
     grouped = grouped_news(targets)
     articles = [art for t in targets for art in (t.articles or [])]
-    return {"ok": bool(articles), "data": {"grouped": grouped, "articles": articles, "article_count": len(articles)}}
+    return {
+        "ok": bool(articles),
+        "scope": scope,
+        "data": {"grouped": grouped, "articles": articles, "article_count": len(articles)},
+    }
 
 
 def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:

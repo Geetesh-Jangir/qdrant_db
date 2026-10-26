@@ -330,9 +330,9 @@ def _detect_direction(question: str) -> str:
 
 _AMC_TOKENS = {
     "hdfc", "sbi", "icici", "axis", "kotak", "dsp", "tata", "nippon",
-    "uti", "mirae", "parag", "ppfas", "motilal", "aditya", "birla",
+    "uti", "mirae", "parag", "ppfas", "absl", "motilal", "aditya", "birla",
     "franklin", "canara", "bandhan", "invesco", "hsbc", "quant",
-    "edelweiss", "sundaram", "pgim", "baroda", "bnp", "groww", "navi",
+    "edelweiss", "sundaram", "pgim", "baroda", "bnp", "groww", "navi", "angel",
     "whiteoak", "mahindra", "manulife",
 }
 

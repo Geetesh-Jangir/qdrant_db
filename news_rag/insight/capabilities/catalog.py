@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from news_rag.insight.contracts import ToolCall
-
 # ---------------------------------------------------------------------------
 # Capability definitions
 # ---------------------------------------------------------------------------
@@ -44,8 +42,9 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "What a named mutual fund holds: top stocks and/or sector weights inside that scheme."
         ),
         "when_to_use": (
-            "Phrases like top stocks/shares/holdings/sectors OF or IN a named fund; "
-            "what does [Fund X] hold; portfolio composition of one scheme."
+            "Top stocks, shares, or holdings inside one named fund: sections [\"holdings\"] and top_n from the question. "
+            "Top sectors inside one fund: sections [\"sectors\"] only. "
+            "Both only when the user asked for the whole portfolio. A misspelled word still means the slice they intended."
         ),
         "do_not_use": (
             "NOT when user asks which funds are invested in banking/HDFC Bank/ a sector — "
@@ -59,18 +58,29 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         "per_fund": True,
     },
     "compare_funds": {
-        "description": "Side-by-side comparison of two or more funds. "
-                       "Overlap shows shared holdings with weights.",
+        "description": (
+            "One call comparing two or more named funds. "
+            "mode is metrics, overlap, or both. Do not pass modules."
+        ),
+        "when_to_use": "The user names two or more schemes and asks to compare them.",
+        "do_not_use": "Do not call get_fund_data once per fund instead of this tool.",
         "args_schema": {
             "mode": {"type": "str", "enum": ["metrics", "overlap", "both"], "default": "both"},
         },
         "per_fund": False,
     },
     "search_financial_news": {
-        "description": "Search Qdrant for financial news. Returns compact summaries, "
-                       "no full bodies unless gap recovery.",
+        "description": (
+            "News search. scope is all, fund, holdings, sectors, macro, stock, sector, or market. "
+            "top_n is at most 8. Use wave 2."
+        ),
+        "when_to_use": "The user asked for news, or why a move happened and metrics alone are not enough.",
+        "do_not_use": "Do not use for a pure NAV, holdings, or sector-weight lookup.",
         "args_schema": {
-            "scope": {"type": "str", "enum": ["holdings", "sectors", "macro", "stock", "sector", "market"]},
+            "scope": {
+                "type": "str",
+                "enum": ["all", "fund", "holdings", "sectors", "macro", "stock", "sector", "market"],
+            },
             "topics": {"type": "list", "max_items": 8},
             "top_n": {"type": "int", "min": 1, "max": 8, "default": 3},
             "window_days": {"type": "int", "min": 1, "max": 180, "default": 14},
@@ -84,8 +94,9 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "by macro driver impact, or by return window when no single fund is named."
         ),
         "when_to_use": (
-            "Any N funds with exposure to a sector (banking, IT, pharma); funds holding a "
-            "stock (HDFC Bank); funds affected by crude/RBI; random/top performers in a category."
+            "Unnamed funds: sector exposure (argument sector), a stock they hold, or a macro driver. "
+            "driver must be a lowercase id such as crude_oil or rbi_repo, with direction positive, negative, or any. "
+            "top_n is how many funds to return, from 1 to 20."
         ),
         "do_not_use": (
             "NOT for top holdings inside one named fund — use get_portfolio_data. "
@@ -107,8 +118,13 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         "per_fund": False,
     },
     "get_market_snapshot": {
-        "description": "Nifty / Sensex / sector index returns, sector ranking, "
-                       "macro series (Brent crude BZ=F, WTI, rupee, gold, silver, yield), metals spot.",
+        "description": (
+            "Index returns, sector ranking, and macro series. "
+            "modules: index_return, sector_ranking, macro_series, metals_spot, stock_quote. "
+            "series: crude, brent, wti, usdinr, gold, silver, yield. There is no macro_impact module and no driver argument."
+        ),
+        "when_to_use": "Market or macro level, with no single fund named, or as context next to fund news.",
+        "do_not_use": "Do not use this to list funds affected by a driver. That is screen_funds_by_exposure.",
         "args_schema": {
             "modules": {"type": "list", "items": [
                 "index_return", "sector_ranking", "macro_series", "metals_spot", "stock_quote",
@@ -209,7 +225,10 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         direction = str(src.get("direction") or "any").lower()
         topics = [str(t).strip() for t in (src.get("topics") or []) if str(t).strip()][:8]
         return {
-            "scope": scope if scope in ("holdings", "sectors", "macro", "stock", "sector", "market") else "market",
+            "scope": scope
+            if scope
+            in ("all", "fund", "holdings", "sectors", "macro", "stock", "sector", "market")
+            else "market",
             "topics": topics,
             "top_n": _clamp(src.get("top_n"), 1, 8, 3),
             "window_days": _clamp(src.get("window_days"), 1, 180, 14),

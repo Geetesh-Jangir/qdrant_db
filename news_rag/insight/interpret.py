@@ -201,7 +201,6 @@ def check_composer_guardrails(
     return violations
 
 
-
 @dataclass
 class ComposedInsight:
     headline: str = ""
@@ -595,23 +594,11 @@ def _period(label: str) -> str:
     return re.sub(r"\b1 months\b", "1 month", text)
 
 
-def _signed(v: Any) -> str:
-    return f"**{float(v):+.1f}%**" if isinstance(v, (int, float)) else ""
-
-
 def _down_up(v: Any) -> str:
     if not isinstance(v, (int, float)):
         return ""
     word = "down" if v < 0 else "up"
     return f"**{word} {abs(float(v)):.1f}%**"
-
-
-def _same_way(a: Any, b: Any) -> bool | None:
-    if not isinstance(a, (int, float)) or not isinstance(b, (int, float)):
-        return None
-    if abs(a) < 0.4 or abs(b) < 0.4:
-        return None
-    return (a < 0 and b < 0) or (a > 0 and b > 0)
 
 
 def _factor(raw: str) -> str:
@@ -1239,68 +1226,12 @@ def _article_context_for_interpret(
     return out
 
 
-def _named_fund_llm_packet(
-    question: str,
-    brief: QuestionBrief,
-    findings: Findings,
-    evidence: EvidenceSet,
-    news_read: Any = None,
-    analysis_brief: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    packet = _facts(question, brief, findings, evidence)
-    packet["measured_facts"] = measured_facts_block(brief, evidence)
-    packet["cross_cutting"] = list(findings.cross_cutting)
-    if news_read is not None:
-        packet["news_reader"] = {
-            "tone": news_read.tone,
-            "tone_reason": news_read.tone_reason,
-            "net_read": getattr(news_read, "net_read", "") or "",
-            "conflicts": list(getattr(news_read, "conflicts", []) or []),
-            "themes": list(news_read.themes or []),
-            "claims": [
-                {"text": c.text, "sentiment": c.sentiment, "article": c.article}
-                for c in (news_read.claims or [])
-            ],
-            "sectors_positive": [{"name": s.name, "reason": s.reason} for s in news_read.sectors_positive],
-            "sectors_negative": [{"name": s.name, "reason": s.reason} for s in news_read.sectors_negative],
-        }
-    if analysis_brief:
-        packet["analysis_brief"] = analysis_brief
-    return packet
-
-
 def _named_fund_block(evidence: EvidenceSet) -> dict[str, Any]:
     for item in evidence.by_facet("fund_attribution"):
         funds = (item.data or {}).get("funds") if isinstance(item.data, dict) else None
         if funds and isinstance(funds[0], dict):
             return funds[0]
     return {}
-
-
-_META_SENTENCE = re.compile(
-    r"[^.!?\n]*(in the data|the facts do not|per the fund'?s records|cannot be settled from this data)[^.!?\n]*[.!?]?",
-    re.I,
-)
-
-
-def _strip_meta_language(text: str) -> str:
-    cleaned = _META_SENTENCE.sub("", text or "")
-    return re.sub(r"\n{3,}", "\n\n", cleaned).strip()
-
-
-def _ensure_attribution_table(text: str, block: dict[str, Any]) -> str:
-    from news_rag.insight.holding_attribution import render_attribution_table
-
-    attr = block.get("attribution") if isinstance(block.get("attribution"), dict) else {}
-    if not attr or not attr.get("rows"):
-        return text
-    table = render_attribution_table(attr)
-    if "| Holding |" in (text or ""):
-        return text
-    parts = (text or "").split("\n", 1)
-    head = parts[0].strip()
-    rest = parts[1].strip() if len(parts) > 1 else ""
-    return f"{head}\n\n{table}\n\n{rest}".strip()
 
 
 def _named_fund_llm_compose(
@@ -1701,46 +1632,6 @@ def _hybrid_compose(
         "findings": findings.to_dict(),
     }
     return out
-
-
-def insight_from_streamed_text(
-    question: str,
-    brief: QuestionBrief,
-    findings: Findings,
-    evidence: EvidenceSet,
-    streamed_text: str,
-) -> ComposedInsight:
-    """Reuse text already streamed to the client instead of calling the composer again."""
-    packet = _facts(question, brief, findings, evidence)
-    published_keys = published_date_keys_from_evidence(evidence)
-    text = scrub_composer_text(
-        streamed_text,
-        packet,
-        findings.evidence_text,
-        published_keys=published_keys,
-    )
-    text = _drop_pipeline_voice(strip_media_attribution(text))
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    headline = ""
-    for line in lines:
-        if line.startswith("#"):
-            headline = line.lstrip("#").strip()
-            break
-        if line and not headline:
-            headline = line
-            break
-    disclaimer = "For context only — not investment advice."
-    if disclaimer.lower() not in text.lower():
-        text = text.rstrip() + f"\n\n{disclaimer}"
-    return ComposedInsight(
-        headline=headline or _structured_headline(brief, findings),
-        narrative=text,
-        bullets=[],
-        closing_summary=disclaimer,
-        display=text,
-        sub_ask_coverage=[a.text for a in sorted(brief.sub_asks, key=lambda a: a.order or 0)],
-        answer_trace={"mode": "streamed_composer", "findings": findings.to_dict()},
-    )
 
 
 def compose_from_findings(

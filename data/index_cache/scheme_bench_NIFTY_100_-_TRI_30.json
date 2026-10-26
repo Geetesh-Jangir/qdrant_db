@@ -1,8 +1,8 @@
 {
   "benchmark_label": "NIFTY 100 - TRI (Nifty 50 used as a tradable proxy for the move)",
-  "return_pct": -3.61,
+  "return_pct": -2.09,
   "yfinance_ticker": "^NSEI",
   "window_days": 30,
   "scheme_benchmark_raw": "NIFTY 100 - TRI",
-  "cached_at": 1792764364.7127128
+  "cached_at": 1793002895.8989708
 }

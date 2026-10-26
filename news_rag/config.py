@@ -75,6 +75,16 @@ class Settings(BaseSettings):
     gemini_composer_model: str = "gemini-3.5-flash-lite"
     gemini_base_url: str = "https://generativelanguage.googleapis.com/v1beta"
 
+    # Planner node only (defaults: same as RAG_LLM_PROVIDER / router model)
+    rag_planner_provider: str = Field(
+        default="",
+        validation_alias=AliasChoices("RAG_PLANNER_PROVIDER", "rag_planner_provider"),
+    )
+    rag_planner_model: str = Field(
+        default="",
+        validation_alias=AliasChoices("RAG_PLANNER_MODEL", "rag_planner_model"),
+    )
+
     # Dedicated cheap model for query routing and answer contract planning (default: flash-lite)
     rag_router_model: str = ""
     rag_contract_model: str = ""

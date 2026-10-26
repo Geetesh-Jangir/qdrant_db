@@ -1,0 +1,8 @@
+{
+  "reference_name": "Nifty 50",
+  "return_pct": -2.1,
+  "yfinance_ticker": "^NSEI",
+  "window_days": 30,
+  "is_scheme_benchmark": false,
+  "cached_at": 1793003608.927006
+}

@@ -81,10 +81,6 @@ def common_market_news_from_plan(plan: AskPlan) -> bool:
     return any(t.tool in ("common_market_news", "market_pulse") for t in plan.tools)
 
 
-def macro_news_enhanced_from_plan(plan: AskPlan) -> bool:
-    return any(t.tool == "macro_news_enhanced" for t in plan.tools)
-
-
 def market_pulse_from_plan(plan: AskPlan) -> bool:
     """Broad market-now compose/digest path (planner must select common_market_news)."""
     return common_market_news_from_plan(plan)
@@ -101,10 +97,6 @@ def clustered_macro_data_from_bundle(bundle: Any) -> dict[str, Any]:
         if isinstance(data, dict) and ("clusters" in data or "representative_articles" in data):
             return data
     return {}
-
-
-def market_pulse_data_from_bundle(bundle: Any) -> dict[str, Any]:
-    return clustered_macro_data_from_bundle(bundle)
 
 
 def market_pulse_window_days(question: str, tool_window_days: int | None = None) -> int:

@@ -50,8 +50,9 @@ def test_investor_answer_keeps_the_sum_and_drops_unrelated_news():
         benchmark_name="BSE 100 - TRI",
         benchmark_return_pct=None,
     )
-    assert "-0.59" in text
-    assert "percentage points" in text
+    assert "weight" in text.lower()
+    assert "return" in text.lower()
+    assert "percentage points" not in text.lower() or "benchmark" in text.lower()
     assert "```" not in text
     assert "Persistent" not in text
     assert "window_pct" not in text

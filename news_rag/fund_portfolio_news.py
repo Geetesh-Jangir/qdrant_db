@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import TYPE_CHECKING, Any
 
 from news_rag.news_entity_resolve import resolve_corpus_entity, resolve_corpus_entities
@@ -104,6 +104,76 @@ def _macro_queries_for_sectors(sectors: list[dict[str, Any]]) -> list[tuple[str,
     return deduped[:4]
 
 
+def _fetch_holding_news(
+    row: dict[str, Any],
+    *,
+    question: str,
+    window_days: int,
+) -> tuple[str, list[dict]]:
+    name = str(row.get("name") or row.get("company_name") or "").strip()
+    if not name:
+        return name, []
+    entity = resolve_corpus_entity(name)
+    scope = ScopeRefinement(news_entities=[entity], news_topics=[], search_mode="entities_only")
+    hits = retrieve_scoped_news(
+        f"{entity} India stock news results earnings",
+        scope=scope,
+        question=question,
+        window_days=window_days,
+        query_log=None,
+    )
+    if not hits:
+        scope = ScopeRefinement(search_mode="event_only", news_topics=[])
+        hits = retrieve_scoped_news(
+            f"{entity} India company news stock",
+            scope=scope,
+            question=question,
+            window_days=window_days,
+            query_log=None,
+        )
+    return name, hits[:3]
+
+
+def _fetch_sector_news(
+    row: dict[str, Any],
+    *,
+    question: str,
+    window_days: int,
+) -> tuple[str, list[dict]]:
+    sector_label = str(row.get("sector") or "").strip()
+    if not sector_label:
+        return sector_label, []
+    entities = resolve_corpus_entities(_sector_entities(sector_label))
+    scope = ScopeRefinement(news_entities=entities, news_topics=[], search_mode="event_plus_entities")
+    hits = retrieve_scoped_news(
+        f"{sector_label} India sector news",
+        scope=scope,
+        question=question,
+        window_days=window_days,
+        query_log=None,
+    )
+    return sector_label, hits[:3]
+
+
+def _fetch_macro_news(
+    query: str,
+    label: str,
+    *,
+    question: str,
+    fund_name: str,
+    window_days: int,
+) -> tuple[str, list[dict]]:
+    scope = ScopeRefinement(search_mode="event_only", news_topics=[])
+    hits = retrieve_scoped_news(
+        query,
+        scope=scope,
+        question=question or fund_name,
+        window_days=min(window_days, 21),
+        query_log=None,
+    )
+    return label, hits[:3]
+
+
 def retrieve_layered_fund_news(
     *,
     holdings: list[dict[str, Any]],
@@ -112,60 +182,66 @@ def retrieve_layered_fund_news(
     fund_name: str = "",
     window_days: int = 30,
     query_log: QueryLogger | None = None,
+    layers: frozenset[str] | None = None,
 ) -> list[dict]:
-    """Holdings-first, then sector peers, then macro — merged and ranked."""
+    """Holdings, sector, and macro news fetched in parallel, then merged and ranked."""
+    active = layers or frozenset({"holding", "sector", "macro"})
     pool: dict[str, dict] = {}
     fund_bit = (fund_name or "").strip()
 
-    for row in holdings[:6]:
-        name = str(row.get("name") or "").strip()
-        if not name:
-            continue
-        entity = resolve_corpus_entity(name)
-        scope = ScopeRefinement(news_entities=[entity], news_topics=[], search_mode="entities_only")
-        hits = retrieve_scoped_news(
-            f"{entity} India stock news results earnings",
-            scope=scope,
-            question=question,
-            window_days=window_days,
-            query_log=query_log,
-        )
-        if not hits:
-            scope = ScopeRefinement(search_mode="event_only", news_topics=[])
-            hits = retrieve_scoped_news(
-                f"{entity} India company news stock",
-                scope=scope,
-                question=question,
-                window_days=window_days,
-                query_log=query_log,
-            )
-        _merge_articles(pool, hits[:3], layer="holding", source_label=name)
+    jobs: list[tuple[str, Any]] = []
+    if "holding" in active:
+        for row in holdings[:6]:
+            jobs.append(("holding", row))
+    if "sector" in active:
+        for row in sectors[:5]:
+            jobs.append(("sector", row))
+    if "macro" in active:
+        for query, label in _macro_queries_for_sectors(sectors):
+            jobs.append(("macro", (query, label)))
 
-    for row in sectors[:5]:
-        sector_label = str(row.get("sector") or "").strip()
-        if not sector_label:
-            continue
-        entities = resolve_corpus_entities(_sector_entities(sector_label))
-        scope = ScopeRefinement(news_entities=entities, news_topics=[], search_mode="event_plus_entities")
-        hits = retrieve_scoped_news(
-            f"{sector_label} India sector news",
-            scope=scope,
-            question=question,
-            window_days=window_days,
-            query_log=query_log,
-        )
-        _merge_articles(pool, hits[:3], layer="sector", source_label=sector_label)
+    if not jobs:
+        return []
 
-    for query, label in _macro_queries_for_sectors(sectors):
-        scope = ScopeRefinement(search_mode="event_only", news_topics=[])
-        hits = retrieve_scoped_news(
-            query,
-            scope=scope,
-            question=question or fund_bit,
-            window_days=min(window_days, 21),
-            query_log=query_log,
-        )
-        _merge_articles(pool, hits[:3], layer="macro", source_label=label)
+    max_workers = min(8, max(2, len(jobs)))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool_exec:
+        future_map = {}
+        for kind, payload in jobs:
+            if kind == "holding":
+                fut = pool_exec.submit(
+                    _fetch_holding_news,
+                    payload,
+                    question=question,
+                    window_days=window_days,
+                )
+            elif kind == "sector":
+                fut = pool_exec.submit(
+                    _fetch_sector_news,
+                    payload,
+                    question=question,
+                    window_days=window_days,
+                )
+            else:
+                query, label = payload
+                fut = pool_exec.submit(
+                    _fetch_macro_news,
+                    query,
+                    label,
+                    question=question,
+                    fund_name=fund_bit,
+                    window_days=window_days,
+                )
+            future_map[fut] = kind
+
+        for fut in as_completed(future_map):
+            kind = future_map[fut]
+            try:
+                label, hits = fut.result()
+            except Exception:
+                continue
+            if not label or not hits:
+                continue
+            _merge_articles(pool, hits, layer=kind, source_label=label)
 
     ranked = sorted(
         pool.values(),
@@ -180,6 +256,7 @@ def retrieve_layered_fund_news(
             f"FUND_PORTFOLIO_NEWS total={len(ranked)} "
             f"holding={sum(1 for a in ranked if a.get(_LAYER)=='holding')} "
             f"sector={sum(1 for a in ranked if a.get(_LAYER)=='sector')} "
-            f"macro={sum(1 for a in ranked if a.get(_LAYER)=='macro')}"
+            f"macro={sum(1 for a in ranked if a.get(_LAYER)=='macro')} "
+            f"layers={','.join(sorted(active))}"
         )
     return ranked[:24]

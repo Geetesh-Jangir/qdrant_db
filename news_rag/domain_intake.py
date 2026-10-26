@@ -18,7 +18,8 @@ _STOCK_OVERVIEW_RE = re.compile(
 )
 _FUND_SCHEME_RE = re.compile(
     r"\b(?:mutual\s+fund|mf\b|scheme|nav\b|folio|sip\b|amc\b|"
-    r"(?:large|mid|small|flexi|multi)\s*cap|elss|index\s+fund|etf\b)\b",
+    r"(?:large|mid|small|flexi|multi)\s*cap|elss|index\s+fund|etf\b|"
+    r"absl|ppfas|parag\s+parikh|aditya\s+birla|angel\s+one)\b",
     re.I,
 )
 

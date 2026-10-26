@@ -12,19 +12,6 @@ if TYPE_CHECKING:
     from news_rag.query_log import QueryLogger
 
 
-def holdings_top_n_from_question(question: str, default: int = 3) -> int:
-    q = question or ""
-    m = re.search(r"\btop\s*(\d+)\b", q, re.I)
-    if m:
-        try:
-            return max(1, min(int(m.group(1)), 10))
-        except ValueError:
-            pass
-    if re.search(r"\btop\s+three\b", q, re.I):
-        return 3
-    return default
-
-
 def question_wants_holdings_performance(question: str) -> bool:
     lower = (question or "").lower()
     if not lower:
@@ -311,14 +298,3 @@ def should_fetch_holdings_market(question: str, plan_tools: set[str], has_holdin
     return False
 
 
-def news_window_days_from_plan(tools: list[Any], default: int = 30) -> int:
-    for t in tools:
-        name = getattr(t, "tool", None) or (t.get("tool") if isinstance(t, dict) else None)
-        if name in ("holdings_news", "sector_news", "macro_news"):
-            wd = getattr(t, "window_days", None) if not isinstance(t, dict) else t.get("window_days")
-            if wd:
-                try:
-                    return int(wd)
-                except (TypeError, ValueError):
-                    pass
-    return default

@@ -1,0 +1,58 @@
+flowchart TD
+    UserQuery([User HTTP Request: /ask or /ask/stream]) --> Intake[FastAPI Entrypoint & Context Intake]
+    Intake --> Guardrails{Initial Scope & Guardrails Check}
+    Guardrails -->|Out of Scope / Financial Advice| DirectRefusal([Fast Direct Reply + Advice Disclaimer])
+    Guardrails -->|In Scope| RouterNode[Component 1: Slot Router]
+
+    subgraph Phase1_Routing [Phase 1: Routing & Planning]
+        RouterNode --> ConfidenceCheck{Heuristic Confidence >= 0.97?}
+        ConfidenceCheck -->|Yes: Regex / Tier Match| DeterministicPlan[Fast-Path ExecutionPlan: 0 LLM Tokens, <5ms]
+        ConfidenceCheck -->|No: Confidence < 0.97| PlannerLLM[Component 2: Planner LLM Router]
+        PlannerLLM --> StructuredPlan[Structured JSON Plan: Scope, Entities, Tools, Waves]
+    end
+
+    DeterministicPlan --> EntityResolve[Component 3: Entity Resolution Engine]
+    StructuredPlan --> EntityResolve
+
+    subgraph Phase2_Resolution [Phase 2: Canonical Entity Resolution]
+        EntityResolve --> FundSearch[Fund Master Fuzzy Match & ISIN Resolution]
+        EntityResolve --> SectorSearch[Sector Key Normalization]
+        FundSearch --> FundFound{Fund Resolved?}
+        FundFound -->|No & Fund Was Sole Focus| ClarifyReply([Direct Reply: Scheme Name Clarification])
+        FundFound -->|Yes| Wave1Dispatch[Component 4: Wave 1 Parallel Executor]
+        SectorSearch --> Wave1Dispatch
+    end
+
+    subgraph Phase3_Wave1 [Phase 3: Wave 1 Parallel Execution]
+        Wave1Dispatch --> TPool1[ThreadPoolExecutor: Max 4-8 Concurrent Threads]
+        TPool1 --> CapFundData[get_fund_data: NAV, 1D/1W/1M/1Y Returns, Attribution]
+        TPool1 --> CapPortfolio[get_portfolio_data: Top Holdings, Sector %]
+        TPool1 --> CapCompare[compare_funds: Side-by-Side Metrics & Overlap]
+        TPool1 --> CapMarket[get_market_snapshot: Indices, Commodities, Metals]
+        TPool1 --> CapScreen[screen_funds_by_exposure: Reverse Sector Lookup]
+        CapFundData & CapPortfolio & CapCompare & CapMarket & CapScreen --> Wave1Results[Wave 1 Metrics & Results]
+    end
+
+    Wave1Results --> BridgeNode{Component 5: Deterministic Bridge}
+
+    subgraph Phase4_Wave2 [Phase 4: Conditional Wave 2 News / Recovery]
+        BridgeNode -->|AnswerMode == DATA_ONLY| EvidenceGate[Component 7: Evidence Gate]
+        BridgeNode -->|Remaining Deadline < 2000ms| EvidenceGate
+        BridgeNode -->|Trigger: Drawdown <= 0.0% OR 'Why' Query| Wave2Dispatch[Component 6: Wave 2 Executor]
+        Wave2Dispatch --> QdrantNews[search_financial_news: Targeted Qdrant Search]
+        QdrantNews --> EvidenceGate
+    end
+
+    subgraph Phase5_Synthesis [Phase 5: Synthesis & Grounding]
+        EvidenceGate --> EvidencePack[Build Token-Budgeted EvidencePack: Max 10k Tokens]
+        EvidencePack --> CompositionCheck{AnswerMode == DATA_ONLY?}
+        CompositionCheck -->|Yes: Pure Metrics Query| DirectTemplate[Deterministic Markdown Template: <10ms, 0 Tokens]
+        CompositionCheck -->|No: INSIGHT_FUSION| ComposerLLM[Component 8: Composer LLM]
+        ComposerLLM --> GroundingFilter[Component 9: Numeric Grounding Guardrail]
+        GroundingFilter --> JudgeCheck{Verification Enabled?}
+        JudgeCheck -->|No| OutputDone([Final Formatted Markdown])
+        JudgeCheck -->|Yes| QualityJudge[Component 10: Output Quality Judge LLM]
+        QualityJudge --> OutputDone
+    end
+
+    DirectTemplate --> OutputDone

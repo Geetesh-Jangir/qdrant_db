@@ -173,19 +173,6 @@ def is_broken_fragment(text: str) -> bool:
     return False
 
 
-def sentence_has_scrape_artifacts(sentence: str) -> bool:
-    s = sentence or ""
-    if _MIN_READ.search(s):
-        return True
-    if _AD_BANNER.search(s) or _AD_LOAN_FRAG.search(s):
-        return True
-    if _UPDATED_LINE.search(s) or _PUBLISH_TIMESTAMP.search(s) or _INLINE_IST_TIME.search(s):
-        return True
-    if _WEEKDAY_DATE.search(s) and re.search(r"\b\d{4}\b", s):
-        return True
-    return False
-
-
 def sanitize_analyst_bullet(text: str) -> str:
     """Final pass on LLM/deterministic bullets: no dates, ads, or paste."""
     cleaned = clean_scraped_snippet(text or "")

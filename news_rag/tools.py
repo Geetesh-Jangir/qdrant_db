@@ -180,28 +180,6 @@ def run_fund_sectors(detail: dict[str, Any], need: DataNeed) -> dict[str, Any]:
     return _ok({"rows": rows, "fund_name": detail.get("fund_short_name")}, elapsed)
 
 
-def run_fund_universe_discovery(
-    *,
-    category: str | None = None,
-    amc: str | None = None,
-    keyword: str | None = None,
-    limit: int = 5,
-    enrich_nav: bool = True,
-) -> dict[str, Any]:
-    from news_rag.fund_universe_agent import get_fund_universe_catalog
-    started = time.perf_counter()
-    catalog = get_fund_universe_catalog()
-    funds = catalog.query(
-        category=category,
-        amc=amc,
-        keyword=keyword,
-        limit=limit,
-        enrich_nav=enrich_nav,
-    )
-    elapsed = (time.perf_counter() - started) * 1000
-    return _ok({"funds": funds, "count": len(funds)}, elapsed)
-
-
 _RETURN_FIELDS = {
     "1W": "return_1w_pct",
     "1M": "return_1m_pct",
@@ -627,19 +605,6 @@ def enrich_rankings_with_nav(
     return enriched[:top_n]
 
 
-def _sector_fund_candidate_pool(rankings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Prefer dedicated sector/thematic schemes; drop arbitrage/hybrid and passive products."""
-    sectoral = [r for r in rankings if r.get("sector_purity") == "dedicated_sectoral"]
-    if sectoral:
-        return sectoral
-    active = [
-        r
-        for r in rankings
-        if r.get("sector_purity") not in ("defensive_neutral", "passive", "debt")
-    ]
-    return active or [r for r in rankings if r.get("sector_purity") != "defensive_neutral"]
-
-
 def run_sector_funds(
     need: DataNeed,
     *,
@@ -776,14 +741,6 @@ def run_fund_portfolio_news(
         },
         elapsed,
     )
-
-
-def _direction_from_sentiment(sentiment: str | None, api_direction: str | None = None) -> str | None:
-    if api_direction and api_direction.strip().lower() in ("positive", "negative"):
-        return api_direction.strip().lower()
-    if sentiment in ("positive", "negative"):
-        return sentiment
-    return None
 
 
 def _layered_news_topics(layer: str, semantic_query: str) -> list[str]:
@@ -1029,6 +986,27 @@ def phrase_looks_like_sector_reference(phrase: str, question: str = "") -> bool:
     return False
 
 
+def asks_fund_related_news(question: str) -> bool:
+    """News about a named mutual fund (needs portfolio-grounded layered retrieval)."""
+    q = question or ""
+    if not re.search(r"\bnews\b", q, re.I):
+        return False
+    if re.search(r"\bfunds?\b", q, re.I):
+        try:
+            from news_rag.domain_intake import question_mentions_fund_scheme
+
+            if question_mentions_fund_scheme(q):
+                return True
+            from news_rag.fund_search import resolve_fund_for_query
+
+            detail, _amb, _close = resolve_fund_for_query(q)
+            if detail and str(detail.get("isin") or "").strip():
+                return True
+        except Exception:
+            return True
+    return False
+
+
 def asks_funds_with_sector_exposure(question: str) -> bool:
     """Funds ranked by sector weight (e.g. funds invested in banking), not a scheme's holdings."""
     q = question or ""
@@ -1100,7 +1078,10 @@ def phrase_is_mutual_fund_scheme(phrase: str) -> bool:
 def portfolio_sections_for_question(question: str) -> list[str]:
     """Which portfolio slices to fetch for a holdings/sectors ask."""
     q = question or ""
-    wants_sectors = bool(re.search(r"\b(?:sector|sectors)\b", q, re.I))
+    wants_sectors = bool(
+        re.search(r"\b(?:sector|sectors)\b", q, re.I)
+        or re.search(r"\btop\s+sector\b", q, re.I)
+    )
     wants_holdings = bool(
         re.search(
             r"\b(?:stock|stocks|share|shares|holding|holdings|constituents?)\b",
@@ -1115,29 +1096,63 @@ def portfolio_sections_for_question(question: str) -> list[str]:
     return ["holdings", "sectors"]
 
 
-def asks_fund_portfolio_holdings(question: str) -> bool:
-    """User wants what a named mutual fund holds (stocks/sectors), not funds holding a stock."""
-    q = question or ""
-    if not re.search(r"\bfund\b", q, re.I):
-        return False
-    if not re.search(
-        r"\b(?:"
-        r"top\s+\d+\s+(?:stock|stocks|share|shares|holding|holdings)|"
-        r"holdings?|portfolio|composition|"
-        r"(?:stock|stocks|share|shares|holding|holdings)\s+(?:that\s+are\s+)?invested\s+in|"
-        r"what\s+does\s+.+\s+hold"
-        r")\b",
-        q,
-        re.I,
-    ):
-        return False
+_FUND_SCHEME_PORTFOLIO_RE = re.compile(
+    r"\b(?:"
+    r"top\s+(?:\d+|[a-z]+)\s+(?:sectors?|holdings?|stocks?|shares?)|"
+    r"top\s+sectors?|top\s+sector\b|"
+    r"sectors?\s+of|holdings?\s+of|portfolio\s+of|"
+    r"sector\s+(?:allocation|breakdown|mix|weights?)|"
+    r"holdings?|portfolio|composition|"
+    r"(?:stock|stocks|share|shares|holding|holdings)\s+(?:that\s+are\s+)?invested\s+in|"
+    r"what\s+does\s+.+\s+hold|"
+    r"what\s+(?:are\s+)?(?:the\s+)?top\s+\d+\s+sectors?"
+    r")\b",
+    re.I,
+)
+
+
+def _resolved_scheme_for_portfolio_ask(question: str) -> bool:
     try:
         from news_rag.fund_search import resolve_fund_for_query
 
-        detail, _amb, _close = resolve_fund_for_query(q)
+        detail, _amb, _close = resolve_fund_for_query(question)
         return bool(detail and str(detail.get("isin") or "").strip())
     except Exception:
         return False
+
+
+def asks_fund_portfolio_holdings(question: str) -> bool:
+    """User wants what a named mutual fund holds (stocks/sectors), not funds holding a stock."""
+    q = question or ""
+    if not _FUND_SCHEME_PORTFOLIO_RE.search(q):
+        return False
+    # "5 funds invested in banking sector" — not "top sectors of Axis Large Cap"
+    if re.search(r"\bfunds?\b", q, re.I) and re.search(r"\bsector\b", q, re.I):
+        if re.search(r"\b(?:\d+|top|any|list|name)\s+funds?\b", q, re.I):
+            if not re.search(r"\bsectors?\s+of\b", q, re.I):
+                return False
+        if re.search(r"\bfunds?\s+(?:invested|with)\b", q, re.I) and not re.search(
+            r"\bsectors?\s+of\b", q, re.I
+        ):
+            return False
+    if re.search(
+        r"\b(?:top\s+(?:\d+|[a-z]+)\s+)?(?:sectors?|holdings?)\s+of\b",
+        q,
+        re.I,
+    ):
+        from news_rag.fund_search import (
+            _is_plausible_scheme_phrase,
+            collect_fund_phrase_candidates,
+            extract_fund_phrase_from_question,
+        )
+
+        _isin, name = extract_fund_phrase_from_question(q)
+        if name and _is_plausible_scheme_phrase(name):
+            return True
+        for phrase in collect_fund_phrase_candidates(q):
+            if _is_plausible_scheme_phrase(phrase):
+                return True
+    return _resolved_scheme_for_portfolio_ask(q)
 
 
 def stock_name_from_question(question: str) -> str:
@@ -1756,93 +1771,6 @@ def run_affected_funds(
         },
         elapsed,
     )
-
-
-def run_news_search(
-    need: DataNeed,
-    *,
-    scope: ScopeRefinement | None,
-    question: str,
-    query_log: QueryLogger | None = None,
-    **filter_kwargs: Any,
-) -> dict[str, Any]:
-    started = time.perf_counter()
-    if (need.scope or "").strip() == "macro_bullion":
-        from news_rag.bullion_retrieve import retrieve_bullion_macro_news
-
-        articles = retrieve_bullion_macro_news(
-            need.semantic_query or question,
-            question=question,
-            window_days=need.window_days,
-            query_log=query_log,
-        )
-    else:
-        articles = retrieve_scoped_news(
-            need.semantic_query or question,
-            scope=scope,
-            question=question,
-            window_days=need.window_days,
-            query_log=query_log,
-            **filter_kwargs,
-        )
-    elapsed = (time.perf_counter() - started) * 1000
-    return _ok({"articles": articles}, elapsed)
-
-
-def resolve_fund_for_need(
-    fund_raw: str,
-    *,
-    query_log: QueryLogger | None = None,
-) -> tuple[dict[str, Any] | None, bool, list[str], str]:
-    """Returns detail, ambiguous, close_matches, match_method."""
-    detail, amb, close = lookup_extracted_fund(name=fund_raw)
-    if fund_raw.upper().startswith("INF"):
-        detail, amb, close = lookup_extracted_fund(isin=fund_raw.upper())
-    if query_log is not None:
-        query_log.log_fund_lookup(
-            extracted_isin="",
-            extracted_name=fund_raw,
-            resolved=detail is not None,
-            ambiguous=amb,
-            close_matches=close,
-            fund_isin=str(detail.get("isin") or "") if detail else "",
-            fund_name=str(detail.get("fund_short_name") or "") if detail else "",
-        )
-    method = "catalog"
-    return detail, amb, close, method
-
-
-def run_sector_holding_alignment_tool(
-    detail: dict[str, Any],
-    *,
-    question: str,
-    top_n: int = 5,
-    sector_name: str = "",
-    return_window: str = "",
-    window_days: int | None = None,
-    query_log: QueryLogger | None = None,
-) -> dict[str, Any]:
-    from news_rag.sector_alignment import run_sector_holding_alignment
-
-    return run_sector_holding_alignment(
-        detail,
-        question=question,
-        top_n=top_n,
-        sector_name=sector_name,
-        return_window=return_window,
-        window_days=window_days,
-        query_log=query_log,
-    )
-
-
-def run_macro_sector_impact_tool(
-    *,
-    driver: str,
-    direction: str = "",
-) -> dict[str, Any]:
-    from news_rag.macro_impact_map import run_macro_sector_impact
-
-    return run_macro_sector_impact(driver=driver, direction=direction)
 
 
 def run_sector_holdings_tool(*, sector_name: str, top_n: int = 2) -> dict[str, Any]:

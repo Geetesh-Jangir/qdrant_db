@@ -58,6 +58,11 @@ _HOLDINGS_RE = re.compile(
     r"stocks?\s+(?:that\s+are\s+)?invested\s+in)\b",
     re.I,
 )
+_SECTORS_OF_FUND_RE = re.compile(
+    r"\b(?:top\s+\d+\s+sectors?|sectors?\s+of|sector\s+(?:allocation|breakdown|mix|weights?)|"
+    r"what\s+(?:are\s+)?(?:the\s+)?top\s+\d+\s+sectors?)\b",
+    re.I,
+)
 _CATEGORY_RE = re.compile(
     r"\b(?:category|type\s+of\s+fund|what\s+kind|classification)\b",
     re.I,
@@ -101,26 +106,12 @@ def _extract_fund_names(question: str) -> list[str]:
     if not names:
         idx = get_fund_index()
         for phrase in collect_fund_phrase_candidates(question):
-            hits = idx.search(phrase, limit=2)
-            for h in hits:
-                hn = str(h.get("fund_short_name") or h.get("fund_name") or "")
+            detail, ambiguous, _close = idx.lookup_extracted_fund(name=phrase)
+            if detail and not ambiguous:
+                hn = str(detail.get("fund_short_name") or detail.get("fund_name") or "")
                 if hn and hn not in names:
                     names.append(hn)
     return names[:3]
-
-
-
-def _extract_sectors(question: str) -> list[str]:
-    """Extract sector names mentioned in the question."""
-    sectors: list[str] = []
-    try:
-        from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
-        idx = get_sector_fund_ranking_index()
-        keys = idx.resolve_sector_keys([question])
-        sectors.extend(keys[:3])
-    except Exception:
-        pass
-    return sectors
 
 
 def _extract_drivers(question: str) -> list[dict[str, str]]:
@@ -172,16 +163,13 @@ def _infer_window_days(question: str) -> tuple[int, str]:
     return 30, "1 month"
 
 
-def _get_top_n(question: str, default: int = 3) -> int:
-    """Extract top N from question like 'top 15 holdings'."""
+def _get_top_n(question: str, default: int = 3, *, item: str = "any") -> int:
+    from news_rag.insight.top_n import top_n_from_question
+
     q = question or ""
     if re.search(r"\bpick\s+(?:a\s+)?fund\b|\bchoose\s+(?:a\s+)?fund\b", q, re.I):
         return 1
-    match = _TOP_N_RE.search(q)
-    if match:
-        n = int(match.group(1))
-        return max(1, min(50, n))
-    return default
+    return top_n_from_question(q, default=default, item=item)
 
 
 # ---------------------------------------------------------------------------
@@ -221,9 +209,15 @@ def _plan_holdings_lookup(
     from news_rag.tools import portfolio_sections_for_question
 
     sec = list(sections or portfolio_sections_for_question(question) or ["holdings", "sectors"])
+    if sec == ["sectors"]:
+        goal = f"Top {top_n} sectors of {', '.join(funds)}"
+    elif sec == ["holdings"]:
+        goal = f"Top {top_n} holdings of {', '.join(funds)}"
+    else:
+        goal = f"Top {top_n} portfolio slice of {', '.join(funds)}"
     return ExecutionPlan(
         intent="lookup",
-        goal=f"Top {top_n} holdings of {', '.join(funds)}",
+        goal=goal,
         answer_mode=AnswerMode.DATA_ONLY,
         query_class=QueryClass.SIMPLE,
         funds=funds,
@@ -237,10 +231,11 @@ def _plan_holdings_lookup(
             ),
         ],
         wave_2_policy=Wave2Policy(trigger="none"),
-        response_shape="table" if top_n > 5 else "short_answer",
-        max_words=120,
+        response_shape="table",
+        max_words=100 if sec == ["sectors"] else 120,
+        presentation_notes="List only what was asked (sectors or holdings table). No news, NAV, or returns unless asked.",
         routed_by="slot_router",
-        confidence=0.95,
+        confidence=0.98,
     )
 
 
@@ -296,13 +291,90 @@ def _plan_fund_overview(funds: list[str], window_days: int, window_label: str) -
             ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot", "attribution"], "top_n": 3}, wave=1),
             ToolCall(tool="get_portfolio_data", arguments={"sections": ["holdings", "sectors"], "top_n": 3}, wave=1),
             ToolCall(tool="get_market_snapshot", arguments={"modules": ["index_return"], "index": "benchmark"}, wave=1),
-            ToolCall(tool="search_financial_news", arguments={"scope": "holdings", "top_n": 3}, wave=2),
+            ToolCall(
+                tool="search_financial_news",
+                arguments={"scope": "all", "top_n": 8, "window_days": min(window_days, 30)},
+                wave=2,
+            ),
         ],
         wave_2_policy=Wave2Policy(trigger="always", max_calls=1),
         response_shape="sections",
         max_words=480,
         routed_by="slot_router",
         confidence=0.85,
+    )
+
+
+def _plan_fund_category_average(funds: list[str], window_days: int, window_label: str) -> ExecutionPlan:
+    label = ", ".join(funds)
+    return ExecutionPlan(
+        intent="lookup",
+        goal=f"Category average returns for {label}",
+        answer_mode=AnswerMode.DATA_ONLY,
+        query_class=QueryClass.SIMPLE,
+        funds=funds,
+        window_days=window_days,
+        window_label=window_label,
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["snapshot"], "windows": ["1M", "3M", "6M", "1Y", "3Y", "5Y"]},
+                wave=1,
+            ),
+        ],
+        wave_2_policy=Wave2Policy(trigger="none"),
+        response_shape="table",
+        max_words=120,
+        routed_by="slot_router",
+        confidence=0.96,
+    )
+
+
+def _plan_fund_news(funds: list[str], window_days: int, window_label: str, *, question: str = "") -> ExecutionPlan:
+    """News about a named fund — portfolio first, then parallel holdings/sectors/macro news."""
+    from news_rag.insight.fund_news_scope import infer_fund_news_layers
+
+    layers = sorted(infer_fund_news_layers(question))
+    scope = "all" if len(layers) >= 2 else (layers[0] if layers else "all")
+    return ExecutionPlan(
+        intent="overview",
+        goal=f"Recent news relevant to {', '.join(funds)} — holdings, sectors, and macro as needed",
+        answer_mode=AnswerMode.INSIGHT_FUSION,
+        query_class=QueryClass.STANDARD,
+        funds=funds,
+        window_days=window_days,
+        window_label=window_label,
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={
+                    "modules": ["snapshot", "return_series", "attribution"],
+                    "windows": ["1W", "1M", "3M", "6M", "1Y"],
+                    "top_n": 3,
+                    "window_days": min(window_days, 30),
+                },
+                wave=1,
+            ),
+            ToolCall(
+                tool="get_portfolio_data",
+                arguments={"sections": ["holdings", "sectors"], "top_n": 5},
+                wave=1,
+            ),
+            ToolCall(
+                tool="search_financial_news",
+                arguments={
+                    "scope": scope,
+                    "top_n": 8,
+                    "window_days": min(window_days, 30),
+                },
+                wave=2,
+            ),
+        ],
+        wave_2_policy=Wave2Policy(trigger="always", max_calls=1),
+        response_shape="sections",
+        max_words=480,
+        routed_by="slot_router",
+        confidence=0.98,
     )
 
 
@@ -320,7 +392,11 @@ def _plan_why_moved(funds: list[str], window_days: int, window_label: str) -> Ex
             ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot", "return_series", "attribution"], "top_n": 3}, wave=1),
             ToolCall(tool="get_portfolio_data", arguments={"sections": ["holdings", "sectors"], "top_n": 3}, wave=1),
             ToolCall(tool="get_market_snapshot", arguments={"modules": ["index_return"], "index": "benchmark"}, wave=1),
-            ToolCall(tool="search_financial_news", arguments={"scope": "holdings", "top_n": 3}, wave=2),
+            ToolCall(
+                tool="search_financial_news",
+                arguments={"scope": "all", "top_n": 8, "window_days": min(window_days, 30)},
+                wave=2,
+            ),
         ],
         wave_2_policy=Wave2Policy(trigger="always", max_calls=1),
         response_shape="sections",
@@ -701,6 +777,18 @@ def slot_route(
     if not q:
         return None
 
+    from news_rag.insight.glossary import glossary_execution_plan
+
+    gplan = glossary_execution_plan(q)
+    if gplan is not None:
+        return gplan
+
+    from news_rag.insight.concept_asks import build_concept_example_plan
+
+    cplan = build_concept_example_plan(q, routed_by="slot_router")
+    if cplan is not None:
+        return cplan
+
     settings = get_settings()
     if confidence_threshold is None:
         confidence_threshold = getattr(settings, "slot_router_confidence", 0.8)
@@ -772,8 +860,21 @@ def slot_route(
                 ]
                 funds = [f for f in funds if f]
         if funds:
+            from news_rag.tools import portfolio_sections_for_question
+
+            sec = portfolio_sections_for_question(q)
+            kind = (
+                "sectors"
+                if sec == ["sectors"]
+                else "holdings"
+                if sec == ["holdings"]
+                else "any"
+            )
             plan = _plan_holdings_lookup(
-                funds, _get_top_n(q), question=q
+                funds,
+                _get_top_n(q, item=kind),
+                sections=sec if sec != ["holdings", "sectors"] else None,
+                question=q,
             )
             if guard.outcome == "refuse_advice":
                 plan.asks_for_advice = True
@@ -848,7 +949,22 @@ def slot_route(
         # Can't route deterministically without a fund — fall through to planner
         return None
 
-    top_n = _get_top_n(q)
+    top_n = _get_top_n(q, default=3)
+
+    from news_rag.fund_rupeestop_metrics import asks_fund_category_average
+    from news_rag.tools import asks_fund_related_news
+
+    if asks_fund_category_average(q):
+        plan = _plan_fund_category_average(funds, window_days, window_label)
+        if guard.outcome == "refuse_advice":
+            plan.asks_for_advice = True
+        return plan
+
+    if asks_fund_related_news(q):
+        plan = _plan_fund_news(funds, window_days, window_label, question=q)
+        if guard.outcome == "refuse_advice":
+            plan.asks_for_advice = True
+        return plan
 
     # Compare funds
     if _COMPARE_RE.search(q) and len(funds) >= 2:
@@ -866,6 +982,19 @@ def slot_route(
     # NAV / price lookup
     if _NAV_RE.search(q) and not _ABOUT_RE.search(q) and not _WHY_MOVE_RE.search(q):
         return _plan_nav_lookup(funds, window_days, window_label)
+
+    # Sector allocation of a named scheme (before generic holdings / overview)
+    if (
+        (_SECTORS_OF_FUND_RE.search(q) or (re.search(r"\bsectors?\b", q, re.I) and _TOP_N_RE.search(q)))
+        and not _ABOUT_RE.search(q)
+        and not _WHY_MOVE_RE.search(q)
+    ):
+        return _plan_holdings_lookup(
+            funds,
+            _get_top_n(q, default=3, item="sectors"),
+            sections=["sectors"],
+            question=q,
+        )
 
     # Holdings lookup
     if _HOLDINGS_RE.search(q) and not _ABOUT_RE.search(q) and not _WHY_MOVE_RE.search(q):
@@ -885,13 +1014,10 @@ def slot_route(
             plan.asks_for_advice = True
         return plan
 
-    # If we have funds but no clear pattern, still route if confidence is high enough
-    # (single fund → overview is the safest default)
-    if len(funds) == 1:
+    # Weak default only when the router explicitly allows low-confidence plans (not planner fallback).
+    if len(funds) == 1 and confidence_threshold < 0.8:
         plan = _plan_fund_overview(funds, window_days, window_label)
-        plan.confidence = 0.7  # lower — planner may do better
-        if plan.confidence >= confidence_threshold:
-            return plan
+        plan.confidence = 0.7
+        return plan
 
-    # Can't route with high confidence — fall through to planner
     return None

@@ -41,8 +41,12 @@ from news_rag.insight.evidence_pack import (
     build_evidence_pack,
     render_data_only_template,
 )
+from news_rag.insight.fund_display import (
+    normalize_user_facing_text,
+    stitch_display_tables_into_answer,
+)
 from news_rag.insight.grounding import cores_in_text, strip_media_attribution, strip_ungrounded_numbers
-from news_rag.insight.plan import make_plan, plan_to_brief
+from news_rag.insight.plan import make_plan
 from news_rag.insight.slot_router import slot_route
 from news_rag.llm_client import (
     call_insight_llm,
@@ -131,11 +135,21 @@ def node_route(state: GraphState) -> str | None:
 
     intent = resolve_question_intent(state.question)
     slot_plan = slot_route(state.question, confidence_threshold=threshold)
+    pref_planner = prefers_planner_over_slot(state.question)
+    slot_ok_conf = slot_plan is not None and slot_plan.confidence >= threshold
+    if (
+        slot_plan is not None
+        and plan_matches_intent(slot_plan, intent)
+        and intent.kind == "fund_portfolio"
+        and slot_plan.answer_mode == AnswerMode.DATA_ONLY
+        and slot_plan.confidence >= 0.9
+    ):
+        slot_ok_conf = True
     use_slot = (
         slot_plan is not None
-        and slot_plan.confidence >= threshold
+        and slot_ok_conf
         and plan_matches_intent(slot_plan, intent)
-        and not prefers_planner_over_slot(state.question)
+        and not pref_planner
     )
 
     if use_slot and slot_plan is not None:
@@ -149,7 +163,14 @@ def node_route(state: GraphState) -> str | None:
             )
     else:
         if slot_plan is not None and state.query_log is not None:
-            reason = "below_threshold" if slot_plan.confidence < threshold else "intent_mismatch"
+            if slot_plan.confidence < threshold:
+                reason = "below_threshold"
+            elif pref_planner:
+                reason = "planner_preferred"
+            elif not plan_matches_intent(slot_plan, intent):
+                reason = "intent_mismatch"
+            else:
+                reason = "unknown"
             state.query_log.write(
                 f"ROUTER slot_skipped reason={reason} slot_conf={slot_plan.confidence:.2f} "
                 f"intent={intent.kind} slot_tools={slot_plan.tool_names}"
@@ -170,13 +191,22 @@ def node_route(state: GraphState) -> str | None:
                 raise GraphUnavailable("Planner returned no plan")
         else:
             state.plan = plan
-            if not plan_matches_intent(plan, intent) and state.query_log is not None:
+            if (
+                (plan.routed_by or "") != "planner"
+                and not plan_matches_intent(plan, intent)
+                and state.query_log is not None
+            ):
                 state.query_log.write(
                     f"ROUTER planner_plan intent_check=weak intent={intent.kind} tools={plan.tool_names}"
                 )
-            state.route_reason = f"planner LLM ({len(plan.tool_calls)} tools, intent={intent.kind})"
+            state.route_reason = (
+                f"planner LLM ({len(plan.tool_calls)} tools, planner_intent={plan.intent})"
+            )
             if state.query_log is not None:
-                state.query_log.write(f"ROUTER choice=planner tools={len(plan.tool_calls)} intent={intent.kind}")
+                state.query_log.write(
+                    f"ROUTER choice=planner tools={len(plan.tool_calls)} "
+                    f"planner_intent={plan.intent} answer_mode={plan.answer_mode.value}"
+                )
 
     plan = state.plan
     if plan is None:
@@ -209,6 +239,27 @@ def node_route(state: GraphState) -> str | None:
         state.route_reason = "clarification needed"
         return "reply"
 
+    if (plan.direct_reply or "").strip() and not plan.tool_calls:
+        from news_rag.insight.computed_answers import asks_computed_illustration
+
+        if asks_computed_illustration(state.question or ""):
+            plan.direct_reply = ""
+            plan.max_words = max(int(plan.max_words or 0), 420)
+            plan.requires_compose = True
+            plan.presentation_notes = (
+                (plan.presentation_notes or "")
+                + " Compute the SIP or goal illustration from the question. Do not stop at a description."
+            ).strip()
+            if state.query_log is not None:
+                state.query_log.write("ROUTE computed_illustration skip_direct_reply=composer")
+        else:
+            state.reply_kind = "direct"
+            state.answer = _clean_answer(plan.direct_reply)
+            state.route_reason = "direct_reply (no tools)"
+            if state.query_log is not None:
+                state.query_log.write("ROUTE direct_reply skip=composer")
+            return "reply"
+
     return "resolve"
 
 
@@ -221,9 +272,10 @@ def _resolve_funds(plan: ExecutionPlan) -> tuple[list[str], list[str]]:
 
     for name in plan.funds:
         detail, _ambiguous, _close = idx.lookup_extracted_fund(name=name)
-        if not detail:
-            hits = idx.search(name, limit=1)
-            detail = hits[0] if hits else None
+        if not detail and re.search(r"\bINF[A-Z0-9]{9}\b", name or "", re.I):
+            isin_m = re.search(r"\b(INF[A-Z0-9]{9})\b", name, re.I)
+            if isin_m:
+                detail, _ambiguous, _close = idx.lookup_extracted_fund(isin=isin_m.group(1))
         if detail:
             resolved.append(str(detail.get("fund_short_name") or detail.get("fund_name") or name))
         else:
@@ -387,15 +439,73 @@ def node_wave1(state: GraphState) -> str | None:
     return "bridge"
 
 
+def _ensure_portfolio_for_fund_news(state: GraphState) -> None:
+    from news_rag.tools import asks_fund_related_news
+
+    if not asks_fund_related_news(state.question or ""):
+        return
+    if not state.resolved_funds:
+        return
+    from news_rag.insight.capabilities.executor import execute_capability
+    from news_rag.insight.contracts import ToolCall
+
+    fund = state.resolved_funds[0]
+    plan = state.plan
+    ctx = {
+        "question": state.question,
+        "window_days": plan.window_days if plan else 30,
+        "fund_names": [fund],
+    }
+    has_portfolio = any(
+        r.get("tool") == "get_portfolio_data" and r.get("ok") for r in state.wave1_results
+    )
+    has_metrics = any(
+        r.get("tool") == "get_fund_data" and r.get("ok") for r in state.wave1_results
+    )
+    extra: list[ToolCall] = []
+    if not has_metrics:
+        extra.append(
+            ToolCall(
+                tool="get_fund_data",
+                arguments={
+                    "modules": ["snapshot", "return_series", "attribution"],
+                    "top_n": 3,
+                    "window_days": min(plan.window_days if plan else 30, 30),
+                },
+                wave=1,
+            )
+        )
+    if not has_portfolio:
+        extra.append(
+            ToolCall(
+                tool="get_portfolio_data",
+                arguments={"sections": ["holdings", "sectors"], "top_n": 5},
+                wave=1,
+            )
+        )
+    for tc in extra:
+        state.wave1_results.extend(
+            execute_capability(
+                tc,
+                fund_names=[fund],
+                ctx=ctx,
+                telemetry=state.telemetry,
+            )
+        )
+
+
 def node_bridge(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
+
+    _ensure_portfolio_for_fund_news(state)
 
     remaining_ms = state.remaining_deadline_ms()
     wave2_calls = evaluate_wave2(
         plan,
         state.wave1_results,
         deadline_remaining_ms=remaining_ms,
+        question=state.question or "",
     )
 
     if wave2_calls and remaining_ms >= 2000.0:
@@ -424,6 +534,8 @@ def node_wave2(state: GraphState) -> str | None:
         "window_days": min(plan.window_days, 30),
         "direction": "any",
         "top_n": 3,
+        "wave1_results": state.wave1_results,
+        "query_log": state.query_log,
     }
 
     deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 4000.0, 25000.0))
@@ -464,6 +576,7 @@ def node_evidence_gate(state: GraphState) -> str | None:
         state.wave1_results,
         state.wave2_results,
         token_budget=10000,
+        question=state.question or "",
     )
     state.evidence_pack = pack
     state.route_reason = (
@@ -479,44 +592,40 @@ ROLE: COMPOSER (user-facing markdown only)
 You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words), and EVIDENCE (metrics + optional news).
 
 CORE RULES:
-1. Lead with the direct answer in the first sentence; bold key figures from EVIDENCE only.
-2. INSIGHT_FUSION: connect measured moves -> drivers -> mechanism -> what it means for what they asked (fund, sector, macro).
-3. Honor WHAT THE USER WANTS.style when set: short_answer (1-2 paragraphs), bullets (list-heavy), table (metric/compare tables), sections (mixed sections + bullets/tables as needed).
-4. Ground every number in EVIDENCE. Simple arithmetic on those numbers is allowed; label approximations.
-5. Never mention internal terms: DATA, NEWS, EVIDENCE, tool, pipeline, JSON, articles retrieved.
-6. If EVIDENCE is empty or a list is missing, say clearly that no rows were returned — never claim a scan failed unless EVIDENCE says so.
-7. For rankings or holdings in EVIDENCE, prefer a markdown table; keep columns readable (name, weight %, return if present).
-8. Do not repeat the same table if the UI already shows fund_rankings — summarize in one short paragraph instead.
+0. **Concept + data:** When WHAT THE USER WANTS includes `concept_brief`, explain that concept first (1–3 sentences), then use EVIDENCE for the example fund/scheme. Do not skip the concept or invent fund names.
+1. **Match the question.** A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay.
+2. **Returns in prose:** When comparing to category or benchmark, cite the exact **vs category (pp)** / **vs benchmark (pp)** from PERFORMANCE `comparison_periods` (or short-horizon table fields). Do not say "about" when the gap is computable. Fund 1Y/3Y/5Y are from the fund API; category avg from `category_averages`.
+3. **Tables (server decides).** Read WHAT THE USER WANTS `tables_in_answer` and `tables_rationale`. Only those comparison blocks are appended after your text — do not hand-build `|` tables for fund returns or rankings. A small table is fine when EVIDENCE is empty and you are showing a calculation you did. If `tables_in_answer` is empty, skip vs-benchmark/category table talk unless the user explicitly asked for returns. Holdings: **weight %** and **holding return %** only (no per-stock pp). `holding_contribution_pp_internal` is for ranking only.
+4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
+5. **News:** Max 2 sentences per theme; `### News themes` with 3–6 bullets unless the user asked for depth.
+6. **Numbers:** If EVIDENCE has measured figures, those figures must match EVIDENCE. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and calculations are yours to write, with the actual amounts. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
+7. Never mention: DATA, NEWS, EVIDENCE, DISPLAY, tool, pipeline, JSON, yfinance, proxy.
+8. Do not repeat UI fund_rankings tables — one summary line is enough.
+
+{COMPOSER_MARKDOWN_LAYOUT}
+"""
+
+COMPOSE_SYSTEM_PRECISE = f"""{FINANCIAL_SYSTEM_BASE}
+
+ROLE: COMPOSER — **precise short answer only**
+The user asked a narrow definition, acronym, or factual question. EVIDENCE may be empty.
+
+RULES:
+1. Answer **only** what was asked — nothing else.
+2. Prefer **one sentence** (two only if the question has two explicit parts). No ### headings, no bullet lists, no "what stands out", no worked examples, no investing tips.
+3. Respect `max_words` in WHAT THE USER WANTS strictly (usually ≤50).
+4. Do not mention tools, EVIDENCE, or the pipeline.
+5. If you truly do not know, say so in one sentence.
 
 {COMPOSER_MARKDOWN_LAYOUT}
 """
 
 
 def _clean_answer(text: str) -> str:
-    text = re.sub(r"```(?:json|markdown)?", "", text or "").strip()
+    text = normalize_user_facing_text(re.sub(r"```(?:json|markdown)?", "", text or "").strip())
     if DISCLAIMER.lower().strip("*") not in text.lower():
         text = text.rstrip() + "\n\n" + DISCLAIMER
     return text
-
-
-def compose_user_content(state: GraphState) -> str:
-    """Format prompt payload for composer."""
-    plan = state.plan
-    wants = {
-        "goal": plan.goal if plan else "",
-        "answer_mode": plan.answer_mode.value if plan else "DATA_ONLY",
-        "style": plan.response_shape if plan else "sections",
-        "max_words": plan.max_words if plan else 220,
-        "lead_with": plan.lead_with if plan else "",
-        "asks_for_advice": plan.asks_for_advice if plan else False,
-    }
-    pack = state.evidence_pack
-    evidence_dict = pack.compact() if pack else {}
-    return (
-        f"QUESTION:\n{state.question.strip()}\n\n"
-        f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
-        f"EVIDENCE:\n{json.dumps(evidence_dict, ensure_ascii=False)}"
-    )
 
 
 def node_compose(state: GraphState) -> str | None:
@@ -524,8 +633,13 @@ def node_compose(state: GraphState) -> str | None:
     assert plan is not None
     pack = state.evidence_pack
 
-    # Fast Path: Check for DATA_ONLY Template
-    if plan.answer_mode == AnswerMode.DATA_ONLY and pack is not None:
+    # Fast Path: Check for DATA_ONLY Template (skip when concept + compose required)
+    if (
+        plan.answer_mode == AnswerMode.DATA_ONLY
+        and pack is not None
+        and not plan.requires_compose
+        and not (plan.concept_brief or "").strip()
+    ):
         template_answer = render_data_only_template(pack, plan)
         if template_answer:
             state.answer = _clean_answer(template_answer)
@@ -544,6 +658,7 @@ def node_compose(state: GraphState) -> str | None:
     evidence_dict = pack.compact() if pack else {}
     evidence_text = json.dumps(evidence_dict, ensure_ascii=False)
 
+    policy_meta = pack.display_table_policy if pack else {}
     wants = {
         "goal": plan.goal,
         "answer_mode": plan.answer_mode.value,
@@ -551,7 +666,15 @@ def node_compose(state: GraphState) -> str | None:
         "max_words": plan.max_words,
         "lead_with": plan.lead_with,
         "asks_for_advice": plan.asks_for_advice,
+        **(policy_meta or {}),
     }
+    if (plan.concept_brief or "").strip():
+        wants["concept_brief"] = plan.concept_brief.strip()
+    from news_rag.insight.computed_answers import asks_computed_illustration
+
+    if asks_computed_illustration(state.question or ""):
+        wants["compute_illustration"] = True
+        wants["max_words"] = max(int(wants.get("max_words") or 0), 420)
 
     user_content = (
         f"QUESTION:\n{state.question.strip()}\n\n"
@@ -559,10 +682,29 @@ def node_compose(state: GraphState) -> str | None:
         f"EVIDENCE:\n{evidence_text}"
     )
 
-    max_tokens = max(500, min(2500, plan.max_words * 4))
+    from news_rag.insight.glossary import asks_precise_definition
+
+    precise = asks_precise_definition(state.question or "") and not (
+        evidence_dict.get("rows") or evidence_dict.get("data_pack")
+    )
+    if precise:
+        wants["max_words"] = min(int(wants.get("max_words") or 220), 50)
+        wants["style"] = "short_answer"
+        user_content = (
+            f"QUESTION:\n{state.question.strip()}\n\n"
+            f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
+            f"EVIDENCE:\n{evidence_text}"
+        )
+        compose_system = COMPOSE_SYSTEM_PRECISE
+        max_tokens = 150
+    else:
+        compose_system = COMPOSE_SYSTEM
+        word_budget = int(wants.get("max_words") or plan.max_words or 220)
+        max_tokens = max(500, min(2500, word_budget * 4))
+
     t0 = time.time()
     res = call_insight_llm(
-        system_prompt=COMPOSE_SYSTEM,
+        system_prompt=compose_system,
         user_content=user_content,
         query_log=state.query_log,
         model_override=composer_model(settings),
@@ -593,10 +735,26 @@ def node_compose(state: GraphState) -> str | None:
             return None
         raise RuntimeError("Composer LLM produced empty text")
 
-    # Numeric Grounding check
-    allowed_numbers = cores_in_text(evidence_text)
-    grounded_text = strip_ungrounded_numbers(raw_text, allowed_numbers)
+    # Strip figures only when we actually measured something. A calculation or explanation
+    # with empty evidence must keep the numbers the composer wrote.
+    measured = bool(
+        evidence_dict.get("DATA")
+        or evidence_dict.get("PERFORMANCE")
+        or evidence_dict.get("DISPLAY")
+    )
+    if measured:
+        allowed_numbers = cores_in_text(evidence_text) | cores_in_text(state.question or "")
+        grounded_text = strip_ungrounded_numbers(raw_text, allowed_numbers)
+    else:
+        grounded_text = raw_text
     polished_text = strip_media_attribution(grounded_text)
+    display_tables = pack.display_tables if pack else {}
+    if display_tables and any(k for k in display_tables if k != "_title"):
+        polished_text = stitch_display_tables_into_answer(
+            polished_text,
+            display_tables,
+            question=state.question or "",
+        )
     state.answer = _clean_answer(polished_text)
 
     # Selective Judge for INSIGHT_FUSION
