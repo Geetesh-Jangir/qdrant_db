@@ -24,6 +24,8 @@ _COMPOSER_SECTION_HEADINGS = (
     "Category average",
     "Fund vs benchmark",
     "Returns vs benchmark",
+    "Top holdings",
+    "Top sectors",
 )
 
 
@@ -110,6 +112,16 @@ def _fund_block(data_pack: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _portfolio_blocks(data_pack: dict[str, Any]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for key, block in data_pack.items():
+        if str(key).startswith("portfolio:") and isinstance(block, dict):
+            blocks.append(block)
+        elif isinstance(block, dict) and isinstance(block.get("portfolio"), dict):
+            blocks.append(block["portfolio"])
+    return blocks
+
+
 def _insights(block: dict[str, Any] | None) -> dict[str, Any]:
     if not block:
         return {}
@@ -159,7 +171,8 @@ def build_fund_display_tables(
     snap = (block or {}).get("snapshot") if block else {}
     if not isinstance(snap, dict):
         snap = digest
-    if not snap and not digest and not vs and not insights:
+    portfolios = _portfolio_blocks(data_pack)
+    if not snap and not digest and not vs and not insights and not portfolios:
         return {}
 
     tables: dict[str, str] = {}
@@ -327,6 +340,28 @@ def build_fund_display_tables(
             hlines.append(_table_row(_holding_row_cells(r), hold_ncol))
         tables["holdings_move_table"] = "\n".join(hlines)
 
+    for block in portfolios:
+        holdings = [h for h in (block.get("holdings") or []) if isinstance(h, dict)]
+        if holdings and "portfolio_holdings_table" not in tables:
+            ncol = 2
+            lines = [_table_row(["Holding", "Weight"], ncol), _table_row(["---", "---"], ncol)]
+            for h in holdings[:8]:
+                name_h = h.get("name") or h.get("company_name")
+                weight = h.get("weight_pct") if h.get("weight_pct") is not None else h.get("percentage")
+                lines.append(_table_row([_cell(name_h), _cell(_fmt_pct(weight, signed=False))], ncol))
+            if len(lines) > 2:
+                tables["portfolio_holdings_table"] = "\n".join(lines)
+        sectors = [s for s in (block.get("sectors") or []) if isinstance(s, dict)]
+        if sectors and "portfolio_sectors_table" not in tables:
+            ncol = 2
+            lines = [_table_row(["Sector", "Weight"], ncol), _table_row(["---", "---"], ncol)]
+            for s in sectors[:8]:
+                label = s.get("sector") or s.get("name")
+                weight = s.get("weight_pct") if s.get("weight_pct") is not None else s.get("percentage")
+                lines.append(_table_row([_cell(label), _cell(_fmt_pct(weight, signed=False))], ncol))
+            if len(lines) > 2:
+                tables["portfolio_sectors_table"] = "\n".join(lines)
+
     if tables:
         tables["_title"] = str(name)
     return tables
@@ -336,6 +371,8 @@ _DISPLAY_SECTIONS: tuple[tuple[str, str], ...] = (
     ("short_horizon_vs_category_table", "### Recent returns vs category"),
     ("vs_benchmark_table", "### Returns vs benchmark and category"),
     ("holdings_move_table", "### Holdings that drove the move"),
+    ("portfolio_holdings_table", "### Top holdings"),
+    ("portfolio_sectors_table", "### Top sectors"),
     ("snapshot_table", "### Snapshot"),
     ("category_average_table", "### Category average"),
 )
@@ -418,9 +455,72 @@ def strip_composer_display_sections(prose: str) -> str:
 def stitch_display_tables_into_answer(prose: str, tables: dict[str, str], *, question: str = "") -> str:
     """Append server-built tables once; composer writes narrative only."""
     block = format_display_tables_markdown(tables, question=question)
+    return _insert_before_disclaimer(strip_composer_display_sections(prose or ""), block)
+
+
+def render_news_section(news_grouped: dict[str, Any]) -> str:
+    """One bullet per retrieved article so a fund answer shows the news, not a teaser."""
+    articles: list[dict[str, Any]] = []
+    for bucket in (news_grouped or {}).values():
+        if isinstance(bucket, list):
+            articles.extend(a for a in bucket if isinstance(a, dict))
+        elif isinstance(bucket, dict):
+            for arts in bucket.values():
+                if isinstance(arts, list):
+                    articles.extend(a for a in arts if isinstance(a, dict))
+    lines = ["### Recent news", ""]
+    seen: set[str] = set()
+    for art in articles:
+        title = str(art.get("title") or "").strip()
+        key = title.lower()
+        if not title or key in seen:
+            continue
+        seen.add(key)
+        summary = re.sub(r"\s+", " ", str(art.get("summary") or "")).strip()
+        if len(summary) > 280:
+            summary = summary[:280].rstrip(" .")
+        date = str(art.get("date") or art.get("published_at") or "")[:10]
+        bullet = f"- **{title}**"
+        if date:
+            bullet += f" ({date})"
+        if summary and summary.lower() not in title.lower():
+            bullet += f": {summary}"
+        lines.append(bullet)
+        if len(seen) >= 8:
+            break
+    if len(seen) == 0:
+        return ""
+    return "\n".join(lines)
+
+
+def append_news_section(prose: str, news_grouped: dict[str, Any]) -> str:
+    block = render_news_section(news_grouped)
     if not block:
         return prose
-    text = strip_composer_display_sections(prose or "")
+    text = _strip_heading_sections(prose or "", ("recent news", "news themes"))
+    return _insert_before_disclaimer(text, block)
+
+
+def _strip_heading_sections(prose: str, headings: tuple[str, ...]) -> str:
+    lines = (prose or "").split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        m = re.match(r"^#{2,3}\s+(.+?)\s*$", lines[i].strip())
+        if m and any(m.group(1).strip().lower().startswith(h) for h in headings):
+            i += 1
+            while i < len(lines) and not re.match(r"^#{2,3}\s+", lines[i].strip()):
+                i += 1
+            continue
+        out.append(lines[i])
+        i += 1
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+def _insert_before_disclaimer(prose: str, block: str) -> str:
+    if not block:
+        return prose
+    text = prose or ""
     if block in text:
         return text
     disclaimer = "*For context only — not investment advice.*"

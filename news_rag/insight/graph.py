@@ -44,6 +44,7 @@ from news_rag.insight.evidence_pack import (
 from news_rag.insight.fund_display import (
     normalize_user_facing_text,
     stitch_display_tables_into_answer,
+    append_news_section,
 )
 from news_rag.insight.grounding import cores_in_text, strip_media_attribution, strip_ungrounded_numbers
 from news_rag.insight.plan import make_plan
@@ -597,7 +598,7 @@ CORE RULES:
 2. **Returns in prose:** When comparing to category or benchmark, cite the exact **vs category (pp)** / **vs benchmark (pp)** from PERFORMANCE `comparison_periods` (or short-horizon table fields). Do not say "about" when the gap is computable. Fund 1Y/3Y/5Y are from the fund API; category avg from `category_averages`.
 3. **Tables (server decides).** Read WHAT THE USER WANTS `tables_in_answer` and `tables_rationale`. Only those comparison blocks are appended after your text — do not hand-build `|` tables for fund returns or rankings. A small table is fine when EVIDENCE is empty and you are showing a calculation you did. If `tables_in_answer` is empty, skip vs-benchmark/category table talk unless the user explicitly asked for returns. Holdings: **weight %** and **holding return %** only (no per-stock pp). `holding_contribution_pp_internal` is for ranking only.
 4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
-5. **News:** Max 2 sentences per theme; `### News themes` with 3–6 bullets unless the user asked for depth.
+5. **News-backed insight:** When EVIDENCE.NEWS has articles and the question is about a fund, do not stop at returns. After the numbers, write `### What the news says`. For each article that matches a holding or a sector in the portfolio, write one or two sentences: the holding or sector, its weight when you have it, and what the article reports. Link that to the fund's return only when the article or the holding's own return supports the link. Skip articles that match neither a holding, a sector, nor the fund. Do not invent a cause. The server also lists the articles under `### Recent news`; your section is the connection, not a second copy of the titles. If NEWS is empty, say in one sentence that there is no recent coverage in the pack.
 6. **Numbers:** If EVIDENCE has measured figures, those figures must match EVIDENCE. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and calculations are yours to write, with the actual amounts. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
 7. Never mention: DATA, NEWS, EVIDENCE, DISPLAY, tool, pipeline, JSON, yfinance, proxy.
 8. Do not repeat UI fund_rankings tables — one summary line is enough.
@@ -668,6 +669,8 @@ def node_compose(state: GraphState) -> str | None:
         "asks_for_advice": plan.asks_for_advice,
         **(policy_meta or {}),
     }
+    if (plan.presentation_notes or "").strip():
+        wants["presentation_notes"] = plan.presentation_notes.strip()
     if (plan.concept_brief or "").strip():
         wants["concept_brief"] = plan.concept_brief.strip()
     from news_rag.insight.computed_answers import asks_computed_illustration
@@ -675,6 +678,9 @@ def node_compose(state: GraphState) -> str | None:
     if asks_computed_illustration(state.question or ""):
         wants["compute_illustration"] = True
         wants["max_words"] = max(int(wants.get("max_words") or 0), 420)
+    elif pack and pack.news_grouped and (plan.funds or plan.intent in ("overview", "explain_cause")):
+        wants["max_words"] = max(int(wants.get("max_words") or 0), 420)
+        wants["news_in_answer"] = True
 
     user_content = (
         f"QUESTION:\n{state.question.strip()}\n\n"
@@ -755,6 +761,8 @@ def node_compose(state: GraphState) -> str | None:
             display_tables,
             question=state.question or "",
         )
+    if pack and pack.news_grouped and (plan.funds or plan.intent in ("overview", "explain_cause")):
+        polished_text = append_news_section(polished_text, pack.news_grouped)
     state.answer = _clean_answer(polished_text)
 
     # Selective Judge for INSIGHT_FUSION

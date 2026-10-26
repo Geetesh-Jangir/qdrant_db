@@ -44,6 +44,33 @@ def test_finalize_planner_plan_fills_funds_from_question():
     out = finalize_planner_plan(q, plan)
     assert out.funds
     assert "axis" in out.funds[0].lower()
+    assert "search_financial_news" not in out.tool_names
+
+
+def test_fund_overview_gets_news_even_if_planner_said_data_only():
+    q = "tell me about hdfc large cap fund"
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="overview",
+        answer_mode=AnswerMode.DATA_ONLY,
+        funds=["HDFC Large Cap Fund"],
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1),
+            ToolCall(
+                tool="get_portfolio_data",
+                arguments={"sections": ["holdings", "sectors"], "top_n": 5},
+                wave=1,
+            ),
+        ],
+        wave_2_policy=Wave2Policy(trigger="none"),
+    )
+    out = finalize_planner_plan(q, plan)
+    assert out.answer_mode == AnswerMode.INSIGHT_FUSION
+    assert out.wave_2_policy.trigger == "always"
+    assert "search_financial_news" in out.tool_names
+    news = next(c for c in out.tool_calls if c.tool == "search_financial_news")
+    assert news.wave == 2
+    assert news.arguments["scope"] == "all"
 
 
 def test_plan_system_prompt_planner_authority():

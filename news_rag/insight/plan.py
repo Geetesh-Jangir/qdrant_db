@@ -491,10 +491,10 @@ Copy count into arguments.top_n and the slice into get_portfolio_data arguments.
 - Concept plus one example, such as what a fund of funds is and name one: screen_funds_by_exposure top_n 1, DATA_ONLY, response_shape sections, presentation_notes telling the composer to explain the concept and then cite the screened scheme.
 
 ### WAVES
-1. DATA_ONLY is a metric lookup. Do not call search_financial_news. trigger is none.
-2. NEWS_ONLY is macro or market news with no fund numbers. Wave 1 may call get_market_snapshot. trigger is always, with one search_financial_news call on wave 2.
-3. INSIGHT_FUSION explains a move or mixes metrics with news.
-4. Wave 1 tools: get_fund_data, get_portfolio_data, compare_funds, get_market_snapshot, screen_funds_by_exposure.
+1. DATA_ONLY is a metric lookup: a NAV, a top-N holdings or sectors list, a comparison table, a definition. Do not call search_financial_news. trigger is none.
+2. "Tell me about <fund>", "how is <fund>", or any overview of one named fund is INSIGHT_FUSION, not DATA_ONLY. Wave 1 gets snapshot, returns, attribution, and the portfolio. Wave 2 always calls search_financial_news with scope all and top_n 8. The answer must connect those articles to the holdings and the return.
+3. NEWS_ONLY is macro or market news with no fund numbers. Wave 1 may call get_market_snapshot. trigger is always, with one search_financial_news call on wave 2.
+4. Wave 1 tools: get_fund_data, get_portfolio_data, compare_funds, get_market_snapshot, screen_funds_by_exposure. INSIGHT_FUSION is the mode when metrics and news are both needed.
 5. If trigger is always, add the search_financial_news call with wave 2. If trigger is negative_return, material_sector, or none, do not add a wave-2 call. The bridge adds news when the condition is true. For "why did the fund fall", use negative_return and threshold -1.0. For a generic "why did it move", use threshold -2.0.
 6. Fund news ("news related to HDFC Large Cap"): wave 1 get_portfolio_data sections holdings and sectors, wave 2 search_financial_news scope all. Narrow scope only when the user asked for sectors or macro only.
 7. At most one wave-2 call and at most four tool_calls in total.
@@ -504,6 +504,9 @@ Copy count into arguments.top_n and the slice into get_portfolio_data arguments.
 ### EXAMPLES
 NAV:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Check NAV of fund", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "NAV of HDFC Top 100"}}, "entities": {{"funds": ["HDFC Top 100"]}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot"]}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 50}}}}
+
+Tell me about one fund:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Overview of HDFC Large Cap with news tied to its holdings", "intent": "overview", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "request": {{"count": 5, "portfolio_slice": "both", "reading": "Overview of HDFC Large Cap Fund"}}, "entities": {{"funds": ["HDFC Large Cap Fund"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "all", "top_n": 8, "window_days": 30}}, "wave": 2}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 420, "notes": "Connect holdings and the return to the articles"}}}}
 
 Why the fund fell:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Explain the recent drop", "intent": "explain_cause", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "both", "reading": "Why Parag Parikh Flexi Cap fell"}}, "entities": {{"funds": ["Parag Parikh Flexi Cap"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}], "wave_2_policy": {{"trigger": "negative_return", "threshold": -1.0, "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 280}}}}

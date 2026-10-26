@@ -87,3 +87,25 @@ def test_strip_composer_sections():
     out = strip_composer_display_sections(text)
     assert "Snapshot" not in out
     assert "News themes" in out
+
+
+def test_portfolio_tables_and_news_section():
+    from news_rag.insight.fund_display import append_news_section
+
+    tables = build_fund_display_tables(
+        {
+            "portfolio:x": {
+                "holdings": [{"name": "HDFC Bank", "percentage": 9.2}],
+                "sectors": [{"sector": "Financial Services", "percentage": 32.1}],
+            }
+        }
+    )
+    assert "HDFC Bank" in tables["portfolio_holdings_table"]
+    assert "Financial Services" in tables["portfolio_sectors_table"]
+    answer = append_news_section(
+        "The fund lagged its benchmark.\n\n### News themes\n\n- short teaser",
+        {"holdings": [{"title": "Bank raises guidance", "summary": "HDFC Bank lifted its loan-growth outlook.", "date": "2026-10-20"}]},
+    )
+    assert "### Recent news" in answer
+    assert "Bank raises guidance" in answer
+    assert "News themes" not in answer

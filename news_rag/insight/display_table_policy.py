@@ -18,8 +18,18 @@ TABLE_LONG = "vs_benchmark_table"
 TABLE_HOLDINGS = "holdings_move_table"
 TABLE_SNAPSHOT = "snapshot_table"
 TABLE_CATEGORY = "category_average_table"
+TABLE_PORTFOLIO = "portfolio_holdings_table"
+TABLE_SECTORS = "portfolio_sectors_table"
 
-_ALL_KEYS = frozenset({TABLE_SHORT, TABLE_LONG, TABLE_HOLDINGS, TABLE_SNAPSHOT, TABLE_CATEGORY})
+_ALL_KEYS = frozenset({
+    TABLE_SHORT,
+    TABLE_LONG,
+    TABLE_HOLDINGS,
+    TABLE_SNAPSHOT,
+    TABLE_CATEGORY,
+    TABLE_PORTFOLIO,
+    TABLE_SECTORS,
+})
 
 _NEWS_RE = re.compile(
     r"\b(?:news|headlines?|articles?|stories|coverage|press|media|announcements?)\b",
@@ -49,6 +59,10 @@ _WHY_RE = re.compile(
     r"\b(?:why\s+(?:did|has|is)|reason|cause|what\s+(?:drove|caused|happened|made)|explain\s+the\s+move)\b",
     re.I,
 )
+_OVERVIEW_RE = re.compile(
+    r"\b(?:tell me about|overview of|how is|summar(?:y|ize)|about)\b",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -71,6 +85,19 @@ class DisplayTablePolicy:
 def _news_primary(question: str) -> bool:
     q = question or ""
     return bool(_NEWS_RE.search(q)) and not bool(_PERF_RE.search(q)) and not _WHY_RE.search(q)
+
+
+def _named_fund_overview(question: str, plan: ExecutionPlan | None) -> bool:
+    """A 'tell me about this fund' ask, not a news-only or why-it-moved ask."""
+    q = question or ""
+    if _NEWS_RE.search(q) or _WHY_RE.search(q):
+        return False
+    funds = list(plan.funds or []) if plan else []
+    intent = (plan.intent if plan else "") or ""
+    about = bool(_OVERVIEW_RE.search(q))
+    if funds and (intent == "overview" or about):
+        return True
+    return intent == "overview" and about
 
 
 def resolve_display_table_policy(
@@ -141,6 +168,19 @@ def resolve_display_table_policy(
         return DisplayTablePolicy(
             include=frozenset(),
             rationale="News-focused question — no vs-benchmark/category tables; narrative and news only.",
+        )
+
+    if _named_fund_overview(q, plan):
+        return DisplayTablePolicy(
+            include=frozenset({
+                TABLE_SNAPSHOT,
+                TABLE_SHORT,
+                TABLE_LONG,
+                TABLE_HOLDINGS,
+                TABLE_PORTFOLIO,
+                TABLE_SECTORS,
+            }),
+            rationale="Named-fund overview — snapshot, returns, top holdings, sectors. News is appended separately.",
         )
 
     inc = set()

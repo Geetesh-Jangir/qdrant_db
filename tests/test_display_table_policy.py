@@ -35,3 +35,21 @@ def test_why_moved_gets_holdings():
     plan = ExecutionPlan(intent="explain_cause", answer_mode=AnswerMode.INSIGHT_FUSION, window_days=30)
     pol = resolve_display_table_policy(q, plan)
     assert TABLE_HOLDINGS in pol.include
+
+
+def test_tell_me_about_fund_gets_snapshot_holdings_and_returns():
+    from news_rag.insight.display_table_policy import TABLE_PORTFOLIO, TABLE_SECTORS, TABLE_SNAPSHOT
+
+    q = "tell me about hdfc large cap fund"
+    plan = ExecutionPlan(
+        intent="overview",
+        answer_mode=AnswerMode.INSIGHT_FUSION,
+        funds=["HDFC Large Cap Fund"],
+        window_days=30,
+    )
+    pol = resolve_display_table_policy(q, plan)
+    assert TABLE_SNAPSHOT in pol.include
+    assert TABLE_LONG in pol.include
+    assert TABLE_PORTFOLIO in pol.include
+    assert TABLE_SECTORS in pol.include
+    assert TABLE_HOLDINGS in pol.include
