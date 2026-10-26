@@ -17,8 +17,18 @@ from news_rag.insight.contracts import ToolCall
 
 CAPABILITIES: dict[str, dict[str, Any]] = {
     "get_fund_data": {
-        "description": "NAV, day change, benchmark, category, 52-week range, returns for "
-                       "requested windows, and optional return series / attribution.",
+        "description": (
+            "One named mutual fund scheme: NAV, day change, benchmark, category, 52-week range, "
+            "return windows, optional return series / attribution, optional fund managers."
+        ),
+        "when_to_use": (
+            "User names a specific scheme (e.g. HDFC Large Cap Fund) and asks NAV, returns, "
+            "how it is doing, why it moved, or who manages it. NOT for listing unnamed funds."
+        ),
+        "do_not_use": (
+            "Do not use for 'which funds hold banking' or 'top 5 funds in IT sector' — use "
+            "screen_funds_by_exposure. Do not use for holdings inside a fund — use get_portfolio_data."
+        ),
         "modules": ["snapshot", "return_series", "attribution", "managers"],
         "args_schema": {
             "modules": {"type": "list", "items": ["snapshot", "return_series", "attribution", "managers"]},
@@ -30,8 +40,17 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         "per_fund": True,
     },
     "get_portfolio_data": {
-        "description": "Top holdings and sectors of one fund with weights. "
-                       "Can look up a company or return the holding count.",
+        "description": (
+            "What a named mutual fund holds: top stocks and/or sector weights inside that scheme."
+        ),
+        "when_to_use": (
+            "Phrases like top stocks/shares/holdings/sectors OF or IN a named fund; "
+            "what does [Fund X] hold; portfolio composition of one scheme."
+        ),
+        "do_not_use": (
+            "NOT when user asks which funds are invested in banking/HDFC Bank/ a sector — "
+            "that is screen_funds_by_exposure (reverse lookup across many funds)."
+        ),
         "args_schema": {
             "sections": {"type": "list", "items": ["holdings", "sectors", "count"]},
             "top_n": {"type": "int", "min": 1, "max": 50, "default": 3},
@@ -60,8 +79,18 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         "per_fund": False,
     },
     "screen_funds_by_exposure": {
-        "description": "Reverse lookup: which funds have the most exposure to a sector, "
-                       "stock, or macro driver.",
+        "description": (
+            "Find multiple funds from the catalog: by sector weight, by holding a stock, "
+            "by macro driver impact, or by return window when no single fund is named."
+        ),
+        "when_to_use": (
+            "Any N funds with exposure to a sector (banking, IT, pharma); funds holding a "
+            "stock (HDFC Bank); funds affected by crude/RBI; random/top performers in a category."
+        ),
+        "do_not_use": (
+            "NOT for top holdings inside one named fund — use get_portfolio_data. "
+            "NOT for NAV of one fund — use get_fund_data snapshot."
+        ),
         "args_schema": {
             "sector": {"type": "str"},
             "driver": {"type": "str"},
@@ -114,7 +143,12 @@ def capability_catalog_text() -> str:
         args = ", ".join(
             f"{k}: {v.get('type', 'str')}" for k, v in cap["args_schema"].items()
         )
-        lines.append(f"- {name}: {cap['description']}\n  args: {args}")
+        block = f"- **{name}**: {cap['description']}\n  args: {args}"
+        if cap.get("when_to_use"):
+            block += f"\n  USE WHEN: {cap['when_to_use']}"
+        if cap.get("do_not_use"):
+            block += f"\n  AVOID WHEN: {cap['do_not_use']}"
+        lines.append(block)
     return "\n".join(lines)
 
 

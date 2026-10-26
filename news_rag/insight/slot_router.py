@@ -53,8 +53,9 @@ _NAV_RE = re.compile(
     re.I,
 )
 _HOLDINGS_RE = re.compile(
-    r"\b(?:holdings?|top\s+\d+\s+holdings?|portfolio|what\s+does\s+\w+\s+hold|"
-    r"composition|stocks?\s+in)\b",
+    r"\b(?:holdings?|top\s+\d+\s+(?:holdings?|stocks?|shares?)|portfolio|"
+    r"what\s+does\s+.+\s+hold|composition|stocks?\s+in|"
+    r"stocks?\s+(?:that\s+are\s+)?invested\s+in)\b",
     re.I,
 )
 _CATEGORY_RE = re.compile(
@@ -173,7 +174,10 @@ def _infer_window_days(question: str) -> tuple[int, str]:
 
 def _get_top_n(question: str, default: int = 3) -> int:
     """Extract top N from question like 'top 15 holdings'."""
-    match = _TOP_N_RE.search(question or "")
+    q = question or ""
+    if re.search(r"\bpick\s+(?:a\s+)?fund\b|\bchoose\s+(?:a\s+)?fund\b", q, re.I):
+        return 1
+    match = _TOP_N_RE.search(q)
     if match:
         n = int(match.group(1))
         return max(1, min(50, n))
@@ -206,8 +210,17 @@ def _plan_nav_lookup(funds: list[str], window_days: int, window_label: str) -> E
     )
 
 
-def _plan_holdings_lookup(funds: list[str], top_n: int) -> ExecutionPlan:
+def _plan_holdings_lookup(
+    funds: list[str],
+    top_n: int,
+    *,
+    sections: list[str] | None = None,
+    question: str = "",
+) -> ExecutionPlan:
     """Holdings list — DATA_ONLY, no Wave 2."""
+    from news_rag.tools import portfolio_sections_for_question
+
+    sec = list(sections or portfolio_sections_for_question(question) or ["holdings", "sectors"])
     return ExecutionPlan(
         intent="lookup",
         goal=f"Top {top_n} holdings of {', '.join(funds)}",
@@ -217,7 +230,11 @@ def _plan_holdings_lookup(funds: list[str], top_n: int) -> ExecutionPlan:
         window_days=30,
         window_label="1 month",
         tool_calls=[
-            ToolCall(tool="get_portfolio_data", arguments={"sections": ["holdings", "sectors"], "top_n": top_n}, wave=1),
+            ToolCall(
+                tool="get_portfolio_data",
+                arguments={"sections": sec, "top_n": top_n},
+                wave=1,
+            ),
         ],
         wave_2_policy=Wave2Policy(trigger="none"),
         response_shape="table" if top_n > 5 else "short_answer",
@@ -229,6 +246,21 @@ def _plan_holdings_lookup(funds: list[str], top_n: int) -> ExecutionPlan:
 
 def _asks_fund_manager(question: str) -> bool:
     return bool(_MANAGER_RE.search(question or ""))
+
+
+def _extract_fund_targets_for_manager(question: str) -> list[str]:
+    """Fund name, scheme phrase, or ISIN for manager lookup."""
+    from news_rag.fund_search import _ISIN_IN_TEXT, fetch_fund_managers_for_isin
+
+    q = question or ""
+    isin_m = _ISIN_IN_TEXT.search(q)
+    if isin_m:
+        isin = isin_m.group(1).upper()
+        payload = fetch_fund_managers_for_isin(isin)
+        if payload and payload.get("fund_name"):
+            return [str(payload["fund_name"])]
+        return [isin]
+    return _extract_fund_names(q)[:1]
 
 
 def _plan_fund_managers(funds: list[str]) -> ExecutionPlan:
@@ -711,14 +743,56 @@ def slot_route(
             plan.asks_for_advice = True
         return plan
 
-    # Funds holding a stock (invested in / exposure to) — before generic catalog screens
-    from news_rag.tools import asks_funds_holding_stock
+    # What a named fund holds (stocks/sectors) — before "funds holding a stock"
+    from news_rag.tools import (
+        asks_fund_portfolio_holdings,
+        asks_funds_holding_stock,
+        asks_funds_with_sector_exposure,
+    )
+
+    if asks_funds_with_sector_exposure(q):
+        plan = _plan_fund_performance_screen(q, window_days, window_label)
+        if guard.outcome == "refuse_advice":
+            plan.asks_for_advice = True
+        return plan
+
+    if asks_fund_portfolio_holdings(q):
+        funds = _extract_fund_names(q)
+        if not funds:
+            from news_rag.fund_search import resolve_fund_for_query
+
+            detail, _amb, _close = resolve_fund_for_query(q)
+            if detail:
+                funds = [
+                    str(
+                        detail.get("fund_name")
+                        or detail.get("fund_short_name")
+                        or ""
+                    ).strip()
+                ]
+                funds = [f for f in funds if f]
+        if funds:
+            plan = _plan_holdings_lookup(
+                funds, _get_top_n(q), question=q
+            )
+            if guard.outcome == "refuse_advice":
+                plan.asks_for_advice = True
+            return plan
 
     if asks_funds_holding_stock(q) and _FUND_WORD_RE.search(q):
         plan = _plan_fund_performance_screen(q, window_days, window_label)
         if guard.outcome == "refuse_advice":
             plan.asks_for_advice = True
         return plan
+
+    # Fund manager (RupeeStop fund API) — supports ISIN or scheme name
+    if _asks_fund_manager(q):
+        mgr_funds = _extract_fund_targets_for_manager(q)
+        if mgr_funds:
+            plan = _plan_fund_managers(mgr_funds)
+            if guard.outcome == "refuse_advice":
+                plan.asks_for_advice = True
+            return plan
 
     # Random / performance fund screens (catalog, 1Y positive, etc.)
     if _asks_catalog_fund_performance(q):
@@ -795,7 +869,7 @@ def slot_route(
 
     # Holdings lookup
     if _HOLDINGS_RE.search(q) and not _ABOUT_RE.search(q) and not _WHY_MOVE_RE.search(q):
-        return _plan_holdings_lookup(funds, top_n)
+        return _plan_holdings_lookup(funds, top_n, question=q)
 
     # Why did fund move
     if _WHY_MOVE_RE.search(q):

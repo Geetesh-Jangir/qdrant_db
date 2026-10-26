@@ -212,23 +212,37 @@ def run_fund_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_fund_portfolio(ctx: dict[str, Any]) -> dict[str, Any]:
-    from news_rag.fund_search import extract_top_holdings, extract_top_sectors
+    from news_rag.fund_search import (
+        extract_top_holdings,
+        extract_top_sectors,
+        normalize_holding_row,
+        normalize_sector_row,
+    )
     from news_rag.insight.tool_runners import _fail
 
     detail = _detail(ctx)
     if not detail:
         return _fail("fund_not_found")
-    n_hold = int(ctx.get("top_n_holdings") or 3)
-    n_sec = int(ctx.get("top_n_sectors") or 3)
-    holdings = extract_top_holdings(detail, limit=max(n_hold, 50))
-    sectors = extract_top_sectors(detail, limit=max(n_sec, 20))
+    sections = list(ctx.get("portfolio_sections") or ["holdings", "sectors"])
+    n_hold = int(ctx.get("top_n_holdings") or 3) if "holdings" in sections else 0
+    n_sec = int(ctx.get("top_n_sectors") or 3) if "sectors" in sections else 0
+    holdings = (
+        [normalize_holding_row(h) for h in extract_top_holdings(detail, limit=max(n_hold, 50))]
+        if n_hold
+        else []
+    )
+    sectors = (
+        [normalize_sector_row(s) for s in extract_top_sectors(detail, limit=max(n_sec, 20))]
+        if n_sec
+        else []
+    )
     find = str(ctx.get("find") or "").strip().lower()
     matched = [h for h in holdings if find and find in str(h.get("name") or "").lower()] if find else []
     data: dict[str, Any] = {
         "fund_name": detail.get("fund_short_name") or detail.get("fund_name"),
         "as_on": detail.get("as_on"),
-        "holdings": (matched or holdings)[:n_hold],
-        "sectors": sectors[:n_sec],
+        "holdings": (matched or holdings)[:n_hold] if n_hold else [],
+        "sectors": sectors[:n_sec] if n_sec else [],
     }
     if ctx.get("include_count") or find:
         data["holding_count"] = len(extract_top_holdings(detail, limit=500))
@@ -316,7 +330,14 @@ def run_macro_series_tool(ctx: dict[str, Any]) -> dict[str, Any]:
 
     window = int(ctx.get("window_days") or 30)
     series = []
-    for key in ctx.get("series") or ["crude", "usdinr"]:
+    raw = ctx.get("series") or ["crude", "usdinr"]
+    if isinstance(raw, str):
+        series_keys = [k.strip().lower() for k in raw.split(",") if k.strip()]
+    elif isinstance(raw, (list, tuple, set)):
+        series_keys = [str(k).strip().lower() for k in raw if str(k).strip()]
+    else:
+        series_keys = ["crude", "usdinr"]
+    for key in series_keys:
         ticker, label = _SERIES_TICKER.get(str(key), ("", ""))
         if not ticker:
             continue

@@ -16,6 +16,32 @@ from news_rag.insight.capabilities.catalog import validate_capability_args
 from news_rag.insight.contracts import ToolCall, RequestTelemetry
 
 
+def _capability_cache_key(
+    tool: str,
+    fund_name: str,
+    args: dict[str, Any],
+    ctx: dict[str, Any],
+) -> str:
+    """Cache keys must reflect modules, portfolio shape, and manager question focus."""
+    if tool == "get_portfolio_data":
+        sections = ",".join(sorted(args.get("sections") or ["holdings", "sectors"]))
+        top_n = int(args.get("top_n") or 3)
+        find = str(args.get("find") or "").strip()
+        return f"{fund_name}|sections={sections}|top_n={top_n}|find={find}"
+    modules = ",".join(args.get("modules") or [])
+    key = f"{fund_name}|{modules}"
+    if "managers" in (args.get("modules") or []):
+        from news_rag.insight.manager_view import infer_manager_roster_focus
+
+        focus = infer_manager_roster_focus(str(ctx.get("question") or ""))
+        key = f"{key}|mgr_focus={focus}"
+    if "attribution" in (args.get("modules") or []):
+        key = f"{key}|attr_w={args.get('window_days', 30)}|attr_n={args.get('top_n', 3)}"
+    if "return_series" in (args.get("modules") or []):
+        key = f"{key}|series_w={args.get('window_days', 180)}"
+    return key
+
+
 def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Delegate to existing fund snapshot / return_series / attribution tools."""
     from news_rag.insight.registry import ensure_registry
@@ -53,8 +79,14 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
         from news_rag.fund_search import fetch_fund_managers_for_query
 
         mgr = fetch_fund_managers_for_query(fund_name)
+        if not mgr:
+            mgr = fetch_fund_managers_for_query(str(ctx.get("question") or ""))
         if mgr:
-            results["managers"] = mgr
+            from news_rag.insight.manager_view import enrich_manager_payload
+
+            results["managers"] = enrich_manager_payload(
+                mgr, str(ctx.get("question") or fund_name)
+            )
 
     return {"ok": bool(results.keys() - {"fund_name"}), "data": results}
 
@@ -64,12 +96,14 @@ def _run_get_portfolio_data(fund_name: str, args: dict[str, Any], ctx: dict[str,
     top_n = args.get("top_n", 3)
     find = args.get("find", "")
     include_count = "count" in args.get("sections", [])
+    sections = list(args.get("sections") or ["holdings", "sectors"])
     portfolio_ctx = {
         **ctx,
         "fund_name": fund_name,
         "fund_names": [fund_name],
         "top_n_holdings": top_n,
         "top_n_sectors": min(top_n, 10),
+        "portfolio_sections": sections,
         "include_count": include_count,
         "find": find,
     }
@@ -314,7 +348,7 @@ def execute_capability(
         if not target_funds:
             return [{"ok": False, "tool": call.tool, "fund": "", "error": "no_funds_resolved", "data": {}, "elapsed_ms": 0}]
         for name in target_funds:
-            cache_key = f"{name}:{','.join(args.get('modules', []))}"
+            cache_key = _capability_cache_key(call.tool, name, args, base_ctx)
             cached = cache.get(call.tool, cache_key)
             if cached is not None:
                 results.append({"ok": True, "tool": call.tool, "fund": name, "data": cached, "elapsed_ms": 0, "cached": True})

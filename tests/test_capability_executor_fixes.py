@@ -55,6 +55,16 @@ def test_crude_increase_compound_question_screens_negatively_affected_funds():
     assert len(rankings) >= 1
 
 
+def test_fund_manager_isin_in_question_routes_data_only():
+    q = "who is the fund manager of INF174KA1C68?"
+    plan = slot_route(q)
+    assert plan is not None
+    assert plan.answer_mode.value == "DATA_ONLY"
+    tc = next(c for c in plan.tool_calls if c.tool == "get_fund_data")
+    assert tc.arguments.get("modules") == ["managers"]
+    assert plan.funds
+
+
 def test_fund_manager_query_uses_rupeestop_api():
     q = "tell me about fund manager of hdfc large cap fund?"
     plan = slot_route(q)
@@ -110,6 +120,44 @@ def test_hdfc_equity_screen_uses_equity_scheme_type():
     for row in rows:
         assert str(row.get("scheme_type") or "").lower() == "equity"
         assert "HDFC" in str(row.get("fund_name") or "")
+
+
+def test_funds_invested_in_banking_sector_screen_not_stock_lookup():
+    from news_rag.tools import (
+        asks_funds_holding_stock,
+        asks_funds_with_sector_exposure,
+        run_screen_funds,
+        stock_name_from_question,
+    )
+
+    q = "what are the 5 funds that are invested in banking sector?"
+    assert asks_funds_with_sector_exposure(q)
+    assert not asks_funds_holding_stock(q)
+    assert not stock_name_from_question(q)
+    plan = slot_route(q)
+    assert plan is not None
+    assert plan.answer_mode.value == "DATA_ONLY"
+    tc = next(c for c in plan.tool_calls if c.tool == "screen_funds_by_exposure")
+    assert tc.arguments.get("top_n") == 5
+    r = run_screen_funds(question=q, direction="any", top_n=5)
+    rows = (r.get("data") or {}).get("rankings") or []
+    assert len(rows) >= 1
+
+
+def test_stocks_invested_in_named_fund_routes_portfolio_not_screen():
+    from news_rag.tools import asks_fund_portfolio_holdings, asks_funds_holding_stock, stock_name_from_question
+
+    q = "what are the top 5 stock that are invested in hdfc large cap fund?"
+    assert asks_fund_portfolio_holdings(q)
+    assert not asks_funds_holding_stock(q)
+    assert not stock_name_from_question(q)
+    plan = slot_route(q)
+    assert plan is not None
+    assert plan.answer_mode.value == "DATA_ONLY"
+    assert plan.routed_by == "slot_router"
+    tc = next(c for c in plan.tool_calls if c.tool == "get_portfolio_data")
+    assert tc.arguments.get("sections") == ["holdings"]
+    assert tc.arguments.get("top_n") == 5
 
 
 def test_funds_invested_in_hdfc_bank_not_hdfc_amc_catalog():

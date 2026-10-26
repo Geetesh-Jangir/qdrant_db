@@ -214,7 +214,7 @@ class Settings(BaseSettings):
     )
     # Slot router confidence threshold (above → deterministic, below → planner LLM)
     slot_router_confidence: float = Field(
-        default=0.8,
+        default=0.97,
         validation_alias=AliasChoices("SLOT_ROUTER_CONFIDENCE", "slot_router_confidence"),
     )
 

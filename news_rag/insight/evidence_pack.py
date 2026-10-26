@@ -192,56 +192,123 @@ def build_evidence_pack(
 # ---------------------------------------------------------------------------
 
 
+def _holding_label(h: dict[str, Any]) -> str:
+    return str(
+        h.get("company_name") or h.get("name") or h.get("instrument_name") or ""
+    ).strip() or "—"
+
+
+def _holding_weight_pct(h: dict[str, Any]) -> float:
+    for key in ("weight_pct", "percentage", "weight"):
+        val = h.get(key)
+        if val is not None and val != "":
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                continue
+    return 0.0
+
+
+def _sector_label(s: dict[str, Any]) -> str:
+    return str(s.get("sector") or s.get("sector_label") or s.get("name") or "").strip() or "—"
+
+
+def _sector_weight_pct(s: dict[str, Any]) -> float:
+    for key in ("weight_pct", "percentage", "weight"):
+        val = s.get(key)
+        if val is not None and val != "":
+            try:
+                return float(val)
+            except (TypeError, ValueError):
+                continue
+    return 0.0
+
+
+def _scheme_tenure_lines(fund_name: str, schemes: list[Any]) -> list[str]:
+    on_scheme = [
+        s
+        for s in schemes
+        if isinstance(s, dict)
+        and fund_name.lower() in str(s.get("scheme_name") or "").lower()
+    ]
+    out: list[str] = []
+    if on_scheme:
+        out.append("- **Tenure on this scheme:**")
+        for s in on_scheme[:4]:
+            end = (s.get("to_date") or "").strip() or "present"
+            out.append(f"  - {s.get('from_date') or '—'} → {end}")
+    elif schemes:
+        out.append("- **Other schemes (sample):**")
+        for s in schemes[:4]:
+            if not isinstance(s, dict):
+                continue
+            end = (s.get("to_date") or "").strip() or "ongoing"
+            out.append(
+                f"  - {s.get('scheme_name') or '—'} ({s.get('from_date') or '—'} – {end})"
+            )
+    return out
+
+
 def _render_fund_managers_markdown(mgr: dict[str, Any], plan: ExecutionPlan) -> str:
+    from news_rag.insight.manager_view import manager_answer_title
+
     fund_name = str(mgr.get("fund_name") or (plan.funds[0] if plan.funds else "Fund")).strip()
-    lines = [f"### Fund manager — {fund_name}"]
+    focus = str(mgr.get("roster_focus") or "all")
+    lines = [f"## {manager_answer_title(focus, fund_name)}"]
     isin = str(mgr.get("isin") or "").strip()
     if isin:
-        lines.append(f"- **ISIN:** {isin}")
+        lines.append(f"**ISIN:** {isin}")
 
-    def _mgr_section(title: str, rows: list[dict[str, Any]]) -> None:
+    note = str(mgr.get("roster_note") or "").strip()
+    if note and focus in ("past", "current") and not (
+        (mgr.get("display_current") or mgr.get("current"))
+        or (mgr.get("display_past") or mgr.get("past"))
+    ):
+        lines.extend(["", note])
+        return "\n".join(lines)
+
+    def _mgr_section(title: str, rows: list[dict[str, Any]], numbered: bool) -> None:
         if not rows:
             return
-        lines.extend(["", f"**{title}**"])
-        for m in rows:
-            name = m.get("name") or "—"
-            lines.append(f"\n#### {name}")
+        lines.extend(["", f"### {title}"])
+        for i, m in enumerate(rows, start=1):
+            name = str(m.get("name") or "—").strip()
+            prefix = f"{i}. " if numbered else ""
+            lines.append(f"\n#### {prefix}{name}")
+            facts: list[str] = []
             if m.get("designation"):
-                lines.append(f"- **Role:** {m['designation']}")
+                facts.append(str(m["designation"]))
             if m.get("managing_since"):
-                lines.append(f"- **Managing since:** {m['managing_since']}")
+                facts.append(f"on role since {m['managing_since']}")
             if m.get("total_experience_years") is not None:
-                lines.append(f"- **Experience:** {m['total_experience_years']} years")
+                facts.append(f"{m['total_experience_years']} yrs industry experience")
+            if facts:
+                lines.append(" · ".join(facts))
             if m.get("qualification"):
-                lines.append(f"- **Qualifications:** {m['qualification']}")
-            if m.get("age") is not None:
-                lines.append(f"- **Age:** {m['age']}")
-            if m.get("basic_details"):
-                lines.append(f"- **Profile:** {m['basic_details']}")
-            schemes = m.get("other_schemes") or []
-            on_scheme = [
-                s
-                for s in schemes
-                if isinstance(s, dict)
-                and fund_name.lower() in str(s.get("scheme_name") or "").lower()
-            ]
-            if on_scheme:
-                lines.append("- **Tenure on this scheme:**")
-                for s in on_scheme[:3]:
-                    lines.append(
-                        f"  - {s.get('from_date') or '?'} → {s.get('to_date') or 'present'}"
-                    )
-            elif schemes:
-                lines.append("- **Other schemes managed (sample):**")
-                for s in schemes[:4]:
-                    lines.append(
-                        f"  - {s.get('scheme_name') or '—'} ({s.get('from_date') or '?'} – {s.get('to_date') or '?'})"
-                    )
+                lines.append(f"**Qualifications:** {m['qualification']}")
+            bio = str(m.get("basic_details") or "").strip()
+            if bio:
+                lines.extend(["", "**About**", "", bio])
+            else:
+                lines.append(
+                    "\n*No extended biography is published for this manager on RupeeStop.*"
+                )
+            tenure = _scheme_tenure_lines(fund_name, list(m.get("other_schemes") or []))
+            if tenure:
+                lines.extend(["", *tenure])
 
-    _mgr_section("Current manager(s)", list(mgr.get("current") or []))
-    _mgr_section("Past manager(s)", list(mgr.get("past") or []))
-    if len(lines) <= 2:
+    current = list(mgr.get("display_current") or mgr.get("current") or [])
+    past = list(mgr.get("display_past") or mgr.get("past") or [])
+    if focus != "past":
+        _mgr_section("Current manager(s)", current, numbered=len(current) > 1)
+    if focus != "current":
+        _mgr_section("Past manager(s)", past, numbered=False)
+
+    if not current and not past:
         lines.append("\nNo fund manager records were returned for this scheme.")
+    elif note:
+        lines.extend(["", note])
+
     return "\n".join(lines)
 
 
@@ -307,28 +374,57 @@ def render_data_only_template(
         sectors = p_data.get("sectors") or []
         fund_name = plan.funds[0] if plan.funds else "Fund"
 
-        lines = [f"### Portfolio Holdings: {fund_name}"]
-        if holdings:
-            lines.append("\n| Stock / Company | Sector | Weight (%) |")
-            lines.append("|---|---|---|")
-            for h in holdings[:10]:
-                c_name = h.get("company_name", "Unknown")
-                s_name = h.get("sector", "-")
-                w = h.get("weight_pct", h.get("weight", 0.0))
-                lines.append(f"| {c_name} | {s_name} | {float(w):.2f}% |")
+        sector_rows = [s for s in sectors if _sector_label(s) != "—" or _sector_weight_pct(s) > 0]
+        holding_rows = [
+            h
+            for h in holdings
+            if _holding_label(h) != "—" and _holding_weight_pct(h) > 0
+        ]
 
-        if sectors:
-            lines.append("\n**Top Sector Allocations:**")
-            for s in sectors[:5]:
-                s_name = s.get("sector", "Other")
-                w = s.get("weight_pct", s.get("weight", 0.0))
-                lines.append(f"- **{s_name}:** {float(w):.2f}%")
+        if sector_rows and not holding_rows:
+            lines = [f"### Top sector allocation — {fund_name}"]
+            lines.append("\n| Sector | Weight (%) |")
+            lines.append("|---|---:|")
+            for s in sector_rows[:10]:
+                lines.append(f"| {_sector_label(s)} | {_sector_weight_pct(s):.2f}% |")
+            return "\n".join(lines)
 
+        lines = [f"### Portfolio — {fund_name}"]
+        if sector_rows:
+            lines.append("\n**Top sector allocations**")
+            lines.append("\n| Sector | Weight (%) |")
+            lines.append("|---|---:|")
+            for s in sector_rows[:10]:
+                lines.append(f"| {_sector_label(s)} | {_sector_weight_pct(s):.2f}% |")
+
+        if holding_rows:
+            lines.append("\n**Top holdings**")
+            lines.append("\n| Stock / company | Sector | Weight (%) |")
+            lines.append("|---|---|---:|")
+            for h in holding_rows[:10]:
+                lines.append(
+                    f"| {_holding_label(h)} | {h.get('sector') or h.get('industry') or '—'} | "
+                    f"{_holding_weight_pct(h):.2f}% |"
+                )
+
+        if not sector_rows and not holding_rows:
+            lines.append("\nNo portfolio sector or holding data is available for this fund.")
         return "\n".join(lines)
 
     if "screen" in data:
         screen = data.get("screen") or {}
         rankings = screen.get("rankings") or screen.get("funds") or []
+        if not rankings:
+            note = str(screen.get("ranking_note") or screen.get("note") or "").strip()
+            sector = str(screen.get("sector_name") or "").strip()
+            lines = ["### Fund screen"]
+            if sector:
+                lines.append(f"No funds matched **{sector}** with the filters used.")
+            else:
+                lines.append("No funds matched your screen filters.")
+            if note:
+                lines.append(note)
+            return "\n".join(lines)
         if rankings:
             from news_rag.tools import return_window_label
 

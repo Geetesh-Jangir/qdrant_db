@@ -979,7 +979,11 @@ _STOCK_FROM_FUND_QUESTION_RE = (
         re.I,
     ),
     re.compile(
-        r"\b(?:hold(?:ing|s)?|own(?:s|ing)?|exposure\s+to)\s+(.+?)(?:\s+(?:stocks?|shares?)\b|[?.]|$|\s+which\b)",
+        r"\b(?:hold(?:ing|s)?|own(?:s|ing)?|exposure\s+to)\s+(?:in\s+)?(.+?)(?:\s+(?:stocks?|shares?)\b|[?.]|$|\s+which\b|\s+and\b)",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:invested\s+or\s+)?holds?\s+in\s+(.+?)(?:\s+sector\b|\s+industry\b|[?.]|$|\s+and\b)",
         re.I,
     ),
 )
@@ -987,10 +991,153 @@ _STOCK_FROM_FUND_QUESTION_RE = (
 
 def _clean_stock_capture(raw: str) -> str:
     name = (raw or "").strip(" .,?")
+    name = re.sub(r"^\s*in\s+", "", name, flags=re.I)
+    name = re.sub(r"\s+sector\s*$", "", name, flags=re.I)
     name = re.sub(r"\s+which\s+are\b.*$", "", name, flags=re.I)
     name = re.sub(r"\s+that\s+are\b.*$", "", name, flags=re.I)
     name = re.sub(r"\s+performing\b.*$", "", name, flags=re.I)
+    name = re.sub(r"\s+and\s+tell\b.*$", "", name, flags=re.I)
     return name.strip()
+
+
+def phrase_looks_like_sector_reference(phrase: str, question: str = "") -> bool:
+    """Listed sector / industry phrase — not a company stock (e.g. banking sector)."""
+    text = (phrase or "").strip()
+    if len(text) < 3:
+        return False
+    low = text.lower()
+    qlow = (question or "").lower()
+    # "HDFC Bank" / "ICICI Bank" are stocks, not "banking sector"
+    if re.search(r"\bbank\b", low) and not re.search(
+        r"\bbanking\s+sector\b|\bbank(?:ing)?\s+sector\b", low
+    ):
+        if not re.search(r"\bbanking\s+sector\b|\bbank(?:ing)?\s+sector\b", qlow):
+            return False
+    if re.search(r"\b(?:sector|industry|industries)\b", low):
+        return True
+    probe = question or phrase
+    try:
+        from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
+
+        idx = get_sector_fund_ranking_index()
+        if idx.resolve_sector_keys([text]):
+            return True
+        if idx.resolve_from_question(probe):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def asks_funds_with_sector_exposure(question: str) -> bool:
+    """Funds ranked by sector weight (e.g. funds invested in banking), not a scheme's holdings."""
+    q = question or ""
+    if not re.search(r"\bfunds?\b", q, re.I):
+        return False
+    if asks_fund_portfolio_holdings(q):
+        return False
+    try:
+        from news_rag.sector_fund_ranking import get_sector_fund_ranking_index, primary_sector_for_question
+
+        keys = get_sector_fund_ranking_index().resolve_from_question(q)
+        if not keys:
+            canon, keys = primary_sector_for_question(q)
+            if not canon and not keys:
+                return False
+    except Exception:
+        return False
+    if re.search(r"\bsector\b|\bindustry\b", q, re.I) and re.search(
+        r"\b(?:invested|holds?|holding|exposure|allocated)\b", q, re.I
+    ):
+        return True
+    if re.search(
+        r"\b(?:invested\s+in|exposure\s+to|allocated\s+to|hold(?:ing|s)?|heavy\s+in|"
+        r"overweight|underweight)\b",
+        q,
+        re.I,
+    ):
+        return True
+    if re.search(
+        r"\b(?:pick|choose|select|suggest|name|give me)\s+(?:a\s+)?fund\b",
+        q,
+        re.I,
+    ):
+        return True
+    if re.search(r"\b(?:\d+|top|any|name|list)\b.*\bfunds?\b", q, re.I) and re.search(
+        r"\bsector\b", q, re.I
+    ):
+        return True
+    return False
+
+
+def phrase_is_mutual_fund_scheme(phrase: str) -> bool:
+    """True when text names a scheme (not a listed stock) — e.g. HDFC Large Cap Fund."""
+    name = (phrase or "").strip()
+    if len(name) < 3:
+        return False
+    if re.search(r"\bfund\b", name, re.I):
+        try:
+            from news_rag.fund_search import resolve_fund_for_query
+
+            detail, _amb, _close = resolve_fund_for_query(name)
+            if detail and str(detail.get("isin") or "").strip():
+                return True
+        except Exception:
+            return True
+    try:
+        from news_rag.domain_intake import question_mentions_fund_scheme
+
+        if question_mentions_fund_scheme(name):
+            from news_rag.fund_search import resolve_fund_for_query
+
+            detail, _amb, _close = resolve_fund_for_query(name)
+            return bool(detail and str(detail.get("isin") or "").strip())
+    except Exception:
+        pass
+    return False
+
+
+def portfolio_sections_for_question(question: str) -> list[str]:
+    """Which portfolio slices to fetch for a holdings/sectors ask."""
+    q = question or ""
+    wants_sectors = bool(re.search(r"\b(?:sector|sectors)\b", q, re.I))
+    wants_holdings = bool(
+        re.search(
+            r"\b(?:stock|stocks|share|shares|holding|holdings|constituents?)\b",
+            q,
+            re.I,
+        )
+    )
+    if wants_sectors and not wants_holdings:
+        return ["sectors"]
+    if wants_holdings and not wants_sectors:
+        return ["holdings"]
+    return ["holdings", "sectors"]
+
+
+def asks_fund_portfolio_holdings(question: str) -> bool:
+    """User wants what a named mutual fund holds (stocks/sectors), not funds holding a stock."""
+    q = question or ""
+    if not re.search(r"\bfund\b", q, re.I):
+        return False
+    if not re.search(
+        r"\b(?:"
+        r"top\s+\d+\s+(?:stock|stocks|share|shares|holding|holdings)|"
+        r"holdings?|portfolio|composition|"
+        r"(?:stock|stocks|share|shares|holding|holdings)\s+(?:that\s+are\s+)?invested\s+in|"
+        r"what\s+does\s+.+\s+hold"
+        r")\b",
+        q,
+        re.I,
+    ):
+        return False
+    try:
+        from news_rag.fund_search import resolve_fund_for_query
+
+        detail, _amb, _close = resolve_fund_for_query(q)
+        return bool(detail and str(detail.get("isin") or "").strip())
+    except Exception:
+        return False
 
 
 def stock_name_from_question(question: str) -> str:
@@ -1001,7 +1148,11 @@ def stock_name_from_question(question: str) -> str:
         if not m:
             continue
         name = _clean_stock_capture(m.group(1))
-        if len(name) >= 3:
+        if (
+            len(name) >= 3
+            and not phrase_is_mutual_fund_scheme(name)
+            and not phrase_looks_like_sector_reference(name, text)
+        ):
             return name
     legacy = re.search(
         r"\bhold(?:s|ing)?\s+([A-Za-z][A-Za-z0-9&.\- ]{1,40}?)(?:\s+stocks?|\s+shares|\s+and\b|\s+how\b|[?.]|$)",
@@ -1010,7 +1161,11 @@ def stock_name_from_question(question: str) -> str:
     )
     if legacy:
         name = _clean_stock_capture(legacy.group(1))
-        if len(name) >= 3:
+        if (
+            len(name) >= 3
+            and not phrase_is_mutual_fund_scheme(name)
+            and not phrase_looks_like_sector_reference(name, text)
+        ):
             return name
     return ""
 
@@ -1030,9 +1185,17 @@ def asks_equity_funds(question: str) -> bool:
 
 
 def asks_funds_holding_stock(question: str) -> bool:
-    if not re.search(r"\bfunds?\b", question or "", re.I):
+    q = question or ""
+    if not re.search(r"\bfunds?\b", q, re.I):
         return False
-    return bool(stock_name_from_question(question))
+    if asks_funds_with_sector_exposure(q):
+        return False
+    if re.search(r"\b(?:\w+\s+){0,4}sector\b", q, re.I):
+        from news_rag.sector_fund_ranking import primary_sector_for_question
+
+        if primary_sector_for_question(q)[0]:
+            return False
+    return bool(stock_name_from_question(q))
 
 
 def asks_fof_funds(question: str) -> bool:
@@ -1110,23 +1273,41 @@ def screen_hints_from_question(question: str) -> dict[str, str]:
     low = text.lower()
     hints = {"sector_name": "", "category": "", "amc": "", "stock_name": ""}
     stock = stock_name_from_question(text)
-    if stock:
+    if stock and not phrase_looks_like_sector_reference(stock, text):
         hints["stock_name"] = stock
     best = ""
     for alias in sorted(_SECTOR_ALIASES, key=len, reverse=True):
         if alias == "it":
-            if not re.search(r"\bIT\b|it sector|information technology", text):
+            if not (
+                re.search(r"\bit\s+sector\b", text, re.I)
+                or re.search(r"\binformation\s+technology\b", text, re.I)
+                or re.search(r"\bIT\b", text)
+            ):
                 continue
         elif not re.search(rf"\b{re.escape(alias)}\b", low):
             continue
         best = alias
         break
-    hints["sector_name"] = best
-    # Match full catalog taxonomy (defence, IT, FOF, etc.) — not only cap-style names.
-    for cat, _stype, _sub, patterns in _CATEGORY_PATTERNS:
-        if any(re.search(pat, low) for pat in patterns):
-            hints["category"] = cat
-            break
+    from news_rag.sector_fund_ranking import primary_sector_for_question
+
+    canon, _keys = primary_sector_for_question(text)
+    if canon:
+        hints["sector_name"] = canon
+    elif best:
+        hints["sector_name"] = best
+    # Category filter only when no sector was resolved (avoid empty sector∩category).
+    if not hints["sector_name"]:
+        for cat, _stype, _sub, patterns in _CATEGORY_PATTERNS:
+            if cat == "Information Technology":
+                if not re.search(
+                    r"\bit\s+sector\b|information\s+technology|\btech\b|\bsoftware\b",
+                    text,
+                    re.I,
+                ):
+                    continue
+            if any(re.search(pat, low) for pat in patterns):
+                hints["category"] = cat
+                break
     catalog = get_fund_universe_catalog()
     catalog.ensure_loaded()
     amc_best = ""
@@ -1355,6 +1536,16 @@ def run_screen_funds(
         direction=direction,
         question=question,
     )
+    if stock_name and (
+        sector_name
+        or phrase_looks_like_sector_reference(stock_name, question)
+        or asks_funds_with_sector_exposure(question)
+    ):
+        stock_name = ""
+    if sector_name and asks_funds_with_sector_exposure(question):
+        exposure = True
+        if asked not in ("positive", "negative"):
+            asked = "any"
     window = infer_return_window(question, return_window)
     n = max(1, int(top_n or 5))
     sector_rows = (
@@ -1380,6 +1571,8 @@ def run_screen_funds(
     if sector_rows and catalog_rows:
         allowed = {str(row.get("isin") or "") for row in catalog_rows}
         candidates = [row for row in sector_rows if str(row.get("isin") or "") in allowed]
+        if not candidates:
+            candidates = sector_rows
     elif sector_rows:
         candidates = sector_rows
     else:

@@ -16,67 +16,13 @@ logger = logging.getLogger(__name__)
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
+from news_rag.sector_aliases import SECTOR_ALIAS_MAP
+
 # User / news phrasing → sector keys in sector_to_isin_weights.json
 _SECTOR_ALIASES: dict[str, tuple[str, ...]] = {
-    # Information Technology
-    "information technology": ("It - Software", "It - Services", "Software"),
-    "it sector": ("It - Software", "It - Services"),
+    **SECTOR_ALIAS_MAP,
+    # Standalone "it" kept here for alias dict compatibility; matching uses IT disambiguation.
     "it": ("It - Software", "It - Services"),
-    "technology": ("It - Software", "It - Services", "Technology Hardware & Equipment"),
-    "tech": ("It - Software", "It - Services"),
-    "software": ("It - Software", "Software"),
-
-    # Banking & Financials
-    "banking": ("Banks", "Finance"),
-    "banking & financials": ("Banks", "Finance", "Financial Services"),
-    "banking & financial services": ("Banks", "Finance", "Financial Services"),
-    "financials": ("Banks", "Finance", "Financial Services"),
-    "financial services": ("Banks", "Finance", "Financial Services", "Capital Markets"),
-    "bank sector": ("Banks", "Finance"),
-    "financial": ("Banks", "Finance", "Capital Markets"),
-    "finance": ("Banks", "Finance", "Financial Services"),
-    "banks": ("Banks", "Finance"),
-    "psu banks": ("Banks",),
-    "public sector banks": ("Banks",),
-    "private banks": ("Banks",),
-    "rbi": ("Banks", "Finance"),
-    "repo rate": ("Banks", "Finance"),
-    "repo": ("Banks", "Finance"),
-    "rate hike": ("Banks", "Finance"),
-    "monetary policy": ("Banks", "Finance"),
-
-    # Healthcare / Pharma
-    "pharmaceuticals & healthcare": ("Pharmaceuticals & Biotechnology", "Healthcare Services", "Healthcare"),
-    "pharmaceuticals": ("Pharmaceuticals & Biotechnology", "Healthcare"),
-    "pharma": ("Pharmaceuticals & Biotechnology", "Healthcare Services", "Healthcare"),
-    "healthcare": ("Healthcare Services", "Pharmaceuticals & Biotechnology", "Healthcare"),
-    "health care": ("Healthcare Services", "Pharmaceuticals & Biotechnology"),
-
-    # Auto / Automotive
-    "automotive": ("Automobiles", "Auto Components", "Auto Ancillaries"),
-    "automotive sector": ("Automobiles", "Auto Components"),
-    "auto sector": ("Automobiles", "Auto Components"),
-    "automobile": ("Automobiles", "Auto Components"),
-    "automobiles": ("Automobiles", "Auto Components"),
-
-    # Capital Goods / Industrial
-    "capital goods": ("Capital Goods", "Industrial Manufacturing", "Industrial Products"),
-    "capital goods & industrial solutions": ("Capital Goods", "Industrial Manufacturing", "Industrial Products"),
-    "industrial": ("Industrial Manufacturing", "Industrial Products", "Capital Goods"),
-    "industrials": ("Industrial Manufacturing", "Industrial Products", "Capital Goods"),
-    "infrastructure": ("Construction", "Power", "Industrial Products"),
-
-    # Energy / Oil / Metals
-    "oil": ("Petroleum Products", "Energy"),
-    "crude": ("Petroleum Products", "Energy"),
-    "barrel": ("Petroleum Products", "Energy"),
-    "brent": ("Petroleum Products", "Energy"),
-    "energy": ("Power", "Petroleum Products", "Energy"),
-    "power": ("Power", "Energy"),
-    "real estate": ("Realty", "Real Estate"),
-    "realty": ("Realty", "Real Estate"),
-    "metal": ("Ferrous Metals", "Non - Ferrous Metals", "Metals & Mining"),
-    "metals": ("Ferrous Metals", "Non - Ferrous Metals", "Metals & Mining"),
 }
 
 # Do not infer these sector keys from random news entity tags (e.g. Insurance ETF headlines).
@@ -200,9 +146,17 @@ class SectorFundRankingIndex:
                     continue
             lower = text.lower()
             for alias, keys in _SECTOR_ALIASES.items():
-                if alias in lower:
-                    for k in keys:
-                        add(k)
+                if alias == "it":
+                    if not (
+                        re.search(r"\bit\s+sector\b", text, re.I)
+                        or re.search(r"\binformation\s+technology\b", text, re.I)
+                        or re.search(r"\bIT\b", text)
+                    ):
+                        continue
+                elif not re.search(rf"\b{re.escape(alias)}\b", lower):
+                    continue
+                for k in keys:
+                    add(k)
             # substring match on index keys (last resort)
             for sk in self._sectors:
                 if _sector_label_in_text(sk, lower):
@@ -215,9 +169,16 @@ class SectorFundRankingIndex:
         lower = blob.lower()
         keys: list[str] = []
         for alias, sector_keys in _SECTOR_ALIASES.items():
-            if alias in lower:
-                keys.extend(sector_keys)
-        # explicit sector names from index appearing in text
+            if alias == "it":
+                if not (
+                    re.search(r"\bit\s+sector\b", blob, re.I)
+                    or re.search(r"\binformation\s+technology\b", blob, re.I)
+                    or re.search(r"\bIT\b", blob)
+                ):
+                    continue
+            elif not re.search(rf"\b{re.escape(alias)}\b", lower):
+                continue
+            keys.extend(sector_keys)
         for sk in self._sectors:
             if _sector_label_in_text(sk, blob):
                 keys.append(sk)
@@ -289,6 +250,15 @@ class SectorFundRankingIndex:
                 break
             out.append((isin, score, breakdown.get(isin, {})))
         return out
+
+
+def primary_sector_for_question(question: str) -> tuple[str, list[str]]:
+    """Canonical sector key(s) for screening — synonyms share one index (automobile = automotive)."""
+    idx = get_sector_fund_ranking_index()
+    keys = idx.resolve_from_question(question or "")
+    if keys:
+        return keys[0], keys
+    return "", []
 
 
 def is_passive_fund_name(name: str) -> bool:

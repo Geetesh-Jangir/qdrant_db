@@ -1264,6 +1264,47 @@ def extract_top_holdings(detail: dict[str, Any] | None, limit: int = 10) -> list
     return items[:limit]
 
 
+def normalize_holding_row(raw: dict[str, Any]) -> dict[str, Any]:
+    """Canonical keys for templates and UI (name + weight_pct + sector)."""
+    pct = float(
+        raw.get("percentage")
+        or raw.get("weight_pct")
+        or raw.get("weight")
+        or 0.0
+    )
+    name = str(
+        raw.get("name")
+        or raw.get("company_name")
+        or raw.get("instrument_name")
+        or ""
+    ).strip()
+    sector = str(raw.get("industry") or raw.get("sector") or "").strip()
+    return {
+        "name": name,
+        "company_name": name,
+        "percentage": pct,
+        "weight_pct": pct,
+        "industry": sector,
+        "sector": sector,
+    }
+
+
+def normalize_sector_row(raw: dict[str, Any]) -> dict[str, Any]:
+    pct = float(
+        raw.get("percentage")
+        or raw.get("weight_pct")
+        or raw.get("weight")
+        or 0.0
+    )
+    sec = str(
+        raw.get("sector")
+        or raw.get("sector_label")
+        or raw.get("name")
+        or ""
+    ).strip()
+    return {"sector": sec, "percentage": pct, "weight_pct": pct}
+
+
 def extract_top_sectors(detail: dict[str, Any] | None, limit: int = 8) -> list[dict[str, Any]]:
     """Robustly extracts and sorts top sector exposures from fund detail dictionary."""
     if not detail:
@@ -1337,6 +1378,8 @@ def _normalize_manager_record(raw: dict[str, Any]) -> dict[str, Any]:
     basic = raw.get("basic_details")
     if basic is None:
         basic = raw.get("basic_detail")
+    if isinstance(basic, str):
+        basic = re.sub(r"\s+", " ", basic).strip()
     return {
         "manager_id": raw.get("manager_id"),
         "name": str(raw.get("name") or "").strip(),
@@ -1367,6 +1410,33 @@ def parse_fund_managers_from_api_payload(raw: dict[str, Any]) -> dict[str, Any]:
     return {"current": current, "past": past[:6]}
 
 
+def _fund_context_for_managers(raw: dict[str, Any]) -> dict[str, Any]:
+    ident = raw.get("identity") or {}
+    facts = raw.get("fund_facts") or {}
+    risk = raw.get("risk") or {}
+    objective = raw.get("objective")
+    cat = str(ident.get("category") or ident.get("sebi_category") or "").strip()
+    sebi = str(ident.get("sebi_category") or "").strip()
+    blob = f"{cat} {sebi}".lower()
+    is_index = "index" in blob or "etf" in blob
+    obj_text = ""
+    if isinstance(objective, str):
+        obj_text = objective.strip()
+    elif isinstance(objective, dict):
+        obj_text = str(objective.get("text") or objective.get("description") or "").strip()
+    return {
+        "category": cat,
+        "scheme_type": str(ident.get("scheme_type") or "").strip(),
+        "plan": str(ident.get("plan") or "").strip(),
+        "option": str(ident.get("option") or "").strip(),
+        "inception_date": str(ident.get("inception_date") or "").strip(),
+        "benchmark": str(facts.get("benchmark") or "").strip(),
+        "risk_label": str(risk.get("label") or "").strip(),
+        "objective": obj_text[:500] if obj_text else "",
+        "is_index_fund": is_index,
+    }
+
+
 def fetch_fund_managers_for_isin(isin: str, *, timeout: float = 12.0) -> dict[str, Any] | None:
     """Live fund manager facts from RupeeStop fund detail API."""
     isin_clean = resolve_canonical_isin((isin or "").strip().upper())
@@ -1374,10 +1444,14 @@ def fetch_fund_managers_for_isin(isin: str, *, timeout: float = 12.0) -> dict[st
         return None
     url = f"{_API_BASE_URL}/{isin_clean}"
     payload = None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/json",
+    }
     for attempt in range(3):
         try:
             with httpx.Client(timeout=timeout + 6.0 * attempt) as client:
-                resp = client.get(url)
+                resp = client.get(url, headers=headers)
             if resp.status_code != 200:
                 if resp.status_code < 500:
                     return None
@@ -1398,12 +1472,19 @@ def fetch_fund_managers_for_isin(isin: str, *, timeout: float = 12.0) -> dict[st
     return {
         "isin": isin_clean,
         "fund_name": str(ident.get("fund_name") or ident.get("fund_short_name") or isin_clean).strip(),
+        "context": _fund_context_for_managers(raw),
         **managers,
     }
 
 
 def fetch_fund_managers_for_query(fund_query: str) -> dict[str, Any] | None:
-    detail, _amb, _close = resolve_fund_for_query(fund_query)
+    text = fund_query or ""
+    isin_m = _ISIN_IN_TEXT.search(text)
+    if isin_m:
+        data = fetch_fund_managers_for_isin(isin_m.group(1).upper())
+        if data:
+            return data
+    detail, _amb, _close = resolve_fund_for_query(text)
     isin = str((detail or {}).get("isin") or "").strip().upper()
     if not isin:
         return None

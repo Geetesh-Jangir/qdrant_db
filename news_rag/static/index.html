@@ -215,6 +215,81 @@
       font-weight: 700;
     }
     table.fund-rankings-table tr:last-child td { border-bottom: none; }
+    .fund-managers-block {
+      margin: 1rem 0 0;
+      max-width: 100%;
+    }
+    .fund-managers-block h3 {
+      font-size: 0.95rem;
+      margin: 0 0 0.65rem;
+      color: #0f172a;
+      font-weight: 700;
+    }
+    .fund-managers-roster-note {
+      font-size: 0.84rem;
+      color: #475569;
+      line-height: 1.55;
+      margin: 0 0 0.75rem;
+      padding: 0.55rem 0.75rem;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+    .fund-managers-grid {
+      display: grid;
+      gap: 0.75rem;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    }
+    .fund-manager-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      background: #fff;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+    .fund-manager-card.past {
+      opacity: 0.92;
+      background: #fafbfc;
+    }
+    .fund-manager-card h4 {
+      margin: 0 0 0.35rem;
+      font-size: 1rem;
+      color: #0f172a;
+    }
+    .fund-manager-meta {
+      font-size: 0.82rem;
+      color: #475569;
+      margin: 0 0 0.5rem;
+      line-height: 1.45;
+    }
+    .fund-manager-bio {
+      font-size: 0.86rem;
+      color: #334155;
+      line-height: 1.55;
+      margin: 0.5rem 0 0;
+    }
+    .fund-manager-tenure {
+      margin: 0.55rem 0 0;
+      padding: 0;
+      list-style: none;
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+    .fund-manager-tenure li {
+      margin: 0.2rem 0;
+    }
+    .fund-manager-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+      color: #0369a1;
+      background: #e0f2fe;
+      padding: 0.15rem 0.45rem;
+      border-radius: 4px;
+      margin-bottom: 0.35rem;
+    }
     .insight-body {
       font-size: 0.98rem;
       color: #334155;
@@ -322,6 +397,7 @@
       <h2>💡 Summary Insight</h2>
       <div id="insight"></div>
       <div id="fundRankings" class="fund-rankings-block hidden" aria-label="Fund rankings table"></div>
+      <div id="fundManagers" class="fund-managers-block hidden" aria-label="Fund managers"></div>
       <p class="meta" id="meta"></p>
       <div id="usage" class="usage hidden"></div>
       <p class="meta-log hidden" id="debugLog"></p>
@@ -339,6 +415,7 @@
     const resultEl = document.getElementById("result");
     const insightEl = document.getElementById("insight");
     const fundRankingsEl = document.getElementById("fundRankings");
+    const fundManagersEl = document.getElementById("fundManagers");
     const metaEl = document.getElementById("meta");
     const usageEl = document.getElementById("usage");
     const debugLogEl = document.getElementById("debugLog");
@@ -948,6 +1025,117 @@
       );
     }
 
+    function hasFundManagersPayload(mgr) {
+      if (!mgr || typeof mgr !== "object") return false;
+      const cur = mgr.display_current || mgr.current;
+      const past = mgr.display_past || mgr.past;
+      if ((Array.isArray(cur) && cur.length) || (Array.isArray(past) && past.length)) {
+        return true;
+      }
+      const focus = (mgr.roster_focus || "").toLowerCase();
+      return Boolean(mgr.roster_note) && (focus === "past" || focus === "current");
+    }
+
+    function managerInsightIntro(text) {
+      if (!text) return text;
+      const idx = text.indexOf("\n#### ");
+      if (idx === -1) return text;
+      return text.slice(0, idx).trim();
+    }
+
+    function tenureOnScheme(fundName, schemes) {
+      const fn = (fundName || "").toLowerCase();
+      return (schemes || []).filter(
+        (s) => s && fn && String(s.scheme_name || "").toLowerCase().includes(fn)
+      );
+    }
+
+    function renderFundManagers(container, mgr) {
+      if (!container) return;
+      if (!hasFundManagersPayload(mgr)) {
+        container.classList.add("hidden");
+        container.innerHTML = "";
+        return;
+      }
+      container.classList.remove("hidden");
+      container.innerHTML = "";
+      const focus = (mgr.roster_focus || "all").toLowerCase();
+      const title = document.createElement("h3");
+      const fn = mgr.fund_name || "";
+      if (focus === "current") {
+        title.textContent = fn ? `Current manager(s) — ${fn}` : "Current fund manager(s)";
+      } else if (focus === "past") {
+        title.textContent = fn ? `Past manager(s) — ${fn}` : "Past fund manager(s)";
+      } else {
+        title.textContent = fn ? `Fund managers — ${fn}` : "Fund managers";
+      }
+      container.appendChild(title);
+
+      if (mgr.roster_note) {
+        const noteEl = document.createElement("div");
+        noteEl.className = "fund-managers-roster-note";
+        noteEl.textContent = mgr.roster_note;
+        container.appendChild(noteEl);
+      }
+
+      const grid = document.createElement("div");
+      grid.className = "fund-managers-grid";
+
+      function appendCard(m, section) {
+        const card = document.createElement("article");
+        card.className = "fund-manager-card" + (section === "past" ? " past" : "");
+        const badge = document.createElement("div");
+        badge.className = "fund-manager-badge";
+        badge.textContent = section === "past" ? "Past" : "Current";
+        card.appendChild(badge);
+        const h4 = document.createElement("h4");
+        h4.textContent = m.name || "—";
+        card.appendChild(h4);
+        const meta = document.createElement("p");
+        meta.className = "fund-manager-meta";
+        const bits = [];
+        if (m.designation) bits.push(m.designation);
+        if (m.managing_since) bits.push(`Since ${m.managing_since}`);
+        if (m.total_experience_years != null)
+          bits.push(`${m.total_experience_years} yrs experience`);
+        meta.textContent = bits.join(" · ") || "—";
+        card.appendChild(meta);
+        if (m.qualification) {
+          const qual = document.createElement("p");
+          qual.className = "fund-manager-meta";
+          qual.textContent = m.qualification;
+          card.appendChild(qual);
+        }
+        const bio = (m.basic_details || "").trim();
+        if (bio) {
+          const p = document.createElement("p");
+          p.className = "fund-manager-bio";
+          p.textContent = bio;
+          card.appendChild(p);
+        }
+        const onScheme = tenureOnScheme(mgr.fund_name, m.other_schemes);
+        if (onScheme.length) {
+          const ul = document.createElement("ul");
+          ul.className = "fund-manager-tenure";
+          for (const s of onScheme.slice(0, 4)) {
+            const li = document.createElement("li");
+            const end = (s.to_date || "").trim() || "present";
+            li.textContent = `On this scheme: ${s.from_date || "—"} → ${end}`;
+            ul.appendChild(li);
+          }
+          card.appendChild(ul);
+        }
+        grid.appendChild(card);
+      }
+      const showCurrent = mgr.display_current || mgr.current || [];
+      const showPast = mgr.display_past || mgr.past || [];
+      for (const m of showCurrent) appendCard(m, "current");
+      for (const m of showPast.slice(0, 8)) appendCard(m, "past");
+      if (showCurrent.length || showPast.length) {
+        container.appendChild(grid);
+      }
+    }
+
     function renderFundRankings(container, rows, highlightWindow) {
       if (!container) return;
       if (!Array.isArray(rows) || !rows.length) {
@@ -1042,21 +1230,25 @@
       const insightText = (data.insight || data.answer || "").trim();
       const hasSections = Array.isArray(data.sections) && data.sections.length > 0;
       const hasRankings = Array.isArray(data.fund_rankings) && data.fund_rankings.length > 0;
+      const hasManagers = hasFundManagersPayload(data.fund_managers);
       if (
         !insightText &&
         !hasSections &&
         !(data.insight_bullets && data.insight_bullets.length) &&
-        !hasRankings
+        !hasRankings &&
+        !hasManagers
       ) {
         throw new Error(
           "Server returned an empty answer. On the server run: sudo journalctl -u news-rag -n 40 --no-pager"
         );
       }
-      const displayData = hasRankings
-        ? { ...data, insight: stripMarkdownTables(insightText) }
-        : data;
-      renderInsight(insightEl, displayData, hasRankings ? displayData.insight : insightText);
+      let insightForDisplay = insightText;
+      if (hasRankings) insightForDisplay = stripMarkdownTables(insightForDisplay);
+      if (hasManagers) insightForDisplay = managerInsightIntro(insightForDisplay);
+      const displayData = { ...data, insight: insightForDisplay };
+      renderInsight(insightEl, displayData, insightForDisplay);
       renderFundRankings(fundRankingsEl, data.fund_rankings, data.fund_return_window);
+      renderFundManagers(fundManagersEl, data.fund_managers);
 
       const sourceLabel = providerLabel(data);
       const scorePart =

@@ -123,15 +123,37 @@ def node_route(state: GraphState) -> str | None:
     settings = get_settings()
     threshold = float(getattr(settings, "slot_router_confidence", 0.8))
 
-    # 1. Try deterministic slot router
-    plan = slot_route(state.question, confidence_threshold=threshold)
-    if plan is not None and plan.confidence >= threshold:
-        state.plan = plan
-        state.route_reason = f"slot_router fast-path (confidence={plan.confidence:.2f})"
+    from news_rag.insight.question_intent import (
+        plan_matches_intent,
+        prefers_planner_over_slot,
+        resolve_question_intent,
+    )
+
+    intent = resolve_question_intent(state.question)
+    slot_plan = slot_route(state.question, confidence_threshold=threshold)
+    use_slot = (
+        slot_plan is not None
+        and slot_plan.confidence >= threshold
+        and plan_matches_intent(slot_plan, intent)
+        and not prefers_planner_over_slot(state.question)
+    )
+
+    if use_slot and slot_plan is not None:
+        state.plan = slot_plan
+        state.route_reason = (
+            f"slot_router fast-path (confidence={slot_plan.confidence:.2f}, intent={intent.kind})"
+        )
         if state.query_log is not None:
-            state.query_log.write(f"ROUTER choice=slot_router confidence={plan.confidence:.2f}")
+            state.query_log.write(
+                f"ROUTER choice=slot_router confidence={slot_plan.confidence:.2f} intent={intent.kind}"
+            )
     else:
-        # 2. Structured Planner LLM
+        if slot_plan is not None and state.query_log is not None:
+            reason = "below_threshold" if slot_plan.confidence < threshold else "intent_mismatch"
+            state.query_log.write(
+                f"ROUTER slot_skipped reason={reason} slot_conf={slot_plan.confidence:.2f} "
+                f"intent={intent.kind} slot_tools={slot_plan.tool_names}"
+            )
         plan = make_plan(
             state.question,
             prior_context=state.prior_context,
@@ -139,11 +161,26 @@ def node_route(state: GraphState) -> str | None:
             telemetry=state.telemetry,
         )
         if plan is None:
-            raise GraphUnavailable("Planner returned no plan")
-        state.plan = plan
-        state.route_reason = f"planner LLM ({len(plan.tool_calls)} tools planned)"
-        if state.query_log is not None:
-            state.query_log.write(f"ROUTER choice=planner tools={len(plan.tool_calls)}")
+            if slot_plan is not None:
+                state.plan = slot_plan
+                state.route_reason = "planner unavailable; using slot_router fallback"
+                if state.query_log is not None:
+                    state.query_log.write("ROUTER choice=slot_router fallback=planner_failed")
+            else:
+                raise GraphUnavailable("Planner returned no plan")
+        else:
+            state.plan = plan
+            if not plan_matches_intent(plan, intent) and state.query_log is not None:
+                state.query_log.write(
+                    f"ROUTER planner_plan intent_check=weak intent={intent.kind} tools={plan.tool_names}"
+                )
+            state.route_reason = f"planner LLM ({len(plan.tool_calls)} tools, intent={intent.kind})"
+            if state.query_log is not None:
+                state.query_log.write(f"ROUTER choice=planner tools={len(plan.tool_calls)} intent={intent.kind}")
+
+    plan = state.plan
+    if plan is None:
+        raise GraphUnavailable("No execution plan after routing")
 
     # Set deadline budget based on query class
     if plan.query_class == QueryClass.SIMPLE:
@@ -238,6 +275,60 @@ def node_resolve(state: GraphState) -> str | None:
     return "wave1"
 
 
+def _maybe_enrich_picked_fund_from_screen(state: GraphState) -> None:
+    """After screen (pick a fund + overview), fetch snapshot/portfolio for the top match."""
+    q = (state.question or "").strip()
+    if not re.search(
+        r"\b(?:about|overall|tell me about|how is|overview|profile)\b",
+        q,
+        re.I,
+    ):
+        return
+    rankings: list[dict[str, Any]] = []
+    for r in state.wave1_results:
+        if r.get("tool") == "screen_funds_by_exposure" and r.get("ok"):
+            data = r.get("data") if isinstance(r.get("data"), dict) else {}
+            rankings = list(data.get("rankings") or data.get("funds") or [])
+            break
+    if not rankings:
+        return
+    fund = str(rankings[0].get("fund_name") or "").strip()
+    if not fund:
+        return
+    plan = state.plan
+    if plan is not None and plan.answer_mode == AnswerMode.DATA_ONLY:
+        plan.answer_mode = AnswerMode.INSIGHT_FUSION
+    from news_rag.insight.capabilities.executor import execute_capability
+    from news_rag.insight.contracts import ToolCall
+
+    ctx = {
+        "question": q,
+        "window_days": plan.window_days if plan else 30,
+        "fund_names": [fund],
+    }
+    for tc in (
+        ToolCall(
+            tool="get_fund_data",
+            arguments={"modules": ["snapshot", "attribution"], "top_n": 3},
+            wave=1,
+        ),
+        ToolCall(
+            tool="get_portfolio_data",
+            arguments={"sections": ["holdings", "sectors"], "top_n": 5},
+            wave=1,
+        ),
+    ):
+        state.wave1_results.extend(
+            execute_capability(
+                tc,
+                fund_names=[fund],
+                ctx=ctx,
+                telemetry=state.telemetry,
+            )
+        )
+    state.resolved_funds = [fund]
+
+
 def node_wave1(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
@@ -273,6 +364,7 @@ def node_wave1(state: GraphState) -> str | None:
     elapsed_ms = (time.time() - t0) * 1000.0
 
     state.wave1_results = results
+    _maybe_enrich_picked_fund_from_screen(state)
 
     # Record telemetry
     if state.telemetry is not None:
@@ -392,7 +484,9 @@ CORE RULES:
 3. Honor WHAT THE USER WANTS.style when set: short_answer (1-2 paragraphs), bullets (list-heavy), table (metric/compare tables), sections (mixed sections + bullets/tables as needed).
 4. Ground every number in EVIDENCE. Simple arithmetic on those numbers is allowed; label approximations.
 5. Never mention internal terms: DATA, NEWS, EVIDENCE, tool, pipeline, JSON, articles retrieved.
-6. If a figure is missing, say so in one sentence — do not invent.
+6. If EVIDENCE is empty or a list is missing, say clearly that no rows were returned — never claim a scan failed unless EVIDENCE says so.
+7. For rankings or holdings in EVIDENCE, prefer a markdown table; keep columns readable (name, weight %, return if present).
+8. Do not repeat the same table if the UI already shows fund_rankings — summarize in one short paragraph instead.
 
 {COMPOSER_MARKDOWN_LAYOUT}
 """
@@ -641,15 +735,25 @@ def build_result(state: GraphState) -> dict[str, Any]:
 
     fund_rankings: list[dict[str, Any]] = []
     fund_return_window = ""
+    fund_managers: dict[str, Any] | None = None
     if pack and isinstance(pack.data_pack.get("screen"), dict):
         scr = pack.data_pack["screen"]
         fund_rankings = list(scr.get("rankings") or scr.get("funds") or [])[:20]
         fund_return_window = str(scr.get("return_window") or "").strip().upper()
+    if pack:
+        for key, block in pack.data_pack.items():
+            if not key.startswith("fund:") or not isinstance(block, dict):
+                continue
+            mgr = block.get("managers")
+            if isinstance(mgr, dict) and (mgr.get("current") or mgr.get("past")):
+                fund_managers = mgr
+                break
 
     res = {
         "insight": insight,
         "fund_rankings": fund_rankings,
         "fund_return_window": fund_return_window,
+        "fund_managers": fund_managers,
         "insight_summary": headline,
         "insight_headline": headline,
         "insight_narrative": insight,

@@ -173,7 +173,10 @@ _DRIVER_DIRECTION_PATTERNS: list[tuple[str, str]] = [
 _POSITIVE_RE = re.compile(r"\bpositiv\w*|\bbenefit\w*|\bgain\w*|\bwinners?\b|\bhelped\b|\bupside\b", re.I)
 _NEGATIVE_RE = re.compile(r"\bnegativ\w*|\bhurt\b|\bhit\b|\blosers?\b|\bhurting\b|\bdownside\b|\badverse\w*", re.I)
 _FUND_WORD_RE = re.compile(r"\bfunds?\b|\bschemes?\b|\bmutual funds?\b|\bamc\b", re.I)
-_IMPACT_WORD_RE = re.compile(r"impact\w*|affect\w*|exposed|exposure|heavy|heavily|highly|hold\w*", re.I)
+_IMPACT_WORD_RE = re.compile(
+    r"impact\w*|affect\w*|exposed|exposure|heavy|heavily|highly|hold\w*|invest(?:ed|ing|s)?|allocat\w*",
+    re.I,
+)
 _METAL_RE = re.compile(r"\bgold\b|\bsilver\b|\bbullion\b", re.I)
 _MARKET_RE = re.compile(
     r"what(?:'s|s| is) (?:happening|going on)|market (?:today|now|overview|pulse|update|right now)|overall market|"

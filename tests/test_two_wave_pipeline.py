@@ -113,6 +113,84 @@ def test_data_only_template_renders_direct_markdown():
     assert "+0.45%" in template
 
 
+def test_portfolio_data_only_template_uses_percentage_fields():
+    from news_rag.fund_search import normalize_holding_row, normalize_sector_row
+
+    plan = ExecutionPlan(
+        funds=["HDFC Large Cap Fund"],
+        answer_mode=AnswerMode.DATA_ONLY,
+    )
+    w1_results = [
+        {
+            "tool": "get_portfolio_data",
+            "ok": True,
+            "fund": "HDFC Large Cap Fund",
+            "data": {
+                "holdings": [normalize_holding_row({"name": "ICICI Bank Ltd.", "percentage": 9.78, "industry": "Banks"})],
+                "sectors": [normalize_sector_row({"sector": "Banks", "percentage": 30.08})],
+            },
+        }
+    ]
+    pack = build_evidence_pack(plan, w1_results, [])
+    template = render_data_only_template(pack, plan)
+    assert template is not None
+    assert "Banks" in template
+    assert "30.08%" in template
+    assert "ICICI Bank" in template
+    assert "Unknown" not in template
+
+
+def test_fund_manager_data_only_template_includes_context_and_bio():
+    from news_rag.insight.manager_view import enrich_manager_payload
+
+    plan = ExecutionPlan(
+        funds=["Kotak Nifty Bank Index Fund"],
+        answer_mode=AnswerMode.DATA_ONLY,
+    )
+    raw_mgr = {
+        "fund_name": "Kotak Nifty Bank Index Fund",
+        "isin": "INF174KA1C68",
+        "context": {"inception_date": "2020-01-01"},
+        "current": [
+            {
+                "name": "Manager A",
+                "designation": "Fund Manager",
+                "basic_details": "Seasoned index fund professional.",
+                "total_experience_years": 12,
+                "other_schemes": [
+                    {
+                        "scheme_name": "Kotak Nifty Bank Index Fund",
+                        "from_date": "2020-01-01",
+                        "to_date": "",
+                    }
+                ],
+            }
+        ],
+        "past": [],
+    }
+    w1_results = [
+        {
+            "tool": "get_fund_data",
+            "ok": True,
+            "fund": "Kotak Nifty Bank Index Fund",
+            "data": {
+                "managers": enrich_manager_payload(
+                    raw_mgr, "who is the current fund manager?"
+                ),
+            },
+        }
+    ]
+    pack = build_evidence_pack(plan, w1_results, [])
+    template = render_data_only_template(pack, plan)
+    assert template is not None
+    assert "Current fund manager" in template
+    assert "Scheme context" not in template
+    assert "Objective" not in template
+    assert "**About**" in template
+    assert "Seasoned index fund professional" in template
+    assert "No former managers" in template
+
+
 def test_screen_data_only_template_skips_duplicate_markdown_table():
     """Fund screen answers use fund_rankings in the UI; insight is heading + note only."""
     plan = ExecutionPlan(

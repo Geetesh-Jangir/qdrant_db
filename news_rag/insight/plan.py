@@ -391,6 +391,16 @@ Read the user's question and emit ONE structured JSON ExecutionPlan using ONLY t
 ### CAPABILITY TOOLS
 {catalog}
 
+### DISAMBIGUATION (same meaning, different words)
+Treat these as DIFFERENT capabilities even if wording is similar:
+| User means | Tool | Wrong tool |
+| Funds with heavy **sector** exposure (banking, IT, "invested in banking sector") | screen_funds_by_exposure | get_portfolio_data |
+| **Stocks inside** one named fund ("top 5 stocks of HDFC Large Cap", "what does the fund hold") | get_portfolio_data (sections holdings and/or sectors) | screen_funds_by_exposure |
+| **Funds holding a stock** (invested in HDFC Bank, exposure to Reliance) | screen_funds_by_exposure (stock reverse lookup) | get_portfolio_data |
+| One fund NAV / returns / managers | get_fund_data | screen_funds_by_exposure |
+
+If a DETERMINISTIC INTENT HINT is provided below the question, follow it unless it clearly contradicts the question.
+
 ### SLOT RULES
 1. **answer_mode**:
    - `DATA_ONLY`: Pure metric lookups (NAV, returns, top holdings, benchmark, 52-week high/low, sector rankings). Do NOT call search_financial_news. Wave 2 policy is "none".
@@ -399,8 +409,7 @@ Read the user's question and emit ONE structured JSON ExecutionPlan using ONLY t
 2. **Waves**:
    - Wave 1: Independent data tools needed to answer the question (`get_fund_data`, `get_portfolio_data`, `compare_funds`, `get_market_snapshot`, `screen_funds_by_exposure`).
    - Wave 2: Run conditionally via `wave_2_policy` (e.g., trigger `search_financial_news` if fund negative return < -2% or holding weight > 5%).
-3. **Caps**:
-   - Limit `top_n` to 3 unless user explicitly requests more (e.g., "top 10 holdings" -> top_n: 10).
+3. **top_n**: Match the number in the question (e.g. "5 funds", "top 10 holdings" -> top_n: 5 or 10). Default 3 only when no count is given.
    - Maximum 1 Wave 2 call. Never plan more than 4 total tool calls.
 4. **Entities**:
    - Extract exact fund names, sector names, stock names as user wrote them. Never invent fund names.
@@ -415,9 +424,43 @@ Simple NAV lookup:
 
 Why did fund fall:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Explain recent underperformance", "intent": "explain_cause", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "entities": {{"funds": ["Parag Parikh Flexi Cap"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 3}}, "wave": 1}}], "wave_2_policy": {{"trigger": "negative_return", "threshold": -1.5, "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 280}}}}
+
+Pick one auto-sector fund then overview (screen first, then fund facts — pipeline may enrich after screen):
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Pick a fund with auto sector exposure and summarize the scheme", "intent": "overview", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "entities": {{"sectors": ["Automobiles"]}}, "tool_calls": [{{"tool": "screen_funds_by_exposure", "arguments": {{"sector": "Automobiles", "direction": "any", "top_n": 1}}, "wave": 1}}, {{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 320}}}}
 """
     _SYSTEM_CACHE = prompt.strip()
     return _SYSTEM_CACHE
+
+
+def _reconcile_with_deterministic_route(
+    question: str,
+    llm_plan: ExecutionPlan | None,
+) -> ExecutionPlan | None:
+    """Prefer slot-router DATA_ONLY when the planner picks the wrong capability."""
+    from news_rag.insight.slot_router import slot_route
+    from news_rag.tools import (
+        asks_fund_portfolio_holdings,
+        asks_funds_with_sector_exposure,
+    )
+
+    det = slot_route(question, confidence_threshold=0.0)
+    if det is None or not det.tool_calls:
+        return llm_plan
+    if llm_plan is None or not llm_plan.tool_calls:
+        return det
+    det_tools = {c.tool for c in det.tool_calls}
+    llm_tools = {c.tool for c in llm_plan.tool_calls}
+    q = question or ""
+    if asks_funds_with_sector_exposure(q) and "screen_funds_by_exposure" in det_tools:
+        if "get_portfolio_data" in llm_tools or "screen_funds_by_exposure" not in llm_tools:
+            return det
+    if asks_fund_portfolio_holdings(q) and "get_portfolio_data" in det_tools:
+        if "screen_funds_by_exposure" in llm_tools or "get_portfolio_data" not in llm_tools:
+            return det
+    if det.answer_mode == AnswerMode.DATA_ONLY and det.confidence >= 0.9:
+        if llm_plan.answer_mode != AnswerMode.DATA_ONLY and len(det.tool_calls) <= 2:
+            return det
+    return llm_plan
 
 
 def make_plan(
@@ -429,12 +472,19 @@ def make_plan(
 ) -> ExecutionPlan | None:
     """The structured planning LLM call. Emits a validated ExecutionPlan."""
     from news_rag.config import get_settings
+    from news_rag.insight.slot_router import slot_route
 
     settings = get_settings()
+    det_plan = slot_route(question, confidence_threshold=0.0)
     if not llm_api_key_configured(settings):
-        return None
+        return det_plan
+
+    from news_rag.insight.question_intent import intent_hint_for_planner
 
     user = f"Question:\n{question.strip()}"
+    hint = intent_hint_for_planner(question)
+    if hint:
+        user += f"\n\n{hint}"
     if prior_context:
         user += f"\n\nPrevious conversation turns: {prior_context}"
 
@@ -452,7 +502,7 @@ def make_plan(
     except Exception as exc:  # noqa: BLE001
         if query_log is not None:
             query_log.write(f"PLAN_FAIL error={str(exc)[:200]}")
-        return None
+        return det_plan
 
     if telemetry is not None and res is not None:
         telemetry.add_llm_usage(
@@ -468,13 +518,13 @@ def make_plan(
 
     data = res.parsed if isinstance(res.parsed, dict) else {}
     if not data:
-        return None
+        return det_plan
 
     plan = parse_plan(data)
     plan.random_fund_count = min(
         plan.random_fund_count, int(getattr(settings, "insight_fan_out_cap", 8))
     )
-    return plan
+    return _reconcile_with_deterministic_route(question, plan) or det_plan
 
 
 __all__ = [
