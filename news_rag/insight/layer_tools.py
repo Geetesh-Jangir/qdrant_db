@@ -10,10 +10,13 @@ from typing import Any
 
 from news_rag.insight.registry import ToolSpec, register
 
-WINDOWS = ("1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y")
-MACRO_SERIES = ("crude", "usdinr", "gold", "silver", "yield")
+WINDOWS = ("1D", "1W", "1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y")
+MACRO_SERIES = ("crude", "brent", "wti", "usdinr", "gold", "silver", "yield")
+# Default `crude` uses ICE Brent (BZ=F) — closer to India import basket than WTI.
 _SERIES_TICKER = {
-    "crude": ("CL=F", "Crude oil"),
+    "crude": ("BZ=F", "Brent crude (ICE)"),
+    "brent": ("BZ=F", "Brent crude (ICE)"),
+    "wti": ("CL=F", "WTI crude (NYMEX)"),
     "usdinr": ("INR=X", "USD/INR"),
     "gold": ("GC=F", "Gold"),
     "silver": ("SI=F", "Silver"),
@@ -49,7 +52,7 @@ ARG_HELP: dict[str, str] = {
     "fund_attribution": "window_days 7-365 (default 30), top_n 3-12 (default 3). Holding contribution = weight x stock return, computed in code. Include this for any 'how is the fund doing' or 'why did it move' question.",
     "index_return": "index: nifty50, sensex, benchmark (the fund's own), or a sector name. window_days 1-365.",
     "sector_ranking": "window_days 7-365, top_n 3-12. Index return for the main sectors, best and worst.",
-    "macro_series": "series: any of crude, usdinr, gold, silver, yield. window_days 1-365.",
+    "macro_series": "series: crude (Brent BZ=F), brent, wti (CL=F), usdinr, gold, silver, yield. window_days 1-365.",
     "stock_snapshot": "windows: 1W 1M. One call per stock already named.",
     "compare_funds": "overlap: true to add shared holdings. Needs at least two funds.",
     "sector_holdings": "top_n 1-15 companies in the sector.",
@@ -317,7 +320,15 @@ def run_macro_series_tool(ctx: dict[str, Any]) -> dict[str, Any]:
         ticker, label = _SERIES_TICKER.get(str(key), ("", ""))
         if not ticker:
             continue
-        series.append({"series": key, "label": label, "change_pct": _yf_return_pct(ticker, window), "window_days": window})
+        series.append(
+            {
+                "series": key,
+                "label": label,
+                "yfinance_ticker": ticker,
+                "change_pct": _yf_return_pct(ticker, window),
+                "window_days": window,
+            }
+        )
     return {"ok": any(s.get("change_pct") is not None for s in series), "data": {"series": series}}
 
 
@@ -371,9 +382,9 @@ def register_layer_tools() -> None:
         ToolSpec(
             name="macro_series",
             provides=frozenset({"commodity_spot"}),
-            description="Recent percent change in crude, the rupee, gold, silver or the US 10-year yield.",
+            description="Recent percent change in Brent/WTI crude, the rupee, gold, silver or the US 10-year yield (Yahoo Finance).",
             when_to_use="The user asks how crude, the rupee, gold or yields have moved.",
-            args=(("series", "crude usdinr gold silver yield"), ("window_days", "1-365")),
+            args=(("series", "crude brent wti usdinr gold silver yield"), ("window_days", "1-365")),
             run=run_macro_series_tool,
             cost=2,
         ),

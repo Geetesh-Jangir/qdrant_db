@@ -139,8 +139,10 @@ class QuestionBrief:
 
 
 def nearest_return_window(window_days: int) -> str:
-    """Catalog returns exist for 1W / 1M / 3M / 1Y; pick the closest."""
-    options = {"1W": 7, "1M": 30, "3M": 90, "1Y": 365}
+    """Catalog NAV windows; pick the closest supported return period."""
+    from news_rag.tools import _RETURN_WINDOW_DAYS
+
+    options = _RETURN_WINDOW_DAYS
     return min(options, key=lambda k: abs(options[k] - max(1, int(window_days or 30))))
 
 
@@ -219,11 +221,16 @@ _RANDOM_ONE_FUND_RE = re.compile(
 
 def random_fund_count(question: str) -> int:
     """How many unnamed funds the user wants us to pick at random (0 = none)."""
+    from news_rag.tools import explicit_fund_count
+
     q = question or ""
     if not (_RANDOM_FUNDS_RE.search(q) or _RANDOM_ONE_FUND_RE.search(q)):
         return 0
     if asks_random_fund_compare(q):
         return 2
+    n = explicit_fund_count(q)
+    if n:
+        return n
     counted = re.search(r"\b(two|three|both|couple|2|3)\b", q, re.I)
     if counted:
         return {"two": 2, "three": 3, "both": 2, "couple": 2, "2": 2, "3": 3}[counted.group(1).lower()]

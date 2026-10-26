@@ -70,19 +70,81 @@ def judge_answer(
     context_summary: str,
     *,
     query_log: QueryLogger | None = None,
+    telemetry: Any = None,
 ) -> JudgeResult:
-    """Score the draft. Ask never uses Jev (422 + extra HTTP). Fail closed on errors."""
+    """Score the draft using Jev (with prompt caching enabled) if configured, else JSON LLM."""
+    import time
     settings = get_settings()
     thr = _thresholds()
 
-    # Jev is commented out for /api/ask: the client sent criteria as an object and
-    # Jev 422'd, which forced a broken LLM fallback and a full agent retry.
-    # from news_pipeline.config import Settings as PipelineSettings
-    # from news_pipeline.jev.client import JevClient
-    # pipe = PipelineSettings()
-    # if pipe.jev_base_url and pipe.jev_api_key:
-    #     ... jev.evaluate(...)
+    # 1. Try Jev with prompt caching enabled if configured
+    try:
+        from news_pipeline.config import Settings as PipelineSettings
+        from news_pipeline.jev.client import JevClient, read_noul
 
+        pipe = PipelineSettings()
+        if (pipe.jev_base_url or "").strip() and (pipe.jev_api_key or "").strip():
+            with JevClient(pipe) as jev:
+                state = {
+                    "question": question[:1500],
+                    "draft": draft[:3000],
+                    "context": context_summary[:4000],
+                }
+                questions = {
+                    "answers_query": {
+                        "type": "noul",
+                        "instructions": "Does the draft fully answer the user's question?",
+                        "criteria": {"true": "Fully answers", "false": "Misses key asks"},
+                    },
+                    "grounded": {
+                        "type": "noul",
+                        "instructions": "Are all claims and numbers supported strictly by the context summary?",
+                        "criteria": {"true": "Fully grounded", "false": "Adds outside or ungrounded facts"},
+                    },
+                    "no_extra": {
+                        "type": "noul",
+                        "instructions": "Does the draft avoid unrelated commentary or unasked information?",
+                        "criteria": {"true": "Focused", "false": "Adds unrequested filler"},
+                    },
+                    "no_advice": {
+                        "type": "noul",
+                        "instructions": "Is the draft free of investment buy/sell advice or stock price predictions?",
+                        "criteria": {"true": "No advice", "false": "Contains buy/sell/predict advice"},
+                    },
+                }
+                t0_jev = time.perf_counter()
+                answers = jev.evaluate(
+                    state, questions, stage="ask_judge", detail="output_judge", enable_prompt_cache=True
+                )
+                dur_jev = round((time.perf_counter() - t0_jev) * 1000, 1)
+                scores = {
+                    "answers_query": read_noul(answers.get("answers_query")),
+                    "grounded": read_noul(answers.get("grounded")),
+                    "on_topic": read_noul(answers.get("answers_query")),
+                    "no_extra": read_noul(answers.get("no_extra")),
+                    "no_advice": read_noul(answers.get("no_advice")),
+                }
+                passed = all(scores[k] >= thr for k in ("answers_query", "grounded")) and scores["no_advice"] >= 0.9
+                if telemetry is not None:
+                    usage = jev.last_call_usage()
+                    telemetry.add_llm_usage(
+                        stage="judge",
+                        provider="jev",
+                        model=pipe.jev_model,
+                        input_tokens=usage.get("input_tokens", 0),
+                        output_tokens=usage.get("output_tokens", 0),
+                        cached_input_tokens=usage.get("cached_tokens", 0),
+                        total_ms=dur_jev,
+                        usage_source="api",
+                    )
+                if query_log is not None:
+                    query_log.write(f"JUDGE jev scores={scores} pass={passed}")
+                return JudgeResult(passed=passed, scores=scores, attempt=1, raw=answers, usable=True)
+    except Exception as exc:
+        if query_log is not None:
+            query_log.write(f"JUDGE jev_fallback_to_llm error={exc}")
+
+    # 2. JSON LLM Judge fallback (prompt caching enabled on Messages API)
     if not llm_api_key_configured(settings):
         return JudgeResult(passed=False, scores={}, attempt=1, raw={"error": "no_judge"}, usable=False)
 
@@ -105,6 +167,17 @@ def judge_answer(
             response_schema=JUDGE_RESPONSE_SCHEMA,
             stage="judge",
         )
+        if telemetry is not None and res is not None:
+            telemetry.add_llm_usage(
+                stage="judge",
+                provider=res.provider,
+                model=res.model,
+                input_tokens=res.input_tokens,
+                output_tokens=res.output_tokens,
+                cached_input_tokens=getattr(res, "cached_tokens", 0),
+                total_ms=round(res.duration_sec * 1000, 1),
+                usage_source="api",
+            )
         parsed = res.parsed if isinstance(res.parsed, dict) else (parse_json_from_text(res.raw_text) or {})
         if not isinstance(parsed, dict):
             parsed = {}

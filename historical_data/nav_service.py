@@ -200,7 +200,7 @@ def _calculate_window_stats(
 def get_fund_nav_history(isin: str, *, use_cache: bool = True) -> dict[str, Any]:
     """
     Returns full structured NAV analytics for an ISIN with period slices:
-    1W (7D), 1M (30D), 3M (90D), 6M (180D), 1Y (365D), ALL.
+    1W, 1M, 3M, 6M, 1Y, 2Y, 3Y, 5Y, and ALL.
     """
     clean_isin = isin.strip().upper()
     records_asc = fetch_raw_nav_history(clean_isin, use_cache=use_cache)
@@ -221,6 +221,9 @@ def get_fund_nav_history(isin: str, *, use_cache: bool = True) -> dict[str, Any]
         "3M": _calculate_window_stats(records_asc, days=90),
         "6M": _calculate_window_stats(records_asc, days=180),
         "1Y": _calculate_window_stats(records_asc, days=365),
+        "2Y": _calculate_window_stats(records_asc, days=730),
+        "3Y": _calculate_window_stats(records_asc, days=1095),
+        "5Y": _calculate_window_stats(records_asc, days=1825),
         "ALL": _calculate_window_stats(records_asc, days=None),
     }
 

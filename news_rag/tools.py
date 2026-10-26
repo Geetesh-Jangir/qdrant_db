@@ -206,7 +206,11 @@ _RETURN_FIELDS = {
     "1W": "return_1w_pct",
     "1M": "return_1m_pct",
     "3M": "return_3m_pct",
+    "6M": "return_6m_pct",
     "1Y": "return_1y_pct",
+    "2Y": "return_2y_pct",
+    "3Y": "return_3y_pct",
+    "5Y": "return_5y_pct",
 }
 _WINDOW_ALIASES = {
     "1WEEK": "1W",
@@ -217,11 +221,40 @@ _WINDOW_ALIASES = {
     "30D": "1M",
     "3MONTH": "3M",
     "90D": "3M",
+    "6MONTH": "6M",
+    "180D": "6M",
     "1YEAR": "1Y",
     "YEAR": "1Y",
     "365D": "1Y",
+    "2YEAR": "2Y",
+    "730D": "2Y",
+    "3YEAR": "3Y",
+    "1095D": "3Y",
+    "5YEAR": "5Y",
+    "1825D": "5Y",
+}
+_RETURN_WINDOW_DAYS = {
+    "1W": 7,
+    "1M": 30,
+    "3M": 90,
+    "6M": 180,
+    "1Y": 365,
+    "2Y": 730,
+    "3Y": 1095,
+    "5Y": 1825,
+}
+_RETURN_WINDOW_LABELS = {
+    "1W": "1 week",
+    "1M": "1 month",
+    "3M": "3 months",
+    "6M": "6 months",
+    "1Y": "1 year",
+    "2Y": "2 years",
+    "3Y": "3 years",
+    "5Y": "5 years",
 }
 _SCREEN_CANDIDATE_CAP = 40
+_THEME_CANDIDATE_CAP = 400
 _PERFORMANCE_SAMPLE = 80
 _STALE_NAV_DAYS = 45
 
@@ -233,15 +266,37 @@ def normalize_return_window(value: str | None) -> str:
     return _WINDOW_ALIASES.get(raw, "1M")
 
 
+def return_window_days(window: str | None) -> int:
+    return _RETURN_WINDOW_DAYS.get(normalize_return_window(window), 30)
+
+
+def return_window_label(window: str | None) -> str:
+    w = normalize_return_window(window)
+    return _RETURN_WINDOW_LABELS.get(w, w)
+
+
 def infer_return_window(question: str, explicit: str | None = None) -> str:
     if explicit:
         return normalize_return_window(explicit)
     text = (question or "").lower()
+    if re.search(r"\b5\s*years?\b|\bfive\s+years?\b|\b60\s*months?\b", text):
+        return "5Y"
+    if re.search(r"\b3\s*years?\b|\bthree\s+years?\b|\b36\s*months?\b", text):
+        return "3Y"
+    if re.search(r"\b2\s*years?\b|\btwo\s+years?\b|\b24\s*months?\b", text):
+        return "2Y"
     if re.search(r"\b(last|past|this)\s+week\b|\b1\s*week\b|\bone\s+week\b|\b7\s*days?\b", text):
         return "1W"
+    if re.search(r"\b6\s*months?\b|\bsix\s+months?\b|\bhalf\s*year\b|\b180\s*days?\b", text):
+        return "6M"
     if re.search(r"\b3\s*months?\b|\bthree\s+months?\b|\b90\s*days?\b", text):
         return "3M"
-    if re.search(r"\b(last|past)\s+year\b|\b1\s*year\b|\bone\s+year\b", text):
+    if re.search(
+        r"\b(?:last|past|this)\s+month\b|\b1\s*month\b|\bone\s+month\b|\b30\s*days?\b",
+        text,
+    ):
+        return "1M"
+    if re.search(r"\b(?:last|past)\s+year\b|\b1\s*year\b|\bone\s+year\b", text):
         return "1Y"
     return "1M"
 
@@ -336,7 +391,11 @@ def _round_fund_row(row: dict[str, Any]) -> dict[str, Any]:
         "return_1w_pct",
         "return_1m_pct",
         "return_3m_pct",
+        "return_6m_pct",
         "return_1y_pct",
+        "return_2y_pct",
+        "return_3y_pct",
+        "return_5y_pct",
         "sector_weight_pct",
         "weight_pct",
         "return_pct",
@@ -400,6 +459,7 @@ def select_funds_by_nav(
             direction="any",
             top_n=len(rows),
             sort_by="performance",
+            return_window=window,
         )
     )
     if sort_by == "exposure":
@@ -488,6 +548,7 @@ def enrich_rankings_with_nav(
     direction: str = "any",
     top_n: int = 5,
     sort_by: Literal["exposure", "performance"] = "exposure",
+    return_window: str = "1M",
 ) -> list[dict[str, Any]]:
     """
     Enriches candidate funds with 1-week and 1-month NAV returns from live/cached NAV service.
@@ -498,6 +559,8 @@ def enrich_rankings_with_nav(
     """
     enriched: list[dict[str, Any]] = []
     dir_clean = str(direction or "any").strip().lower()
+    focus_window = normalize_return_window(return_window)
+    focus_field = _window_field(focus_window)
 
     from concurrent.futures import ThreadPoolExecutor
 
@@ -505,33 +568,25 @@ def enrich_rankings_with_nav(
         isin = str(row.get("isin") or "").strip().upper()
         if not isin:
             return {**row, "nav_direction_match": False}
-        ret_1w = None
-        ret_1m = None
-        ret_3m = None
-        ret_1y = None
         latest_nav = None
         latest_date = None
+        returns: dict[str, float | None] = {field: None for field in _RETURN_FIELDS.values()}
         try:
             nav_res = get_fund_nav_history(isin)
             if nav_res.get("success"):
                 latest_nav = nav_res.get("latest_nav")
                 latest_date = nav_res.get("latest_date")
                 stats = nav_res.get("stats") or {}
-                parsed: dict[str, float | None] = {}
-                for label, stat_key in (("1W", "1W"), ("1M", "1M"), ("3M", "3M"), ("1Y", "1Y")):
-                    block = stats.get(stat_key) or {}
-                    if "change_pct" in block and block["change_pct"] is not None:
-                        parsed[label] = float(block["change_pct"])
-                    else:
-                        parsed[label] = None
-                ret_1w = parsed["1W"]
-                ret_1m = parsed["1M"]
-                ret_3m = parsed["3M"]
-                ret_1y = parsed["1Y"]
+                for label, field_name in _RETURN_FIELDS.items():
+                    block = stats.get(label) or {}
+                    if block.get("change_pct") is not None:
+                        returns[field_name] = float(block["change_pct"])
         except Exception:
             pass
 
-        chosen = ret_1m if ret_1m is not None else ret_1w
+        chosen = returns.get(focus_field)
+        if chosen is None:
+            chosen = returns.get("return_1m_pct") or returns.get("return_1w_pct")
         match_direction = True
         if dir_clean == "positive":
             match_direction = chosen is not None and chosen > 0
@@ -542,10 +597,7 @@ def enrich_rankings_with_nav(
             **row,
             "latest_nav": latest_nav,
             "latest_date": latest_date,
-            "return_1w_pct": ret_1w,
-            "return_1m_pct": ret_1m,
-            "return_3m_pct": ret_3m,
-            "return_1y_pct": ret_1y,
+            **returns,
             "nav_direction_match": match_direction,
         }
 
@@ -917,6 +969,94 @@ _AMC_SKIP = {
     "compare",
 }
 
+_STOCK_FROM_FUND_QUESTION_RE = (
+    re.compile(
+        r"\binvested\s+in\s+(.+?)(?:\s+(?:stocks?|shares?)\b|[?.]|$|\s+which\b|\s+that\b)",
+        re.I,
+    ),
+    re.compile(
+        r"\binvest(?:s|ing)?\s+in\s+(.+?)(?:\s+(?:stocks?|shares?)\b|[?.]|$|\s+which\b)",
+        re.I,
+    ),
+    re.compile(
+        r"\b(?:hold(?:ing|s)?|own(?:s|ing)?|exposure\s+to)\s+(.+?)(?:\s+(?:stocks?|shares?)\b|[?.]|$|\s+which\b)",
+        re.I,
+    ),
+)
+
+
+def _clean_stock_capture(raw: str) -> str:
+    name = (raw or "").strip(" .,?")
+    name = re.sub(r"\s+which\s+are\b.*$", "", name, flags=re.I)
+    name = re.sub(r"\s+that\s+are\b.*$", "", name, flags=re.I)
+    name = re.sub(r"\s+performing\b.*$", "", name, flags=re.I)
+    return name.strip()
+
+
+def stock_name_from_question(question: str) -> str:
+    """Company/stock the user wants fund holders for (e.g. invested in HDFC Bank)."""
+    text = question or ""
+    for pat in _STOCK_FROM_FUND_QUESTION_RE:
+        m = pat.search(text)
+        if not m:
+            continue
+        name = _clean_stock_capture(m.group(1))
+        if len(name) >= 3:
+            return name
+    legacy = re.search(
+        r"\bhold(?:s|ing)?\s+([A-Za-z][A-Za-z0-9&.\- ]{1,40}?)(?:\s+stocks?|\s+shares|\s+and\b|\s+how\b|[?.]|$)",
+        text,
+        re.I,
+    )
+    if legacy:
+        name = _clean_stock_capture(legacy.group(1))
+        if len(name) >= 3:
+            return name
+    return ""
+
+
+def asks_equity_funds(question: str) -> bool:
+    """User asked for equity mutual funds (asset class), not hybrid/debt/gold."""
+    low = (question or "").lower()
+    if re.search(r"\bequity\s+savings\b", low):
+        return False
+    if re.search(r"\bequity\s+(?:mutual\s+)?funds?\b", low):
+        return True
+    if re.search(r"\bfunds?\b.{0,30}\bequity\b", low):
+        return True
+    if re.search(r"\bequity\b.{0,30}\bfunds?\b", low):
+        return True
+    return False
+
+
+def asks_funds_holding_stock(question: str) -> bool:
+    if not re.search(r"\bfunds?\b", question or "", re.I):
+        return False
+    return bool(stock_name_from_question(question))
+
+
+def asks_fof_funds(question: str) -> bool:
+    low = (question or "").lower()
+    return bool(re.search(r"\bfof\b|\bfund\s+of\s+funds?\b|\bfunds?\s+of\s+funds?\b", low))
+
+
+def _filter_fof_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        blob = f"{row.get('fund_name') or ''} {row.get('category') or ''}".lower()
+        if re.search(r"\bfof\b|fund\s+of\s+fund", blob):
+            kept.append(row)
+    return kept
+
+
+def _filter_equity_scheme_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    kept = [
+        row
+        for row in rows
+        if str(row.get("scheme_type") or "").strip().lower() == "equity"
+    ]
+    return kept
+
 
 def _catalog_candidates(*, category: str = "", amc: str = "", limit: int = _SCREEN_CANDIDATE_CAP) -> list[dict[str, Any]]:
     from news_rag.fund_universe_agent import get_fund_universe_catalog
@@ -969,6 +1109,9 @@ def screen_hints_from_question(question: str) -> dict[str, str]:
     text = question or ""
     low = text.lower()
     hints = {"sector_name": "", "category": "", "amc": "", "stock_name": ""}
+    stock = stock_name_from_question(text)
+    if stock:
+        hints["stock_name"] = stock
     best = ""
     for alias in sorted(_SECTOR_ALIASES, key=len, reverse=True):
         if alias == "it":
@@ -979,18 +1122,11 @@ def screen_hints_from_question(question: str) -> dict[str, str]:
         best = alias
         break
     hints["sector_name"] = best
-    for name in _STYLE_CATEGORIES:
-        patterns = next((pats for cat, _stype, _sub, pats in _CATEGORY_PATTERNS if cat == name), [])
+    # Match full catalog taxonomy (defence, IT, FOF, etc.) — not only cap-style names.
+    for cat, _stype, _sub, patterns in _CATEGORY_PATTERNS:
         if any(re.search(pat, low) for pat in patterns):
-            hints["category"] = name
+            hints["category"] = cat
             break
-    stock = re.search(
-        r"\bhold(?:s|ing)?\s+([A-Za-z][A-Za-z0-9&.\- ]{1,40}?)(?:\s+stocks?|\s+shares|\s+and\b|\s+how\b|[?.]|$)",
-        text,
-        re.I,
-    )
-    if stock:
-        hints["stock_name"] = stock.group(1).strip(" .")
     catalog = get_fund_universe_catalog()
     catalog.ensure_loaded()
     amc_best = ""
@@ -1003,6 +1139,13 @@ def screen_hints_from_question(question: str) -> dict[str, str]:
             if re.search(rf"\b{re.escape(token)}\b", text, re.I) and len(token) > len(amc_best):
                 amc_best = token
     hints["amc"] = amc_best
+    if hints["stock_name"]:
+        amc_tok = (hints["amc"] or "").strip()
+        stock_n = hints["stock_name"]
+        if amc_tok and amc_tok.lower() in stock_n.lower() and len(stock_n.split()) > 1:
+            hints["amc"] = ""
+        elif amc_tok and re.search(rf"\b{re.escape(amc_tok)}\s+bank\b", text, re.I):
+            hints["amc"] = ""
     return hints
 
 
@@ -1170,6 +1313,15 @@ def run_funds_for_affected_question(
     )
 
 
+def _filter_positive_window(rows: list[dict[str, Any]], window: str) -> list[dict[str, Any]]:
+    field = _window_field(window)
+    return [
+        r
+        for r in rows
+        if r.get(field) is not None and float(r[field]) > 0
+    ]
+
+
 def run_screen_funds(
     *,
     sector_name: str = "",
@@ -1180,6 +1332,8 @@ def run_screen_funds(
     return_window: str | None = None,
     top_n: int = 5,
     question: str = "",
+    random_sample: bool = False,
+    require_positive_1y: bool = False,
 ) -> dict[str, Any]:
     """Filter the catalog and sector weights locally, then keep rows whose window return matches direction."""
     from news_rag.affected_sectors import question_needs_affected_sectors
@@ -1208,11 +1362,21 @@ def run_screen_funds(
         if sector_name
         else []
     )
+    theme_fof = asks_fof_funds(question or "")
+    catalog_limit = _THEME_CANDIDATE_CAP if (theme_fof or category == "Fund of Funds") else _SCREEN_CANDIDATE_CAP
     catalog_rows = (
-        _catalog_candidates(category=category, amc=amc, limit=_SCREEN_CANDIDATE_CAP)
+        _catalog_candidates(category=category, amc=amc, limit=catalog_limit)
         if category or amc
         else []
     )
+    if theme_fof and not catalog_rows:
+        catalog_rows = _filter_fof_rows(_catalog_candidates(limit=_THEME_CANDIDATE_CAP))
+    elif theme_fof and category == "Fund of Funds":
+        catalog_rows = _filter_fof_rows(catalog_rows)
+    elif theme_fof:
+        catalog_rows = _filter_fof_rows(catalog_rows) or _filter_fof_rows(
+            _catalog_candidates(limit=_THEME_CANDIDATE_CAP)
+        )
     if sector_rows and catalog_rows:
         allowed = {str(row.get("isin") or "") for row in catalog_rows}
         candidates = [row for row in sector_rows if str(row.get("isin") or "") in allowed]
@@ -1231,16 +1395,28 @@ def run_screen_funds(
         archive_count = payload.get("fund_count")
         scan_note = str(payload.get("note") or "")
         candidates = list(payload.get("funds") or [])
+        if asks_equity_funds(question or ""):
+            candidates = _filter_equity_scheme_rows(candidates)
     elif not candidates and not any((sector_name, category, amc)):
         candidates = _catalog_candidates(limit=_PERFORMANCE_SAMPLE)
+    if asks_equity_funds(question or "") and not theme_fof and category != "Defense & Aerospace":
+        candidates = _filter_equity_scheme_rows(candidates)
     broad = candidates[:_PERFORMANCE_SAMPLE]
     pool = broad
     if sector_name and not category and not amc and not stock_name:
         pool = _active_sector_equity(broad)
+    elif (
+        asks_equity_funds(question or "")
+        and not stock_name
+        and not theme_fof
+        and category != "Defense & Aerospace"
+    ):
+        pool = _filter_equity_scheme_rows(broad) or broad
+    pick_n = min(len(pool), 250) if random_sample and asked == "positive" else n
     rankings, all_drawdown, ranking_note = select_funds_by_nav(
         pool,
         direction=asked,
-        top_n=n,
+        top_n=pick_n,
         count_explicit=True,
         return_window=window,
         sort_by="exposure" if exposure else "performance",
@@ -1249,11 +1425,20 @@ def run_screen_funds(
         rankings, all_drawdown, ranking_note = select_funds_by_nav(
             broad,
             direction=asked,
-            top_n=n,
+            top_n=pick_n,
             count_explicit=True,
             return_window=window,
             sort_by="exposure",
         )
+    if require_positive_1y or asked == "positive":
+        rankings = _filter_positive_window(rankings, window)
+    if random_sample and rankings:
+        import random
+
+        random.shuffle(rankings)
+        rankings = rankings[:n]
+    elif len(rankings) > n:
+        rankings = rankings[:n]
     if scan_note and not rankings:
         ranking_note = f"{ranking_note} {scan_note}".strip()
     elapsed = (time.perf_counter() - started) * 1000

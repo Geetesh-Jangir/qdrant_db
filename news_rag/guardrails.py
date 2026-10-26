@@ -48,9 +48,22 @@ _FINANCIAL_SIGNAL = re.compile(
     r"barrel|brent|energy|markets?|nifty|sensex|"
     r"rbi|repo|inflation|isin|inf[0-9a-z]{9}|portfolio|equity|"
     r"commodity|macro|earnings|dividend|sip|expense\s+ratio|aum|"
-    r"(?:large|mid|small|flexi|multi)\s*cap|etf)\b",
+    r"(?:large|mid|small|flexi|multi)\s*cap|etf|banking|banks?|nbfc|"
+    r"listing|ticker|bse|nse|commodit(?:y|ies)|ipo|fpo|qip|headlines?|"
+    r"earnings|buyback|sebi)\b",
     re.I,
 )
+
+# Clearly non-finance topics (still refuse even if short).
+_NON_FINANCIAL_TOPIC = re.compile(
+    r"\b(code|python|javascript|typescript|java\b|poem|joke|recipe|dating|weather)\b",
+    re.I,
+)
+
+
+def financial_keyword_signal(question: str) -> bool:
+    """Broad finance vocabulary — secondary to entity resolution in check_guardrails."""
+    return bool(_FINANCIAL_SIGNAL.search(question or ""))
 
 
 @dataclass(frozen=True)
@@ -76,14 +89,14 @@ def check_guardrails(question: str) -> GuardrailResult:
                 continue
             return GuardrailResult("refuse_advice", ADVICE_DISCLAIMER, reason="predictive_or_advice")
 
-    if not _FINANCIAL_SIGNAL.search(q):
-        # Allow short concept questions
-        if re.match(r"^\s*what\s+is\s+\w+", lower) and len(q) < 120:
-            return GuardrailResult("pass")
-        if re.search(r"\b(code|python|javascript|poem|joke|recipe)\b", lower):
-            return GuardrailResult("refuse_out_of_domain", _OUT_OF_DOMAIN_MSG, reason="non_financial")
-        if len(q) < 40 and not _FINANCIAL_SIGNAL.search(q):
-            return GuardrailResult("refuse_out_of_domain", _OUT_OF_DOMAIN_MSG, reason="no_financial_signal")
+    if _NON_FINANCIAL_TOPIC.search(q):
+        return GuardrailResult("refuse_out_of_domain", _OUT_OF_DOMAIN_MSG, reason="non_financial")
+
+    from news_rag.domain_intake import question_in_finance_scope
+
+    in_scope, _scan = question_in_finance_scope(q)
+    if not in_scope:
+        return GuardrailResult("refuse_out_of_domain", _OUT_OF_DOMAIN_MSG, reason="no_domain_entities")
 
     return GuardrailResult("pass")
 

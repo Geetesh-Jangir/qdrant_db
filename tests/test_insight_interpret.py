@@ -63,10 +63,10 @@ def test_named_fund_why_uses_sector_drag_not_macro(_m):
     assert "Nifty Bank" in out.display
     assert "does not reach" not in out.display.lower()
     assert "moved the other way" not in out.display.lower()
-    assert "3.1%" in out.display
-    assert "What happened" in out.display
-    assert "added to the sector move" in out.display
-    assert "ICICI Bank" in out.display
+    assert "down 3.6%" in out.display
+    assert "down 4.2%" in out.display
+    assert "30%" in out.display
+    assert "1 month" in out.display
 
 
 @patch("news_rag.insight.interpret.llm_api_key_configured", return_value=False)

@@ -142,6 +142,82 @@ class Settings(BaseSettings):
         default=True,
         validation_alias=AliasChoices("ASK_PIPELINE_V2", "ask_pipeline_v2"),
     )
+
+    # ── New ask pipeline: bounded two-wave orchestration ──
+    max_tool_waves: int = Field(
+        default=2,
+        validation_alias=AliasChoices("MAX_TOOL_WAVES", "max_tool_waves"),
+    )
+    max_targeted_recovery_calls: int = Field(
+        default=1,
+        validation_alias=AliasChoices("MAX_TARGETED_RECOVERY_CALLS", "max_targeted_recovery_calls"),
+    )
+    max_repair_passes: int = Field(
+        default=1,
+        validation_alias=AliasChoices("MAX_REPAIR_PASSES", "max_repair_passes"),
+    )
+    max_extra_actions: int = Field(
+        default=2,
+        validation_alias=AliasChoices("MAX_EXTRA_ACTIONS", "max_extra_actions"),
+    )
+    # Per-query-class deadline budgets (ms)
+    request_deadline_simple_ms: int = Field(
+        default=8000,
+        validation_alias=AliasChoices("REQUEST_DEADLINE_SIMPLE_MS", "request_deadline_simple_ms"),
+    )
+    request_deadline_standard_ms: int = Field(
+        default=20000,
+        validation_alias=AliasChoices("REQUEST_DEADLINE_STANDARD_MS", "request_deadline_standard_ms"),
+    )
+    request_deadline_complex_ms: int = Field(
+        default=45000,
+        validation_alias=AliasChoices("REQUEST_DEADLINE_COMPLEX_MS", "request_deadline_complex_ms"),
+    )
+    # Per-phase timeouts (ms)
+    planner_timeout_ms: int = Field(
+        default=6000,
+        validation_alias=AliasChoices("PLANNER_TIMEOUT_MS", "planner_timeout_ms"),
+    )
+    composer_timeout_ms: int = Field(
+        default=12000,
+        validation_alias=AliasChoices("COMPOSER_TIMEOUT_MS", "composer_timeout_ms"),
+    )
+    judge_timeout_ms: int = Field(
+        default=8000,
+        validation_alias=AliasChoices("JUDGE_TIMEOUT_MS", "judge_timeout_ms"),
+    )
+    tool_timeout_ms: int = Field(
+        default=10000,
+        validation_alias=AliasChoices("TOOL_TIMEOUT_MS", "tool_timeout_ms"),
+    )
+    max_concurrent_tools: int = Field(
+        default=8,
+        validation_alias=AliasChoices("MAX_CONCURRENT_TOOLS", "max_concurrent_tools"),
+    )
+    # Cache TTLs (seconds)
+    fund_cache_ttl: int = Field(
+        default=300,
+        validation_alias=AliasChoices("FUND_CACHE_TTL", "fund_cache_ttl"),
+    )
+    news_cache_ttl: int = Field(
+        default=180,
+        validation_alias=AliasChoices("NEWS_CACHE_TTL", "news_cache_ttl"),
+    )
+    news_top_k: int = Field(
+        default=6,
+        validation_alias=AliasChoices("NEWS_TOP_K", "news_top_k"),
+    )
+    # Prompt versioning for cache-friendly prefixes
+    prompt_version: str = Field(
+        default="v3.0",
+        validation_alias=AliasChoices("PROMPT_VERSION", "prompt_version"),
+    )
+    # Slot router confidence threshold (above → deterministic, below → planner LLM)
+    slot_router_confidence: float = Field(
+        default=0.8,
+        validation_alias=AliasChoices("SLOT_ROUTER_CONFIDENCE", "slot_router_confidence"),
+    )
+
     insight_fan_out_cap: int = Field(
         default=8,
         validation_alias=AliasChoices("INSIGHT_FAN_OUT_CAP", "insight_fan_out_cap"),
@@ -219,6 +295,22 @@ class Settings(BaseSettings):
     rag_warmup_embeddings: bool = Field(
         default=True,
         validation_alias=AliasChoices("RAG_WARMUP_EMBEDDINGS", "rag_warmup_embeddings"),
+    )
+    max_concurrent_tools: int = Field(
+        default=4,
+        validation_alias=AliasChoices("MAX_CONCURRENT_TOOLS", "max_concurrent_tools"),
+    )
+    request_deadline_simple_ms: float = Field(
+        default=20000.0,
+        validation_alias=AliasChoices("REQUEST_DEADLINE_SIMPLE_MS", "request_deadline_simple_ms"),
+    )
+    request_deadline_standard_ms: float = Field(
+        default=40000.0,
+        validation_alias=AliasChoices("REQUEST_DEADLINE_STANDARD_MS", "request_deadline_standard_ms"),
+    )
+    request_deadline_complex_ms: float = Field(
+        default=60000.0,
+        validation_alias=AliasChoices("REQUEST_DEADLINE_COMPLEX_MS", "request_deadline_complex_ms"),
     )
 
     def embedding_cache_path(self) -> Path:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from typing import Any
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -119,6 +120,8 @@ class AskRequest(BaseModel):
     min_impact: int | None = Field(default=None, ge=0, le=3)
     source: str | None = Field(default=None, max_length=120)
     direction: str | None = Field(default=None, max_length=20)
+    conversation_id: str | None = Field(default=None, max_length=64)
+    prior_turns: list[dict[str, Any]] | None = Field(default=None)
 
 
 def _attach_llm_meta(result: dict, meta: dict) -> None:
@@ -334,7 +337,7 @@ def ask(
         raise HTTPException(status_code=500, detail="QDRANT_API_KEY required for Cloud")
 
     reset_llm_request_state()
-    query_log = new_query_logger()
+    query_log = new_query_logger(question=body.question)
     configured_provider = llm_provider(settings)
     query_log.write(
         f"config llm_provider={configured_provider} llm_model={llm_model(settings)} "
@@ -363,6 +366,11 @@ def ask(
             query_log.finish(outcome="error", article_count=0)
             raise HTTPException(status_code=500, detail=message)
 
+        prior_ctx = {
+            "conversation_id": body.conversation_id,
+            "turns": body.prior_turns,
+        } if body.prior_turns or body.conversation_id else None
+
         result = run_ask_engine(
             body.question,
             date_from=body.date_from,
@@ -371,6 +379,7 @@ def ask(
             source=body.source,
             direction=body.direction,
             query_log=query_log,
+            prior_brief_context=prior_ctx,
         )
         article_count = len(result.get("sources") or [])
         meta = query_log.finish_from_ask_result(result, question=body.question.strip())
@@ -423,11 +432,25 @@ def ask_stream(
         raise HTTPException(status_code=500, detail="QDRANT_API_KEY required for Cloud")
 
     reset_llm_request_state()
-    query_log = new_query_logger()
+    query_log = new_query_logger(question=body.question)
     configured_provider = llm_provider(settings)
     query_log.write(
         f"config llm_provider={configured_provider} llm_model={llm_model(settings)} "
         f"collection={settings.qdrant_collection}"
+    )
+    query_log.log_request(
+        {
+            "question": body.question,
+            "conversation_id": body.conversation_id,
+            "stock": body.stock,
+            "date_from": body.date_from,
+            "date_to": body.date_to,
+            "min_impact": body.min_impact,
+            "source": body.source,
+            "direction": body.direction,
+            "configured_llm_provider": configured_provider,
+            "configured_llm_model": llm_model(settings),
+        }
     )
 
     if not llm_api_key_configured(settings):
@@ -435,6 +458,11 @@ def ask_stream(
         query_log.log_error("config", message)
         query_log.finish(outcome="error", article_count=0)
         raise HTTPException(status_code=500, detail=message)
+
+    prior_ctx = {
+        "conversation_id": body.conversation_id,
+        "turns": body.prior_turns,
+    } if body.prior_turns or body.conversation_id else None
 
     return StreamingResponse(
         stream_ask_engine(
@@ -445,7 +473,9 @@ def ask_stream(
             source=body.source,
             direction=body.direction,
             query_log=query_log,
+            prior_brief_context=prior_ctx,
         ),
         media_type="text/event-stream",
     )
+
 

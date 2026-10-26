@@ -103,14 +103,13 @@ def clip_log_text(text: str, limit: int = 240) -> str:
     return cleaned[: limit - 3] + "..."
 
 
-def new_query_logger(*, kind: str = "ask") -> QueryLogger:
+def new_query_logger(*, kind: str = "ask", question: str = "") -> QueryLogger:
     settings = get_settings()
     log_dir = settings.rag_query_log_path()
     query_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "_" + secrets.token_hex(3)
     prefix = "fund_brief_" if kind == "fund_brief" else "ask_"
     path = log_dir / f"{prefix}{query_id}.log"
-    logger = QueryLogger(query_id=query_id, log_path=path, kind=kind or "ask")
-    logger.write(f"kind={kind or 'ask'}")
+    logger = QueryLogger(query_id=query_id, log_path=path, kind=kind or "ask", question=question)
     return logger
 
 
@@ -119,16 +118,21 @@ def new_fund_brief_logger() -> QueryLogger:
 
 
 class QueryLogger:
-    def __init__(self, query_id: str, log_path: Path, *, kind: str = "ask") -> None:
+    def __init__(self, query_id: str, log_path: Path, *, kind: str = "ask", question: str = "") -> None:
         self.query_id = query_id
         self.log_path = log_path
         self.kind = kind
+        self.question = (question or "").strip()
         self.started_at = time.perf_counter()
         self.llm_provider = ""
         self.llm_calls = 0
         self.llm_input_tokens = 0
         self.llm_output_tokens = 0
+        self.llm_cached_tokens = 0
+        self.llm_cache_creation_tokens = 0
         self._summary: dict[str, Any] = {"query_id": query_id, "kind": kind, "events": []}
+        if self.question:
+            self._summary["question"] = self.question
         self._llm_journal: list[dict[str, Any]] = []
         self._prompt_sizes: dict[int, dict[str, int]] = {}
         self._pipeline_stages: list[dict[str, Any]] = []
@@ -143,13 +147,17 @@ class QueryLogger:
                 counter += 1
         self.log_path = log_path
         log_path.write_text("", encoding="utf-8")
-        self.write(f"query started query_id={query_id} log_file={log_path}")
+        self.write("=" * 72)
+        self.write(f"QUERY STARTED: query_id={query_id} kind={kind or 'ask'}")
+        if self.question:
+            self.write(f"USER QUESTION: {self.question}")
+        self.write(f"LOG FILE: {log_path}")
+        self.write("=" * 72)
         self.write(
             "LOG_LEGEND "
-            "PIPELINE=insight_v2 stages | "
-            "LLM_START=what the model is asked to do | LLM_HTTP=per-call tokens/latency | "
-            "LLM_DONE=parse outcome + step tokens | LLM_TOKENS_TOTAL=run totals | "
-            "BRIEF/GATHER/COMPUTE/INTERPRET/VERIFY=deterministic stages | TOOL=registry adapter"
+            "PIPELINE=two_wave_graph stages | "
+            "LLM_START=model intent | LLM_HTTP=tokens/cache/latency | "
+            "LLM_DONE=parsed outcome | TOOL=data capability"
         )
 
     def write(self, message: str) -> None:
@@ -166,6 +174,13 @@ class QueryLogger:
         self._summary.setdefault("events", []).append(payload)
 
     def log_request(self, payload: dict[str, Any]) -> None:
+        q = payload.get("question") or payload.get("q") or ""
+        if q and not self.question:
+            self.question = str(q).strip()
+            self._summary["question"] = self.question
+            self.write("=" * 72)
+            self.write(f"USER QUESTION: {self.question}")
+            self.write("=" * 72)
         self.write("request " + _kv(payload))
 
     def log_stage(self, stage: str, **fields: Any) -> None:
@@ -478,7 +493,6 @@ class QueryLogger:
                     }
                 )
             )
-
     def record_llm_call(
         self,
         *,
@@ -490,21 +504,30 @@ class QueryLogger:
         duration_sec: float,
         http_status: int,
         stage: str | None = None,
+        cached_tokens: int = 0,
+        cache_creation_tokens: int = 0,
     ) -> None:
         if provider and not self.llm_provider:
             self.llm_provider = provider
         self.llm_calls += 1
         self.llm_input_tokens += max(0, input_tokens)
         self.llm_output_tokens += max(0, output_tokens)
+        self.llm_cached_tokens += max(0, cached_tokens)
+        self.llm_cache_creation_tokens += max(0, cache_creation_tokens)
         total_bit = f" total_tokens={total_tokens}" if total_tokens is not None else ""
         stage_bit = f" stage={stage}" if stage else ""
+        cache_bit = ""
+        if cached_tokens > 0:
+            cache_bit += f" prompt_cache_hit=true cached_tokens={cached_tokens}"
+        if cache_creation_tokens > 0:
+            cache_bit += f" prompt_cache_created={cache_creation_tokens}"
         self.write(
             f"LLM_HTTP provider={provider}{stage_bit} "
             f"call_index={self.llm_calls} model={model} http_status={http_status} "
-            f"input_tokens={input_tokens} output_tokens={output_tokens}{total_bit} "
+            f"input_tokens={input_tokens} output_tokens={output_tokens}{cache_bit}{total_bit} "
             f"duration_sec={round(duration_sec, 3)} "
-            f"cumulative_input_tokens={self.llm_input_tokens} "
-            f"cumulative_output_tokens={self.llm_output_tokens}"
+            f"cumulative_input={self.llm_input_tokens} cumulative_output={self.llm_output_tokens} "
+            f"cumulative_cached={self.llm_cached_tokens}"
         )
         sizes = self._prompt_sizes.get(self.llm_calls) or {}
         self._llm_journal.append(
@@ -515,6 +538,8 @@ class QueryLogger:
                 "model": model,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
+                "cached_tokens": cached_tokens,
+                "cache_creation_tokens": cache_creation_tokens,
                 "duration_sec": round(duration_sec, 3),
                 "http_status": http_status,
                 "system_chars": sizes.get("system_chars"),
@@ -580,6 +605,7 @@ class QueryLogger:
                     "calls": 0,
                     "input_tokens": 0,
                     "output_tokens": 0,
+                    "cached_tokens": 0,
                     "duration_sec": 0.0,
                     "system_chars": 0,
                     "user_chars": 0,
@@ -588,6 +614,7 @@ class QueryLogger:
             bucket["calls"] += 1
             bucket["input_tokens"] += int(call.get("input_tokens") or 0)
             bucket["output_tokens"] += int(call.get("output_tokens") or 0)
+            bucket["cached_tokens"] += int(call.get("cached_tokens") or 0)
             bucket["duration_sec"] = round(bucket["duration_sec"] + float(call.get("duration_sec") or 0), 3)
             bucket["system_chars"] += int(call.get("system_chars") or 0)
             bucket["user_chars"] += int(call.get("user_chars") or 0)
@@ -605,6 +632,7 @@ class QueryLogger:
         source_bit = f" insight_source={insight_source}" if insight_source else ""
         provider_bit = f" llm_provider={self.llm_provider}" if self.llm_provider else ""
         json_path: Path | None = self.log_path.with_suffix(".json")
+        combined_tokens = self.llm_input_tokens + self.llm_output_tokens
         self._summary.update(
             {
                 "outcome": outcome,
@@ -615,7 +643,9 @@ class QueryLogger:
                 "llm_call_journal": self._llm_journal,
                 "llm_input_tokens": self.llm_input_tokens,
                 "llm_output_tokens": self.llm_output_tokens,
-                "llm_total_tokens": self.llm_input_tokens + self.llm_output_tokens,
+                "llm_cached_tokens": self.llm_cached_tokens,
+                "llm_cache_creation_tokens": self.llm_cache_creation_tokens,
+                "llm_total_tokens": combined_tokens,
                 "pipeline_stages": self._pipeline_stages,
                 "stage_summary": self.stage_summary(),
                 "total_seconds": total_seconds,
@@ -628,19 +658,35 @@ class QueryLogger:
             json_path.write_text(json.dumps(self._summary, ensure_ascii=False, indent=2), encoding="utf-8")
         except OSError:
             json_path = None
-        combined_tokens = self.llm_input_tokens + self.llm_output_tokens
         self.write(
             f"LLM_TOKENS_TOTAL llm_calls={self.llm_calls} "
             f"total_input_tokens={self.llm_input_tokens} "
             f"total_output_tokens={self.llm_output_tokens} "
+            f"total_cached_tokens={self.llm_cached_tokens} "
             f"total_tokens={combined_tokens}"
         )
+        cache_stat = f"cached_tokens={self.llm_cached_tokens}"
+        if self.llm_cached_tokens > 0:
+            cache_stat += " (⚡ PROMPT_CACHE_HIT)"
+        self.write("=" * 72)
+        self.write(
+            f"EXECUTION SUMMARY: outcome={outcome} total_duration={total_seconds}s"
+        )
+        self.write(
+            f"LLM TOTALS: calls={self.llm_calls} in_tokens={self.llm_input_tokens} "
+            f"out_tokens={self.llm_output_tokens} {cache_stat}"
+        )
+        self.write(
+            f"PIPELINE: articles_retrieved={article_count} stages={len(self._pipeline_stages)}"
+        )
+        self.write("=" * 72)
         self.write(
             "query finished "
             f"outcome={outcome} articles_returned={article_count}{source_bit}{provider_bit} "
             f"llm_calls={self.llm_calls} "
             f"llm_input_tokens={self.llm_input_tokens} "
             f"llm_output_tokens={self.llm_output_tokens} "
+            f"llm_cached_tokens={self.llm_cached_tokens} "
             f"llm_total_tokens={combined_tokens} "
             f"total_seconds={total_seconds}"
         )
@@ -654,6 +700,8 @@ class QueryLogger:
             "llm_calls": self.llm_calls,
             "llm_input_tokens": self.llm_input_tokens,
             "llm_output_tokens": self.llm_output_tokens,
+            "cached_input_tokens": self.llm_cached_tokens,
+            "prompt_cached": self.llm_cached_tokens > 0,
             "total_seconds": total_seconds,
             # Deprecated aliases (same values as llm_* above).
             "deepseek_calls": self.llm_calls,

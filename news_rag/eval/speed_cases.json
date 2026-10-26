@@ -4,8 +4,11 @@
   {"id": "market_10_points", "tier": "t0", "question": "whats happening in the market right now and can you tell me this in only 10 points?"},
   {"id": "auto_funds", "tier": "t1", "question": "How is the automobile sector doing? Which funds are highly impacted positively or negatively?"},
   {"id": "crude_funds", "tier": "t1", "question": "Which funds are affected by the crude oil price increase?"},
-  {"id": "named_fund", "tier": "t2", "question": "Why is HDFC Flexi Cap Fund down recently?"},
-  {"id": "compare_funds", "tier": "t2", "question": "Compare HDFC Flexi Cap Fund and Parag Parikh Flexi Cap Fund"},
+  {"id": "named_fund_why", "tier": "t2", "mode": "INSIGHT_FUSION", "question": "Why is HDFC Flexi Cap Fund down recently?", "expected_wave2": true},
+  {"id": "compare_funds", "tier": "t2", "mode": "DATA_ONLY", "question": "Compare HDFC Flexi Cap Fund and Parag Parikh Flexi Cap Fund", "expected_wave2": false},
   {"id": "stock_price", "tier": "t1", "question": "What is the share price of Maruti Suzuki and which funds hold it?"},
-  {"id": "gold", "tier": "t1", "question": "How is gold and silver doing right now?"}
+  {"id": "gold", "tier": "t1", "question": "How is gold and silver doing right now?"},
+  {"id": "nav_lookup", "tier": "t0", "mode": "DATA_ONLY", "question": "What is the current NAV of Parag Parikh Flexi Cap Fund?", "expected_wave2": false, "target_ms": 500},
+  {"id": "holdings_lookup", "tier": "t1", "mode": "DATA_ONLY", "question": "Top 10 holdings of HDFC Top 100", "expected_wave2": false, "target_ms": 1500},
+  {"id": "out_of_scope", "tier": "t0", "mode": "OUT_OF_SCOPE", "question": "What is the recipe for chicken biryani?", "expected_wave2": false, "target_ms": 100}
 ]

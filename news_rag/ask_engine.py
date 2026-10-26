@@ -20,10 +20,11 @@ def run_ask_engine(
     source: str | None = None,
     direction: str | None = None,
     query_log: QueryLogger | None = None,
+    prior_brief_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     q = (question or "").strip()
     if query_log is not None:
-        query_log.write(f"PIPELINE name=insight_v2 path=brief→gather→compute→interpret→verify→judge")
+        query_log.write(f"PIPELINE name=two_wave_graph")
         query_log.write(f"QUESTION: {q[:500]}")
     return run_insight_pipeline(
         q,
@@ -33,6 +34,7 @@ def run_ask_engine(
         source=source,
         direction=direction,
         query_log=query_log,
+        prior_brief_context=prior_brief_context,
     )
 
 
@@ -45,10 +47,11 @@ async def stream_ask_engine(
     source: str | None = None,
     direction: str | None = None,
     query_log: QueryLogger | None = None,
+    prior_brief_context: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     q = (question or "").strip()
     if query_log is not None:
-        query_log.write("PIPELINE_STREAM name=insight_v2")
+        query_log.write("PIPELINE_STREAM name=two_wave_graph")
     async for packet in stream_insight_pipeline(
         q,
         date_from=date_from,
@@ -57,6 +60,8 @@ async def stream_ask_engine(
         source=source,
         direction=direction,
         query_log=query_log,
+        prior_brief_context=prior_brief_context,
     ):
         yield packet
+
 

@@ -77,7 +77,16 @@ _DIRECTION_ALIASES: dict[str, str] = {
     "deficient": "poor",
     "higher_capex": "higher",
     "lower_capex": "lower",
+    "increase": "up",
+    "increased": "up",
+    "increasing": "up",
+    "decrease": "down",
+    "decreased": "down",
+    "decreasing": "down",
 }
+
+_UP_LIKE = frozenset({"up", "rise", "rises", "higher", "surge", "increase", "increased", "increasing", "hike", "hiked", "higher_capex", "accelerate", "good"})
+_DOWN_LIKE = frozenset({"down", "fall", "falls", "lower", "drop", "decline", "decreased", "decreasing", "decrease", "cut", "lower_capex", "weak", "poor", "deficient"})
 
 
 @lru_cache(maxsize=1)
@@ -102,6 +111,55 @@ def normalize_direction(direction: str) -> str:
     return _DIRECTION_ALIASES.get(raw, raw)
 
 
+def _driver_row(driver: str, path: str | None = None) -> tuple[str, dict[str, Any]]:
+    key = normalize_driver(driver)
+    row = (_document(path).get("by_macro") or {}).get(key)
+    return key, row if isinstance(row, dict) else {}
+
+
+def canonical_direction_for_driver(driver: str, direction_hint: str | None) -> str:
+    """Map question wording (up/increase/hike/…) to this driver's impact-map vocabulary."""
+    _, row = _driver_row(driver)
+    if not row:
+        return normalize_direction(direction_hint or "")
+    allowed = {normalize_direction(str(d)) for d in (row.get("directions") or []) if str(d).strip()}
+    hint = normalize_direction(direction_hint or "")
+    if not hint:
+        return ""
+    if hint in allowed:
+        return hint
+    if hint in _UP_LIKE:
+        for candidate in ("tighten", "up", "weaken", "outflow", "higher", "accelerate", "good"):
+            if candidate in allowed:
+                return candidate
+    if hint in _DOWN_LIKE:
+        for candidate in ("ease", "down", "strengthen", "inflow", "lower", "weak", "poor"):
+            if candidate in allowed:
+                return candidate
+    return hint
+
+
+def macro_series_for_driver(driver: str, path: str | None = None) -> list[str]:
+    """Yahoo macro_series keys for get_market_snapshot (from impact map or driver vocabulary)."""
+    _, row = _driver_row(driver, path)
+    explicit = row.get("macro_series")
+    if isinstance(explicit, list) and explicit:
+        return [str(s).strip().lower() for s in explicit if str(s).strip()]
+    directions = {normalize_direction(str(d)) for d in (row.get("directions") or []) if str(d).strip()}
+    if directions & {"ease", "tighten"}:
+        return ["yield", "usdinr"]
+    if directions & {"weaken", "strengthen"}:
+        return ["usdinr"]
+    if directions & {"inflow", "outflow"}:
+        return ["usdinr", "yield"]
+    if directions & {"up", "down"}:
+        key = normalize_driver(driver)
+        if "crude" in key or "oil" in key:
+            return ["crude"]
+        return ["crude", "usdinr"]
+    return ["usdinr"]
+
+
 def list_macro_drivers() -> list[str]:
     by_macro = _document().get("by_macro") or {}
     return sorted(by_macro.keys())
@@ -118,14 +176,11 @@ def macro_impact_entry(
     path: str | None = None,
 ) -> dict[str, Any] | None:
     """Return macro driver metadata and sector rows; enrich with index tickers."""
-    key = normalize_driver(driver)
-    doc = _document(path)
-    by_macro = doc.get("by_macro") or {}
-    row = by_macro.get(key)
+    key, row = _driver_row(driver, path)
     if not row:
         return None
 
-    dir_norm = normalize_direction(direction) if direction else ""
+    dir_norm = canonical_direction_for_driver(key, direction) if direction else ""
     sectors_out: list[dict[str, Any]] = []
     for item in row.get("sectors") or []:
         if not isinstance(item, dict):

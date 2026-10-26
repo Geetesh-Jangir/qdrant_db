@@ -493,6 +493,13 @@ def resolve_fund_for_query(
 ) -> tuple[dict[str, Any] | None, bool, list[str]]:
     """Resolve fund using router fields, then question text, then alias / scan."""
     discovery = is_market_fund_discovery_question(question)
+    try:
+        from news_rag.domain_intake import is_macro_or_commodity_focus, question_mentions_fund_scheme
+
+        if is_macro_or_commodity_focus(question) and not question_mentions_fund_scheme(question):
+            return None, False, []
+    except Exception:
+        pass
     attempts: list[tuple[str, str]] = []
     if (isin or "").strip() or (name or "").strip():
         attempts.append(((isin or "").strip(), (name or "").strip()))
@@ -552,6 +559,8 @@ def _lookup_fund_scan_question(question: str) -> tuple[dict[str, Any] | None, bo
         "impact", "affect", "affecting", "will", "does", "the", "and", "for", "in",
         "of", "on", "me", "is", "are", "from", "with", "recent", "positive",
         "negative", "benefit", "worst", "hit", "funds", "fund", "mutual", "scheme",
+        "why", "crude", "oil", "price", "prices", "increase", "increasing", "decrease",
+        "day", "daily", "every", "rising", "falling", "brent", "petrol", "commodity",
     }
     tokens = [w for w in words if w not in stop]
     if len(tokens) < 2:
@@ -1310,6 +1319,98 @@ def get_fund_benchmark(category: str, fund_name: str = "") -> str:
     elif "arbitrage" in c_lower or "liquid" in c_lower or "overnight" in c_lower:
         return "CRISIL Liquid Debt Index"
     return "Nifty 500 TRI"
+
+
+def _normalize_manager_record(raw: dict[str, Any]) -> dict[str, Any]:
+    schemes: list[dict[str, str]] = []
+    for row in raw.get("other_schemes") or []:
+        if not isinstance(row, dict):
+            continue
+        schemes.append(
+            {
+                "scheme_name": str(row.get("scheme_name") or "").strip(),
+                "fund_house": str(row.get("fund_house") or "").strip(),
+                "from_date": str(row.get("from_date") or "").strip(),
+                "to_date": str(row.get("to_date") or "").strip(),
+            }
+        )
+    basic = raw.get("basic_details")
+    if basic is None:
+        basic = raw.get("basic_detail")
+    return {
+        "manager_id": raw.get("manager_id"),
+        "name": str(raw.get("name") or "").strip(),
+        "designation": str(raw.get("designation") or "").strip(),
+        "qualification": str(raw.get("qualification") or "").strip(),
+        "basic_details": str(basic or "").strip(),
+        "managing_since": str(raw.get("managing_since") or "").strip(),
+        "total_experience_years": raw.get("total_experience_years"),
+        "experience_last_updated": str(raw.get("experience_last_updated") or "").strip(),
+        "age": raw.get("age"),
+        "other_schemes": schemes[:12],
+    }
+
+
+def parse_fund_managers_from_api_payload(raw: dict[str, Any]) -> dict[str, Any]:
+    """Extract current/past managers from RupeeStop /api/v1/app/fund/{isin} payload."""
+    block = raw.get("fund_managers") if isinstance(raw.get("fund_managers"), dict) else {}
+    current = [
+        _normalize_manager_record(m)
+        for m in (block.get("current") or [])
+        if isinstance(m, dict) and str(m.get("name") or "").strip()
+    ]
+    past = [
+        _normalize_manager_record(m)
+        for m in (block.get("past") or [])
+        if isinstance(m, dict) and str(m.get("name") or "").strip()
+    ]
+    return {"current": current, "past": past[:6]}
+
+
+def fetch_fund_managers_for_isin(isin: str, *, timeout: float = 12.0) -> dict[str, Any] | None:
+    """Live fund manager facts from RupeeStop fund detail API."""
+    isin_clean = resolve_canonical_isin((isin or "").strip().upper())
+    if not isin_clean:
+        return None
+    url = f"{_API_BASE_URL}/{isin_clean}"
+    payload = None
+    for attempt in range(3):
+        try:
+            with httpx.Client(timeout=timeout + 6.0 * attempt) as client:
+                resp = client.get(url)
+            if resp.status_code != 200:
+                if resp.status_code < 500:
+                    return None
+                continue
+            payload = resp.json()
+            break
+        except Exception as exc:
+            logger.warning("Fund managers API fetch failed for %s (attempt %d): %s", isin_clean, attempt + 1, exc)
+    if not payload or not payload.get("success"):
+        return None
+    raw = payload.get("data") or {}
+    if not isinstance(raw, dict):
+        return None
+    ident = raw.get("identity") or {}
+    managers = parse_fund_managers_from_api_payload(raw)
+    if not managers.get("current") and not managers.get("past"):
+        return None
+    return {
+        "isin": isin_clean,
+        "fund_name": str(ident.get("fund_name") or ident.get("fund_short_name") or isin_clean).strip(),
+        **managers,
+    }
+
+
+def fetch_fund_managers_for_query(fund_query: str) -> dict[str, Any] | None:
+    detail, _amb, _close = resolve_fund_for_query(fund_query)
+    isin = str((detail or {}).get("isin") or "").strip().upper()
+    if not isin:
+        return None
+    data = fetch_fund_managers_for_isin(isin)
+    if data and detail:
+        data["fund_name"] = data.get("fund_name") or detail.get("fund_name") or detail.get("fund_short_name")
+    return data
 
 
 _fund_index: FundIndex | None = None

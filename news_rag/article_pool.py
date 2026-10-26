@@ -9,7 +9,7 @@ def article_dedupe_key(article: dict[str, Any]) -> str:
     url = str(article.get("url") or "").strip()
     if url:
         return url
-    title = str(article.get("title") or "").strip().lower()
+    title = str(article.get("title") or article.get("headline") or "").strip().lower()
     return f"title:{title}" if title else ""
 
 
@@ -56,7 +56,7 @@ def sources_from_articles(articles: list[dict[str, Any]], limit: int = 40) -> li
         url = str(a.get("url") or "").strip()
         rows.append(
             {
-                "title": a.get("title"),
+                "title": a.get("title") or a.get("headline") or "",
                 "url": url or None,
                 "source": a.get("source"),
                 "published_at": a.get("published_at"),

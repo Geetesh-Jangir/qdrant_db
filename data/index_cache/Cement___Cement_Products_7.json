@@ -2,8 +2,8 @@
   "sector_label": "Cement & Cement Products",
   "benchmark_label": "Cement & Cement Products",
   "yfinance_ticker": "^CNXINFRA",
-  "return_pct": -0.22,
+  "return_pct": -1.96,
   "window_days": 7,
   "substituted_broad_index": false,
-  "cached_at": 1792478429.0585668
+  "cached_at": 1792752441.1417859
 }

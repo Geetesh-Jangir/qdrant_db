@@ -63,6 +63,12 @@ _CATEGORY_PATTERNS: list[tuple[str, str, str, list[str]]] = [
 
     # Passive / Index
     ("Index Fund / ETF", "Index / Passive", "Index / ETF", [r"\bindex\s*fund\b", r"\betf\b", r"\bnifty\b", r"\bsensex\b", r"\bbse\b"]),
+    (
+        "Fund of Funds",
+        "Other",
+        "FOF",
+        [r"\bfof\b", r"\bfund\s+of\s+funds?\b", r"\bfunds?\s+of\s+funds?\b"],
+    ),
 
     # Debt Categories
     ("Liquid", "Debt", "Liquid", [r"\bliquid\b"]),

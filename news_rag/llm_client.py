@@ -132,6 +132,8 @@ class LlmCallResult:
     finish_reason: str = ""
     truncated: bool = False
     repaired: bool = False
+    cached_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 
 def _llm_http_timeout(settings: Settings | None = None) -> float | None:
@@ -645,7 +647,13 @@ def _call_anthropic(
     payload: dict[str, Any] = {
         "model": chosen_model,
         "max_tokens": chosen_max_tokens,
-        "system": system,
+        "system": [
+            {
+                "type": "text",
+                "text": system,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
         "messages": [{"role": "user", "content": user_content}],
     }
     # Haiku 5.5+ rejects `temperature` on the Messages API (400 deprecated).
@@ -675,10 +683,16 @@ def _call_anthropic(
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
         "Content-Type": "application/json",
     }
     with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
         response = client.post(url, headers=headers, json=payload)
+        if response.status_code == 400 and ("cache_control" in response.text.lower() or "system" in response.text.lower()):
+            if query_log is not None:
+                query_log.write(f"anthropic_retry_without_prompt_caching body={response.text[:200]}")
+            payload["system"] = system
+            response = client.post(url, headers=headers, json=payload)
         if response.status_code == 400 and use_tools and "tool" in response.text.lower():
             if query_log is not None:
                 query_log.write(f"anthropic_retry_without_tool_use body={response.text[:200]}")
@@ -706,7 +720,9 @@ def _call_anthropic(
     usage = data.get("usage") or {}
     input_tokens = int(usage.get("input_tokens") or 0)
     output_tokens = int(usage.get("output_tokens") or 0)
-    total_tokens = input_tokens + output_tokens if (input_tokens or output_tokens) else None
+    cached_tokens = int(usage.get("cache_read_input_tokens") or 0)
+    cache_creation_tokens = int(usage.get("cache_creation_input_tokens") or 0)
+    total_tokens = input_tokens + output_tokens + cached_tokens if (input_tokens or output_tokens) else None
     finish_reason = str(data.get("stop_reason") or "")
 
     result = LlmCallResult(
@@ -720,6 +736,8 @@ def _call_anthropic(
         http_status=response.status_code,
         finish_reason=finish_reason,
         truncated=_finish_is_truncated(finish_reason),
+        cached_tokens=cached_tokens,
+        cache_creation_tokens=cache_creation_tokens,
     )
     if query_log is not None:
         query_log.record_llm_call(
@@ -731,6 +749,8 @@ def _call_anthropic(
             duration_sec=result.duration_sec,
             http_status=result.http_status,
             stage=_current_llm_stage.get(),
+            cached_tokens=cached_tokens,
+            cache_creation_tokens=cache_creation_tokens,
         )
     return result
 
@@ -792,8 +812,10 @@ def _call_deepseek(
     usage = data.get("usage") or {}
     input_tokens = int(usage.get("prompt_tokens") or 0)
     output_tokens = int(usage.get("completion_tokens") or 0)
+    cached_tokens = int(usage.get("prompt_cache_hit_tokens") or 0)
+    cache_creation_tokens = int(usage.get("prompt_cache_miss_tokens") or 0)
     total_raw = usage.get("total_tokens")
-    total_tokens = int(total_raw) if total_raw is not None else None
+    total_tokens = int(total_raw) if total_raw is not None else (input_tokens + output_tokens)
     choices = data.get("choices") or []
     finish_reason = str((choices[0].get("finish_reason") if choices else "") or "")
 
@@ -808,6 +830,8 @@ def _call_deepseek(
         http_status=response.status_code,
         finish_reason=finish_reason,
         truncated=_finish_is_truncated(finish_reason),
+        cached_tokens=cached_tokens,
+        cache_creation_tokens=cache_creation_tokens,
     )
     if query_log is not None:
         query_log.record_llm_call(
@@ -819,6 +843,8 @@ def _call_deepseek(
             duration_sec=result.duration_sec,
             http_status=result.http_status,
             stage=_current_llm_stage.get(),
+            cached_tokens=cached_tokens,
+            cache_creation_tokens=cache_creation_tokens,
         )
     return result
 
@@ -907,8 +933,9 @@ def _call_gemini(
     usage = data.get("usageMetadata") or {}
     input_tokens = int(usage.get("promptTokenCount") or 0)
     output_tokens = int(usage.get("candidatesTokenCount") or 0)
+    cached_tokens = int(usage.get("cachedContentTokenCount") or 0)
     total_raw = usage.get("totalTokenCount")
-    total_tokens = int(total_raw) if total_raw is not None else None
+    total_tokens = int(total_raw) if total_raw is not None else (input_tokens + output_tokens)
 
     candidates = data.get("candidates") or []
     finish_reason = str((candidates[0].get("finishReason") if candidates else "") or "")
@@ -924,6 +951,8 @@ def _call_gemini(
         http_status=response.status_code,
         finish_reason=finish_reason,
         truncated=_finish_is_truncated(finish_reason),
+        cached_tokens=cached_tokens,
+        cache_creation_tokens=0,
     )
     if query_log is not None:
         query_log.record_llm_call(
@@ -935,6 +964,8 @@ def _call_gemini(
             duration_sec=result.duration_sec,
             http_status=result.http_status,
             stage=_current_llm_stage.get(),
+            cached_tokens=cached_tokens,
+            cache_creation_tokens=0,
         )
     return result
 

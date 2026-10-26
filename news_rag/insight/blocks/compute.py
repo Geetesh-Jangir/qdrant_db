@@ -96,7 +96,17 @@ def _window_pct_from_nav_payload(data: dict[str, Any], return_window: str = "") 
             pass
     rets = data.get("returns") if isinstance(data.get("returns"), dict) else {}
     rw = (return_window or "1M").upper().replace(" ", "")
-    alias = {"1W": "1w", "1M": "1m", "3M": "3m", "6M": "6m", "1Y": "1y", "YTD": "ytd"}
+    alias = {
+        "1W": "1w",
+        "1M": "1m",
+        "3M": "3m",
+        "6M": "6m",
+        "1Y": "1y",
+        "2Y": "2y",
+        "3Y": "3y",
+        "5Y": "5y",
+        "YTD": "ytd",
+    }
     for k in (alias.get(rw, rw.lower()), "1m", "3m", "6m", "1y"):
         try:
             if rets.get(k) is not None:

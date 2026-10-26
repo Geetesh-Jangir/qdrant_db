@@ -55,10 +55,13 @@ def _yf_return_pct(ticker: str, days: int) -> float | None:
         if hist is None or hist.empty or len(hist) < 2:
             return None
         end = float(hist["Close"].iloc[-1])
-        # `days` are calendar days: use the last bar on or before (last date - days)
-        cutoff = hist.index[-1] - timedelta(days=max(days, 5))
-        earlier = hist[hist.index <= cutoff]
-        start = float(earlier["Close"].iloc[-1]) if not earlier.empty else float(hist["Close"].iloc[0])
+        # `days` are calendar days: for 1-day window use previous trading bar; else use cutoff date
+        if days <= 1:
+            start = float(hist["Close"].iloc[-2])
+        else:
+            cutoff = hist.index[-1] - timedelta(days=days)
+            earlier = hist[hist.index <= cutoff]
+            start = float(earlier["Close"].iloc[-1]) if not earlier.empty else float(hist["Close"].iloc[0])
         if start == 0:
             return None
         return round(((end - start) / start) * 100.0, 2)

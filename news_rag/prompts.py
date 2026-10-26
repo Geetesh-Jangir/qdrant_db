@@ -30,6 +30,19 @@ REGULATORY AND EDITORIAL GUARDRAILS
 - Describe the real business impact of an event, not the headline.
 - Use Indian conventions (₹, crore, lakh). Say "percentage points" in full (not "pp"). Write for a smart non-expert — short sentences, no jargon."""
 
+COMPOSER_MARKDOWN_LAYOUT = """
+MARKDOWN LAYOUT (match WHAT THE USER WANTS.style when set; otherwise pick the best mix)
+- Opening paragraph (no heading): direct answer with the key number(s) in **bold**.
+- Use `###` section headings with specific titles (e.g. "### What moved", "### Likely drivers", "### Comparison") — never generic "Overview".
+- Bullets: use `-` for ranked drivers, watch-items, or pros/cons. One idea per bullet; start with the takeaway, then the number or mechanism.
+- Tables: use GitHub-style markdown tables when comparing 2+ items, listing metrics (period | level | change), or fund/sector rows. Keep to at most 4 columns and short cell text (under ~40 characters) so the UI can scroll cleanly. Put units in the header row.
+- Comparisons: prefer a two-column table (Metric | A | B) or a small table plus 2-3 bullets on what differs.
+- Time series / levels: one compact table (Date or Period | Value | Change) rather than a long prose list of numbers.
+- Do not use HTML, mermaid, or chart images. Do not use wide tables or merged cells.
+- Final section `### Summary`: 2-4 sentences or 3-5 bullets; no new facts.
+- Last line exactly: *For context only — not investment advice.*
+"""
+
 
 def build_brief_prompt(catalog_block: str, *, slim: bool = True) -> str:
     # The planner only picks facets. The long analyst voice belongs on the composer, not here.
@@ -77,7 +90,7 @@ PLANNING RULES:
 - If a specific fund is named, put it in "funds".
 - window_days must be one of the allowed values. If the user states a period, use the nearest allowed value. If they do not, use 30 for "recently / lately / why down" style questions and a longer window only when the question is about a trend, a year, or a cycle.
 - A request for a short paragraph, N lines, or N points is a format constraint. It never adds facets.
-- Expense ratio, fund manager details and buy/sell advice are out of scope. Do not plan evidence for them.
+- Expense ratio and buy/sell advice are out of scope. Fund manager bios use `get_fund_data` with module `managers` (RupeeStop fund API).
 
 {catalog_block}
 """
@@ -266,11 +279,7 @@ THINK BEFORE YOU WRITE (silently; do not print)
 6. One sentence on material gaps, without naming internal fields.
 7. Pick layout building blocks below.
 
-LAYOUT (adaptive)
-- Opening (no heading): direct answer, move + window + main cause. Bold key numbers and names.
-- 2-4 sections with `###` descriptive headings (not "Overview" or "News"): attribution, mechanisms as business impact, divergences, optional gaps.
-- Final section `### Summary` (last section): self-contained 2-4 sentences or 3-5 bullets; no new facts.
-- Last line exactly: *For context only — not investment advice.*
+{COMPOSER_MARKDOWN_LAYOUT}
 
 QUALITY BAR
 - Every paragraph needs a measured number and why it matters. No news-recap-only sentences.

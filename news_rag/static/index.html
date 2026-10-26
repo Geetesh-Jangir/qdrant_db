@@ -11,7 +11,7 @@
       color: #1e293b;
       background: #f8fafc;
     }
-    body { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; }
+    body { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; overflow-x: hidden; }
     .nav {
       display: flex; gap: 1rem; font-size: 0.9rem; margin-bottom: 1.5rem;
       padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0;
@@ -45,6 +45,10 @@
     .answer-box {
       margin-top: 1.75rem; background: #ffffff; border-radius: 12px;
       padding: 1.5rem; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.04);
+      max-width: 100%; min-width: 0; overflow: hidden; box-sizing: border-box;
+    }
+    #insight {
+      max-width: 100%; min-width: 0; overflow-wrap: anywhere; word-break: break-word;
     }
     .answer-box h2 {
       font-size: 1.15rem; margin: 0 0 1rem; font-weight: 700; color: #0f172a;
@@ -83,7 +87,8 @@
       border-radius: 10px; padding: 0.85rem 1rem; font-size: 0.88rem;
     }
     .usage h3 { margin: 0 0 0.4rem; font-size: 0.92rem; color: #0f172a; }
-    .usage table { width: 100%; border-collapse: collapse; margin-top: 0.45rem; }
+    .usage .usage-table-scroll { overflow-x: auto; max-width: 100%; margin-top: 0.45rem; }
+    .usage table { width: 100%; border-collapse: collapse; margin-top: 0; font-size: 0.82rem; }
     .usage th, .usage td { text-align: left; padding: 0.25rem 0.4rem; border-bottom: 1px solid #e2e8f0; }
     .usage th { color: #64748b; font-weight: 600; }
     .sources { margin-top: 1.75rem; }
@@ -119,26 +124,104 @@
       line-height: 1.55;
       margin: 0 0 1rem;
     }
-    .insight-body table.insight-table {
+    .insight-table-scroll {
       width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0.5rem 0 1rem;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fafbfc;
+    }
+    .insight-body table.insight-table {
+      width: max-content;
+      min-width: 100%;
       border-collapse: collapse;
-      margin: 0.4rem 0 1rem;
-      font-size: 0.92rem;
+      margin: 0;
+      font-size: 0.88rem;
+      table-layout: auto;
     }
     .insight-body table.insight-table th,
     .insight-body table.insight-table td {
       text-align: left;
-      padding: 0.35rem 0.5rem;
+      padding: 0.45rem 0.6rem;
+      border-bottom: 1px solid #e2e8f0;
+      vertical-align: top;
+      white-space: normal;
+      word-break: break-word;
+      max-width: 14rem;
+    }
+    .insight-body table.insight-table th { color: #64748b; font-weight: 600; background: #f1f5f9; }
+    .insight-body table.insight-table td.insight-num,
+    .insight-body table.insight-table th.insight-num {
+      text-align: right;
+      white-space: nowrap;
+      max-width: none;
+    }
+    .insight-body table.insight-table tr:last-child td { border-bottom: none; }
+    .fund-rankings-block {
+      margin: 1rem 0 0;
+      max-width: 100%;
+      min-width: 0;
+    }
+    .fund-rankings-block h3 {
+      font-size: 0.95rem;
+      margin: 0 0 0.5rem;
+      color: #0f172a;
+      font-weight: 700;
+    }
+    .fund-rankings-scroll {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fafbfc;
+    }
+    table.fund-rankings-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 0.84rem;
+      margin: 0;
+    }
+    table.fund-rankings-table th,
+    table.fund-rankings-table td {
+      padding: 0.5rem 0.65rem;
       border-bottom: 1px solid #e2e8f0;
       vertical-align: top;
     }
-    .insight-body table.insight-table th { color: #64748b; font-weight: 600; }
-    .insight-body table.insight-table td:nth-child(n+2),
-    .insight-body table.insight-table th:nth-child(n+2) { text-align: right; white-space: nowrap; }
-    .insight-body {      font-size: 0.98rem;
+    table.fund-rankings-table th {
+      background: #f1f5f9;
+      color: #64748b;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    table.fund-rankings-table td.fund-name {
+      min-width: 12rem;
+      max-width: 18rem;
+      font-weight: 500;
+      color: #0f172a;
+    }
+    table.fund-rankings-table td.num {
+      text-align: right;
+      white-space: nowrap;
+    }
+    table.fund-rankings-table .return-window-focus {
+      background: #e0f2fe;
+      color: #0369a1;
+      font-weight: 700;
+    }
+    table.fund-rankings-table tr:last-child td { border-bottom: none; }
+    .insight-body {
+      font-size: 0.98rem;
       color: #334155;
       line-height: 1.7;
       margin: 0 0 0.85rem;
+      max-width: 100%;
+      min-width: 0;
     }
     .insight-body + .insight-body {
       margin-top: 0;
@@ -174,6 +257,34 @@
       letter-spacing: 0.04em;
       margin: 0 0 0.5rem;
     }
+
+    /* Telemetry Ribbon & Timeline */
+    .telemetry-ribbon {
+      display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem;
+      padding: 0.6rem 0.85rem; background: #f8fafc; border-radius: 8px;
+      font-size: 0.8rem; color: #475569; align-items: center; border: 1px solid #e2e8f0;
+    }
+    .telemetry-tag {
+      background: #ffffff; padding: 0.2rem 0.5rem; border-radius: 4px;
+      border: 1px solid #cbd5e1; font-weight: 500; font-family: ui-monospace, monospace;
+    }
+    .telemetry-tag.fast { border-color: #10b981; color: #047857; background: #ecfdf5; }
+    
+    .timeline-container {
+      margin-top: 1rem; padding: 0.85rem 1rem; background: #ffffff;
+      border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.85rem;
+    }
+    .timeline-steps {
+      display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.4rem;
+    }
+    .timeline-chip {
+      padding: 0.2rem 0.55rem; border-radius: 12px; background: #f8fafc;
+      border: 1px solid #cbd5e1; font-size: 0.78rem; display: inline-flex;
+      align-items: center; gap: 0.35rem; color: #334155;
+    }
+    .timeline-chip.running { border-color: #3b82f6; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
+    .timeline-chip.done { border-color: #10b981; background: #ecfdf5; color: #065f46; }
+    .timeline-chip.error { border-color: #ef4444; background: #fef2f2; color: #991b1b; }
   </style>
 </head>
 <body>
@@ -196,6 +307,13 @@
     </form>
   </div>
 
+  <div id="timeline" class="timeline-container hidden">
+    <strong>Execution Timeline:</strong>
+    <div id="timelineSteps" class="timeline-steps"></div>
+  </div>
+
+  <div id="ribbon" class="telemetry-ribbon hidden"></div>
+
   <p id="status" class="meta hidden" style="margin-top:1rem;padding:0.75rem 1rem;background:#eff6ff;border-radius:8px;border:1px solid #bfdbfe;"></p>
   <p id="error" class="err hidden"></p>
 
@@ -203,6 +321,7 @@
     <div class="answer-box">
       <h2>💡 Summary Insight</h2>
       <div id="insight"></div>
+      <div id="fundRankings" class="fund-rankings-block hidden" aria-label="Fund rankings table"></div>
       <p class="meta" id="meta"></p>
       <div id="usage" class="usage hidden"></div>
       <p class="meta-log hidden" id="debugLog"></p>
@@ -219,11 +338,73 @@
     const errorEl = document.getElementById("error");
     const resultEl = document.getElementById("result");
     const insightEl = document.getElementById("insight");
+    const fundRankingsEl = document.getElementById("fundRankings");
     const metaEl = document.getElementById("meta");
     const usageEl = document.getElementById("usage");
     const debugLogEl = document.getElementById("debugLog");
     const sourcesEl = document.getElementById("sources");
     const statusEl = document.getElementById("status");
+    const timelineEl = document.getElementById("timeline");
+    const timelineStepsEl = document.getElementById("timelineSteps");
+    const ribbonEl = document.getElementById("ribbon");
+
+    let conversationId = sessionStorage.getItem("rag_conversation_id") || ("conv_" + Math.random().toString(36).substring(2, 9));
+    sessionStorage.setItem("rag_conversation_id", conversationId);
+    let priorTurns = [];
+
+    function resetTimeline() {
+      if (timelineStepsEl) timelineStepsEl.innerHTML = "";
+      if (timelineEl) timelineEl.classList.remove("hidden");
+      if (ribbonEl) {
+        ribbonEl.classList.add("hidden");
+        ribbonEl.innerHTML = "";
+      }
+    }
+
+    function addOrUpdateTimelineStep(id, label, status = "running", detail = "") {
+      if (!timelineStepsEl) return;
+      let chip = document.getElementById("chip-" + id);
+      if (!chip) {
+        chip = document.createElement("div");
+        chip.id = "chip-" + id;
+        timelineStepsEl.appendChild(chip);
+      }
+      chip.className = "timeline-chip " + status;
+      chip.textContent = detail ? `${label} (${detail})` : label;
+    }
+
+    function renderRibbon(telemetry) {
+      if (!ribbonEl || !telemetry) return;
+      ribbonEl.innerHTML = "";
+      ribbonEl.classList.remove("hidden");
+
+      const items = [];
+      if (telemetry.wall_ms) {
+        const isFast = telemetry.wall_ms < 1000;
+        items.push(`<span class="telemetry-tag ${isFast ? 'fast' : ''}">⚡ ${telemetry.wall_ms}ms</span>`);
+      }
+      if (telemetry.answer_ttft_ms) {
+        items.push(`<span class="telemetry-tag">TTFT: ${telemetry.answer_ttft_ms}ms</span>`);
+      }
+      if (telemetry.routed_by) {
+        items.push(`<span class="telemetry-tag">Route: ${telemetry.routed_by}</span>`);
+      }
+      if (telemetry.answer_mode) {
+        items.push(`<span class="telemetry-tag">Mode: ${telemetry.answer_mode}</span>`);
+      }
+      if (telemetry.total_input_tokens || telemetry.total_output_tokens) {
+        items.push(`<span class="telemetry-tag">Tokens: in ${telemetry.total_input_tokens || 0} / out ${telemetry.total_output_tokens || 0}</span>`);
+      }
+      if (telemetry.prompt_cached || (telemetry.cached_input_tokens && telemetry.cached_input_tokens > 0)) {
+        items.push(`<span class="telemetry-tag" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-weight:600;">⚡ Prompt Cache: ${telemetry.cached_input_tokens} tokens (Hit)</span>`);
+      } else if (telemetry.total_input_tokens > 0) {
+        items.push(`<span class="telemetry-tag" style="background:#f1f5f9;color:#64748b;">Prompt Cache: Miss</span>`);
+      }
+      if (telemetry.quality_state) {
+        items.push(`<span class="telemetry-tag">Quality: ${telemetry.quality_state}</span>`);
+      }
+      ribbonEl.innerHTML = items.join(" ");
+    }
 
     if (typeof parseRagJsonResponse !== "function") {
       errorEl.textContent =
@@ -274,7 +455,16 @@
       return t;
     }
 
+    function looksNumericCell(text) {
+      const t = String(text || "").replace(/\*\*/g, "").trim();
+      return /^[₹$]?[-+~]?\d|^\d|%\s*$|bps| crore| lakh/i.test(t);
+    }
+
     function renderInsightTable(rows) {
+      const wrap = document.createElement("div");
+      wrap.className = "insight-table-scroll";
+      wrap.setAttribute("role", "region");
+      wrap.setAttribute("aria-label", "Data table");
       const table = document.createElement("table");
       table.className = "insight-table";
       const body = document.createElement("tbody");
@@ -285,15 +475,37 @@
         const tr = document.createElement("tr");
         const tag = headerDone ? "td" : "th";
         headerDone = true;
-        for (const cell of cells) {
+        cells.forEach((cell, colIdx) => {
           const el = document.createElement(tag);
+          if (colIdx > 0 && (tag === "th" || looksNumericCell(cell))) {
+            el.classList.add("insight-num");
+          }
           el.innerHTML = formatMarkdown(cell);
           tr.appendChild(el);
-        }
+        });
         body.appendChild(tr);
       }
       table.appendChild(body);
-      return table;
+      wrap.appendChild(table);
+      return wrap;
+    }
+
+    function insightLooksLikeMarkdown(text) {
+      const t = String(text || "");
+      return (
+        t.includes("###") ||
+        t.includes("|") ||
+        /^[-*•]\s+/m.test(t) ||
+        t.length > 320
+      );
+    }
+
+    function renderInsightMarkdownInto(container, text) {
+      container.innerHTML = "";
+      const body = document.createElement("div");
+      body.className = "insight-body";
+      body.appendChild(renderMarkdown(text));
+      container.appendChild(body);
     }
 
     function renderMarkdown(text) {
@@ -401,10 +613,7 @@
         "";
       let bullets = data.insight_bullets || (sec && sec.bullets) || [];
 
-      const markdownBody =
-        fullInsight && (fullInsight.includes("###") || fullInsight.length > 320)
-          ? fullInsight
-          : "";
+      const markdownBody = fullInsight && insightLooksLikeMarkdown(fullInsight) ? fullInsight : "";
       if (markdownBody) {
         const body = document.createElement("div");
         body.className = "insight-body";
@@ -652,17 +861,21 @@
       const totals = document.createElement("p");
       totals.className = "card-meta";
       const n = data.llm_calls != null ? data.llm_calls : calls.length;
+      const cached = data.cached_input_tokens || (data.telemetry && data.telemetry.cached_input_tokens) || 0;
+      const cacheNote = cached > 0 ? ` · prompt cache: ${cached} tokens (Hit ⚡)` : ` · prompt cache: miss`;
       totals.textContent =
-        `${n} LLM call${n === 1 ? "" : "s"} · input tokens ${input ?? "—"} · output tokens ${output ?? "—"}`;
+        `${n} LLM call${n === 1 ? "" : "s"} · input tokens ${input ?? "—"} · output tokens ${output ?? "—"}${cacheNote}`;
       usageEl.appendChild(totals);
       const toolLine = document.createElement("p");
       toolLine.className = "card-meta";
       toolLine.textContent = tools.length ? "Tools: " + tools.join(", ") : "Tools: none";
       usageEl.appendChild(toolLine);
       if (!calls.length) return;
+      const scroll = document.createElement("div");
+      scroll.className = "usage-table-scroll";
       const table = document.createElement("table");
       const head = document.createElement("tr");
-      for (const label of ["#", "Stage", "Model", "Input", "Output", "Seconds"]) {
+      for (const label of ["#", "Stage", "Model", "Input", "Output", "Cache", "Seconds"]) {
         const th = document.createElement("th");
         th.textContent = label;
         head.appendChild(th);
@@ -670,12 +883,16 @@
       table.appendChild(head);
       for (const call of calls) {
         const tr = document.createElement("tr");
+        const cacheCell = call.cached_tokens
+          ? `⚡ ${call.cached_tokens}`
+          : (call.cache_creation_tokens ? `created ${call.cache_creation_tokens}` : "—");
         for (const value of [
           call.call_index,
           call.stage || "",
           call.model || "",
           call.input_tokens,
           call.output_tokens,
+          cacheCell,
           call.duration_sec,
         ]) {
           const td = document.createElement("td");
@@ -684,7 +901,123 @@
         }
         table.appendChild(tr);
       }
-      usageEl.appendChild(table);
+      scroll.appendChild(table);
+      usageEl.appendChild(scroll);
+    }
+
+    function fmtPct(v) {
+      if (v == null || v === "") return "—";
+      const n = Number(v);
+      if (Number.isNaN(n)) return "—";
+      const sign = n > 0 ? "+" : "";
+      return sign + n.toFixed(2) + "%";
+    }
+
+    function fmtNav(v) {
+      if (v == null || v === "") return "—";
+      const n = Number(v);
+      if (Number.isNaN(n)) return "—";
+      return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    }
+
+    /** Drop markdown tables when structured fund_rankings will render the same data. */
+    function stripMarkdownTables(text) {
+      if (!text) return text;
+      return text
+        .replace(/\n\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n?)+/g, "\n")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+
+    const FUND_RETURN_COLS = [
+      ["5Y", "return_5y_pct"],
+      ["3Y", "return_3y_pct"],
+      ["2Y", "return_2y_pct"],
+      ["1Y", "return_1y_pct"],
+      ["6M", "return_6m_pct"],
+      ["3M", "return_3m_pct"],
+      ["1M", "return_1m_pct"],
+      ["1W", "return_1w_pct"],
+    ];
+
+    function fundReturnColumns(rows, highlightWindow) {
+      const hw = (highlightWindow || "").toUpperCase();
+      return FUND_RETURN_COLS.filter(
+        ([label, field]) =>
+          label === hw || rows.some((r) => r && r[field] != null && r[field] !== "")
+      );
+    }
+
+    function renderFundRankings(container, rows, highlightWindow) {
+      if (!container) return;
+      if (!Array.isArray(rows) || !rows.length) {
+        container.classList.add("hidden");
+        container.innerHTML = "";
+        return;
+      }
+      container.classList.remove("hidden");
+      container.innerHTML = "";
+      const title = document.createElement("h3");
+      const hw = (highlightWindow || "").toUpperCase();
+      title.textContent = hw
+        ? `Funds (measured returns · ${hw} focus)`
+        : "Funds (measured returns)";
+      container.appendChild(title);
+      const scroll = document.createElement("div");
+      scroll.className = "fund-rankings-scroll";
+      const table = document.createElement("table");
+      table.className = "fund-rankings-table";
+      const hasExposure = rows.some((r) => r.affected_sector || r.sector_weight_pct != null);
+      const retCols = fundReturnColumns(rows, hw);
+      const thead = document.createElement("thead");
+      const headTr = document.createElement("tr");
+      const headers = hasExposure
+        ? ["Fund", "Category", "Sector", "Weight %", ...retCols.map(([l]) => l), "NAV"]
+        : ["Fund", "Category", ...retCols.map(([l]) => l), "NAV"];
+      for (const h of headers) {
+        const th = document.createElement("th");
+        th.textContent = h;
+        if (h === hw) th.className = "return-window-focus";
+        headTr.appendChild(th);
+      }
+      thead.appendChild(headTr);
+      table.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      for (const row of rows) {
+        const tr = document.createElement("tr");
+        const retCells = retCols.map(([label, field]) => ({
+          text: fmtPct(row[field]),
+          cls: "num" + (label === hw ? " return-window-focus" : ""),
+        }));
+        const cells = hasExposure
+          ? [
+              { text: row.fund_name || "—", cls: "fund-name" },
+              { text: row.category || row.scheme_type || "—", cls: "" },
+              { text: row.affected_sector || "—", cls: "" },
+              {
+                text: row.sector_weight_pct != null ? fmtPct(row.sector_weight_pct) : "—",
+                cls: "num",
+              },
+              ...retCells,
+              { text: fmtNav(row.latest_nav), cls: "num" },
+            ]
+          : [
+              { text: row.fund_name || "—", cls: "fund-name" },
+              { text: row.category || row.scheme_type || "—", cls: "" },
+              ...retCells,
+              { text: fmtNav(row.latest_nav), cls: "num" },
+            ];
+        for (const cell of cells) {
+          const td = document.createElement("td");
+          if (cell.cls) td.className = cell.cls;
+          td.textContent = cell.text;
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      scroll.appendChild(table);
+      container.appendChild(scroll);
     }
 
     function showPipelineIssues(data) {
@@ -708,12 +1041,22 @@
 
       const insightText = (data.insight || data.answer || "").trim();
       const hasSections = Array.isArray(data.sections) && data.sections.length > 0;
-      if (!insightText && !hasSections && !(data.insight_bullets && data.insight_bullets.length)) {
+      const hasRankings = Array.isArray(data.fund_rankings) && data.fund_rankings.length > 0;
+      if (
+        !insightText &&
+        !hasSections &&
+        !(data.insight_bullets && data.insight_bullets.length) &&
+        !hasRankings
+      ) {
         throw new Error(
           "Server returned an empty answer. On the server run: sudo journalctl -u news-rag -n 40 --no-pager"
         );
       }
-      renderInsight(insightEl, data, insightText);
+      const displayData = hasRankings
+        ? { ...data, insight: stripMarkdownTables(insightText) }
+        : data;
+      renderInsight(insightEl, displayData, hasRankings ? displayData.insight : insightText);
+      renderFundRankings(fundRankingsEl, data.fund_rankings, data.fund_return_window);
 
       const sourceLabel = providerLabel(data);
       const scorePart =
@@ -723,8 +1066,10 @@
         rw && (rw.window_label || rw.window_days)
           ? ` · news window ${rw.window_label || "last " + rw.window_days + " days"}`
           : "";
+      const fundRw = data.fund_return_window;
+      const fundWindowPart = fundRw ? ` · fund returns ${fundRw}` : "";
       metaEl.textContent =
-        `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources · intent ${data.intent || "?"}${windowPart}${scorePart}`;
+        `${sourceLabel} · ${data.sources ? data.sources.length : 0} sources · intent ${data.intent || "?"}${windowPart}${fundWindowPart}${scorePart}`;
       renderUsage(data);
       if (data.query_log_file) {
         debugLogEl.textContent = "Debug log: " + data.query_log_file
@@ -777,43 +1122,115 @@
       resultEl.classList.add("hidden");
       submit.disabled = true;
       submit.textContent = "Synthesizing Insight...";
-      statusEl.classList.remove("hidden");
-      let elapsed = 0;
-      const tick = setInterval(() => {
-        elapsed += 1;
-        if (!statusEl.textContent.includes("·")) {
-          statusEl.textContent = `Working… ${elapsed}s — synthesizing insight across market data...`;
-        }
-      }, 1000);
+      resetTimeline();
 
+      const q = document.getElementById("question").value.trim();
       const body = {
-        question: document.getElementById("question").value.trim(),
+        question: q,
+        conversation_id: conversationId,
+        prior_turns: priorTurns.slice(-4),
       };
 
+      let streamedText = "";
+      let gotDoneEvent = false;
+
       try {
-        const response = await fetch(ragUrl("api/ask"), {
+        const response = await fetch(ragUrl("api/ask/stream"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const data = await parseRagJsonResponse(response);
+
         if (!response.ok) {
-          const detail = data.detail;
-          const msg =
-            typeof detail === "string"
-              ? detail
-              : Array.isArray(detail)
-                ? detail.map((d) => d.msg || JSON.stringify(d)).join("; ")
-                : response.statusText;
-          throw new Error(msg || response.statusText);
+          const errData = await parseRagJsonResponse(response);
+          throw new Error(errData.detail || response.statusText);
         }
-        handleFinalData(data);
-      } catch (err) {
-        errorEl.textContent = err.message || String(err);
-        errorEl.classList.remove("hidden");
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split("\n\n");
+          buffer = lines.pop() || "";
+
+          for (const block of lines) {
+            if (!block.trim()) continue;
+            let eventType = "message";
+            let dataStr = "";
+
+            for (const line of block.split("\n")) {
+              if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+              else if (line.startsWith("data: ")) dataStr = line.slice(6).trim();
+            }
+
+            if (!dataStr) continue;
+            let data;
+            try { data = JSON.parse(dataStr); } catch (_) { continue; }
+
+            if (eventType === "request_started") {
+              addOrUpdateTimelineStep("req", "Request Intake", "done");
+            } else if (eventType === "phase_started") {
+              addOrUpdateTimelineStep(data.phase, data.phase, "running");
+            } else if (eventType === "phase_completed") {
+              const dur = data.duration_ms ? `${data.duration_ms}ms` : "";
+              addOrUpdateTimelineStep(data.phase, data.phase, "done", dur);
+            } else if (eventType === "tool_started") {
+              addOrUpdateTimelineStep("t_" + data.tool, data.tool, "running", `W${data.wave || 1}`);
+            } else if (eventType === "tool_completed") {
+              const dur = data.duration_ms ? `${data.duration_ms}ms` : "";
+              addOrUpdateTimelineStep("t_" + data.tool, data.tool, data.ok ? "done" : "error", dur);
+            } else if (eventType === "answer_delta") {
+              if (!resultEl.classList.contains("hidden")) {
+                // already visible
+              } else {
+                resultEl.classList.remove("hidden");
+                insightEl.innerHTML = "";
+              }
+              streamedText += data.text || "";
+              if (insightLooksLikeMarkdown(streamedText)) {
+                renderInsightMarkdownInto(insightEl, streamedText);
+              } else {
+                insightEl.innerHTML = formatMarkdown(streamedText);
+              }
+            } else if (eventType === "quality_check") {
+              addOrUpdateTimelineStep("quality", "Quality Gate", data.state === "passed" ? "done" : "error");
+            } else if (eventType === "done") {
+              gotDoneEvent = true;
+              handleFinalData(data);
+              if (data.telemetry) renderRibbon(data.telemetry);
+              priorTurns.push({ question: q, answer: data.insight || streamedText });
+            } else if (eventType === "request_failed" || eventType === "error") {
+              throw new Error(data.error || data.message || "Request failed");
+            }
+          }
+        }
+
+        if (!gotDoneEvent && streamedText) {
+          resultEl.classList.remove("hidden");
+        }
+      } catch (streamErr) {
+        // Fallback to sync POST /api/ask if stream failed
+        console.warn("Stream failed, falling back to sync ask:", streamErr);
+        try {
+          const syncRes = await fetch(ragUrl("api/ask"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const syncData = await parseRagJsonResponse(syncRes);
+          if (!syncRes.ok) throw new Error(syncData.detail || syncRes.statusText);
+          handleFinalData(syncData);
+          if (syncData.telemetry) renderRibbon(syncData.telemetry);
+        } catch (err) {
+          errorEl.textContent = err.message || String(err);
+          errorEl.classList.remove("hidden");
+        }
       } finally {
-        clearInterval(tick);
-        statusEl.classList.add("hidden");
         submit.disabled = false;
         submit.textContent = "Get Insight";
       }
@@ -821,3 +1238,4 @@
   </script>
 </body>
 </html>
+

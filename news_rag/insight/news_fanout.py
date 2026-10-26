@@ -77,9 +77,18 @@ def search_targets(targets: list[NewsTarget]) -> None:
             for row in chosen:
                 title = str(row.get("title") or "").strip()
                 text = _body(row, target.chars)
-                if not (title or text):
-                    continue
-                articles.append({"headline": title, "text": text, "url": str(row.get("url") or "")})
+                articles.append({
+                    "title": title,
+                    "headline": title,
+                    "text": text,
+                    "summary": text,
+                    "url": str(row.get("url") or ""),
+                    "source": str(row.get("source") or ""),
+                    "published_at": str(row.get("published_at") or ""),
+                    "sentiment": str(row.get("sentiment") or ""),
+                    "max_impact": row.get("max_impact"),
+                    "direction": row.get("direction"),
+                })
             target.articles = articles
 
 

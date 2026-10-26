@@ -124,7 +124,7 @@ def test_read_news_falls_back_when_llm_fails(monkeypatch):
 
 def test_read_news_uses_llm_result(monkeypatch):
     monkeypatch.setattr(news_reader, "llm_api_key_configured", lambda *_a, **_k: True)
-    monkeypatch.setattr(news_reader, "_allowed_sector_names", lambda: ["Automobiles", "Banks"])
+    monkeypatch.setattr(news_reader, "_allowed_sector_names", lambda *_a, **_k: ["Automobiles", "Banks"])
     parsed = {
         "tone": "mixed",
         "tone_reason": "Demand is strong but costs bite.",

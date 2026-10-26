@@ -1,4 +1,4 @@
-﻿"""Phase 4: compose the answer.
+"""Phase 4: compose the answer.
 
 Hybrid design:
   - CODE owns every number and label (exposure, return, tilt, alignment) and the layout.
@@ -848,9 +848,10 @@ def _fund_why_narrative(brief: QuestionBrief, findings: Findings) -> str:
                     blocks.append(_factor(str(drag.get("news") or "")).rstrip(".") + ".")
                 else:
                     idx_v = drag.get("index_return_pct")
+                    idx_lbl = str(drag.get("index_label") or "").strip() or "The sector index"
                     if isinstance(idx_v, (int, float)):
                         blocks.append(
-                            f"The sector index moved {_down_up(idx_v)} in this window — "
+                            f"{idx_lbl} moved {_down_up(idx_v)} in this window — "
                             f"combine that with the **{sector}** headline above."
                         )
                     else:

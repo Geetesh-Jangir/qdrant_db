@@ -37,6 +37,7 @@ class JevClient:
                 "Authorization": f"Bearer {settings.jev_api_key}",
                 "Content-Type": "application/json",
                 "Accept": "application/json",
+                "anthropic-beta": "prompt-caching-2024-07-31",
             },
         )
         self._url = settings.jev_base_url
@@ -51,6 +52,7 @@ class JevClient:
         *,
         stage: str = "jev",
         detail: str = "",
+        enable_prompt_cache: bool = True,
     ) -> dict:
         if not questions:
             self._last_call_usage = {}
@@ -68,12 +70,13 @@ class JevClient:
         answers = data.get("answers")
         if not isinstance(answers, dict):
             raise JevError("Jev response did not include answers")
-        input_tokens, output_tokens = _parse_token_usage(data)
+        input_tokens, output_tokens, cached_tokens = _parse_token_usage(data)
         duration = time.perf_counter() - started
         self._last_call_usage = {
             "calls": 1,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
+            "cached_tokens": cached_tokens,
             "price_per_million_input_usd": self._input_price,
         }
         run_log = get_run_logger()
@@ -97,12 +100,13 @@ class JevClient:
         self.close()
 
 
-def _parse_token_usage(data: dict) -> tuple[int, int]:
+def _parse_token_usage(data: dict) -> tuple[int, int, int]:
     usage = data.get("usage")
     if not isinstance(usage, dict):
-        return 0, 0
+        return 0, 0, 0
     input_raw = usage.get("input_tokens", usage.get("prompt_tokens", 0))
     output_raw = usage.get("output_tokens", usage.get("completion_tokens", 0))
+    cached_raw = usage.get("cache_read_input_tokens", usage.get("cached_tokens", 0))
     try:
         input_tokens = int(input_raw or 0)
     except (TypeError, ValueError):
@@ -111,7 +115,11 @@ def _parse_token_usage(data: dict) -> tuple[int, int]:
         output_tokens = int(output_raw or 0)
     except (TypeError, ValueError):
         output_tokens = 0
-    return max(0, input_tokens), max(0, output_tokens)
+    try:
+        cached_tokens = int(cached_raw or 0)
+    except (TypeError, ValueError):
+        cached_tokens = 0
+    return max(0, input_tokens), max(0, output_tokens), max(0, cached_tokens)
 
 
 def title_questions(rows: list[dict], entity: dict) -> dict:

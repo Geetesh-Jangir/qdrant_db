@@ -10,7 +10,7 @@ from news_rag.insight.findings import Findings, FundFinding, SectorFinding
 from news_rag.insight.gather import EvidenceItem, EvidenceSet
 from news_rag.insight.blocks.compute import compute_findings
 from news_rag.insight.interpret import check_composer_guardrails
-from news_rag.insight.pipeline import compose, stream_insight_pipeline
+from news_rag.insight.pipeline import stream_insight_pipeline
 
 
 def test_facet_alias_fund_facts_holdings():
@@ -112,20 +112,6 @@ def test_composer_guardrails():
 @pytest.mark.asyncio
 async def test_streaming_sse_order(monkeypatch):
     """Verify streaming generator yields status events -> done payload in proper SSE format."""
-    from news_rag.insight import pipeline as pipe_mod
-
-    mock_state = {
-        "question": "what is happening in the market?",
-        "brief": QuestionBrief(window_label="1 month"),
-        "evidence": EvidenceSet(),
-        "findings": Findings(),
-        "news_read": None,
-        "pipeline_errors": [],
-        "refused": False,
-    }
-    monkeypatch.setattr(pipe_mod, "run_until_compose", lambda *a, **k: mock_state)
-    monkeypatch.setattr(pipe_mod, "llm_api_key_configured", lambda *a, **k: False)
-
     events = []
     async for packet in stream_insight_pipeline("what is happening in the market?"):
         for line in packet.strip().split("\n\n"):
@@ -133,7 +119,7 @@ async def test_streaming_sse_order(monkeypatch):
                 ev_type = line.split("\n")[0].replace("event:", "").strip()
                 events.append(ev_type)
 
-    assert "status" in events
+    assert "request_started" in events
     assert "done" in events
-    # 'status' must arrive before 'done'
-    assert events.index("status") < events.index("done")
+    # 'request_started' must arrive before 'done'
+    assert events.index("request_started") < events.index("done")

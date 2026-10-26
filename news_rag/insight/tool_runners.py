@@ -217,6 +217,8 @@ def run_screen_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         return_window=_s(ctx, "return_window") or None,
         top_n=int(ctx.get("top_n") or 5),
         question=_s(ctx, "question"),
+        random_sample=bool(ctx.get("random_sample")),
+        require_positive_1y=bool(ctx.get("require_positive_1y")),
     )
 
 
@@ -227,8 +229,13 @@ def _rule_sector_picks(ctx: dict[str, Any]) -> list[dict[str, str]]:
 
     idx = get_sector_fund_ranking_index()
     picks: list[dict[str, str]] = []
+    from news_rag.macro_impact_map import canonical_direction_for_driver, normalize_driver
+
+    move = _s(ctx, "driver_direction")
     for driver in ctx.get("drivers") or []:
-        entry = macro_impact_entry(driver, direction=_s(ctx, "driver_direction") or None)
+        driver_key = normalize_driver(driver.get("id") if isinstance(driver, dict) else driver)
+        dir_for_map = canonical_direction_for_driver(driver_key, move or None)
+        entry = macro_impact_entry(driver_key, direction=dir_for_map or None)
         for row in (entry or {}).get("sectors") or []:
             sign = row.get("expected_sign")
             if sign not in ("positive", "negative") or row.get("impact_type") == "indirect":
@@ -258,11 +265,71 @@ def _infer_driver_direction(ctx: dict[str, Any], articles: list[dict[str, Any]])
         if isinstance(a, dict)
     )
     blob = (blob + " " + _s(ctx, "question")).lower()
-    if re.search(r"\b(surg\w*|spik\w*|climb\w*|higher|rose|risen|back at \$|above \$|per barrel)\b", blob):
+    if re.search(
+        r"\b(ris\w*|increas\w*|surg\w*|spik\w*|climb\w*|higher|rose|risen|hik\w*|"
+        r"back at \$|above \$|per barrel|going\s+up|tighten\w*|repo\s+rate)\b",
+        blob,
+    ):
         return "up"
-    if re.search(r"\b(oil prices? (?:fall|drop|slump)|crude (?:fell|dropped|slumped)|lower crude)\b", blob):
+    if re.search(
+        r"\b(fall\w*|drop\w*|slump\w*|declin\w*|decreas\w*|lower|fell|dropped|slumped|"
+        r"going\s+down|oil prices? (?:fall|drop|slump)|crude (?:fell|dropped|slumped)|lower crude)\b",
+        blob,
+    ):
         return "down"
     return ""
+
+
+_DRIVER_MOVE_ALIASES = frozenset({"up", "down", "tighten", "ease", "weaken", "strengthen"})
+
+
+def resolve_driver_direction(ctx: dict[str, Any], articles: list[dict[str, Any]] | None = None) -> str:
+    """Macro rule-table direction for driver_affected_funds / sector picks (driver-aware)."""
+    from news_rag.macro_impact_map import canonical_direction_for_driver, normalize_driver
+
+    existing = _s(ctx, "driver_direction")
+    drivers = ctx.get("drivers") or []
+    driver_key = ""
+    if drivers:
+        d0 = drivers[0]
+        driver_key = normalize_driver(d0.get("id") if isinstance(d0, dict) else d0)
+
+    if existing and driver_key:
+        return canonical_direction_for_driver(driver_key, existing)
+    if existing:
+        return existing
+
+    raw_dir = _s(ctx, "direction").lower()
+    hint = raw_dir if raw_dir in _DRIVER_MOVE_ALIASES else ""
+    if not hint:
+        hint = _infer_driver_direction(ctx, articles or [])
+    if not hint:
+        for dr in drivers:
+            if isinstance(dr, dict):
+                move = str(dr.get("direction") or "").strip().lower()
+            else:
+                move = ""
+            if move in _DRIVER_MOVE_ALIASES:
+                hint = move
+                break
+    if driver_key and hint:
+        return canonical_direction_for_driver(driver_key, hint)
+    return hint
+
+
+def infer_exposure_direction(ctx: dict[str, Any]) -> str:
+    """Which sector side to rank funds for: positive, negative, or any."""
+    from news_rag.insight.brief import _NEGATIVE_RE, _POSITIVE_RE
+
+    asked = _s(ctx, "direction").lower()
+    if asked in ("positive", "negative"):
+        return asked
+    q = _s(ctx, "question")
+    if _NEGATIVE_RE.search(q):
+        return "negative"
+    if _POSITIVE_RE.search(q):
+        return "positive"
+    return "any"
 
 
 def _merge_sector_picks(
@@ -388,6 +455,12 @@ def run_driver_affected_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         key=lambda r: -float(r.get("sector_weight_pct") or 0),
     )
     cap = int(ctx.get("top_n") or 6)
+    rw = _s(ctx, "return_window") or "1M"
+    if ctx.get("require_positive_1y"):
+        from news_rag.tools import _window_field, normalize_return_window
+
+        field = _window_field(normalize_return_window(rw))
+        ranked = [r for r in ranked if r.get(field) is not None and float(r[field]) > 0]
     return {
         "ok": bool(ranked),
         "error": "" if ranked else "no_funds_in_affected_sectors",
@@ -395,6 +468,7 @@ def run_driver_affected_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
             "rankings": ranked[:cap],
             "sectors": [p["name"] for p in chosen],
             "sector_picks": chosen,
+            "return_window": rw,
         },
     }
 

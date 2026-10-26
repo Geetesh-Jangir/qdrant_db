@@ -1,21 +1,24 @@
-"""Plan-driven node graph for the ask pipeline.
+"""Bounded Two-Wave Orchestration Graph for Ask-a-Question.
 
-        plan ──► resolve ──► fetch ──► measure ──► compose ──► END
-          │          │                                  ▲
-          └─► reply ◄┘  (out of scope, clarification, nothing to look up)
+        route ──► resolve ──► wave1 ──► bridge ──► wave2 ──► evidence_gate ──► compose ──► END
+          │          │                    │                     ▲                 ▲
+          └─► reply ◄┘                    └──────(skip)─────────┘                 │
+                                                                 (DATA_ONLY fast) ┘
 
-Each node does one job and returns the NAME of the next node, so the route changes with the plan:
-a NAV lookup skips news and analysis, a "why did it fall" question adds holding attribution, an
-out-of-scope question ends after one call. Adding a node (for example an analyst) is one function
-and one entry in NODES.
-
-Only two nodes call a model: `plan` (small fast model, decides everything) and `compose` (writes
-the answer). Everything else is code.
+- Route: Slot router (deterministic, no LLM) or Planner LLM (six consolidated capabilities).
+- Resolve: Canonical entity matching against fund and sector indexes without inventing IDs.
+- Wave 1: Parallel capability execution bounded by deadline.
+- Bridge: Strictly deterministic inspection of Wave 1 metrics; triggers Wave 2 if warranted.
+- Wave 2: At most 1 (max 2) targeted news/screen capability calls.
+- Evidence Gate: Joins metrics and news per canonical entity with token budgeting.
+- Compose: Fast deterministic Markdown template for DATA_ONLY (<500ms), or LLM compose
+           with numeric grounding and selective quality judge.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 import time
 from dataclasses import dataclass, field
@@ -23,14 +26,34 @@ from typing import Any, Callable
 
 from news_rag.article_pool import sources_from_articles
 from news_rag.config import get_settings
-from news_rag.insight.brief import QuestionBrief
-from news_rag.insight.data_pack import build_data_pack, missing_items, select_news
-from news_rag.insight.fund_why import enrich_named_fund_why
-from news_rag.insight.gather import EvidenceSet, GatherContext, gather_evidence
-from news_rag.insight.plan import Plan, make_plan, plan_to_brief, tools_to_facets
-from news_rag.llm_client import call_insight_llm, composer_model, llm_api_key_configured
-from news_rag.query_log import QueryLogger
 from news_rag.guardrails import ADVICE_NOTE
+from news_rag.insight.bridge import evaluate_wave2
+from news_rag.insight.capabilities import execute_wave
+from news_rag.insight.contracts import (
+    AnswerMode,
+    EvidencePack,
+    ExecutionPlan,
+    QueryClass,
+    RequestTelemetry,
+    ScopeKind,
+)
+from news_rag.insight.evidence_pack import (
+    build_evidence_pack,
+    render_data_only_template,
+)
+from news_rag.insight.grounding import cores_in_text, strip_media_attribution, strip_ungrounded_numbers
+from news_rag.insight.plan import make_plan, plan_to_brief
+from news_rag.insight.slot_router import slot_route
+from news_rag.llm_client import (
+    call_insight_llm,
+    composer_model,
+    llm_api_key_configured,
+)
+from news_rag.output_judge import judge_answer
+from news_rag.prompts import COMPOSER_MARKDOWN_LAYOUT, FINANCIAL_SYSTEM_BASE
+from news_rag.query_log import QueryLogger
+
+logger = logging.getLogger(__name__)
 
 DISCLAIMER = "*For context only — not investment advice.*"
 DEFAULT_OUT_OF_SCOPE = (
@@ -41,7 +64,7 @@ DEFAULT_OUT_OF_SCOPE = (
 
 
 class GraphUnavailable(Exception):
-    """The planner could not run; the caller should use the older pipeline."""
+    """Planner or routing failed completely."""
 
 
 @dataclass
@@ -54,24 +77,30 @@ class GraphState:
     direction: str | None = None
     query_log: QueryLogger | None = None
     prior_context: dict[str, Any] | None = None
+    telemetry: RequestTelemetry | None = None
 
-    plan: Plan | None = None
-    brief: QuestionBrief | None = None
-    evidence: EvidenceSet = field(default_factory=EvidenceSet)
+    start_time: float = field(default_factory=time.time)
+    deadline_ms: float = 20000.0
+
+    plan: ExecutionPlan | None = None
     resolved_funds: list[str] = field(default_factory=list)
     unresolved_funds: list[str] = field(default_factory=list)
-    data_pack: dict[str, Any] = field(default_factory=dict)
-    news: list[dict[str, Any]] = field(default_factory=list)
-    news_grouped: dict[str, Any] = field(default_factory=dict)
-    coverage: dict[str, Any] = field(default_factory=dict)
-    layer_results: list[dict[str, Any]] = field(default_factory=list)
-    targets: list[Any] = field(default_factory=list)
-    missing: list[str] = field(default_factory=list)
+    sector_keys: list[str] = field(default_factory=list)
+
+    wave1_results: list[dict[str, Any]] = field(default_factory=list)
+    wave2_results: list[dict[str, Any]] = field(default_factory=list)
+    evidence_pack: EvidencePack | None = None
+
     answer: str = ""
     reply_kind: str = "answer"  # answer | out_of_scope | clarify | not_found
     pipeline_errors: list[dict[str, str]] = field(default_factory=list)
     route_reason: str = ""
     trace: list[dict[str, Any]] = field(default_factory=list)
+    judge_result: dict[str, Any] = field(default_factory=dict)
+
+    def remaining_deadline_ms(self) -> float:
+        elapsed = (time.time() - self.start_time) * 1000.0
+        return max(0.0, self.deadline_ms - elapsed)
 
 
 NodeFn = Callable[[GraphState], "str | None"]
@@ -81,42 +110,78 @@ NodeFn = Callable[[GraphState], "str | None"]
 class Node:
     name: str
     run: NodeFn
-    on_error: str | None = "compose"  # where to go if the node raises; None re-raises
+    on_error: str | None = "evidence_gate"
     uses_llm: bool = False
 
 
 # ---------------------------------------------------------------------------
-# Nodes
+# Node Implementations
 # ---------------------------------------------------------------------------
 
+def node_route(state: GraphState) -> str | None:
+    """Intake & routing: Fast-path slot router or single structured planner LLM."""
+    settings = get_settings()
+    threshold = float(getattr(settings, "slot_router_confidence", 0.8))
 
-def node_plan(state: GraphState) -> str | None:
-    plan = make_plan(state.question, prior_context=state.prior_context, query_log=state.query_log)
-    if plan is None:
-        raise GraphUnavailable("planner returned nothing")
-    state.plan = plan
-    if plan.scope_kind == "out_of_scope":
+    # 1. Try deterministic slot router
+    plan = slot_route(state.question, confidence_threshold=threshold)
+    if plan is not None and plan.confidence >= threshold:
+        state.plan = plan
+        state.route_reason = f"slot_router fast-path (confidence={plan.confidence:.2f})"
+        if state.query_log is not None:
+            state.query_log.write(f"ROUTER choice=slot_router confidence={plan.confidence:.2f}")
+    else:
+        # 2. Structured Planner LLM
+        plan = make_plan(
+            state.question,
+            prior_context=state.prior_context,
+            query_log=state.query_log,
+            telemetry=state.telemetry,
+        )
+        if plan is None:
+            raise GraphUnavailable("Planner returned no plan")
+        state.plan = plan
+        state.route_reason = f"planner LLM ({len(plan.tool_calls)} tools planned)"
+        if state.query_log is not None:
+            state.query_log.write(f"ROUTER choice=planner tools={len(plan.tool_calls)}")
+
+    # Set deadline budget based on query class
+    if plan.query_class == QueryClass.SIMPLE:
+        state.deadline_ms = float(getattr(settings, "request_deadline_simple_ms", 20000))
+    elif plan.query_class == QueryClass.COMPLEX:
+        state.deadline_ms = float(getattr(settings, "request_deadline_complex_ms", 60000))
+    else:
+        state.deadline_ms = float(getattr(settings, "request_deadline_standard_ms", 40000))
+
+    if state.telemetry is not None:
+        state.telemetry.routed_by = plan.routed_by
+        state.telemetry.answer_mode = plan.answer_mode.value
+
+    # Handle immediate replies
+    if plan.scope_kind == ScopeKind.OUT_OF_SCOPE:
         state.reply_kind = "out_of_scope"
         state.answer = plan.direct_reply or DEFAULT_OUT_OF_SCOPE
-        state.route_reason = "planner marked the question out of scope"
+        state.route_reason = "out of scope"
         return "reply"
-    if plan.scope_kind == "needs_clarification":
+
+    if plan.scope_kind == ScopeKind.NEEDS_CLARIFICATION:
         state.reply_kind = "clarify"
-        state.answer = plan.clarification_question or plan.direct_reply or (
+        state.answer = plan.direct_reply or (
             "Could you tell me a little more about what you would like to know?"
         )
-        state.route_reason = "planner needs one more detail from the user"
+        state.route_reason = "clarification needed"
         return "reply"
-    state.route_reason = f"{len(plan.tool_calls)} tool(s) planned"
+
     return "resolve"
 
 
-def _resolve_funds(plan: Plan, state: GraphState) -> tuple[list[str], list[str]]:
+def _resolve_funds(plan: ExecutionPlan) -> tuple[list[str], list[str]]:
     from news_rag.fund_search import get_fund_index
 
     idx = get_fund_index()
     resolved: list[str] = []
     unresolved: list[str] = []
+
     for name in plan.funds:
         detail, _ambiguous, _close = idx.lookup_extracted_fund(name=name)
         if not detail:
@@ -128,237 +193,209 @@ def _resolve_funds(plan: Plan, state: GraphState) -> tuple[list[str], list[str]]
             unresolved.append(name)
 
     if plan.random_fund_count > 0:
-        from news_rag.fund_search import lookup_extracted_fund
-
-        # Draw extra candidates once and keep the first ones that have holdings data.
         want = plan.random_fund_count
         candidates = idx.sample_fund_names(want * 3, name_contains=plan.random_fund_name_contains)
-        picked: list[str] = []
         for name in candidates:
-            try:
-                complete = bool((lookup_extracted_fund(name=name)[0] or {}).get("sectors"))
-            except Exception:  # noqa: BLE001
-                complete = False
-            if complete:
-                picked.append(name)
-            if len(picked) >= want:
-                break
-        if len(picked) < want:
-            picked += [n for n in candidates if n not in picked][: want - len(picked)]
-        for name in picked:
             if name not in resolved:
                 resolved.append(name)
+            if len(resolved) >= want:
+                break
+
     return list(dict.fromkeys(resolved)), unresolved
 
 
 def node_resolve(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
-    funds, unresolved = _resolve_funds(plan, state)
+
+    funds, unresolved = _resolve_funds(plan)
+    state.resolved_funds = funds
+    state.unresolved_funds = unresolved
+
     sector_keys: list[str] = []
     if plan.sectors:
         from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
-
         sector_keys = get_sector_fund_ranking_index().resolve_sector_keys(plan.sectors)
-    state.resolved_funds = funds
-    state.unresolved_funds = unresolved
-    state.brief = plan_to_brief(plan, sector_keys=sector_keys, funds=funds)
+    state.sector_keys = sector_keys
 
+    # Missing fund check
     wanted_funds = bool(plan.funds) or plan.random_fund_count > 0
-    if wanted_funds and not funds:
+    if wanted_funds and not funds and not plan.sectors and not plan.stocks and not plan.drivers:
         state.reply_kind = "not_found"
         names = ", ".join(plan.funds) or "that fund"
         state.answer = (
-            f"I couldn't find a fund matching {names}. "
+            f"I couldn't find a mutual fund matching {names}. "
             "Please share the full scheme name (for example the AMC and plan) and I'll look it up."
         )
-        state.route_reason = "no requested fund could be matched"
+        state.route_reason = "fund not found"
         return "reply"
-    if not plan.layer1 and not plan.tool_calls:
+
+    if not plan.tool_calls:
         state.route_reason = "no tools needed"
         return "compose"
-    state.route_reason = (
-        f"funds={len(funds)} unresolved={len(unresolved)} sectors={len(sector_keys)}"
-    )
-    return "layer1"
+
+    state.route_reason = f"funds={len(funds)} sectors={len(sector_keys)}"
+    return "wave1"
 
 
-def _pack_data(results: list[dict[str, Any]]) -> dict[str, Any]:
-    """Layer-1 rows grouped by fund when a fund is set, otherwise by tool."""
-    funds: dict[str, dict[str, Any]] = {}
-    tools: dict[str, Any] = {}
-    for row in results:
-        if not row.get("ok"):
-            continue
-        body = {k: v for k, v in (row.get("data") or {}).items() if k not in ("isin", "url") and not str(k).startswith("_")}
-        fund = str(row.get("fund") or body.get("fund_name") or "")
-        if fund:
-            funds.setdefault(fund, {})[row["tool"]] = body
-        else:
-            tools[row["tool"]] = body
-    pack: dict[str, Any] = {}
-    if funds:
-        pack["funds"] = funds
-    pack.update(tools)
-    return pack
-
-
-def node_layer1(state: GraphState) -> str | None:
-    from news_rag.insight.layers import _retry_failed, run_layer1
-
-    plan, brief = state.plan, state.brief
-    assert plan is not None and brief is not None
-    if not plan.layer1 and plan.tool_calls:
-        plan.layer1 = [
-            {"tool": call["tool"], "args": {}, "required": True, "why": call.get("why", "")}
-            for call in plan.tool_calls
-        ]
-    results = run_layer1(
-        plan, state.question, state.resolved_funds, list(brief.sector_keys), query_log=state.query_log
-    )
-    state.layer_results = _retry_failed(
-        plan, results, state.question, state.resolved_funds, list(brief.sector_keys)
-    )
-    state.data_pack = _pack_data(state.layer_results)
-    slow = max(state.layer_results, key=lambda r: float(r.get("elapsed_ms") or 0), default=None)
-    state.route_reason = (
-        f"tools={len(state.layer_results)} ok={sum(1 for r in state.layer_results if r.get('ok'))} "
-        f"slowest={(slow or {}).get('tool', '')}:{round(float((slow or {}).get('elapsed_ms') or 0) / 1000, 2)}s"
-    )
-    return "expand" if plan.layer2_news else "check"
-
-
-def node_expand(state: GraphState) -> str | None:
-    from news_rag.insight.layers import expand_targets
-
+def node_wave1(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
-    state.targets = expand_targets(plan, state.layer_results)
-    state.route_reason = f"targets={len(state.targets)}"
-    return "layer2" if state.targets else "check"
+
+    calls = plan.wave1_calls
+    if not calls:
+        state.route_reason = "no Wave 1 calls"
+        return "bridge" if plan.answer_mode != AnswerMode.DATA_ONLY else "evidence_gate"
+
+    context = {
+        "question": state.question,
+        "fund_names": state.resolved_funds,
+        "sector_name": state.sector_keys[0] if state.sector_keys else (plan.sectors[0] if plan.sectors else ""),
+        "sector_keys": state.sector_keys,
+        "stock_name": plan.stocks[0] if plan.stocks else "",
+        "drivers": [d["id"] for d in plan.drivers],
+        "driver_direction": next((d.get("direction") or "" for d in plan.drivers if d.get("direction")), ""),
+        "window_days": plan.window_days,
+        "direction": "any",
+        "top_n": 5,
+    }
+
+    deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 5000.0, 25000.0))
+    t0 = time.time()
+    results = execute_wave(
+        calls,
+        context,
+        fund_names=state.resolved_funds,
+        telemetry=state.telemetry,
+        deadline_ms=deadline_ms,
+        query_log=state.query_log,
+    )
+    elapsed_ms = (time.time() - t0) * 1000.0
+
+    state.wave1_results = results
+
+    # Record telemetry
+    if state.telemetry is not None:
+        for r in results:
+            state.telemetry.add_tool(
+                tool=r.get("tool", ""),
+                wave=1,
+                ok=bool(r.get("ok")),
+                duration_ms=float(r.get("elapsed_ms") or 0.0),
+                error=str(r.get("error") or ""),
+                fund=str(r.get("fund") or ""),
+            )
+
+    ok_count = sum(1 for r in results if r.get("ok"))
+    state.route_reason = f"wave1: {ok_count}/{len(results)} ok ({elapsed_ms:.1f}ms)"
+
+    if plan.answer_mode == AnswerMode.DATA_ONLY:
+        return "evidence_gate"
+
+    return "bridge"
 
 
-def node_layer2(state: GraphState) -> str | None:
-    from news_rag.insight.news_fanout import grouped_news, search_targets
-
-    market_targets = sum(1 for t in state.targets if t.scope == "market")
-    if state.query_log is not None and market_targets:
-        state.query_log.write(
-            f"MARKET_NEWS parallel_targets={market_targets} "
-            f"(batched embed + Qdrant per time window)"
-        )
-    search_targets(state.targets)
-    state.news_grouped = grouped_news(state.targets)
-    filled = sum(1 for t in state.targets if t.articles)
-    articles = sum(len(t.articles) for t in state.targets)
-    state.route_reason = f"targets={len(state.targets)} with_news={filled} articles={articles}"
-    return "check"
-
-
-def node_check(state: GraphState) -> str | None:
-    from news_rag.insight.layers import coverage_report, widen_thin
-
+def node_bridge(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
-    widened = widen_thin(state.targets) if state.targets else []
-    if widened:
-        from news_rag.insight.news_fanout import grouped_news
 
-        state.news_grouped = grouped_news(state.targets)
-    state.coverage = coverage_report(plan, state.layer_results, state.targets, widened)
+    remaining_ms = state.remaining_deadline_ms()
+    wave2_calls = evaluate_wave2(
+        plan,
+        state.wave1_results,
+        deadline_remaining_ms=remaining_ms,
+    )
+
+    if wave2_calls and remaining_ms >= 2000.0:
+        state.route_reason = f"bridge triggered {len(wave2_calls)} Wave 2 call(s)"
+        state.plan.tool_calls.extend([c for c in wave2_calls if c not in state.plan.tool_calls])
+        return "wave2"
+
+    state.route_reason = "bridge: skipping Wave 2"
+    return "evidence_gate"
+
+
+def node_wave2(state: GraphState) -> str | None:
+    plan = state.plan
+    assert plan is not None
+
+    calls = plan.wave2_calls
+    if not calls:
+        state.route_reason = "no Wave 2 calls"
+        return "evidence_gate"
+
+    context = {
+        "question": state.question,
+        "fund_names": state.resolved_funds,
+        "sector_name": state.sector_keys[0] if state.sector_keys else "",
+        "sector_keys": state.sector_keys,
+        "window_days": min(plan.window_days, 30),
+        "direction": "any",
+        "top_n": 3,
+    }
+
+    deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 4000.0, 25000.0))
+    t0 = time.time()
+    results = execute_wave(
+        calls,
+        context,
+        fund_names=state.resolved_funds,
+        telemetry=state.telemetry,
+        deadline_ms=deadline_ms,
+        query_log=state.query_log,
+    )
+    elapsed_ms = (time.time() - t0) * 1000.0
+
+    state.wave2_results = results
+
+    if state.telemetry is not None:
+        for r in results:
+            state.telemetry.add_tool(
+                tool=r.get("tool", ""),
+                wave=2,
+                ok=bool(r.get("ok")),
+                duration_ms=float(r.get("elapsed_ms") or 0.0),
+                error=str(r.get("error") or ""),
+            )
+
+    ok_count = sum(1 for r in results if r.get("ok"))
+    state.route_reason = f"wave2: {ok_count}/{len(results)} ok ({elapsed_ms:.1f}ms)"
+    return "evidence_gate"
+
+
+def node_evidence_gate(state: GraphState) -> str | None:
+    plan = state.plan
+    assert plan is not None
+
+    pack = build_evidence_pack(
+        plan,
+        state.wave1_results,
+        state.wave2_results,
+        token_budget=10000,
+    )
+    state.evidence_pack = pack
     state.route_reason = (
-        f"missing_tools={len(state.coverage['missing_tools'])} "
-        f"thin_news={len(state.coverage['news_without_articles'])} widened={len(widened)}"
+        f"pack: {len(pack.rows)} entity rows, news={bool(pack.news_grouped)}, "
+        f"missing={len(pack.missing)}"
     )
     return "compose"
 
 
-COMPOSE_SYSTEM = """You write answers for everyday investors in India. You get the question, what the user wants, measured DATA, and sometimes NEWS. The answer should be useful: a person should understand what happened and why.
+COMPOSE_SYSTEM = f"""{FINANCIAL_SYSTEM_BASE}
 
-HOW TO WRITE
-- Lead with the answer in the first sentence, using a number from DATA (the fund return, the NAV, or the price). Then explain why, then what it means for someone holding the fund.
-- When NEWS is present, that explanation is the body of the answer. Do not stop after the factsheet. Use the substance of the articles in your own words: what happened, to which company or sector, and how that lines up with a number already in DATA (a weight, a return, or a contribution).
-- When NEWS is grouped under market with several theme labels, give a short market read: lead with index moves from DATA, then the two or three themes that matter most, each tied to a headline theme (rates, flows, crude, earnings, banks, global risk, etc.).
-- Order the explanation as macro, then sector, then holding, then the fund. Each part gets one or two sentences tied to a figure. A contribution row in DATA is the link between a stock's move and the fund.
-- Shape: a short opening, then markdown sections with ## headings (How it has done, Why, What it means). Put top holdings or sectors in a small markdown table when DATA has them. A lookup with no NEWS stays a short direct answer.
-- Use plain, simple words and short sentences. Explain any finance term in a few words the first time.
-- Compare funds only when asked.
-- Leave out anything that is not available. Mention a gap only when the user asked for that exact thing.
-- Finish every sentence and every row. Use the word budget. When NEWS is present, spend it on the explanation, not on repeating the NAV.
+ROLE: COMPOSER (user-facing markdown only)
+You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words), and EVIDENCE (metrics + optional news).
 
-NUMBERS
-- Copy numbers from DATA or NEWS exactly as written. Do not calculate, estimate, average, add, subtract, convert or round a new figure. If fund_attribution already gives a contribution, quote that figure. If a needed figure is absent, describe the link in words and leave the new number out.
-- Say which period a return covers whenever you give one.
+CORE RULES:
+1. Lead with the direct answer in the first sentence; bold key figures from EVIDENCE only.
+2. INSIGHT_FUSION: connect measured moves -> drivers -> mechanism -> what it means for what they asked (fund, sector, macro).
+3. Honor WHAT THE USER WANTS.style when set: short_answer (1-2 paragraphs), bullets (list-heavy), table (metric/compare tables), sections (mixed sections + bullets/tables as needed).
+4. Ground every number in EVIDENCE. Simple arithmetic on those numbers is allowed; label approximations.
+5. Never mention internal terms: DATA, NEWS, EVIDENCE, tool, pipeline, JSON, articles retrieved.
+6. If a figure is missing, say so in one sentence — do not invent.
 
-NEVER
-- Mention DATA, NEWS, MISSING, the plan, tools, systems, IDs, or how the information was collected. Never write phrases like "the data I have", "in the data", "not provided" or "the news provided". Say "I couldn't find" instead. Never ask the user for data.
-- Name news outlets or give article dates.
-- Give buy, sell or hold advice, price targets, or predictions stated as fact. If the user asked for advice, say you cannot recommend, then share what the data shows.
-- Invent funds, companies, sectors or figures that are not in DATA or NEWS.
-- Guess. COVERAGE lists tools that failed, entities with no recent news, and things we do not track (such as expense ratio). Mention each gap in one plain sentence and do not suggest other websites.
-
-End with this exact last line: *For context only — not investment advice.*"""
-
-
-def _public_news(grouped: dict[str, Any], *, budget: int = 24000) -> dict[str, Any]:
-    """Drop urls and share the character budget across entities."""
-    flat: list[tuple[str, str, dict[str, Any]]] = []
-    for scope, entities in (grouped or {}).items():
-        if not isinstance(entities, dict):
-            continue
-        for entity, rows in entities.items():
-            for row in rows or []:
-                if isinstance(row, dict):
-                    flat.append((scope, entity, row))
-    if not flat:
-        return {}
-    each = max(180, budget // len(flat))
-    out: dict[str, dict[str, list[dict[str, str]]]] = {}
-    for scope, entity, row in flat:
-        text = str(row.get("text") or "")[:each]
-        out.setdefault(scope, {}).setdefault(entity, []).append(
-            {"headline": str(row.get("headline") or ""), "text": text}
-        )
-    return out
-
-
-def compose_user_content(state: GraphState) -> str:
-    plan = state.plan
-    assert plan is not None
-    wants = {
-        "goal": plan.goal,
-        "parts_to_answer": [s["text"] for s in plan.sub_queries],
-        "time_frame": plan.window_label,
-        "style": plan.style,
-        "max_words": plan.max_words,
-        "lead_with": plan.lead_with,
-        "format_notes": plan.presentation_notes,
-        "user_asked_for_advice": plan.asks_for_advice,
-    }
-    has_news = bool(state.news_grouped)
-    if has_news:
-        wants["max_words"] = max(int(plan.max_words or 0), 480)
-        wants["must_explain"] = "Use the NEWS to explain the DATA numbers. Do not stop at NAV and returns."
-    wants = {k: v for k, v in wants.items() if v not in ("", [], None, False)}
-    parts = [
-        "QUESTION:\n" + state.question.strip(),
-        "WHAT THE USER WANTS:\n" + json.dumps(wants, ensure_ascii=False, separators=(",", ":")),
-        "DATA:\n"
-        + (
-            json.dumps(state.data_pack, ensure_ascii=False, separators=(",", ":"))
-            if state.data_pack
-            else "none"
-        ),
-    ]
-    news = _public_news(state.news_grouped)
-    if news:
-        parts.append("NEWS:\n" + json.dumps(news, ensure_ascii=False, separators=(",", ":")))
-    coverage = dict(state.coverage or {})
-    if state.unresolved_funds:
-        coverage["funds_not_found"] = list(state.unresolved_funds)
-    if any(coverage.get(k) for k in ("missing_tools", "news_without_articles", "not_supported", "funds_not_found")):
-        parts.append("COVERAGE:\n" + json.dumps(coverage, ensure_ascii=False, separators=(",", ":")))
-    return "\n\n".join(parts)
+{COMPOSER_MARKDOWN_LAYOUT}
+"""
 
 
 def _clean_answer(text: str) -> str:
@@ -368,77 +405,174 @@ def _clean_answer(text: str) -> str:
     return text
 
 
+def compose_user_content(state: GraphState) -> str:
+    """Format prompt payload for composer."""
+    plan = state.plan
+    wants = {
+        "goal": plan.goal if plan else "",
+        "answer_mode": plan.answer_mode.value if plan else "DATA_ONLY",
+        "style": plan.response_shape if plan else "sections",
+        "max_words": plan.max_words if plan else 220,
+        "lead_with": plan.lead_with if plan else "",
+        "asks_for_advice": plan.asks_for_advice if plan else False,
+    }
+    pack = state.evidence_pack
+    evidence_dict = pack.compact() if pack else {}
+    return (
+        f"QUESTION:\n{state.question.strip()}\n\n"
+        f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
+        f"EVIDENCE:\n{json.dumps(evidence_dict, ensure_ascii=False)}"
+    )
+
+
 def node_compose(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
+    pack = state.evidence_pack
+
+    # Fast Path: Check for DATA_ONLY Template
+    if plan.answer_mode == AnswerMode.DATA_ONLY and pack is not None:
+        template_answer = render_data_only_template(pack, plan)
+        if template_answer:
+            state.answer = _clean_answer(template_answer)
+            state.route_reason = "DATA_ONLY direct template (<10ms)"
+            return None
+
+    # LLM Composition
     settings = get_settings()
     if not llm_api_key_configured(settings):
-        raise GraphUnavailable("no llm key for compose")
-    user = compose_user_content(state)
-    word_budget = plan.max_words
-    if state.news_grouped:
-        word_budget = max(word_budget, 480)
-    max_tokens = max(1200, min(4500, int(word_budget * 5)))
+        # Fallback to deterministic partial if no key configured
+        if pack:
+            state.answer = _clean_answer("Here is the requested information:\n\n" + json.dumps(pack.data_pack, indent=2))
+            return None
+        raise GraphUnavailable("No LLM key configured for composer")
+
+    evidence_dict = pack.compact() if pack else {}
+    evidence_text = json.dumps(evidence_dict, ensure_ascii=False)
+
+    wants = {
+        "goal": plan.goal,
+        "answer_mode": plan.answer_mode.value,
+        "style": plan.response_shape,
+        "max_words": plan.max_words,
+        "lead_with": plan.lead_with,
+        "asks_for_advice": plan.asks_for_advice,
+    }
+
+    user_content = (
+        f"QUESTION:\n{state.question.strip()}\n\n"
+        f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
+        f"EVIDENCE:\n{evidence_text}"
+    )
+
+    max_tokens = max(500, min(2500, plan.max_words * 4))
+    t0 = time.time()
     res = call_insight_llm(
         system_prompt=COMPOSE_SYSTEM,
-        user_content=user,
+        user_content=user_content,
         query_log=state.query_log,
         model_override=composer_model(settings),
         max_tokens=max_tokens,
         temperature=0.2,
         stage="composer",
     )
-    text = (res.raw_text or "").strip() if res else ""
-    if len(text) < 20:
-        state.pipeline_errors.append({"stage": "compose", "tool": "", "message": "empty answer"})
-        raise RuntimeError("composer returned no text")
-    state.answer = _clean_answer(text)
-    state.route_reason = f"chars={len(state.answer)}"
+    elapsed_ms = (time.time() - t0) * 1000.0
+
+    if state.telemetry is not None and res is not None:
+        state.telemetry.add_llm_usage(
+            stage="compose",
+            provider=res.provider,
+            model=res.model,
+            input_tokens=res.input_tokens,
+            output_tokens=res.output_tokens,
+            cached_input_tokens=getattr(res, "cached_tokens", 0),
+            total_ms=round(elapsed_ms, 1),
+            usage_source="api",
+        )
+
+    raw_text = (res.raw_text or "").strip() if res else ""
+    if not raw_text:
+        state.pipeline_errors.append({"stage": "compose", "tool": "", "message": "empty response"})
+        # Fallback: render whatever structured data we have
+        if pack and pack.data_pack:
+            state.answer = _clean_answer(json.dumps(pack.data_pack))
+            return None
+        raise RuntimeError("Composer LLM produced empty text")
+
+    # Numeric Grounding check
+    allowed_numbers = cores_in_text(evidence_text)
+    grounded_text = strip_ungrounded_numbers(raw_text, allowed_numbers)
+    polished_text = strip_media_attribution(grounded_text)
+    state.answer = _clean_answer(polished_text)
+
+    # Selective Judge for INSIGHT_FUSION
+    if plan.answer_mode == AnswerMode.INSIGHT_FUSION and getattr(settings, "insight_verify_retry", True):
+        try:
+            judge_res = judge_answer(
+                state.question,
+                state.answer,
+                evidence_text[:4000],
+                query_log=state.query_log,
+                telemetry=state.telemetry,
+            )
+            state.judge_result = {"passed": judge_res.passed, "scores": judge_res.scores}
+            if state.telemetry:
+                state.telemetry.quality_state = "passed" if judge_res.passed else "failed"
+        except Exception as exc:
+            logger.warning("Judge execution error: %s", exc)
+
+    state.route_reason = f"composed ({elapsed_ms:.1f}ms, chars={len(state.answer)})"
     return None
 
 
 def node_reply(state: GraphState) -> str | None:
-    """Answers that need no data: out of scope, a question back to the user, nothing to look up."""
     state.route_reason = state.reply_kind
     return None
 
 
+# ---------------------------------------------------------------------------
+# Graph Definition
+# ---------------------------------------------------------------------------
+
 NODES: dict[str, Node] = {
-    "plan": Node("plan", node_plan, on_error=None, uses_llm=True),
-    "resolve": Node("resolve", node_resolve, on_error="compose"),
-    "layer1": Node("layer1", node_layer1, on_error="compose"),
-    "expand": Node("expand", node_expand, on_error="check"),
-    "layer2": Node("layer2", node_layer2, on_error="check"),
-    "check": Node("check", node_check, on_error="compose"),
+    "route": Node("route", node_route, on_error=None, uses_llm=True),
+    "resolve": Node("resolve", node_resolve, on_error="evidence_gate"),
+    "wave1": Node("wave1", node_wave1, on_error="bridge"),
+    "bridge": Node("bridge", node_bridge, on_error="evidence_gate"),
+    "wave2": Node("wave2", node_wave2, on_error="evidence_gate"),
+    "evidence_gate": Node("evidence_gate", node_evidence_gate, on_error="compose"),
     "compose": Node("compose", node_compose, on_error=None, uses_llm=True),
     "reply": Node("reply", node_reply, on_error=None),
 }
-ENTRY = "plan"
+ENTRY = "route"
 MAX_HOPS = 10
-
-
-# ---------------------------------------------------------------------------
-# Engine
-# ---------------------------------------------------------------------------
 
 
 def run_graph(state: GraphState) -> GraphState:
     log = state.query_log
     name: str | None = ENTRY
     hops = 0
+
     while name and hops < MAX_HOPS:
         hops += 1
-        node = NODES[name]
+        node = NODES.get(name)
+        if not node:
+            break
+
         if log is not None:
             log.log_pipeline(node.name, "start")
+        if state.telemetry is not None:
+            state.telemetry.start_phase(node.name)
+
         t0 = time.perf_counter()
         nxt: str | None
         error = ""
+
         try:
             nxt = node.run(state)
         except GraphUnavailable:
             raise
-        except Exception as exc:  # noqa: BLE001 - one node must not sink the answer
+        except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"[:240]
             state.pipeline_errors.append({"stage": node.name, "tool": "", "message": error})
             if node.on_error is None:
@@ -446,11 +580,17 @@ def run_graph(state: GraphState) -> GraphState:
                     log.log_pipeline(node.name, "error", seconds=round(time.perf_counter() - t0, 3), error=error)
                 raise
             nxt = node.on_error
-            state.route_reason = f"{node.name} failed, continuing"
+            state.route_reason = f"{node.name} error ({error}), routing to {nxt}"
+
         seconds = round(time.perf_counter() - t0, 3)
-        state.trace.append(
-            {"node": node.name, "seconds": seconds, "next": nxt, "why": state.route_reason, "error": error}
-        )
+        state.trace.append({
+            "node": node.name,
+            "seconds": seconds,
+            "next": nxt,
+            "why": state.route_reason,
+            "error": error,
+        })
+
         if log is not None:
             log.log_pipeline(
                 node.name,
@@ -460,69 +600,90 @@ def run_graph(state: GraphState) -> GraphState:
                 why=state.route_reason,
                 llm=node.uses_llm,
             )
+        if state.telemetry is not None:
+            state.telemetry.end_phase(node.name, duration_ms=round(seconds * 1000, 1))
+
         name = nxt
+
     return state
-
-
-# ---------------------------------------------------------------------------
-# Result
-# ---------------------------------------------------------------------------
 
 
 def build_result(state: GraphState) -> dict[str, Any]:
     plan = state.plan
-    brief = state.brief
-    evidence = state.evidence
-    shown = [
-        {"url": art.get("url"), "title": art.get("headline")}
-        for target in state.targets
-        for art in (target.articles or [])
-        if art.get("url")
-    ]
+    pack = state.evidence_pack
+
+    sources: list[dict[str, Any]] = []
+    if pack and pack.news_grouped:
+        for scope, articles in pack.news_grouped.items():
+            for art in articles:
+                if isinstance(art, dict):
+                    sources.append(art)
+
     insight = state.answer
-    refused = state.reply_kind == "out_of_scope"
+    refused = state.reply_kind in ("out_of_scope", "clarify")
     headline = next((ln.strip(" #*") for ln in insight.splitlines() if ln.strip()), insight[:120])
     terms = list(dict.fromkeys((state.resolved_funds + (plan.sectors if plan else []))))[:8]
+
+    tool_runs = [
+        {"tool": r.get("tool"), "ok": r.get("ok"), "elapsed_ms": r.get("elapsed_ms")}
+        for r in (state.wave1_results + state.wave2_results)
+    ]
+
     research = {
-        "pipeline": "graph",
+        "pipeline": "two_wave_graph",
         "goal": plan.goal if plan else "",
         "plan": plan.summary() if plan else {},
-        "evidence_needs": brief.evidence_needs if brief else [],
-        "ledger": [{"facet": e.facet, "status": e.status, "reason": e.reason} for e in evidence.ledger],
-        "verify_gaps": [],
-        "retry_facets": [],
-        "tool_runs": [
-            {"tool": row.get("tool"), "ok": row.get("ok"), "elapsed_ms": row.get("elapsed_ms"), "fund": row.get("fund")}
-            for row in state.layer_results
-        ] or evidence.tool_runs,
+        "tool_runs": tool_runs,
         "nodes": state.trace,
+        "judge": state.judge_result,
+        "remaining_deadline_ms": state.remaining_deadline_ms(),
     }
-    return {
+
+    fund_rankings: list[dict[str, Any]] = []
+    fund_return_window = ""
+    if pack and isinstance(pack.data_pack.get("screen"), dict):
+        scr = pack.data_pack["screen"]
+        fund_rankings = list(scr.get("rankings") or scr.get("funds") or [])[:20]
+        fund_return_window = str(scr.get("return_window") or "").strip().upper()
+
+    res = {
         "insight": insight,
+        "fund_rankings": fund_rankings,
+        "fund_return_window": fund_return_window,
         "insight_summary": headline,
         "insight_headline": headline,
         "insight_narrative": insight,
         "insight_closing_summary": "",
         "insight_bullets": [],
         "highlight_terms": terms,
-        "sources": sources_from_articles(shown),
+        "sources": sources_from_articles(sources),
         "retrieval_window": {
-            "window_days": plan.window_days if plan else None,
-            "window_label": plan.window_label if plan else "",
+            "window_days": plan.window_days if plan else 30,
+            "window_label": plan.window_label if plan else "1 month",
         },
-        "intent": "insight_v2",
-        "insight_source": "insight_graph",
+        "intent": plan.intent if plan else "lookup",
+        "insight_source": "insight_graph_v3",
         "outcome": "refused" if refused else ("ok" if insight.strip() else "no_data"),
         "refused": refused,
-        "sections": [{"id": "A1", "style": "unified_answer", "text": insight, "headline": headline}],
-        "sub_queries": [{"text": s["text"], "kind": "describe"} for s in (plan.sub_queries if plan else [])],
+        "sections": [{"id": "A1", "style": plan.response_shape if plan else "sections", "text": insight, "headline": headline}],
+        "sub_queries": plan.sub_queries if plan else [],
         "pipeline_errors": state.pipeline_errors,
-        "output_score": None,
-        "output_scores": {},
+        "output_score": state.judge_result.get("scores", {}).get("grounded"),
+        "output_scores": state.judge_result.get("scores", {}),
         "advice_note": ADVICE_NOTE,
         "research": research,
-        "answer_trace": {"mode": "graph", "route": [t["node"] for t in state.trace]},
+        "answer_trace": {"mode": "two_wave_graph", "route": [t["node"] for t in state.trace]},
     }
+
+    if state.telemetry:
+        state.telemetry.finalize()
+        res["telemetry"] = state.telemetry.to_sse_telemetry()
+        res["llm_input_tokens"] = state.telemetry.total_input_tokens
+        res["llm_output_tokens"] = state.telemetry.total_output_tokens
+        res["cached_input_tokens"] = state.telemetry.cached_input_tokens
+        res["llm_calls"] = len(state.telemetry.llm_usage)
+
+    return res
 
 
 def run_graph_pipeline(
@@ -535,8 +696,9 @@ def run_graph_pipeline(
     direction: str | None = None,
     query_log: QueryLogger | None = None,
     prior_context: dict[str, Any] | None = None,
+    telemetry: RequestTelemetry | None = None,
 ) -> dict[str, Any]:
-    """Run the graph. Raises GraphUnavailable when the caller should use the older pipeline."""
+    """Run the bounded two-wave graph pipeline."""
     state = GraphState(
         question=(question or "").strip(),
         date_from=date_from,
@@ -546,8 +708,153 @@ def run_graph_pipeline(
         direction=direction,
         query_log=query_log,
         prior_context=prior_context,
+        telemetry=telemetry,
     )
     if query_log is not None:
         query_log.log_pipeline("insight_graph", "start", nodes=",".join(NODES))
     run_graph(state)
     return build_result(state)
+
+
+async def stream_graph_pipeline(
+    question: str,
+    *,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_impact: int | None = None,
+    source: str | None = None,
+    direction: str | None = None,
+    query_log: QueryLogger | None = None,
+    prior_context: dict[str, Any] | None = None,
+) -> Any:
+    """Stream the bounded two-wave graph execution with granular SSE events."""
+    import asyncio
+    from news_rag.insight.telemetry import (
+        event_answer_completed,
+        event_answer_delta,
+        event_phase_completed,
+        event_phase_started,
+        event_quality_check,
+        event_request_failed,
+        event_request_started,
+        event_tool_completed,
+        event_tool_started,
+        new_telemetry,
+    )
+
+    telemetry = new_telemetry()
+    yield event_request_started(telemetry, question)
+    await asyncio.sleep(0)
+
+    state = GraphState(
+        question=(question or "").strip(),
+        date_from=date_from,
+        date_to=date_to,
+        min_impact=min_impact,
+        source=source,
+        direction=direction,
+        query_log=query_log,
+        prior_context=prior_context,
+        telemetry=telemetry,
+    )
+
+    try:
+        # Step-by-step streamed graph execution
+        name: str | None = ENTRY
+        hops = 0
+
+        while name and hops < MAX_HOPS:
+            hops += 1
+            node = NODES.get(name)
+            if not node:
+                break
+
+            yield event_phase_started(telemetry, node.name)
+            await asyncio.sleep(0)
+
+            # Emit tool_started events before waves
+            if node.name == "wave1" and state.plan:
+                for c in state.plan.wave1_calls:
+                    yield event_tool_started(telemetry, c.tool, wave=1)
+                    await asyncio.sleep(0)
+            elif node.name == "wave2" and state.plan:
+                for c in state.plan.wave2_calls:
+                    yield event_tool_started(telemetry, c.tool, wave=2)
+                    await asyncio.sleep(0)
+
+            t0 = time.perf_counter()
+            nxt: str | None = None
+            error = ""
+
+            try:
+                nxt = node.run(state)
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"[:240]
+                state.pipeline_errors.append({"stage": node.name, "tool": "", "message": error})
+                if node.on_error is None:
+                    yield event_request_failed(telemetry, error)
+                    raise
+                nxt = node.on_error
+                state.route_reason = f"{node.name} failed ({error}), advancing to {nxt}"
+
+            dur_ms = round((time.perf_counter() - t0) * 1000, 1)
+
+            # Emit tool_completed events after waves
+            if node.name == "wave1":
+                for r in state.wave1_results:
+                    yield event_tool_completed(
+                        telemetry,
+                        r.get("tool", ""),
+                        wave=1,
+                        ok=bool(r.get("ok")),
+                        duration_ms=float(r.get("elapsed_ms") or 0.0),
+                        fund=str(r.get("fund") or ""),
+                    )
+                    await asyncio.sleep(0)
+            elif node.name == "wave2":
+                for r in state.wave2_results:
+                    yield event_tool_completed(
+                        telemetry,
+                        r.get("tool", ""),
+                        wave=2,
+                        ok=bool(r.get("ok")),
+                        duration_ms=float(r.get("elapsed_ms") or 0.0),
+                    )
+                    await asyncio.sleep(0)
+
+            yield event_phase_completed(telemetry, node.name, duration_ms=dur_ms, why=state.route_reason)
+            await asyncio.sleep(0)
+
+            name = nxt
+
+        # Stream answer deltas
+        answer = state.answer or "No information found."
+        words = answer.split(" ")
+        chunk_size = 6
+        for i in range(0, len(words), chunk_size):
+            chunk = " ".join(words[i:i + chunk_size])
+            if i + chunk_size < len(words):
+                chunk += " "
+            yield event_answer_delta(telemetry, chunk)
+            await asyncio.sleep(0.01)
+
+        # Quality check event if judge was run
+        if state.judge_result:
+            yield event_quality_check(
+                telemetry,
+                state="passed" if state.judge_result.get("passed") else "failed",
+                scores=state.judge_result.get("scores", {}),
+            )
+            await asyncio.sleep(0)
+
+        # Final result
+        result = build_result(state)
+        if query_log is not None:
+            from news_rag.query_log import attach_query_log_meta
+            meta = query_log.finish_from_ask_result(result, question=question)
+            attach_query_log_meta(result, meta)
+
+        yield event_answer_completed(telemetry, answer, result)
+
+    except Exception as exc:
+        yield event_request_failed(telemetry, str(exc))
