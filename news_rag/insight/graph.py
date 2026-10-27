@@ -212,9 +212,14 @@ def node_route(state: GraphState) -> str | None:
     plan = state.plan
     if plan is None:
         raise GraphUnavailable("No execution plan after routing")
-    from news_rag.insight.multi_fact import ensure_compare_template, ensure_multi_fact_tools
+    from news_rag.insight.multi_fact import (
+        ensure_compare_template,
+        ensure_multi_fact_tools,
+        ensure_screen_facts,
+    )
 
     ensure_multi_fact_tools(state.question, plan)
+    ensure_screen_facts(state.question, plan)
     ensure_compare_template(plan)
 
     # Set deadline budget based on query class
@@ -338,7 +343,11 @@ def node_resolve(state: GraphState) -> str | None:
 
 def _maybe_enrich_picked_fund_from_screen(state: GraphState) -> None:
     """After screen (pick a fund + overview), fetch snapshot/portfolio for the top match."""
+    from news_rag.tools import asks_sector_overview
+
     q = (state.question or "").strip()
+    if asks_sector_overview(q):
+        return
     if not re.search(
         r"\b(?:about|overall|tell me about|how is|overview|profile)\b",
         q,
@@ -644,7 +653,7 @@ CORE RULES:
 2. **Returns in prose:** Compare a fund with its benchmark only when a benchmark return is present, and with the category average only when that average is present. If neither is present, do not write a comparison and do not say that the comparison is missing or cannot be stated. If only one side is present, compare only that side. Cite the exact gap in percentage points. Do not say "about" when the gap is computable. Do not fill a missing side with a hyphen or a guess. Do not write a returns bullet list or a "Returns (horizon labelled)" section; the returns table is appended for you. Do not say how much of the move is unexplained, or that named holdings fail to explain the fund's return. When PERFORMANCE or the snapshot includes expense_ratio, exit_load_summary, or aum_crore, state all three that are present: the expense ratio (regular unless the field is direct), the exit-load sentence, and AUM in crore with its as-on date. Do not mention a direct-plan expense ratio unless that is the field in the snapshot. Do not say these figures are unavailable when they are present.
 3. **Tables (server decides).** Read WHAT THE USER WANTS `tables_in_answer` and `tables_rationale`. Only those comparison blocks are appended after your text — do not hand-build `|` tables for fund returns or rankings. A small table is fine when EVIDENCE is empty and you are showing a calculation you did. If `tables_in_answer` is empty, skip vs-benchmark/category table talk unless the user explicitly asked for returns. Holdings: **weight %** and **holding return %** only (no per-stock pp). `holding_contribution_pp_internal` is for ranking only.
 4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
-5. **No news roundup.** Do not add `### Recent news`, `### What the news says`, or a list of article titles. A news fact belongs in the narrative only when it explains a measured move for a holding or sector already in the answer. One sentence is enough. Do not invent a cause.
+5. **No news roundup.** Do not add `### Recent news`, `### What the news says`, or a list of article titles. A news fact belongs in the narrative only when it explains a measured move for a holding or sector already in the answer. For a sector overview, use the reported facts from the articles to explain that sector's measured move, not one caveat sentence. When DATA includes `macro_news`, that block is already the short list for this question's window. Use those articles in the answer. Do not leave them out, and do not replace them with a backdrop that is not written in them. Do not invent a cause, and do not add a section that calls funds examples.
 6. **Numbers:** If EVIDENCE has measured figures, those figures must match EVIDENCE. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and calculations are yours to write, with the actual amounts. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
 7. **Horizon on every measured percent.** Each price or return row has `horizon` (1D, 1W, 1M, 3M, 6M, 1Y, or a day count such as 14D). WHAT THE USER WANTS also has `measured_window`. Write that code on the figure: Nifty **+0.7% (1W)**. If one figure is 1W and another is 1M, label both. Do not call a 1W or 1M change "the latest session", "today", or "right now".
 8. **No invented levels.** A macro row is a percent change, not a Brent price, a rupee level, or an Indian bond yield. Do not print a level the row does not contain, and do not leave a blank where a number should be. A level or a percent that appears only in a news summary is what that article reported, not the measured move.

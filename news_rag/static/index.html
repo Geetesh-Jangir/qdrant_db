@@ -1017,6 +1017,13 @@
       return sign + n.toFixed(2) + "%";
     }
 
+    function fmtWeight(v) {
+      if (v == null || v === "") return "—";
+      const n = Number(v);
+      if (Number.isNaN(n)) return "—";
+      return n.toFixed(2) + "%";
+    }
+
     function fmtNav(v) {
       if (v == null || v === "") return "—";
       const n = Number(v);
@@ -1036,7 +1043,7 @@
           if (/^(period|holding|sector|metric|stock|company|name)$/.test(first)) return block;
           const ranking =
             /fund/.test(first) &&
-            cells.some((c) => /\b(1w|1m|3m|6m|1y|2y|3y|5y|return)\b/.test(c));
+            cells.some((c) => /\b(1w|1m|3m|6m|1y|2y|3y|5y|return|weight|aum|category)\b/.test(c));
           return ranking ? "\n" : block;
         }
       ).replace(/\n{3,}/g, "\n\n").trim();
@@ -1053,12 +1060,17 @@
       ["1W", "return_1w_pct"],
     ];
 
+    function rowHasValue(row, field) {
+      if (!row) return false;
+      const value = row[field];
+      return value != null && value !== "";
+    }
+
     function fundReturnColumns(rows, highlightWindow) {
       const hw = (highlightWindow || "").toUpperCase();
-      return FUND_RETURN_COLS.filter(
-        ([label, field]) =>
-          label === hw || rows.some((r) => r && r[field] != null && r[field] !== "")
-      );
+      const complete = FUND_RETURN_COLS.filter(([, field]) => rows.every((r) => rowHasValue(r, field)));
+      if (!hw) return complete;
+      return complete.filter(([label]) => label === hw).concat(complete.filter(([label]) => label !== hw));
     }
 
     function hasFundManagersPayload(mgr) {
@@ -1183,21 +1195,43 @@
       container.innerHTML = "";
       const title = document.createElement("h3");
       const hw = (highlightWindow || "").toUpperCase();
-      title.textContent = hw
+      const retCols = fundReturnColumns(rows, hw);
+      const shownReturn = retCols.some(([label]) => label === hw);
+      title.textContent = shownReturn
         ? `Funds (measured returns · ${hw} focus)`
-        : "Funds (measured returns)";
+        : retCols.length
+          ? "Funds (measured returns)"
+          : "Funds";
       container.appendChild(title);
       const scroll = document.createElement("div");
       scroll.className = "fund-rankings-scroll";
       const table = document.createElement("table");
       table.className = "fund-rankings-table";
-      const hasExposure = rows.some((r) => r.affected_sector || r.sector_weight_pct != null);
-      const retCols = fundReturnColumns(rows, hw);
+      const hasExposure = rows.every((r) => rowHasValue(r, "sector_weight_pct"));
+      const showNav = rows.every((r) => rowHasValue(r, "latest_nav") || rowHasValue(r, "nav"));
+      const showAum = rows.every((r) => rowHasValue(r, "aum"));
+      const showExpense = rows.every((r) => rowHasValue(r, "expense_ratio"));
+      const showExit = rows.every((r) => rowHasValue(r, "exit_load_summary"));
+      const showManager = rows.every((r) => rowHasValue(r, "manager_name"));
+      const showExperience = rows.every((r) => rowHasValue(r, "manager_experience"));
+      const showBenchmark = rows.every((r) => rowHasValue(r, "benchmark"));
+      const showRisk = rows.every((r) => rowHasValue(r, "risk_label"));
+      const showInception = rows.every((r) => rowHasValue(r, "inception_date"));
       const thead = document.createElement("thead");
       const headTr = document.createElement("tr");
       const headers = hasExposure
-        ? ["Fund", "Category", "Sector", "Weight %", ...retCols.map(([l]) => l), "NAV"]
-        : ["Fund", "Category", ...retCols.map(([l]) => l), "NAV"];
+        ? ["Fund", "Category", "Sector", "Weight %"]
+        : ["Fund", "Category"];
+      headers.push(...retCols.map(([l]) => l));
+      if (showAum) headers.push("AUM (Rs crore)");
+      if (showExpense) headers.push("Expense ratio");
+      if (showExit) headers.push("Exit load");
+      if (showNav) headers.push("NAV");
+      if (showManager) headers.push("Fund manager");
+      if (showExperience) headers.push("Manager experience");
+      if (showBenchmark) headers.push("Benchmark");
+      if (showRisk) headers.push("Risk");
+      if (showInception) headers.push("Inception");
       for (const h of headers) {
         const th = document.createElement("th");
         th.textContent = h;
@@ -1217,20 +1251,26 @@
           ? [
               { text: row.fund_name || "—", cls: "fund-name" },
               { text: row.category || row.scheme_type || "—", cls: "" },
-              { text: row.affected_sector || "—", cls: "" },
+              { text: row.affected_sector || (row.matched_sectors && row.matched_sectors[0]) || "—", cls: "" },
               {
-                text: row.sector_weight_pct != null ? fmtPct(row.sector_weight_pct) : "—",
+                text: row.sector_weight_pct != null ? fmtWeight(row.sector_weight_pct) : "—",
                 cls: "num",
               },
-              ...retCells,
-              { text: fmtNav(row.latest_nav), cls: "num" },
             ]
           : [
               { text: row.fund_name || "—", cls: "fund-name" },
               { text: row.category || row.scheme_type || "—", cls: "" },
-              ...retCells,
-              { text: fmtNav(row.latest_nav), cls: "num" },
             ];
+        cells.push(...retCells);
+        if (showAum) cells.push({ text: row.aum != null ? Number(row.aum).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—", cls: "num" });
+        if (showExpense) cells.push({ text: row.expense_ratio != null ? Number(row.expense_ratio).toFixed(2) + "%" : "—", cls: "num" });
+        if (showExit) cells.push({ text: row.exit_load_summary || "—", cls: "" });
+        if (showNav) cells.push({ text: fmtNav(row.latest_nav != null ? row.latest_nav : row.nav), cls: "num" });
+        if (showManager) cells.push({ text: row.manager_name || "—", cls: "" });
+        if (showExperience) cells.push({ text: row.manager_experience || "—", cls: "" });
+        if (showBenchmark) cells.push({ text: row.benchmark || "—", cls: "" });
+        if (showRisk) cells.push({ text: row.risk_label || "—", cls: "" });
+        if (showInception) cells.push({ text: row.inception_date || "—", cls: "" });
         for (const cell of cells) {
           const td = document.createElement("td");
           if (cell.cls) td.className = cell.cls;

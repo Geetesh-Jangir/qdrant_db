@@ -84,6 +84,10 @@ def finalize_planner_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     """Fill missing funds, and attach news when this is an overview of a named fund."""
     if (plan.routed_by or "") != "planner":
         return plan
+    from news_rag.tools import asks_sector_overview
+
+    if asks_sector_overview(question):
+        return apply_now_window(question, _ensure_sector_overview(question, plan))
     if not plan.tool_calls:
         return apply_now_window(question, plan)
 
@@ -111,6 +115,71 @@ def finalize_planner_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
 
     plan = apply_concept_example_to_plan(question, plan)
     return apply_now_window(question, plan)
+
+
+def _ensure_sector_overview(question: str, plan: ExecutionPlan) -> ExecutionPlan:
+    """A sector question is the sector move plus the news, not a fund sample."""
+    from news_rag.sector_fund_ranking import primary_sector_for_question
+
+    canon, _keys = primary_sector_for_question(question)
+    sector = canon or "sector"
+    kept: list[ToolCall] = []
+    snapshot: ToolCall | None = None
+    news: ToolCall | None = None
+    for call in plan.tool_calls:
+        if call.tool == "get_market_snapshot" and snapshot is None:
+            snapshot = call
+        elif call.tool == "search_financial_news" and news is None:
+            news = call
+    if snapshot is None:
+        snapshot = ToolCall(
+            tool="get_market_snapshot",
+            arguments={"modules": ["index_return", "sector_ranking"], "index": "nifty50", "top_n": 6},
+            wave=1,
+        )
+    else:
+        args = dict(snapshot.arguments or {})
+        modules = list(args.get("modules") or [])
+        for name in ("index_return", "sector_ranking"):
+            if name not in modules:
+                modules.append(name)
+        args["modules"] = modules
+        snapshot.arguments = args
+    if news is None:
+        news = ToolCall(
+            tool="search_financial_news",
+            arguments={"scope": "sectors", "topics": [sector], "top_n": 8, "window_days": 30},
+            wave=2,
+        )
+    else:
+        args = dict(news.arguments or {})
+        topics = [str(t) for t in (args.get("topics") or []) if str(t).strip()]
+        if sector.lower() not in {t.lower() for t in topics}:
+            topics.append(sector)
+        args["topics"] = topics
+        args["scope"] = args.get("scope") or "sectors"
+        args["top_n"] = max(int(args.get("top_n") or 0), 8)
+        news.arguments = args
+        news.wave = 2
+    kept.extend([snapshot, news])
+    plan.tool_calls = kept
+    plan.funds = []
+    plan.answer_mode = AnswerMode.INSIGHT_FUSION
+    plan.query_class = QueryClass.STANDARD
+    plan.requires_compose = True
+    plan.response_shape = "sections"
+    plan.intent = "overview"
+    if plan.max_words < 420:
+        plan.max_words = 420
+    plan.wave_2_policy = Wave2Policy(trigger="always", max_calls=1)
+    plan.presentation_notes = (
+        f"Sector overview of {sector}. Open with that sector's measured return and the gap versus "
+        "the market index, using sector_focus when it is present. Then explain what the sector news "
+        "articles report. Also use macro_news: those cached articles are part of the answer, with the "
+        "development each one reports. Do not turn this into a fund list, do not call funds examples, "
+        "and do not say the sector has no named fund."
+    )
+    return plan
 
 
 def _ensure_fund_overview_news(question: str, plan: ExecutionPlan) -> ExecutionPlan:

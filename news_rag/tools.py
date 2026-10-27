@@ -612,6 +612,91 @@ def enrich_rankings_with_nav(
     return enriched[:top_n]
 
 
+def _attach_screen_facts(rows: list[dict[str, Any]], question: str) -> None:
+    """Copy the facts named in the question onto each screened fund."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from news_rag.fund_search import extract_top_holdings, extract_top_sectors, get_fund_index
+    from news_rag.insight.multi_fact import screen_fact_names
+
+    facts = screen_fact_names(question)
+    if not facts or not rows:
+        return
+    index = get_fund_index()
+
+    def _one(row: dict[str, Any]) -> None:
+        detail = index.get_fund_detail(str(row.get("isin") or "")) or {}
+        expense = detail.get("expense_ratio") if isinstance(detail.get("expense_ratio"), dict) else {}
+        returns = detail.get("returns") if isinstance(detail.get("returns"), dict) else {}
+        if "nav" in facts and detail.get("nav") is not None:
+            row["latest_nav"] = detail.get("nav")
+            row["nav"] = detail.get("nav")
+        if "aum" in facts:
+            row["aum"] = detail.get("aum")
+        if "expense" in facts:
+            row["expense_ratio"] = expense.get("regular") if expense.get("regular") is not None else expense.get("direct")
+        if "exit_load" in facts:
+            row["exit_load_summary"] = detail.get("exit_load_summary") or ""
+        if "category" in facts and detail.get("category"):
+            row["category"] = detail.get("category")
+        if "returns" in facts:
+            for source, field in (
+                ("1w", "return_1w_pct"),
+                ("1m", "return_1m_pct"),
+                ("3m", "return_3m_pct"),
+                ("6m", "return_6m_pct"),
+                ("1y", "return_1y_pct"),
+                ("3y", "return_3y_pct"),
+                ("5y", "return_5y_pct"),
+            ):
+                if returns.get(source) is not None:
+                    row[field] = returns.get(source)
+        if "sectors" in facts:
+            top = extract_top_sectors(detail, limit=1)
+            if top:
+                row["top_sector"] = f"{top[0].get('sector') or '—'} ({float(top[0].get('percentage') or 0):.2f}%)"
+        if "holdings" in facts:
+            top_holdings = extract_top_holdings(detail, limit=1)
+            if top_holdings:
+                row["top_holding"] = (
+                    f"{top_holdings[0].get('name') or '—'} ({float(top_holdings[0].get('percentage') or 0):.2f}%)"
+                )
+        if "benchmark" in facts:
+            row["benchmark"] = detail.get("benchmark") or ""
+        if "risk" in facts:
+            row["risk_label"] = detail.get("risk_label") or ""
+        if "inception" in facts:
+            row["inception_date"] = detail.get("inception_date") or ""
+        if "manager_name" in facts or "manager_experience" in facts:
+            managers = detail.get("managers") if isinstance(detail.get("managers"), dict) else None
+            if not managers or not (managers.get("current") or managers.get("past")):
+                from news_rag.fund_search import fetch_fund_managers_for_isin
+
+                managers = fetch_fund_managers_for_isin(str(row.get("isin") or "")) or {}
+            current = [m for m in (managers.get("current") or []) if isinstance(m, dict)]
+            if "manager_name" in facts:
+                row["manager_name"] = ", ".join(str(m.get("name") or "").strip() for m in current if m.get("name"))
+            if "manager_experience" in facts:
+                bits = []
+                for manager in current:
+                    years = manager.get("total_experience_years")
+                    since = str(manager.get("managing_since") or "").strip()
+                    label = str(manager.get("name") or "").strip()
+                    piece = ""
+                    if years is not None and years != "":
+                        piece = f"{years} yrs"
+                    if since:
+                        piece = f"{piece} since {since}".strip()
+                    if label and piece:
+                        bits.append(f"{label}: {piece}" if len(current) > 1 else piece)
+                    elif piece:
+                        bits.append(piece)
+                row["manager_experience"] = "; ".join(bits)
+
+    with ThreadPoolExecutor(max_workers=min(8, len(rows))) as pool:
+        list(pool.map(_one, rows))
+
+
 def run_sector_funds(
     need: DataNeed,
     *,
@@ -683,6 +768,7 @@ def run_sector_funds(
     )
     if weight_ask and not performance_query:
         final_rankings = pool[:top_n]
+        _attach_screen_facts(final_rankings, question)
         elapsed = (time.perf_counter() - started) * 1000
         return _ok(
             {
@@ -691,7 +777,7 @@ def run_sector_funds(
                 "defensive_alternatives": ranked.get("defensive_alternatives") or [],
                 "query": text,
                 "direction": rank_direction,
-                "return_window": window,
+                "return_window": "",
                 "ranking_basis": "sector_weight",
                 "ranking_note": "Ranked by how much of each fund is invested in the sector.",
                 "all_drawdown": False,
@@ -706,6 +792,7 @@ def run_sector_funds(
         count_explicit=count_explicit,
         return_window=window,
     )
+    _attach_screen_facts(final_rankings, question)
     elapsed = (time.perf_counter() - started) * 1000
     return _ok(
         {
@@ -1080,6 +1167,28 @@ def asks_funds_with_sector_exposure(question: str) -> bool:
     ):
         return True
     return False
+
+
+_SECTOR_OVERVIEW_RE = re.compile(
+    r"\b(?:tell me about|what about|how is|how has|overview of|update on|explain)\b",
+    re.I,
+)
+
+
+def asks_sector_overview(question: str) -> bool:
+    """About a market sector, not a request to list or compare funds."""
+    q = question or ""
+    if re.search(r"\bfunds?\b|\bschemes?\b|\betfs?\b|\bnav\b|\baum\b", q, re.I):
+        return False
+    if not _SECTOR_OVERVIEW_RE.search(q) and not re.search(r"\bsector\b", q, re.I):
+        return False
+    try:
+        from news_rag.sector_fund_ranking import primary_sector_for_question
+
+        canon, keys = primary_sector_for_question(q)
+    except Exception:
+        return False
+    return bool(canon or keys)
 
 
 def phrase_is_mutual_fund_scheme(phrase: str) -> bool:
@@ -1598,11 +1707,13 @@ def run_funds_for_affected_question(
     note = " ".join(notes)
     if not picks and not rankings:
         note = "No sector from the news list matched the asked direction."
+    shown = rankings[:n] if asked != "any" else rankings[: max(n, n * 2)]
+    _attach_screen_facts(shown, question)
     elapsed = (time.perf_counter() - started) * 1000
     return _ok(
         {
-            "rankings": rankings[:n] if asked != "any" else rankings[: max(n, n * 2)],
-            "funds": rankings[:n] if asked != "any" else rankings[: max(n, n * 2)],
+            "rankings": shown,
+            "funds": shown,
             "direction": asked,
             "return_window": window,
             "ranking_note": note,
@@ -1791,6 +1902,7 @@ def run_screen_funds(
         rankings = rankings[:n]
     if scan_note and not rankings:
         ranking_note = f"{ranking_note} {scan_note}".strip()
+    _attach_screen_facts(rankings, question)
     elapsed = (time.perf_counter() - started) * 1000
     return _ok(
         {
@@ -1899,6 +2011,7 @@ def run_affected_funds(
                 "Dedicated funds in the news-led sectors are not up on a 1-month basis. "
                 "These names are sector equity funds with a positive 1-month NAV."
             )
+    _attach_screen_facts(final_rankings, question or semantic_query)
     elapsed = (time.perf_counter() - started) * 1000
     return _ok(
         {

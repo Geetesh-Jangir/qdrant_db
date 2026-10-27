@@ -24,8 +24,18 @@ def requested_fund_facts(question: str) -> set[str]:
         facts.add("exit_load")
     if re.search(r"\bhistorical\s+performance\b|\breturns?\b", q, re.I):
         facts.add("returns")
-    if re.search(r"\bfund[\s_]+managers?\b|\bmanagers?\b", q, re.I):
+    if re.search(
+        r"\bfund[\s_]*managers?\b|\bmanagers?\b|\bwho\s+manages\b|\bmanaged\s+by\b",
+        q,
+        re.I,
+    ):
         facts.add("managers")
+    if re.search(r"\bbenchmark\b", q, re.I):
+        facts.add("benchmark")
+    if re.search(r"\brisk(?:ometer)?\b", q, re.I):
+        facts.add("risk")
+    if re.search(r"\b(?:inception|launch\s+date|fund\s+age)\b", q, re.I):
+        facts.add("inception")
     if re.search(r"\bsectors?\b", q, re.I):
         facts.add("sectors")
     if re.search(r"\bholdings?\b", q, re.I):
@@ -33,10 +43,77 @@ def requested_fund_facts(question: str) -> set[str]:
     return facts
 
 
+def screen_fact_names(question: str) -> list[str]:
+    """Facts to add onto a fund screen. The word sector alone is the screen, not a column."""
+    facts = set(requested_fund_facts(question))
+    if "sectors" in facts and not re.search(
+        r"\b(?:top\s+(?:\d+\s+)?sectors?|sector\s+allocation|their\s+sectors)\b",
+        question or "",
+        re.I,
+    ):
+        facts.discard("sectors")
+    if "holdings" in facts and not re.search(
+        r"\b(?:their\s+holdings|top\s+(?:\d+\s+)?holdings|stock\s+holdings)\b",
+        question or "",
+        re.I,
+    ):
+        facts.discard("holdings")
+    if "managers" in facts:
+        asks_name = bool(re.search(r"\bnames?\b", question or "", re.I))
+        asks_experience = bool(re.search(r"\b(?:experienc\w*|tenure|managing\s+since)\b", question or "", re.I))
+        if asks_name or not asks_experience:
+            facts.add("manager_name")
+        if asks_experience or not asks_name:
+            facts.add("manager_experience")
+        facts.discard("managers")
+    order = [
+        "nav",
+        "aum",
+        "expense",
+        "exit_load",
+        "category",
+        "benchmark",
+        "risk",
+        "inception",
+        "returns",
+        "manager_name",
+        "manager_experience",
+        "sectors",
+        "holdings",
+    ]
+    return [name for name in order if name in facts]
+
+
+def ensure_screen_facts(question: str, plan: ExecutionPlan) -> ExecutionPlan:
+    """A sector screen plus extra facts stays a screen. Do not swap in one other fund."""
+    if not any(call.tool == "screen_funds_by_exposure" for call in plan.tool_calls):
+        return plan
+    if not screen_fact_names(question):
+        return plan
+    plan.tool_calls = [
+        call for call in plan.tool_calls if call.tool not in ("get_fund_data", "get_portfolio_data")
+    ]
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    plan.requires_compose = False
+    question_l = (question or "").lower()
+    kept: list[str] = []
+    for fund in plan.funds:
+        words = [
+            word
+            for word in re.findall(r"[a-z0-9]+", fund.lower())
+            if len(word) > 3 and word not in {"fund", "regular", "plan", "growth", "direct"}
+        ]
+        if words and all(word in question_l for word in words[:2]):
+            kept.append(fund)
+    plan.funds = kept
+    return plan
+
+
 def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     """Add the snapshot, manager, and portfolio calls a multi-fact fund question needs."""
     facts = requested_fund_facts(question)
-    if len(facts) < 2 or not plan.funds:
+    needs_named_fact = bool(facts & {"managers", "sectors", "holdings"}) or len(facts) >= 2
+    if not plan.funds or not needs_named_fact:
         return plan
     if re.search(r"\b(?:news|why|headline)\b", question or "", re.I):
         return plan
@@ -56,7 +133,10 @@ def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan
             )
         else:
             existing = [str(m) for m in (fund_call.arguments or {}).get("modules") or []]
-            merged = list(dict.fromkeys(existing + modules))
+            if facts & _SNAPSHOT_FACTS:
+                merged = list(dict.fromkeys(existing + modules))
+            else:
+                merged = modules
             fund_call.arguments = {**(fund_call.arguments or {}), "modules": merged}
 
     sections: list[str] = []

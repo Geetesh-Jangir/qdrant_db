@@ -1220,6 +1220,9 @@ class FundIndex:
             "exit_load_summary": costs.get("exit_load_summary") or "",
             "aum": costs.get("aum"),
             "aum_as_on_date": costs.get("aum_as_on_date") or "",
+            "inception_date": str(ident.get("inception_date") or "").strip(),
+            "risk_label": str((raw.get("risk") or {}).get("label") or "").strip() if isinstance(raw.get("risk"), dict) else "",
+            "managers": parse_fund_managers_from_api_payload(raw),
             "sectors": sectors,
             "holdings": holdings,
         }

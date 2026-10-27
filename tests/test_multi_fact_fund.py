@@ -9,6 +9,19 @@ def test_named_facts_cover_nav_manager_sectors_returns_and_exit_load():
     assert facts >= {"nav", "managers", "sectors", "returns", "exit_load"}
 
 
+def test_manager_name_question_fetches_managers_not_the_snapshot():
+    q = "what is the name of the fund manager of hdfc large cap"
+    assert "managers" in requested_fund_facts(q)
+    plan = ExecutionPlan(
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        funds=["HDFC Large Cap Fund"],
+        tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1)],
+    )
+    ensure_multi_fact_tools(q, plan)
+    assert plan.tool_calls[0].arguments["modules"] == ["managers"]
+
+
 def test_multi_fact_plan_adds_snapshot_managers_and_sectors():
     plan = ExecutionPlan(
         intent="lookup",

@@ -151,6 +151,41 @@ def _fund_performance_digest(data_pack: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def sector_focus_from_market(market: dict[str, Any], question: str) -> dict[str, Any] | None:
+    """The asked sector's return, the index return, and the gap, when both are measured."""
+    from news_rag.tools import asks_sector_overview
+
+    if not asks_sector_overview(question) or not isinstance(market, dict):
+        return None
+    from news_rag.sector_fund_ranking import primary_sector_for_question
+
+    canon, keys = primary_sector_for_question(question)
+    names = {str(name) for name in (canon, *keys) if name}
+    ranking = market.get("sector_ranking") if isinstance(market.get("sector_ranking"), dict) else {}
+    rows = list(ranking.get("leaders") or []) + list(ranking.get("laggards") or [])
+    hit = None
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("sector") or "") in names:
+            hit = row
+            break
+    if hit is None:
+        return None
+    index_block = market.get("index_return") if isinstance(market.get("index_return"), dict) else {}
+    sector_ret = hit.get("return_pct")
+    index_ret = index_block.get("return_pct")
+    gap = None
+    if isinstance(sector_ret, (int, float)) and isinstance(index_ret, (int, float)):
+        gap = round(float(sector_ret) - float(index_ret), 2)
+    horizon = ranking.get("horizon") or index_block.get("horizon") or ""
+    return {
+        "sector": hit.get("sector") or canon,
+        "return_pct": sector_ret,
+        "index_return_pct": index_ret,
+        "gap_vs_index_pct": gap,
+        "horizon": horizon,
+    }
+
+
 def build_evidence_pack(
     plan: ExecutionPlan,
     wave1_results: list[dict[str, Any]],
@@ -222,6 +257,9 @@ def build_evidence_pack(
             ))
 
         elif tool == "get_market_snapshot":
+            focus = sector_focus_from_market(data, question)
+            if focus:
+                data = {**data, "sector_focus": focus}
             data_pack["market"] = data
             rows.append(EvidenceRow(
                 entity_id="market",
@@ -242,6 +280,8 @@ def build_evidence_pack(
             ))
 
         elif tool == "search_financial_news":
+            if isinstance(data.get("macro_news"), dict):
+                data_pack["macro_news"] = data["macro_news"]
             # News results: handle nested grouped dict or flat list of articles
             grouped = data.get("grouped")
             if isinstance(grouped, dict) and grouped:
@@ -627,6 +667,104 @@ def _render_fund_compare_markdown(compare: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _screen_cell(value: Any) -> str:
+    if value is None or value == "":
+        return "—"
+    return str(value).replace("|", "/")
+
+
+def _render_screen_markdown(screen: Any) -> str | None:
+    if not isinstance(screen, dict):
+        return None
+    rankings = [row for row in (screen.get("rankings") or screen.get("funds") or []) if isinstance(row, dict)]
+    note = str(screen.get("ranking_note") or screen.get("note") or "").strip()
+    if not rankings:
+        lines = ["### Fund screen", "No funds matched your screen filters."]
+        if note:
+            lines.append(note)
+        return "\n".join(lines)
+    def _filled(key: str) -> bool:
+        return all(row.get(key) is not None and str(row.get(key)).strip() != "" for row in rankings)
+
+    columns: list[tuple[str, str]] = [("Fund", "fund_name")]
+    if _filled("category"):
+        columns.append(("Category", "category"))
+    if _filled("sector_weight_pct"):
+        columns.append(("Sector weight", "sector_weight_pct"))
+    if _filled("aum"):
+        columns.append(("AUM (Rs crore)", "aum"))
+    if all(
+        (row.get("nav") is not None and str(row.get("nav")).strip() != "")
+        or (row.get("latest_nav") is not None and str(row.get("latest_nav")).strip() != "")
+        for row in rankings
+    ):
+        columns.append(("NAV", "nav"))
+    if _filled("expense_ratio"):
+        columns.append(("Expense ratio", "expense_ratio"))
+    if _filled("exit_load_summary"):
+        columns.append(("Exit load", "exit_load_summary"))
+    for label, key in (
+        ("1W return", "return_1w_pct"),
+        ("1M return", "return_1m_pct"),
+        ("3M return", "return_3m_pct"),
+        ("6M return", "return_6m_pct"),
+        ("1Y return", "return_1y_pct"),
+        ("3Y return", "return_3y_pct"),
+        ("5Y return", "return_5y_pct"),
+    ):
+        if _filled(key):
+            columns.append((label, key))
+    if _filled("top_sector"):
+        columns.append(("Top sector", "top_sector"))
+    if _filled("top_holding"):
+        columns.append(("Top holding", "top_holding"))
+    if _filled("manager_name"):
+        columns.append(("Fund manager", "manager_name"))
+    if _filled("manager_experience"):
+        columns.append(("Manager experience", "manager_experience"))
+    if _filled("benchmark"):
+        columns.append(("Benchmark", "benchmark"))
+    if _filled("risk_label"):
+        columns.append(("Risk", "risk_label"))
+    if _filled("inception_date"):
+        columns.append(("Inception", "inception_date"))
+    lines = ["### Fund screen", ""]
+    if note:
+        lines.extend([note, ""])
+    lines.append("| " + " | ".join(label for label, _key in columns) + " |")
+    text_keys = {
+        "fund_name",
+        "category",
+        "exit_load_summary",
+        "top_sector",
+        "top_holding",
+        "manager_name",
+        "manager_experience",
+        "benchmark",
+        "risk_label",
+        "inception_date",
+    }
+    lines.append("| " + " | ".join("---" if key in text_keys else "---:" for _label, key in columns) + " |")
+    for row in rankings[:15]:
+        cells = []
+        for _label, key in columns:
+            if key == "nav":
+                value = row.get("nav") if row.get("nav") is not None else row.get("latest_nav")
+            elif key == "sector_weight_pct" and row.get(key) is not None:
+                value = f"{float(row[key]):.2f}%"
+            elif key == "aum" and row.get(key) is not None:
+                value = f"{float(row[key]):,.2f}"
+            elif key == "expense_ratio" and row.get(key) is not None:
+                value = f"{float(row[key]):.2f}%"
+            elif key.startswith("return_") and row.get(key) is not None:
+                value = f"{float(row[key]):.2f}%"
+            else:
+                value = row.get(key)
+            cells.append(_screen_cell(value))
+        lines.append("| " + " | ".join(cells) + " |")
+    return "\n".join(lines)
+
+
 def render_data_only_template(
     pack: EvidencePack,
     plan: ExecutionPlan,
@@ -646,6 +784,10 @@ def render_data_only_template(
     compare = data.get("compare") if isinstance(data.get("compare"), dict) else None
     if compare and isinstance(compare.get("holding_overlap"), dict):
         return _render_fund_compare_markdown(compare)
+
+    screen_answer = _render_screen_markdown(data.get("screen"))
+    if screen_answer:
+        return screen_answer
 
     # Check for Single Fund Snapshot / NAV
     fund_entries = [v for k, v in data.items() if k.startswith("fund:")]
@@ -832,35 +974,6 @@ def render_data_only_template(
         if not sector_rows and not holding_rows:
             lines.append("\nNo portfolio sector or holding data is available for this fund.")
         return "\n".join(lines)
-
-    if "screen" in data:
-        screen = data.get("screen") or {}
-        rankings = screen.get("rankings") or screen.get("funds") or []
-        if not rankings:
-            note = str(screen.get("ranking_note") or screen.get("note") or "").strip()
-            sector = str(screen.get("sector_name") or "").strip()
-            lines = ["### Fund screen"]
-            if sector:
-                lines.append(f"No funds matched **{sector}** with the filters used.")
-            else:
-                lines.append("No funds matched your screen filters.")
-            if note:
-                lines.append(note)
-            return "\n".join(lines)
-        if rankings:
-            from news_rag.tools import return_window_label
-
-            window = str(screen.get("return_window") or "1M").upper()
-            n = min(len(rankings), 15)
-            lines = [
-                f"### Funds screened ({return_window_label(window)} return)",
-                "",
-                f"**{n}** fund(s) matched your filters. Measured returns are in the table below.",
-            ]
-            note = str(screen.get("ranking_note") or "").strip()
-            if note:
-                lines.extend(["", note])
-            return "\n".join(lines)
 
     # Check for Market Benchmark
     if "market" in data:

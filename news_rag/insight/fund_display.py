@@ -580,7 +580,10 @@ def render_news_section(news_grouped: dict[str, Any]) -> str:
 
 def strip_news_roundup(prose: str) -> str:
     """Drop a news-list section. The answer should not end with an article roundup."""
-    return _strip_heading_sections(prose or "", ("recent news", "what the news says", "news themes"))
+    return _strip_heading_sections(
+        prose or "",
+        ("recent news", "what the news says", "news themes", "how the sector is held"),
+    )
 
 
 def append_news_section(prose: str, news_grouped: dict[str, Any]) -> str:
