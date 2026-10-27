@@ -100,6 +100,22 @@ _DISTINCTIVE_TOKENS = frozenset(
 )
 
 
+def labels_name_the_same_scheme(asked: str, shown: str) -> bool:
+    """False when the shown name drops a scheme word the question named, such as large cap."""
+    from news_rag.fund_search import _normalize_fund_text
+
+    asked_tokens = set(_normalize_fund_text(asked).split())
+    shown_tokens = set(_normalize_fund_text(shown).split())
+    for token in ("large", "mid", "small", "flexi", "cap", "frontline", "etf", "nifty"):
+        if token in asked_tokens and token not in shown_tokens:
+            return False
+    if "large" in asked_tokens and "cap" in asked_tokens and "mid" not in asked_tokens and "mid" in shown_tokens:
+        return False
+    if "trigger" in shown_tokens and "trigger" not in asked_tokens:
+        return False
+    return True
+
+
 def catalog_name_for_match(entry: dict[str, Any]) -> str:
     """Strip plan labels so user phrases align with catalog rows."""
     name = str(entry.get("fund_short_name") or entry.get("fund_name") or "")

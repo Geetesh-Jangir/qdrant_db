@@ -207,13 +207,18 @@ def _run_search_financial_news(args: dict[str, Any], ctx: dict[str, Any]) -> dic
     from news_rag.insight.news_fanout import NewsTarget, grouped_news, search_targets
 
     scope = str(args.get("scope") or "market").lower()
-    topics = args.get("topics") or []
+    question = str(ctx.get("question") or "")
+    topics = [str(t).strip() for t in (args.get("topics") or []) if str(t).strip()]
+    subject = _news_subject(question) if scope == "market" and not topics else ""
+    if subject:
+        topics = [subject]
     top_n = int(args.get("top_n") or 3)
+    if subject:
+        top_n = max(top_n, 8)
     window_days = int(args.get("window_days") or ctx.get("window_days") or 14)
     direction = args.get("direction")
     if direction == "any":
         direction = None
-    question = str(ctx.get("question") or "")
 
     use_fund_layers = scope in ("all", "fund", "portfolio") or (
         scope in ("holdings", "sectors", "macro")
@@ -243,20 +248,17 @@ def _run_search_financial_news(args: dict[str, Any], ctx: dict[str, Any]) -> dic
                 layers=layers,
             )
             grouped = _group_layered_articles(articles)
-            return _attach_cached_macro(
-                {
-                    "ok": bool(articles),
-                    "scope": scope if scope != "fund" else "all",
-                    "data": {
-                        "grouped": grouped,
-                        "articles": articles,
-                        "article_count": len(articles),
-                        "fund_name": fund_name,
-                        "layers": sorted(layers),
-                    },
+            return {
+                "ok": bool(articles),
+                "scope": scope if scope != "fund" else "all",
+                "data": {
+                    "grouped": grouped,
+                    "articles": articles,
+                    "article_count": len(articles),
+                    "fund_name": fund_name,
+                    "layers": sorted(layers),
                 },
-                ctx,
-            )
+            }
 
     targets = _news_search_targets(
         topics,
@@ -269,15 +271,43 @@ def _run_search_financial_news(args: dict[str, Any], ctx: dict[str, Any]) -> dic
     search_targets(targets)
     grouped = grouped_news(targets)
     articles = [art for t in targets for art in (t.articles or [])]
-    return _attach_cached_macro(
-        {
-            "ok": bool(articles),
-            "scope": scope,
-            "data": {"grouped": grouped, "articles": articles, "article_count": len(articles)},
-        },
-        ctx,
-        window_days=window_days,
+    return {
+        "ok": bool(articles),
+        "scope": scope,
+        "data": {"grouped": grouped, "articles": articles, "article_count": len(articles)},
+    }
+
+
+_GENERIC_NEWS_SUBJECTS = frozenset(
+    {
+        "market",
+        "the market",
+        "markets",
+        "the markets",
+        "stock market",
+        "the stock market",
+        "india",
+        "indian market",
+    }
+)
+
+
+def _news_subject(question: str) -> str:
+    """The named subject in 'news about HDFC Bank', or empty for a market-wide question."""
+    import re
+
+    match = re.search(
+        r"\b(?:news|headlines?)\s+(?:about|on|regarding|for)\s+(.+)",
+        question or "",
+        re.I,
     )
+    if not match:
+        return ""
+    subject = match.group(1).strip(" ?.!")
+    subject = re.sub(r"\s+in\s+the\s+market$", "", subject, flags=re.I).strip()
+    if len(subject) < 2 or subject.lower() in _GENERIC_NEWS_SUBJECTS:
+        return ""
+    return subject
 
 
 _TOPIC_KEYS = {
@@ -333,37 +363,38 @@ def _news_search_targets(
     ]
 
 
-def _attach_cached_macro(
-    result: dict[str, Any],
-    ctx: dict[str, Any],
-    window_days: int | None = None,
-) -> dict[str, Any]:
-    """Every news-index read also carries the shared 7-day and 1-month macro digest."""
-    from news_rag.macro_news_cache import get_macro_news, select_macro_for_question
+def _run_get_macro_news(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+    """Two fresh articles for every named macro topic. No cache."""
+    from news_pipeline.config import MACRO_ENTITIES
+    from news_rag.insight.fund_display import complete_sentences, strip_publisher
+    from news_rag.macro_news_cache import _article_text, _search_macro_parameters
 
-    try:
-        macro = get_macro_news(query_log=ctx.get("query_log"))
-    except Exception as exc:
-        log = ctx.get("query_log")
-        if log is not None:
-            log.write(f"MACRO_CACHE fail {exc}")
-        return result
-    data = result.get("data")
-    selected = select_macro_for_question(
-        macro,
-        str(ctx.get("question") or ""),
-        window_days=window_days if window_days is not None else ctx.get("window_days"),
-    )
-    if isinstance(data, dict) and selected.get("clusters"):
-        data["macro_news"] = {
-            "cached_at": macro.get("cached_at"),
-            "cache_hit": bool(macro.get("cache_hit")),
-            "window_days": selected.get("window_days"),
-            "label": selected.get("label"),
-            "article_total": selected.get("article_total"),
-            "clusters": selected.get("clusters"),
-        }
-    return result
+    window_days = int(args.get("window_days") or ctx.get("window_days") or 30)
+    specs = [(str(row["name"]), str(row["query"])) for row in MACRO_ENTITIES]
+    clusters: list[dict[str, Any]] = []
+    for group in _search_macro_parameters(specs, window_days):
+        articles: list[dict[str, str]] = []
+        for art in list(group.get("articles") or [])[:2]:
+            if not isinstance(art, dict):
+                continue
+            body = complete_sentences(_article_text(art))
+            title = strip_publisher(str(art.get("title") or art.get("headline") or ""))
+            if not title or not body:
+                continue
+            articles.append(
+                {
+                    "title": title,
+                    "summary": body,
+                    "published_at": str(art.get("published_at") or art.get("date") or ""),
+                }
+            )
+        if articles:
+            clusters.append({"label": group.get("label") or "", "articles": articles})
+    total = sum(len(cluster["articles"]) for cluster in clusters)
+    return {
+        "ok": bool(clusters),
+        "data": {"window_days": window_days, "clusters": clusters, "article_total": total},
+    }
 
 
 def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
@@ -532,6 +563,7 @@ _RUNNERS = {
     "get_portfolio_data": _run_get_portfolio_data,
     "compare_funds": _run_compare_funds,
     "search_financial_news": _run_search_financial_news,
+    "get_macro_news": _run_get_macro_news,
     "screen_funds_by_exposure": _run_screen_funds_by_exposure,
     "get_market_snapshot": _run_get_market_snapshot,
 }

@@ -94,6 +94,7 @@ class ExecutionPlan(BaseModel):
     max_words: int = 220
     lead_with: str = ""
     presentation_notes: str = ""
+    asked_facts: list[str] = Field(default_factory=list)
     concept_brief: str = ""
     requires_compose: bool = False
     asks_for_advice: bool = False

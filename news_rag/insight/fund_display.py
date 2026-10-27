@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from news_rag.insight.contracts import AnswerMode
 from news_rag.fund_rupeestop_metrics import (
     LONG_HORIZON_PERIODS,
     asks_fund_category_average,
@@ -541,6 +542,151 @@ def stitch_display_tables_into_answer(prose: str, tables: dict[str, str], *, que
     block = format_display_tables_markdown(tables, question=question)
     cleaned = strip_missing_data_caveats(strip_composer_display_sections(prose or ""))
     return _insert_before_disclaimer(cleaned, block)
+
+
+_PUBLISHER_TAIL = re.compile(
+    r"\s+[-–—|]\s+(?:the\s+)?(?:"
+    r"[\w.-]+\.(?:com|in|co\.in)"
+    r"|business\s*line|live\s*mint|economic\s+times|moneycontrol|cnbc(?:\s*tv18)?"
+    r"|business\s+standard|financial\s+express|reuters|bloomberg|the\s+hindu|mint|ndtv"
+    r")\s*$",
+    re.I,
+)
+_GENERIC_SUBJECT_WORDS = frozenset(
+    {"bank", "banks", "market", "markets", "news", "the", "fund", "funds", "india", "stock"}
+)
+
+
+def strip_publisher(title: str) -> str:
+    """Drop the outlet glued onto the end of a scraped headline."""
+    return _PUBLISHER_TAIL.sub("", title or "").strip()
+
+
+def clean_news_insight(text: str) -> str:
+    """Remove a clipped line and any publisher tail the model copied."""
+    kept: list[str] = []
+    for line in (text or "").splitlines():
+        if re.search(r"(?:\.\.\.|…)\s*$", line.strip()):
+            continue
+        kept.append(strip_publisher(line))
+    return "\n".join(kept).strip()
+
+
+def complete_sentences(text: str) -> str:
+    """Keep finished sentences. A retrieval clip ends mid-thought and is not an insight."""
+    cleaned = re.sub(r"\s+", " ", text or "").strip()
+    cleaned = re.sub(r"(?:\.\.\.|…)\s*$", "", cleaned).strip()
+    ends = list(re.finditer(r"[.!?](?:\s|$)", cleaned))
+    if not ends:
+        return ""
+    return cleaned[: ends[-1].end()].strip()
+
+
+def _subject_words(question: str) -> list[str]:
+    from news_rag.insight.capabilities.executor import _news_subject
+
+    subject = _news_subject(question)
+    words = [
+        word
+        for word in re.findall(r"[a-z0-9]+", subject.lower())
+        if word not in _GENERIC_SUBJECT_WORDS and len(word) > 2
+    ]
+    return words
+
+
+def news_insight_articles(question: str, news_grouped: dict[str, Any]) -> list[dict[str, str]]:
+    """Facts the composer can turn into an insight: no publisher, no clipped tail."""
+    words = _subject_words(question)
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+    articles: list[dict[str, Any]] = []
+    for bucket in (news_grouped or {}).values():
+        if isinstance(bucket, list):
+            articles.extend(a for a in bucket if isinstance(a, dict))
+        elif isinstance(bucket, dict):
+            for arts in bucket.values():
+                if isinstance(arts, list):
+                    articles.extend(a for a in arts if isinstance(a, dict))
+    for art in articles:
+        title = strip_publisher(str(art.get("title") or ""))
+        body = complete_sentences(str(art.get("summary") or art.get("text") or ""))
+        blob = f"{title} {body}".lower()
+        if words and not any(word in blob for word in words):
+            continue
+        key = title.lower()
+        if not title or key in seen:
+            continue
+        if not body:
+            continue
+        seen.add(key)
+        date = str(art.get("date") or art.get("published_at") or "")[:10]
+        rows.append({"date": date, "what_happened": body})
+        if len(rows) >= 8:
+            break
+    return rows
+
+
+def is_article_only_news(plan: Any, pack: Any) -> bool:
+    """A news question whose evidence is articles, with no fund or market snapshot."""
+    if plan is None or pack is None or plan.answer_mode != AnswerMode.NEWS_ONLY:
+        return False
+    if not pack.news_grouped:
+        return False
+    data = pack.data_pack or {}
+    if data.get("screen") or data.get("market") or any(str(key).startswith("fund:") for key in data):
+        return False
+    return True
+
+
+def render_news_answer(news_grouped: dict[str, Any]) -> str:
+    """A news question's answer is the retrieved articles, grouped by theme."""
+    themes: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    for scope, bucket in (news_grouped or {}).items():
+        articles: list[dict[str, Any]] = []
+        if isinstance(bucket, list):
+            articles = [a for a in bucket if isinstance(a, dict)]
+        elif isinstance(bucket, dict):
+            for theme, arts in bucket.items():
+                if isinstance(arts, list):
+                    for art in arts:
+                        if isinstance(art, dict):
+                            articles.append({**art, "theme": art.get("theme") or theme})
+        for art in articles:
+            theme = str(art.get("theme") or scope or "News").strip() or "News"
+            if theme.lower() in ("market", "general", "macro"):
+                theme = "News"
+            if theme not in themes:
+                themes[theme] = []
+                order.append(theme)
+            themes[theme].append(art)
+    lines: list[str] = []
+    for theme in order:
+        lines.extend([f"### {theme}", ""])
+        seen: set[str] = set()
+        for art in themes[theme]:
+            title = str(art.get("title") or "").strip()
+            key = title.lower()
+            if not title or key in seen:
+                continue
+            seen.add(key)
+            summary = re.sub(r"\s+", " ", str(art.get("summary") or "")).strip()
+            if len(summary) > 280:
+                summary = summary[:277].rstrip(" .") + "..."
+            date = str(art.get("date") or art.get("published_at") or "")[:10]
+            bullet = f"- **{title}**"
+            if date:
+                bullet += f" ({date})"
+            if summary and summary.lower() not in title.lower():
+                bullet += f": {summary}"
+            lines.append(bullet)
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+def news_only_answer(plan: Any, pack: Any) -> str:
+    """Article lists are not the answer. The composer writes the insight."""
+    return ""
 
 
 def render_news_section(news_grouped: dict[str, Any]) -> str:

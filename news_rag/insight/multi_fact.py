@@ -7,7 +7,9 @@ import re
 from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall, Wave2Policy
 from news_rag.insight.top_n import top_n_from_question
 
-_SNAPSHOT_FACTS = frozenset({"nav", "aum", "expense", "exit_load", "returns"})
+_SNAPSHOT_FACTS = frozenset(
+    {"nav", "aum", "expense", "exit_load", "returns", "benchmark", "risk", "inception"}
+)
 
 
 def requested_fund_facts(question: str) -> set[str]:
@@ -110,12 +112,13 @@ def ensure_screen_facts(question: str, plan: ExecutionPlan) -> ExecutionPlan:
 
 
 def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
-    """Add the snapshot, manager, and portfolio calls a multi-fact fund question needs."""
+    """A named fact uses one call and a data answer. A fund overview is left alone."""
     facts = requested_fund_facts(question)
-    needs_named_fact = bool(facts & {"managers", "sectors", "holdings"}) or len(facts) >= 2
-    if not plan.funds or not needs_named_fact:
+    if not plan.funds or not facts:
         return plan
     if re.search(r"\b(?:news|why|headline)\b", question or "", re.I):
+        return plan
+    if any(call.tool in ("screen_funds_by_exposure", "compare_funds") for call in plan.tool_calls):
         return plan
 
     modules: list[str] = []
@@ -124,52 +127,36 @@ def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan
     if "managers" in facts:
         modules.append("managers")
 
-    fund_call = next((c for c in plan.tool_calls if c.tool == "get_fund_data"), None)
-    if modules:
-        if fund_call is None:
-            plan.tool_calls.insert(
-                0,
-                ToolCall(tool="get_fund_data", arguments={"modules": modules}, wave=1),
-            )
-        else:
-            existing = [str(m) for m in (fund_call.arguments or {}).get("modules") or []]
-            if facts & _SNAPSHOT_FACTS:
-                merged = list(dict.fromkeys(existing + modules))
-            else:
-                merged = modules
-            fund_call.arguments = {**(fund_call.arguments or {}), "modules": merged}
-
     sections: list[str] = []
     if "sectors" in facts:
         sections.append("sectors")
     if "holdings" in facts:
         sections.append("holdings")
+
+    calls: list[ToolCall] = []
+    if modules:
+        calls.append(ToolCall(tool="get_fund_data", arguments={"modules": modules}, wave=1))
     if sections:
         top_n = top_n_from_question(
             question,
             default=5,
             item="sectors" if sections == ["sectors"] else "holdings" if sections == ["holdings"] else "any",
         )
-        port_call = next((c for c in plan.tool_calls if c.tool == "get_portfolio_data"), None)
-        if port_call is None:
-            plan.tool_calls.append(
-                ToolCall(
-                    tool="get_portfolio_data",
-                    arguments={"sections": sections, "top_n": top_n},
-                    wave=1,
-                )
+        calls.append(
+            ToolCall(
+                tool="get_portfolio_data",
+                arguments={"sections": sections, "top_n": top_n},
+                wave=1,
             )
-        else:
-            have = [str(s) for s in (port_call.arguments or {}).get("sections") or []]
-            port_call.arguments = {
-                **(port_call.arguments or {}),
-                "sections": list(dict.fromkeys(have + sections)),
-                "top_n": top_n,
-            }
+        )
+    if not calls:
+        return plan
 
+    plan.tool_calls = calls
+    plan.asked_facts = sorted(facts)
     plan.answer_mode = AnswerMode.DATA_ONLY
+    plan.requires_compose = False
     plan.wave_2_policy = Wave2Policy(trigger="none")
-    plan.tool_calls = [c for c in plan.tool_calls if c.tool != "search_financial_news"]
     return plan
 
 

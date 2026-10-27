@@ -1359,7 +1359,11 @@ class FundIndex:
             rank_catalog_entries_for_phrase,
         )
 
-        ranked = rank_catalog_entries_for_phrase(clean_name, pool)
+        ranked = [
+            row
+            for row in rank_catalog_entries_for_phrase(clean_name, pool)
+            if _entry_matches_query_scheme(clean_name, row[1])
+        ]
         accept = float(settings.fund_fuzzy_accept)
         reject = float(settings.fund_fuzzy_reject)
         gap = float(settings.fund_fuzzy_ambiguous_gap)
@@ -1380,7 +1384,11 @@ class FundIndex:
                 cache = load_fund_embedding_cache()
                 if cache:
                     _emb_score, emb_entry = embedding_best_match(clean_name, pool, cache)
-                    if emb_entry is not None and _emb_score >= 0.55:
+                    if (
+                        emb_entry is not None
+                        and _emb_score >= 0.55
+                        and _entry_matches_query_scheme(clean_name, emb_entry)
+                    ):
                         detail = self.get_fund_detail(str(emb_entry["isin"]))
                         if detail:
                             return detail, False, []
@@ -1436,7 +1444,7 @@ class FundIndex:
             if amc_hints and not _entry_matches_amc(entry, amc_hints):
                 continue
 
-            if coverage >= 0.45 or (norm_name in c_norm):
+            if (coverage >= 0.45 or (norm_name in c_norm)) and _entry_matches_query_scheme(clean_name, entry):
                 scored_candidates.append((score, entry))
 
         if not scored_candidates:
@@ -1445,7 +1453,8 @@ class FundIndex:
                 entry = self._entries_by_isin.get(str(c.get("isin") or "").upper())
                 if not entry or (amc_hints and not _entry_matches_amc(entry, amc_hints)):
                     continue
-                scored_candidates.append((80.0, entry))
+                if _entry_matches_query_scheme(clean_name, entry):
+                    scored_candidates.append((80.0, entry))
 
         if not scored_candidates and ranked and ranked[0][0] >= reject:
             detail = self.get_fund_detail(str(ranked[0][1]["isin"]))
@@ -1470,6 +1479,27 @@ class FundIndex:
 
         detail = self.get_fund_detail(str(top_entry["isin"]))
         return detail, False, []
+
+
+def _entry_matches_query_scheme(query_name: str, entry: dict[str, Any]) -> bool:
+    """A large-cap question stays on a large-cap scheme, not a mid-cap or trigger plan."""
+    q = set(_normalize_fund_text(query_name).split())
+    c = set(_normalize_fund_text(str(entry.get("fund_name") or entry.get("fund_short_name") or "")).split())
+    if "trigger" in c and "trigger" not in q:
+        return False
+    if "large" in q and "cap" in q and "mid" not in q:
+        return "large" in c and "cap" in c and "mid" not in c
+    if "mid" in q and "cap" in q and "large" not in q:
+        return "mid" in c and "cap" in c and "large" not in c
+    if "small" in q and "cap" in q:
+        return "small" in c and "cap" in c
+    if "flexi" in q and "flexi" not in c:
+        return False
+    if "frontline" in q and "frontline" not in c:
+        return False
+    if "etf" in q and "etf" not in c:
+        return False
+    return True
 
 
 def lookup_extracted_fund(
@@ -1828,7 +1858,21 @@ def fetch_fund_managers_for_query(fund_query: str) -> dict[str, Any] | None:
         return None
     data = fetch_fund_managers_for_isin(isin)
     if data and detail:
-        data["fund_name"] = data.get("fund_name") or detail.get("fund_name") or detail.get("fund_short_name")
+        data = prefer_resolved_fund_name(data, detail)
+    return data
+
+
+def prefer_resolved_fund_name(data: dict[str, Any], detail: dict[str, Any]) -> dict[str, Any]:
+    """Show the scheme the query resolved. The manager API can still carry an old name."""
+    from news_rag.fund_match import labels_name_the_same_scheme
+
+    catalog = str(detail.get("fund_name") or detail.get("fund_short_name") or "").strip()
+    api_name = str(data.get("fund_name") or "").strip()
+    if catalog and api_name and not labels_name_the_same_scheme(catalog, api_name):
+        data["api_fund_name"] = api_name
+        data["fund_name"] = catalog
+    elif catalog and not api_name:
+        data["fund_name"] = catalog
     return data
 
 

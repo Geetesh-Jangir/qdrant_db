@@ -103,6 +103,27 @@ def test_absl_nifty_50_index_fund_when_fund_wording() -> None:
     assert detail.get("isin") == "INF209K01LB2"
 
 
+def test_absl_large_cap_is_not_frontline_or_the_trigger_plan() -> None:
+    from news_rag.fund_search import prefer_resolved_fund_name
+
+    detail, ambiguous, _ = resolve_fund_for_query(
+        "tell me about the fund managers of absl large cap fund"
+    )
+    assert not ambiguous
+    assert detail is not None
+    assert detail.get("isin") == "INF209K01BR9"
+    name = (detail.get("fund_name") or "").lower()
+    assert "large cap" in name
+    assert "frontline" not in name
+    assert "trigger" not in name
+    shown = prefer_resolved_fund_name(
+        {"fund_name": "Aditya Birla Sun Life Frontline Equity Fund", "isin": "INF209K01BR9"},
+        detail,
+    )
+    assert "Large Cap" in shown["fund_name"]
+    assert "Frontline" not in shown["fund_name"]
+
+
 def test_absl_and_ppfas_shorthand() -> None:
     for question, needle in (
         ("top 3 sectors of absl large cap", "aditya birla"),

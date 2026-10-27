@@ -221,7 +221,17 @@ def build_evidence_pack(
             # Extract snapshot, return series, attribution
             fund_name = r.get("fund") or ""
             if isinstance(data, dict):
-                data_pack[f"fund:{fund_name or 'primary'}"] = data
+                key = f"fund:{fund_name or 'primary'}"
+                previous = data_pack.get(key)
+                if isinstance(previous, dict):
+                    merged = dict(previous)
+                    for field, value in data.items():
+                        if isinstance(value, dict) and isinstance(merged.get(field), dict):
+                            merged[field] = {**merged[field], **value}
+                        else:
+                            merged[field] = value
+                    data = merged
+                data_pack[key] = data
                 rows.append(EvidenceRow(
                     entity_id=fund_name,
                     entity_type="fund",
@@ -293,6 +303,7 @@ def build_evidence_pack(
                                 for a in arts[:8]:
                                     if isinstance(a, dict):
                                         bucket.append({
+                                            "theme": str(entity_name or ""),
                                             "title": a.get("title") or a.get("headline", ""),
                                             "summary": a.get("summary") or a.get("snippet") or a.get("text", "")[:400],
                                             "source": a.get("source", ""),
@@ -436,7 +447,14 @@ def _scheme_tenure_lines(fund_name: str, schemes: list[Any]) -> list[str]:
 def _render_fund_managers_markdown(mgr: dict[str, Any], plan: ExecutionPlan) -> str:
     from news_rag.insight.manager_view import manager_answer_title
 
-    fund_name = str(mgr.get("fund_name") or (plan.funds[0] if plan.funds else "Fund")).strip()
+    from news_rag.fund_match import labels_name_the_same_scheme
+
+    api_name = str(mgr.get("fund_name") or "").strip()
+    planned = plan.funds[0] if plan.funds else ""
+    if planned and api_name and not labels_name_the_same_scheme(planned, api_name):
+        fund_name = planned
+    else:
+        fund_name = api_name or planned or "Fund"
     focus = str(mgr.get("roster_focus") or "all")
     lines = [f"## {manager_answer_title(focus, fund_name)}"]
     isin = str(mgr.get("isin") or "").strip()
@@ -512,6 +530,11 @@ def _portfolio_top_n(plan: ExecutionPlan) -> int:
     return 5
 
 
+def _show_snapshot_field(plan: ExecutionPlan, field: str) -> bool:
+    asked = set(plan.asked_facts or [])
+    return not asked or field in asked
+
+
 def _snapshot_markdown(snap: dict[str, Any], plan: ExecutionPlan) -> str:
     name = snap.get("fund_name") or snap.get("fund_short_name") or (plan.funds[0] if plan.funds else "Fund")
     nav = snap.get("nav")
@@ -520,39 +543,41 @@ def _snapshot_markdown(snap: dict[str, Any], plan: ExecutionPlan) -> str:
     benchmark = snap.get("benchmark") or ""
     range_52w = snap.get("52_week_range") or {}
     rets = snap.get("returns") or {}
-    lines = [
-        f"### {name}",
-        f"- **Current NAV:** ₹{nav:,.2f}" if isinstance(nav, (int, float)) else f"- **Current NAV:** ₹{nav}",
-    ]
-    if day_change:
+    show_all = not plan.asked_facts
+    lines = [f"### {name}"]
+    if _show_snapshot_field(plan, "nav") and nav is not None:
+        lines.append(
+            f"- **Current NAV:** ₹{nav:,.2f}" if isinstance(nav, (int, float)) else f"- **Current NAV:** ₹{nav}"
+        )
+    if show_all and day_change:
         sign = "+" if float(day_change) > 0 else ""
         lines.append(f"- **Day Change:** {sign}{float(day_change):.2f}%")
-    if category:
+    if show_all and category:
         lines.append(f"- **Category:** {category}")
-    if benchmark:
+    if _show_snapshot_field(plan, "benchmark") and benchmark:
         lines.append(f"- **Benchmark:** {benchmark}")
     expense = snap.get("expense_ratio") if isinstance(snap.get("expense_ratio"), dict) else {}
-    if expense.get("regular") is not None:
+    if _show_snapshot_field(plan, "expense") and expense.get("regular") is not None:
         ratio = f"{float(expense['regular']):.2f}%"
         if expense.get("as_on_date"):
             ratio = f"{ratio} (as on {expense['as_on_date']})"
         lines.append(f"- **Expense ratio (regular):** {ratio}")
-    elif expense.get("direct") is not None:
+    elif _show_snapshot_field(plan, "expense") and expense.get("direct") is not None:
         ratio = f"{float(expense['direct']):.2f}%"
         if expense.get("as_on_date"):
             ratio = f"{ratio} (as on {expense['as_on_date']})"
         lines.append(f"- **Expense ratio (direct):** {ratio}")
     exit_load = str(snap.get("exit_load_summary") or "").strip()
-    if exit_load:
+    if _show_snapshot_field(plan, "exit_load") and exit_load:
         lines.append(f"- **Exit load:** {exit_load}")
-    if snap.get("aum") is not None:
+    if _show_snapshot_field(plan, "aum") and snap.get("aum") is not None:
         aum_text = f"Rs {float(snap['aum']):,.2f} crore"
         if snap.get("aum_as_on_date"):
             aum_text = f"{aum_text} (as on {snap['aum_as_on_date']})"
         lines.append(f"- **AUM:** {aum_text}")
-    if isinstance(range_52w, dict) and range_52w.get("low") and range_52w.get("high"):
+    if show_all and isinstance(range_52w, dict) and range_52w.get("low") and range_52w.get("high"):
         lines.append(f"- **52-Week Range:** ₹{range_52w['low']} – ₹{range_52w['high']}")
-    if isinstance(rets, dict) and rets:
+    if _show_snapshot_field(plan, "returns") and isinstance(rets, dict) and rets:
         lines.append("\n**Historical Returns:**")
         ret_strs = [
             f"{k}: {v:+.2f}%" if isinstance(v, (int, float)) else f"{k}: {v}"
@@ -801,16 +826,18 @@ def render_data_only_template(
         )
         snap_for_multi = f_data.get("snapshot") if isinstance(f_data.get("snapshot"), dict) else {}
         has_snap = bool(snap_for_multi) and snap_for_multi.get("nav") is not None
+        asked = set(plan.asked_facts or [])
         fact_blocks = int(has_snap) + int(bool(portfolio_entries)) + int(has_managers)
         if fact_blocks >= 2:
             parts: list[str] = []
-            if has_snap:
+            if has_snap and (not asked or asked & {"nav", "aum", "expense", "exit_load", "returns", "benchmark"}):
                 parts.append(_snapshot_markdown(snap_for_multi, plan))
-            if portfolio_entries:
+            if portfolio_entries and (not asked or asked & {"sectors", "holdings"}):
                 parts.append(_portfolio_markdown(portfolio_entries[0], plan))
-            if has_managers:
+            if has_managers and (not asked or "managers" in asked):
                 parts.append(_render_fund_managers_markdown(mgr_block, plan))
-            return "\n\n".join(part for part in parts if part)
+            if parts:
+                return "\n\n".join(part for part in parts if part)
 
     if fund_entries and not portfolio_entries:
         f_data = fund_entries[0]
@@ -839,6 +866,8 @@ def render_data_only_template(
             return "\n".join(lines)
 
         snap = f_data.get("snapshot") or (f_data if f_data.get("nav") is not None else {})
+        if plan.asked_facts and snap and snap.get("nav") is not None:
+            return _snapshot_markdown(snap, plan)
         if snap and snap.get("nav") is not None:
             name = snap.get("fund_name") or snap.get("fund_short_name") or (plan.funds[0] if plan.funds else "Fund")
             nav = snap.get("nav")

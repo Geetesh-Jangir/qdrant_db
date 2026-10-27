@@ -42,6 +42,8 @@ from news_rag.insight.evidence_pack import (
     render_data_only_template,
 )
 from news_rag.insight.fund_display import (
+    is_article_only_news,
+    news_insight_articles,
     normalize_user_facing_text,
     stitch_display_tables_into_answer,
     strip_news_roundup,
@@ -54,7 +56,7 @@ from news_rag.llm_client import (
     composer_model,
     llm_api_key_configured,
 )
-from news_rag.output_judge import judge_answer
+# from news_rag.output_judge import judge_answer  # Jev judge paused for ask
 from news_rag.prompts import shared_system_prefix
 from news_rag.query_log import QueryLogger
 
@@ -672,6 +674,17 @@ RULES:
 5. If you truly do not know, say so in one sentence.
 """
 
+COMPOSE_SYSTEM_NEWS = """ROLE: COMPOSER — insight from the articles
+The user asked what the news means. ARTICLES are the only source.
+
+RULES:
+1. Write a short opening and two or three bullets. Say what happened and what it means for the subject. Merge articles about the same event into one point.
+2. Use only facts written in ARTICLES. Do not invent a price, a cause, or a level.
+3. Do not name a publisher, a website, or a reporter. Do not paste headlines. Every sentence is complete. Never end with an ellipsis.
+4. Leave out an article that is not about the subject of the question.
+5. Never mention ARTICLES, tools, or the pipeline.
+"""
+
 
 def _clean_answer(text: str) -> str:
     text = normalize_user_facing_text(re.sub(r"```(?:json|markdown)?", "", text or "").strip())
@@ -708,6 +721,13 @@ def node_compose(state: GraphState) -> str | None:
         raise GraphUnavailable("No LLM key configured for composer")
 
     evidence_dict = pack.compact() if pack else {}
+    news_articles = (
+        news_insight_articles(state.question or "", pack.news_grouped)
+        if pack and is_article_only_news(plan, pack)
+        else []
+    )
+    if news_articles:
+        evidence_dict = {"ARTICLES": news_articles}
     evidence_text = json.dumps(evidence_dict, ensure_ascii=False)
 
     policy_meta = pack.display_table_policy if pack else {}
@@ -745,7 +765,16 @@ def node_compose(state: GraphState) -> str | None:
     precise = asks_precise_definition(state.question or "") and not (
         evidence_dict.get("rows") or evidence_dict.get("data_pack")
     )
-    if precise:
+    if news_articles:
+        wants["max_words"] = max(int(wants.get("max_words") or 0), 180)
+        user_content = (
+            f"QUESTION:\n{state.question.strip()}\n\n"
+            f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
+            f"ARTICLES:\n{evidence_text}"
+        )
+        compose_system = COMPOSE_SYSTEM_NEWS
+        max_tokens = 700
+    elif precise:
         wants["max_words"] = min(int(wants.get("max_words") or 220), 50)
         wants["style"] = "short_answer"
         user_content = (
@@ -801,12 +830,16 @@ def node_compose(state: GraphState) -> str | None:
         or evidence_dict.get("PERFORMANCE")
         or evidence_dict.get("DISPLAY")
     )
-    if measured:
+    if news_articles or measured:
         allowed_numbers = cores_in_text(evidence_text) | cores_in_text(state.question or "")
         grounded_text = strip_ungrounded_numbers(raw_text, allowed_numbers)
     else:
         grounded_text = raw_text
     polished_text = strip_media_attribution(grounded_text)
+    if news_articles:
+        from news_rag.insight.fund_display import clean_news_insight
+
+        polished_text = clean_news_insight(polished_text)
     display_tables = pack.display_tables if pack else {}
     if display_tables and any(k for k in display_tables if k != "_title"):
         polished_text = stitch_display_tables_into_answer(
@@ -817,21 +850,21 @@ def node_compose(state: GraphState) -> str | None:
     polished_text = strip_news_roundup(polished_text)
     state.answer = _clean_answer(polished_text)
 
-    # Selective Judge for INSIGHT_FUSION
-    if plan.answer_mode == AnswerMode.INSIGHT_FUSION and getattr(settings, "insight_verify_retry", True):
-        try:
-            judge_res = judge_answer(
-                state.question,
-                state.answer,
-                evidence_text[:4000],
-                query_log=state.query_log,
-                telemetry=state.telemetry,
-            )
-            state.judge_result = {"passed": judge_res.passed, "scores": judge_res.scores}
-            if state.telemetry:
-                state.telemetry.quality_state = "passed" if judge_res.passed else "failed"
-        except Exception as exc:
-            logger.warning("Judge execution error: %s", exc)
+    # Jev judge is paused for ask. The score was recorded and the answer was still returned.
+    # if plan.answer_mode == AnswerMode.INSIGHT_FUSION and getattr(settings, "insight_verify_retry", True):
+    #     try:
+    #         judge_res = judge_answer(
+    #             state.question,
+    #             state.answer,
+    #             evidence_text[:4000],
+    #             query_log=state.query_log,
+    #             telemetry=state.telemetry,
+    #         )
+    #         state.judge_result = {"passed": judge_res.passed, "scores": judge_res.scores}
+    #         if state.telemetry:
+    #             state.telemetry.quality_state = "passed" if judge_res.passed else "failed"
+    #     except Exception as exc:
+    #         logger.warning("Judge execution error: %s", exc)
 
     state.route_reason = f"composed ({elapsed_ms:.1f}ms, chars={len(state.answer)})"
     return None

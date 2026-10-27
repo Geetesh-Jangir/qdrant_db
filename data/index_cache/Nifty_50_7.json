@@ -2,8 +2,8 @@
   "sector_label": "Nifty 50",
   "benchmark_label": "Nifty 50 (broad market proxy)",
   "yfinance_ticker": "^NSEI",
-  "return_pct": -2.36,
+  "return_pct": -0.61,
   "window_days": 7,
   "substituted_broad_index": true,
-  "cached_at": 1792752439.9908526
+  "cached_at": 1793107078.2005258
 }

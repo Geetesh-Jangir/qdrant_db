@@ -70,6 +70,24 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
         },
         "per_fund": False,
     },
+    "get_macro_news": {
+        "description": (
+            "Fresh news for every macro topic, two articles each. "
+            "Topics are gold, crude, rupee, RBI, inflation, Nifty, Bank Nifty, and the other named macro parameters."
+        ),
+        "when_to_use": (
+            "A sector overview, or a market-wide question such as what is happening in the market "
+            "or why returns are weak, when no single macro topic was already searched."
+        ),
+        "do_not_use": (
+            "Do not use for one named topic such as gold, for a company, or for a fund fact. "
+            "Those already have their own news search."
+        ),
+        "args_schema": {
+            "window_days": {"type": "int", "min": 1, "max": 180, "default": 30},
+        },
+        "per_fund": False,
+    },
     "search_financial_news": {
         "description": (
             "News search. scope is all, fund, holdings, sectors, macro, stock, sector, or market. "
