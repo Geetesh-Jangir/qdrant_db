@@ -185,7 +185,10 @@ def run_sector_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
     q = _s(ctx, "question")
     sector = _s(ctx, "sector_name")
     keys = list(ctx.get("sector_keys") or [])
-    wants_impact = bool(_IMPACT_RE.search(q))
+    invested = bool(re.search(r"\b(?:invested|investment|holdings?|allocation)\b", q, re.I))
+    wants_impact = bool(_IMPACT_RE.search(q)) and not (
+        invested and not re.search(r"\b(?:impact\w*|affect\w*)\b", q, re.I)
+    )
     need = DataNeed(tool="sector_funds", sector_name=sector, semantic_query=q or sector, top_n=int(ctx.get("top_n") or 8))
     # "highly impacted" = meaningful weight in the sector. Step the floor down if the sector is thin.
     floors = (8.0, 5.0, 2.0, 0.0) if wants_impact else (0.0,)
@@ -593,20 +596,42 @@ def run_compare_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
             details.append(d)
     if len(details) < 2:
         return _fail("need_two_funds")
-    out = run_compare_funds(details, compare_on="all", return_window=_s(ctx, "return_window", "1M"))
-    if out.get("ok") and ctx.get("overlap"):
-        from news_rag.fund_search import extract_top_holdings
+    out = run_compare_funds(details, compare_on="all", return_window=_s(ctx, "return_window", "1M"), top_n=max(len(details), 5))
+    if out.get("ok"):
+        from news_rag.fund_search import build_holding_overlap
 
-        sets = []
-        for detail in details:
-            names = {str(h.get("name") or "").lower() for h in extract_top_holdings(detail, limit=30)}
-            sets.append(names)
-        shared = set.intersection(*sets) if sets else set()
         data = out.get("data") if isinstance(out.get("data"), dict) else {}
-        data["shared_holdings"] = sorted(shared)[:20]
-        data["shared_count"] = len(shared)
+        overlap = build_holding_overlap(details)
+        data["holding_overlap"] = overlap
+        data["shared_count"] = overlap["overlap_count"]
+        data["shared_holdings"] = [row["stock"] for row in overlap["rows"][:20]]
+        data["fund_briefs"] = [_fund_compare_brief(detail) for detail in details]
         out["data"] = data
     return out
+
+
+def _fund_compare_brief(detail: dict[str, Any]) -> dict[str, Any]:
+    from news_rag.fund_search import extract_top_sectors
+
+    expense = detail.get("expense_ratio") if isinstance(detail.get("expense_ratio"), dict) else {}
+    returns = detail.get("returns") if isinstance(detail.get("returns"), dict) else {}
+    top_rows = extract_top_sectors(detail, limit=1)
+    top_sector = ""
+    if top_rows:
+        top_sector = f"{top_rows[0].get('sector') or '—'} ({float(top_rows[0].get('percentage') or 0):.2f}%)"
+    return {
+        "fund_name": detail.get("fund_short_name") or detail.get("fund_name"),
+        "category": detail.get("category") or "",
+        "nav": detail.get("nav"),
+        "nav_date": detail.get("nav_date") or "",
+        "aum": detail.get("aum"),
+        "aum_as_on_date": detail.get("aum_as_on_date") or "",
+        "expense_ratio": expense.get("regular") if expense.get("regular") is not None else expense.get("direct"),
+        "exit_load_summary": detail.get("exit_load_summary") or "",
+        "top_sector": top_sector,
+        "returns": {str(k).upper(): v for k, v in returns.items() if v is not None},
+        "benchmark": detail.get("benchmark") or "",
+    }
 
 
 # ---------------------------------------------------------------------------

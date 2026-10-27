@@ -212,6 +212,10 @@ def node_route(state: GraphState) -> str | None:
     plan = state.plan
     if plan is None:
         raise GraphUnavailable("No execution plan after routing")
+    from news_rag.insight.multi_fact import ensure_compare_template, ensure_multi_fact_tools
+
+    ensure_multi_fact_tools(state.question, plan)
+    ensure_compare_template(plan)
 
     # Set deadline budget based on query class
     if plan.query_class == QueryClass.SIMPLE:

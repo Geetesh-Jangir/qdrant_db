@@ -145,6 +145,7 @@ class SectorFundRankingIndex:
                     add(self._sector_fold[canon.casefold()])
                     continue
             lower = text.lower()
+            before = len(found)
             for alias, keys in _SECTOR_ALIASES.items():
                 if alias == "it":
                     if not (
@@ -157,9 +158,12 @@ class SectorFundRankingIndex:
                     continue
                 for k in keys:
                     add(k)
-            # substring match on index keys (last resort)
-            for sk in self._sectors:
-                if _sector_label_in_text(sk, lower):
+            if len(found) == before:
+                for sk in self._sectors:
+                    if _sector_label_in_text(sk, lower):
+                        add(sk)
+            if len(found) == before:
+                for sk in _fuzzy_pipeline_sectors(text):
                     add(sk)
 
         return found
@@ -182,7 +186,10 @@ class SectorFundRankingIndex:
         for sk in self._sectors:
             if _sector_label_in_text(sk, blob):
                 keys.append(sk)
-        return self.resolve_sector_keys(keys)
+        found = self.resolve_sector_keys(keys)
+        if found:
+            return found
+        return self.resolve_sector_keys([blob])
 
     def is_passive_sector_product(self, fund_name: str) -> bool:
         return bool(_PASSIVE_NAME_RE.search(fund_name or ""))
@@ -313,6 +320,130 @@ def classify_sector_fund_purity(
     if _DEDICATED_SECTORAL_RE.search(name):
         return "dedicated_sectoral"
     return "diversified_equity"
+
+
+_FUZZY_STOP = frozenset(
+    {
+        "sector",
+        "sectors",
+        "fund",
+        "funds",
+        "stock",
+        "stocks",
+        "the",
+        "and",
+        "that",
+        "are",
+        "heavily",
+        "invested",
+        "investment",
+        "products",
+        "services",
+        "diversified",
+        "any",
+        "tell",
+        "about",
+        "with",
+        "from",
+        "into",
+        "which",
+        "what",
+        "show",
+        "give",
+        "list",
+        "company",
+        "companies",
+        "india",
+        "indian",
+        "this",
+        "those",
+        "these",
+    }
+)
+_pipeline_targets_cache: list[tuple[str, tuple[str, ...]]] | None = None
+
+
+def _damerau(left: str, right: str) -> int:
+    if abs(len(left) - len(right)) > 2:
+        return 3
+    rows = len(left) + 1
+    cols = len(right) + 1
+    dp = [[0] * cols for _ in range(rows)]
+    for i in range(rows):
+        dp[i][0] = i
+    for j in range(cols):
+        dp[0][j] = j
+    for i in range(1, rows):
+        for j in range(1, cols):
+            cost = 0 if left[i - 1] == right[j - 1] else 1
+            dp[i][j] = min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and left[i - 1] == right[j - 2] and left[i - 2] == right[j - 1]:
+                dp[i][j] = min(dp[i][j], dp[i - 2][j - 2] + 1)
+    return dp[-1][-1]
+
+
+def _token_score(query: str, candidate: str) -> float:
+    if query == candidate:
+        return 1.0
+    if len(query) >= 5 and len(candidate) >= 5 and (
+        candidate.startswith(query) or query.startswith(candidate)
+    ):
+        return 0.9
+    distance = _damerau(query, candidate)
+    if min(len(query), len(candidate)) >= 4 and distance <= 1:
+        return 0.86
+    if min(len(query), len(candidate)) >= 5 and abs(len(query) - len(candidate)) <= 1 and distance == 2:
+        return 0.84
+    return 0.0
+
+
+def _pipeline_sector_targets() -> list[tuple[str, tuple[str, ...]]]:
+    """Canonical names from the news pipeline sector list, plus the words that name them."""
+    global _pipeline_targets_cache
+    if _pipeline_targets_cache is not None:
+        return _pipeline_targets_cache
+    from news_pipeline.config import SECTOR_QUERIES
+
+    targets: list[tuple[str, tuple[str, ...]]] = []
+    for name, spec in SECTOR_QUERIES.items():
+        tokens: list[str] = []
+        for part in (name, *spec.keywords):
+            for tok in re.findall(r"[a-z0-9]+", part.lower()):
+                if tok in _FUZZY_STOP or len(tok) < 4 or tok in tokens:
+                    continue
+                tokens.append(tok)
+        if tokens:
+            targets.append((name, tuple(tokens)))
+    _pipeline_targets_cache = targets
+    return targets
+
+
+def _fuzzy_pipeline_sectors(text: str) -> list[str]:
+    """Closest news-pipeline sector when the wording is a typo or a shorter name."""
+    tokens = [
+        tok
+        for tok in re.findall(r"[a-z0-9]+", (text or "").lower())
+        if tok not in _FUZZY_STOP and len(tok) >= 4
+    ]
+    if not tokens:
+        return []
+    scored: list[tuple[float, str]] = []
+    for name, cand_tokens in _pipeline_sector_targets():
+        best = 0.0
+        for query in tokens:
+            for cand in cand_tokens:
+                best = max(best, _token_score(query, cand))
+        if best >= 0.86:
+            scored.append((best, name))
+    if not scored:
+        return []
+    scored.sort(key=lambda row: (-row[0], row[1]))
+    top = scored[0][0]
+    if top < 0.86 and (len(scored) == 1 or scored[1][0] < top):
+        return [scored[0][1]]
+    if top < 0.86:
+        return []
+    return [name for score, name in scored if score >= top - 0.02][:2]
 
 
 def _sector_label_in_text(sector_key: str, text: str) -> bool:

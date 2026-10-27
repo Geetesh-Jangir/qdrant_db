@@ -104,10 +104,13 @@ SECTOR_ALIAS_MAP: dict[str, tuple[str, ...]] = {
     "metals": ("Ferrous Metals", "Non - Ferrous Metals", "Metals & Mining"),
     "metal": ("Ferrous Metals", "Non - Ferrous Metals", "Metals & Mining"),
 
-    # —— FMCG / consumption (common asks) ——
-    "fmcg sector": ("FMCG", "Consumer Non Durables"),
-    "fmcg": ("FMCG", "Consumer Non Durables"),
-    "consumption sector": ("Consumer Durables", "FMCG"),
+    # —— FMCG / consumption (news-pipeline sector: Diversified Fmcg) ——
+    "fast moving consumer goods": ("Diversified Fmcg",),
+    "consumer goods": ("Diversified Fmcg",),
+    "diversified fmcg": ("Diversified Fmcg",),
+    "fmcg sector": ("Diversified Fmcg",),
+    "fmcg": ("Diversified Fmcg",),
+    "consumption sector": ("Consumer Durables", "Diversified Fmcg"),
 
     # —— Defence ——
     "defence sector": ("Aerospace & Defence", "Capital Goods"),

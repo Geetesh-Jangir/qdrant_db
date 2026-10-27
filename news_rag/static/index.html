@@ -537,6 +537,15 @@
       return /^[₹$]?[-+~]?\d|^\d|%\s*$|bps| crore| lakh/i.test(t);
     }
 
+    function looksNumericRowLabel(text) {
+      const t = String(text || "").replace(/\*\*/g, "").trim().toLowerCase();
+      return /^(nav|aum|expense|day change|vs\b|1w|1m|3m|6m|9m|1y|2y|3y|4y|5y|ytd)\b/.test(t);
+    }
+
+    function columnHeaderIsNumeric(label) {
+      return /(\bweight\b|\breturn|\bpp\b|\bavg\b|\bbenchmark\b|\bnav\b|\bchange\b|\bhigh\b|\blow\b|\bpct\b|%|\baum\b|\bexpense\b)/.test(label);
+    }
+
     function renderInsightTable(rows) {
       const wrap = document.createElement("div");
       wrap.className = "insight-table-scroll";
@@ -559,7 +568,9 @@
           if (cells.length > columnCount) cells = cells.slice(0, columnCount);
         }
         const tr = document.createElement("tr");
-        const tag = headerDone ? "td" : "th";
+        const isHeader = !headerDone;
+        const tag = isHeader ? "th" : "td";
+        const numericRow = !isHeader && looksNumericRowLabel(cells[0] || "");
         headerDone = true;
         cells.forEach((cell, colIdx) => {
           const el = document.createElement(tag);
@@ -569,9 +580,9 @@
             /^(holding|metric|period|stock|name|sector|company)\b/.test(label);
           const numericCol =
             !labelCol &&
-            (tag === "th" ||
-              looksNumericCell(cell) ||
-              /(weight|return|pp|avg|bench|fund|nav|change|high|low|pct|%)/.test(label));
+            (looksNumericCell(cell) ||
+              columnHeaderIsNumeric(label) ||
+              numericRow);
           if (numericCol) el.classList.add("insight-num");
           el.innerHTML = formatMarkdown(cell);
           tr.appendChild(el);

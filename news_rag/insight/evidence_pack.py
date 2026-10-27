@@ -472,6 +472,161 @@ def _portfolio_top_n(plan: ExecutionPlan) -> int:
     return 5
 
 
+def _snapshot_markdown(snap: dict[str, Any], plan: ExecutionPlan) -> str:
+    name = snap.get("fund_name") or snap.get("fund_short_name") or (plan.funds[0] if plan.funds else "Fund")
+    nav = snap.get("nav")
+    day_change = snap.get("day_change_pct") or snap.get("day_change") or 0.0
+    category = snap.get("category") or ""
+    benchmark = snap.get("benchmark") or ""
+    range_52w = snap.get("52_week_range") or {}
+    rets = snap.get("returns") or {}
+    lines = [
+        f"### {name}",
+        f"- **Current NAV:** ₹{nav:,.2f}" if isinstance(nav, (int, float)) else f"- **Current NAV:** ₹{nav}",
+    ]
+    if day_change:
+        sign = "+" if float(day_change) > 0 else ""
+        lines.append(f"- **Day Change:** {sign}{float(day_change):.2f}%")
+    if category:
+        lines.append(f"- **Category:** {category}")
+    if benchmark:
+        lines.append(f"- **Benchmark:** {benchmark}")
+    expense = snap.get("expense_ratio") if isinstance(snap.get("expense_ratio"), dict) else {}
+    if expense.get("regular") is not None:
+        ratio = f"{float(expense['regular']):.2f}%"
+        if expense.get("as_on_date"):
+            ratio = f"{ratio} (as on {expense['as_on_date']})"
+        lines.append(f"- **Expense ratio (regular):** {ratio}")
+    elif expense.get("direct") is not None:
+        ratio = f"{float(expense['direct']):.2f}%"
+        if expense.get("as_on_date"):
+            ratio = f"{ratio} (as on {expense['as_on_date']})"
+        lines.append(f"- **Expense ratio (direct):** {ratio}")
+    exit_load = str(snap.get("exit_load_summary") or "").strip()
+    if exit_load:
+        lines.append(f"- **Exit load:** {exit_load}")
+    if snap.get("aum") is not None:
+        aum_text = f"Rs {float(snap['aum']):,.2f} crore"
+        if snap.get("aum_as_on_date"):
+            aum_text = f"{aum_text} (as on {snap['aum_as_on_date']})"
+        lines.append(f"- **AUM:** {aum_text}")
+    if isinstance(range_52w, dict) and range_52w.get("low") and range_52w.get("high"):
+        lines.append(f"- **52-Week Range:** ₹{range_52w['low']} – ₹{range_52w['high']}")
+    if isinstance(rets, dict) and rets:
+        lines.append("\n**Historical Returns:**")
+        ret_strs = [
+            f"{k}: {v:+.2f}%" if isinstance(v, (int, float)) else f"{k}: {v}"
+            for k, v in rets.items()
+            if v is not None
+        ]
+        lines.append(" | ".join(ret_strs))
+    return "\n".join(lines)
+
+
+def _portfolio_markdown(p_data: dict[str, Any], plan: ExecutionPlan) -> str:
+    holdings = p_data.get("holdings") or []
+    sectors = p_data.get("sectors") or []
+    fund_name = plan.funds[0] if plan.funds else "Fund"
+    sector_rows = [s for s in sectors if _sector_label(s) != "—" or _sector_weight_pct(s) > 0]
+    holding_rows = [
+        h for h in holdings if _holding_label(h) != "—" and _holding_weight_pct(h) > 0
+    ]
+    cap = _portfolio_top_n(plan)
+    sections = _portfolio_sections_from_plan(plan)
+    sectors_only = sections == ["sectors"] or (sector_rows and not holding_rows)
+    lines = [f"### Top {cap} sectors — {fund_name}" if sectors_only else f"### Portfolio — {fund_name}"]
+    if sector_rows:
+        lines.append("\n| Sector | Weight (%) |")
+        lines.append("| --- | ---: |")
+        for s in sector_rows[:cap]:
+            lines.append(f"| {_sector_label(s)} | {_sector_weight_pct(s):.2f}% |")
+    if holding_rows and "holdings" in sections:
+        lines.append("\n| Stock / company | Sector | Weight (%) |")
+        lines.append("| --- | --- | ---: |")
+        for h in holding_rows[:cap]:
+            lines.append(
+                f"| {_holding_label(h)} | {h.get('sector') or h.get('industry') or '—'} | "
+                f"{_holding_weight_pct(h):.2f}% |"
+            )
+    return "\n".join(lines)
+
+
+_RETURN_ROWS = ("1W", "1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y")
+
+
+def _compare_cell(value: Any) -> str:
+    if value is None or value == "":
+        return "—"
+    return str(value).replace("|", "/")
+
+
+def _compare_header(briefs: list[dict[str, Any]]) -> list[str]:
+    names = [str(b.get("fund_name") or "Fund") for b in briefs]
+    return [
+        "",
+        "| | " + " | ".join(names) + " |",
+        "| --- | " + " | ".join("---" for _ in names) + " |",
+    ]
+
+
+def _render_fund_compare_markdown(compare: dict[str, Any]) -> str:
+    overlap = compare.get("holding_overlap") if isinstance(compare.get("holding_overlap"), dict) else {}
+    fund_names = [str(name) for name in (overlap.get("fund_names") or []) if name]
+    briefs = [row for row in (compare.get("fund_briefs") or []) if isinstance(row, dict)]
+    lines = ["## Fund comparison"]
+    if briefs:
+        lines.extend(_compare_header(briefs))
+
+        def _row(label: str, values: list[str]) -> None:
+            lines.append("| " + " | ".join([label, *values]) + " |")
+
+        _row("NAV", [_compare_cell(b.get("nav")) for b in briefs])
+        _row(
+            "AUM (Rs crore)",
+            [
+                _compare_cell(f"{float(b['aum']):,.2f}" if b.get("aum") is not None else None)
+                for b in briefs
+            ],
+        )
+        _row(
+            "Expense ratio",
+            [
+                _compare_cell(f"{float(b['expense_ratio']):.2f}%" if b.get("expense_ratio") is not None else None)
+                for b in briefs
+            ],
+        )
+        _row("Category", [_compare_cell(b.get("category")) for b in briefs])
+        _row("Top sector", [_compare_cell(b.get("top_sector")) for b in briefs])
+        _row("Exit load", [_compare_cell(b.get("exit_load_summary")) for b in briefs])
+
+        lines.extend(["", "### Historical returns", *_compare_header(briefs)[1:]])
+        for window in _RETURN_ROWS:
+            values = []
+            for brief in briefs:
+                returns = brief.get("returns") if isinstance(brief.get("returns"), dict) else {}
+                raw = returns.get(window)
+                values.append(_compare_cell(f"{float(raw):.2f}%" if raw is not None else None))
+            lines.append("| " + " | ".join([window, *values]) + " |")
+    lines.extend(["", "### Overlapping stocks"])
+    rows = [row for row in (overlap.get("rows") or []) if isinstance(row, dict)]
+    if not rows:
+        lines.append("")
+        lines.append("There is no overlapping stock holding between these funds.")
+        return "\n".join(lines)
+    header_funds = fund_names or sorted({name for row in rows for name in (row.get("weights") or {})})
+    lines.append("")
+    lines.append("| Stock | " + " | ".join(header_funds) + " |")
+    lines.append("| --- | " + " | ".join("---:" for _ in header_funds) + " |")
+    for row in rows:
+        weights = row.get("weights") if isinstance(row.get("weights"), dict) else {}
+        cells = []
+        for name in header_funds:
+            value = weights.get(name)
+            cells.append(f"{float(value):.2f}%" if value is not None else "—")
+        lines.append("| " + " | ".join([str(row.get("stock") or "—"), *cells]) + " |")
+    return "\n".join(lines)
+
+
 def render_data_only_template(
     pack: EvidencePack,
     plan: ExecutionPlan,
@@ -488,9 +643,32 @@ def render_data_only_template(
     if not data:
         return None
 
+    compare = data.get("compare") if isinstance(data.get("compare"), dict) else None
+    if compare and isinstance(compare.get("holding_overlap"), dict):
+        return _render_fund_compare_markdown(compare)
+
     # Check for Single Fund Snapshot / NAV
     fund_entries = [v for k, v in data.items() if k.startswith("fund:")]
     portfolio_entries = [v for k, v in data.items() if k.startswith("portfolio:")]
+
+    if fund_entries:
+        f_data = fund_entries[0]
+        mgr_block = f_data.get("managers")
+        has_managers = bool(
+            isinstance(mgr_block, dict) and (mgr_block.get("current") or mgr_block.get("past"))
+        )
+        snap_for_multi = f_data.get("snapshot") if isinstance(f_data.get("snapshot"), dict) else {}
+        has_snap = bool(snap_for_multi) and snap_for_multi.get("nav") is not None
+        fact_blocks = int(has_snap) + int(bool(portfolio_entries)) + int(has_managers)
+        if fact_blocks >= 2:
+            parts: list[str] = []
+            if has_snap:
+                parts.append(_snapshot_markdown(snap_for_multi, plan))
+            if portfolio_entries:
+                parts.append(_portfolio_markdown(portfolio_entries[0], plan))
+            if has_managers:
+                parts.append(_render_fund_managers_markdown(mgr_block, plan))
+            return "\n\n".join(part for part in parts if part)
 
     if fund_entries and not portfolio_entries:
         f_data = fund_entries[0]

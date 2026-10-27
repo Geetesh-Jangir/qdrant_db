@@ -30,6 +30,24 @@ def test_petroleum_and_petrol_sector_screen():
         assert len(rankings) >= 1, q
 
 
+def test_fmgc_typo_and_fmcg_resolve_to_pipeline_sector():
+    from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
+
+    idx = get_sector_fund_ranking_index()
+    for label in ("fmgc", "FMGC", "FMCG", "fmcg sector"):
+        keys = idx.resolve_sector_keys([label])
+        assert "Diversified Fmcg" in keys, label
+
+
+def test_petroleum_phrase_resolves_to_petroleum_products():
+    from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
+
+    idx = get_sector_fund_ranking_index()
+    for label in ("petroleum", "petroleum sector", "petrol products"):
+        keys = idx.resolve_sector_keys([label])
+        assert "Petroleum Products" in keys, label
+
+
 def test_petroleum_not_treated_as_stock_name():
     from news_rag.tools import stock_name_from_question
 

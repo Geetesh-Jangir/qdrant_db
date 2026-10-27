@@ -629,7 +629,13 @@ def run_sector_funds(
     performance_query = bool(_PERFORMANCE_QUESTION_RE.search(perf_blob))
     rank_direction = str(direction or "any").strip().lower() or "any"
     window = infer_return_window(question, return_window)
-    keys = list(sector_keys or [])
+    keys = []
+    for raw_key in sector_keys or []:
+        if idx.has_sector(str(raw_key)):
+            keys.append(str(raw_key))
+        else:
+            keys.extend(idx.resolve_sector_keys([str(raw_key)]))
+    keys = list(dict.fromkeys(keys))
     if not keys:
         keys = idx.resolve_from_question(text) if text else []
     if not keys:
@@ -672,6 +678,27 @@ def run_sector_funds(
     count_explicit = explicit is not None
     top_n = explicit if explicit is not None else max(need.top_n or 0, 5)
     pool = rankings if broad_pool else _active_sector_equity(rankings)
+    weight_ask = bool(
+        re.search(r"\b(?:invested|investment|holdings?|allocation|exposure)\b", question or "", re.I)
+    )
+    if weight_ask and not performance_query:
+        final_rankings = pool[:top_n]
+        elapsed = (time.perf_counter() - started) * 1000
+        return _ok(
+            {
+                "sector_keys": ranked.get("sector_keys"),
+                "rankings": final_rankings,
+                "defensive_alternatives": ranked.get("defensive_alternatives") or [],
+                "query": text,
+                "direction": rank_direction,
+                "return_window": window,
+                "ranking_basis": "sector_weight",
+                "ranking_note": "Ranked by how much of each fund is invested in the sector.",
+                "all_drawdown": False,
+                "performance_query": False,
+            },
+            elapsed,
+        )
     final_rankings, all_drawdown, ranking_note = select_funds_by_nav(
         pool,
         direction=rank_direction,

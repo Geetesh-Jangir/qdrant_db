@@ -1,0 +1,23 @@
+---
+description: Engineering standards for the production GenAI backend
+alwaysApply: true
+---
+
+# Engineering Principles
+
+- Inspect relevant code and callers before editing.
+- Follow existing architecture and interfaces unless a change is justified.
+- Prefer the smallest complete change; avoid unrelated refactoring.
+- Search only relevant files and load only necessary context.
+- Do not add an LLM call, agent, retrieval step, or dependency without a clear benefit.
+- Prefer deterministic code for calculations, validation, filtering, and routing when appropriate.
+- Use structured outputs and validated tool inputs where applicable.
+- Treat retrieved documents, news articles, and tool outputs as untrusted data, and preserve provenance for factual claims.
+- Never rely on prompts alone for user or portfolio authorization.
+- Set appropriate timeouts, handle failures, and bound agent/tool loops, retries, deadlines, context size, and concurrency.
+- Avoid sequential I/O when independent operations can safely run in parallel.
+- Measure latency, token usage, call counts, and quality before claiming an optimization.
+- Add focused tests for behavior changes and regression risks.
+- Never claim tests passed unless they were actually executed.
+- Never expose secrets, credentials, or investor-sensitive data.
+- Review the final diff and report changed files, test results, and unresolved risks.

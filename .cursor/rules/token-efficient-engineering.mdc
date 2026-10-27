@@ -1,0 +1,18 @@
+---
+description: Keep engineering work small, targeted, and verified
+alwaysApply: true
+---
+
+# Token-efficient engineering
+
+- Search for relevant symbols before opening large files.
+- Read only the context required for the current task.
+- Trace affected callers before changing an interface.
+- Prefer the smallest complete change.
+- Reuse existing project patterns and dependencies.
+- Avoid unrelated refactoring and repeated full-project scans.
+- Run focused tests before broader test suites when appropriate.
+- Verify the final Git diff.
+- Never claim tests passed without executing them.
+- Never reveal secrets or credentials.
+- Summarize changed files, verification results and remaining risks.

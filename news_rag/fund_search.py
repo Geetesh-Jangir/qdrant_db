@@ -1243,15 +1243,17 @@ class FundIndex:
         raw_isin = isin.strip().upper()
         isin_clean = resolve_canonical_isin(raw_isin)
 
-        # Check cache
+        # A catalog-only stub has no NAV or holdings. Drop it and try the API again.
         with self._lock:
-            if isin_clean in self._detail_cache:
-                cached = self._detail_cache[isin_clean]
-                if raw_isin != isin_clean and cached:
+            cached = self._detail_cache.get(isin_clean) or self._detail_cache.get(raw_isin)
+            if cached is not None and not detail_has_live_facts(cached):
+                self._detail_cache.pop(isin_clean, None)
+                self._detail_cache.pop(raw_isin, None)
+                cached = None
+            if cached is not None:
+                if raw_isin != isin_clean:
                     return {**cached, "isin": isin_clean, "legacy_isin": raw_isin}
                 return cached
-            if raw_isin in self._detail_cache:
-                return self._detail_cache[raw_isin]
 
         # Fetch from live RupeeStop API
         detail = self.fetch_fund_detail_from_api(isin_clean)
@@ -1274,8 +1276,6 @@ class FundIndex:
                 "sectors": {},
                 "holdings": {},
             }
-            with self._lock:
-                self._detail_cache[isin_clean] = fallback
             return fallback
 
         return None
@@ -1475,6 +1475,70 @@ def lookup_extracted_fund(
 ) -> tuple[dict[str, Any] | None, bool, list[str]]:
     """Convenience helper to lookup fund from global fund index."""
     return get_fund_index().lookup_extracted_fund(isin=isin, name=name)
+
+
+_NON_STOCK_HOLDING = re.compile(
+    r"treps|reverse\s+repo|cash|net\s+current|net\s+receivable|cblo|treasury|gold\s+etf|silver\s+etf",
+    re.I,
+)
+
+
+def detail_has_live_facts(detail: dict[str, Any] | None) -> bool:
+    """True when the record came from the fund API, not the local name catalog."""
+    if not isinstance(detail, dict):
+        return False
+    if detail.get("nav") is not None:
+        return True
+    holdings = detail.get("holdings") or {}
+    return bool(holdings)
+
+
+def _holding_overlap_key(name: str) -> str:
+    text = re.sub(r"\b(?:ltd|limited|inc|corp|corporation|plc)\b\.?", "", name.lower())
+    return re.sub(r"[^a-z0-9]+", " ", text).strip()
+
+
+def build_holding_overlap(details: list[dict[str, Any]]) -> dict[str, Any]:
+    """Stocks held by at least two of the funds, using each fund's full holdings list."""
+    books: list[dict[str, Any]] = []
+    for detail in details:
+        weights: dict[str, tuple[str, float]] = {}
+        for row in extract_top_holdings(detail, limit=5000):
+            name = str(row.get("name") or "").strip()
+            key = _holding_overlap_key(name)
+            if not key or _NON_STOCK_HOLDING.search(name):
+                continue
+            industry = str(row.get("industry") or "")
+            if re.search(r"\b(?:cash|debt|gilt|repo)\b", industry, re.I):
+                continue
+            weights[key] = (name, float(row.get("percentage") or 0.0))
+        books.append(
+            {
+                "fund_name": str(detail.get("fund_short_name") or detail.get("fund_name") or "Fund"),
+                "weights": weights,
+            }
+        )
+    counts: dict[str, int] = {}
+    for book in books:
+        for key in book["weights"]:
+            counts[key] = counts.get(key, 0) + 1
+    rows: list[dict[str, Any]] = []
+    for key, count in counts.items():
+        if count < 2:
+            continue
+        display = next(book["weights"][key][0] for book in books if key in book["weights"])
+        weights_out = {
+            book["fund_name"]: book["weights"][key][1]
+            for book in books
+            if key in book["weights"]
+        }
+        rows.append({"stock": display, "weights": weights_out})
+    rows.sort(key=lambda row: sum(row["weights"].values()), reverse=True)
+    return {
+        "fund_names": [book["fund_name"] for book in books],
+        "overlap_count": len(rows),
+        "rows": rows,
+    }
 
 
 def extract_top_holdings(detail: dict[str, Any] | None, limit: int = 10) -> list[dict[str, Any]]:
