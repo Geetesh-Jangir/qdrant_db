@@ -44,7 +44,7 @@ from news_rag.insight.evidence_pack import (
 from news_rag.insight.fund_display import (
     normalize_user_facing_text,
     stitch_display_tables_into_answer,
-    append_news_section,
+    strip_news_roundup,
 )
 from news_rag.insight.grounding import cores_in_text, strip_media_attribution, strip_ungrounded_numbers
 from news_rag.insight.plan import make_plan
@@ -55,7 +55,7 @@ from news_rag.llm_client import (
     llm_api_key_configured,
 )
 from news_rag.output_judge import judge_answer
-from news_rag.prompts import COMPOSER_MARKDOWN_LAYOUT, FINANCIAL_SYSTEM_BASE
+from news_rag.prompts import shared_system_prefix
 from news_rag.query_log import QueryLogger
 
 logger = logging.getLogger(__name__)
@@ -297,10 +297,14 @@ def _resolve_funds(plan: ExecutionPlan) -> tuple[list[str], list[str]]:
 def node_resolve(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
+    if state.query_log is not None:
+        state.query_log.log_execution_plan(plan)
 
     funds, unresolved = _resolve_funds(plan)
     state.resolved_funds = funds
     state.unresolved_funds = unresolved
+    if state.query_log is not None:
+        state.query_log.write(f"RESOLVED funds={funds} unresolved={unresolved}")
 
     sector_keys: list[str] = []
     if plan.sectors:
@@ -391,6 +395,10 @@ def node_wave1(state: GraphState) -> str | None:
         state.route_reason = "no Wave 1 calls"
         return "bridge" if plan.answer_mode != AnswerMode.DATA_ONLY else "evidence_gate"
 
+    screen_first = [c for c in calls if c.tool == "screen_funds_by_exposure"]
+    after_screen = [c for c in calls if c.tool != "screen_funds_by_exposure"]
+    sequence_screen = bool(screen_first) and any(c.tool == "compare_funds" for c in after_screen)
+
     context = {
         "question": state.question,
         "fund_names": state.resolved_funds,
@@ -406,14 +414,45 @@ def node_wave1(state: GraphState) -> str | None:
 
     deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 5000.0, 25000.0))
     t0 = time.time()
-    results = execute_wave(
-        calls,
-        context,
-        fund_names=state.resolved_funds,
-        telemetry=state.telemetry,
-        deadline_ms=deadline_ms,
-        query_log=state.query_log,
-    )
+    if sequence_screen:
+        screen_results = execute_wave(
+            screen_first,
+            context,
+            fund_names=state.resolved_funds,
+            telemetry=state.telemetry,
+            deadline_ms=deadline_ms,
+            query_log=state.query_log,
+        )
+        picked: list[str] = []
+        for row in screen_results:
+            if row.get("tool") != "screen_funds_by_exposure" or not row.get("ok"):
+                continue
+            data = row.get("data") if isinstance(row.get("data"), dict) else {}
+            for fund_row in data.get("rankings") or data.get("funds") or []:
+                name = str((fund_row or {}).get("fund_name") or "").strip()
+                if name and name not in picked:
+                    picked.append(name)
+        if picked:
+            context["fund_names"] = picked
+            state.resolved_funds = picked
+        rest = execute_wave(
+            after_screen,
+            context,
+            fund_names=picked or state.resolved_funds,
+            telemetry=state.telemetry,
+            deadline_ms=deadline_ms,
+            query_log=state.query_log,
+        )
+        results = screen_results + rest
+    else:
+        results = execute_wave(
+            calls,
+            context,
+            fund_names=state.resolved_funds,
+            telemetry=state.telemetry,
+            deadline_ms=deadline_ms,
+            query_log=state.query_log,
+        )
     elapsed_ms = (time.time() - t0) * 1000.0
 
     state.wave1_results = results
@@ -431,8 +470,8 @@ def node_wave1(state: GraphState) -> str | None:
                 fund=str(r.get("fund") or ""),
             )
 
-    ok_count = sum(1 for r in results if r.get("ok"))
-    state.route_reason = f"wave1: {ok_count}/{len(results)} ok ({elapsed_ms:.1f}ms)"
+    ok_count = sum(1 for r in state.wave1_results if r.get("ok"))
+    state.route_reason = f"wave1: {ok_count}/{len(state.wave1_results)} ok ({elapsed_ms:.1f}ms)"
 
     if plan.answer_mode == AnswerMode.DATA_ONLY:
         return "evidence_gate"
@@ -572,6 +611,11 @@ def node_evidence_gate(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
 
+    if state.query_log is not None:
+        state.query_log.log_tool_results(1, state.wave1_results)
+        if state.wave2_results:
+            state.query_log.log_tool_results(2, state.wave2_results)
+
     pack = build_evidence_pack(
         plan,
         state.wave1_results,
@@ -587,28 +631,24 @@ def node_evidence_gate(state: GraphState) -> str | None:
     return "compose"
 
 
-COMPOSE_SYSTEM = f"""{FINANCIAL_SYSTEM_BASE}
-
-ROLE: COMPOSER (user-facing markdown only)
+COMPOSE_SYSTEM = """ROLE: COMPOSER (user-facing markdown only)
 You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words), and EVIDENCE (metrics + optional news).
 
 CORE RULES:
 0. **Concept + data:** When WHAT THE USER WANTS includes `concept_brief`, explain that concept first (1–3 sentences), then use EVIDENCE for the example fund/scheme. Do not skip the concept or invent fund names.
 1. **Match the question.** A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay.
-2. **Returns in prose:** When comparing to category or benchmark, cite the exact **vs category (pp)** / **vs benchmark (pp)** from PERFORMANCE `comparison_periods` (or short-horizon table fields). Do not say "about" when the gap is computable. Fund 1Y/3Y/5Y are from the fund API; category avg from `category_averages`.
+2. **Returns in prose:** Compare a fund with its benchmark only when a benchmark return is present, and with the category average only when that average is present. If neither is present, do not write a comparison and do not say that the comparison is missing or cannot be stated. If only one side is present, compare only that side. Cite the exact gap in percentage points. Do not say "about" when the gap is computable. Do not fill a missing side with a hyphen or a guess. Do not write a returns bullet list or a "Returns (horizon labelled)" section; the returns table is appended for you. Do not say how much of the move is unexplained, or that named holdings fail to explain the fund's return. When PERFORMANCE or the snapshot includes expense_ratio, exit_load_summary, or aum_crore, state all three that are present: the expense ratio (regular unless the field is direct), the exit-load sentence, and AUM in crore with its as-on date. Do not mention a direct-plan expense ratio unless that is the field in the snapshot. Do not say these figures are unavailable when they are present.
 3. **Tables (server decides).** Read WHAT THE USER WANTS `tables_in_answer` and `tables_rationale`. Only those comparison blocks are appended after your text — do not hand-build `|` tables for fund returns or rankings. A small table is fine when EVIDENCE is empty and you are showing a calculation you did. If `tables_in_answer` is empty, skip vs-benchmark/category table talk unless the user explicitly asked for returns. Holdings: **weight %** and **holding return %** only (no per-stock pp). `holding_contribution_pp_internal` is for ranking only.
 4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
-5. **News-backed insight:** When EVIDENCE.NEWS has articles and the question is about a fund, do not stop at returns. After the numbers, write `### What the news says`. For each article that matches a holding or a sector in the portfolio, write one or two sentences: the holding or sector, its weight when you have it, and what the article reports. Link that to the fund's return only when the article or the holding's own return supports the link. Skip articles that match neither a holding, a sector, nor the fund. Do not invent a cause. The server also lists the articles under `### Recent news`; your section is the connection, not a second copy of the titles. If NEWS is empty, say in one sentence that there is no recent coverage in the pack.
+5. **No news roundup.** Do not add `### Recent news`, `### What the news says`, or a list of article titles. A news fact belongs in the narrative only when it explains a measured move for a holding or sector already in the answer. One sentence is enough. Do not invent a cause.
 6. **Numbers:** If EVIDENCE has measured figures, those figures must match EVIDENCE. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and calculations are yours to write, with the actual amounts. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
-7. Never mention: DATA, NEWS, EVIDENCE, DISPLAY, tool, pipeline, JSON, yfinance, proxy.
-8. Do not repeat UI fund_rankings tables — one summary line is enough.
-
-{COMPOSER_MARKDOWN_LAYOUT}
+7. **Horizon on every measured percent.** Each price or return row has `horizon` (1D, 1W, 1M, 3M, 6M, 1Y, or a day count such as 14D). WHAT THE USER WANTS also has `measured_window`. Write that code on the figure: Nifty **+0.7% (1W)**. If one figure is 1W and another is 1M, label both. Do not call a 1W or 1M change "the latest session", "today", or "right now".
+8. **No invented levels.** A macro row is a percent change, not a Brent price, a rupee level, or an Indian bond yield. Do not print a level the row does not contain, and do not leave a blank where a number should be. A level or a percent that appears only in a news summary is what that article reported, not the measured move.
+9. Never mention: DATA, NEWS, EVIDENCE, DISPLAY, tool, pipeline, JSON, yfinance, proxy.
+10. Do not repeat UI fund_rankings tables — one summary line is enough.
 """
 
-COMPOSE_SYSTEM_PRECISE = f"""{FINANCIAL_SYSTEM_BASE}
-
-ROLE: COMPOSER — **precise short answer only**
+COMPOSE_SYSTEM_PRECISE = """ROLE: COMPOSER — **precise short answer only**
 The user asked a narrow definition, acronym, or factual question. EVIDENCE may be empty.
 
 RULES:
@@ -617,8 +657,6 @@ RULES:
 3. Respect `max_words` in WHAT THE USER WANTS strictly (usually ≤50).
 4. Do not mention tools, EVIDENCE, or the pipeline.
 5. If you truly do not know, say so in one sentence.
-
-{COMPOSER_MARKDOWN_LAYOUT}
 """
 
 
@@ -669,6 +707,10 @@ def node_compose(state: GraphState) -> str | None:
         "asks_for_advice": plan.asks_for_advice,
         **(policy_meta or {}),
     }
+    from news_rag.insight.planner_policy import horizon_code
+
+    wants["measured_window"] = horizon_code(plan.window_days)
+    wants["measured_window_days"] = plan.window_days
     if (plan.presentation_notes or "").strip():
         wants["presentation_notes"] = plan.presentation_notes.strip()
     if (plan.concept_brief or "").strip():
@@ -678,9 +720,6 @@ def node_compose(state: GraphState) -> str | None:
     if asks_computed_illustration(state.question or ""):
         wants["compute_illustration"] = True
         wants["max_words"] = max(int(wants.get("max_words") or 0), 420)
-    elif pack and pack.news_grouped and (plan.funds or plan.intent in ("overview", "explain_cause")):
-        wants["max_words"] = max(int(wants.get("max_words") or 0), 420)
-        wants["news_in_answer"] = True
 
     user_content = (
         f"QUESTION:\n{state.question.strip()}\n\n"
@@ -717,6 +756,7 @@ def node_compose(state: GraphState) -> str | None:
         max_tokens=max_tokens,
         temperature=0.2,
         stage="composer",
+        cached_system_prefix=shared_system_prefix(),
     )
     elapsed_ms = (time.time() - t0) * 1000.0
 
@@ -761,8 +801,7 @@ def node_compose(state: GraphState) -> str | None:
             display_tables,
             question=state.question or "",
         )
-    if pack and pack.news_grouped and (plan.funds or plan.intent in ("overview", "explain_cause")):
-        polished_text = append_news_section(polished_text, pack.news_grouped)
+    polished_text = strip_news_roundup(polished_text)
     state.answer = _clean_answer(polished_text)
 
     # Selective Judge for INSIGHT_FUSION
@@ -786,6 +825,8 @@ def node_compose(state: GraphState) -> str | None:
 
 
 def node_reply(state: GraphState) -> str | None:
+    if state.query_log is not None and state.plan is not None:
+        state.query_log.log_execution_plan(state.plan)
     state.route_reason = state.reply_kind
     return None
 

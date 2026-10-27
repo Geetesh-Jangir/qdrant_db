@@ -45,6 +45,14 @@ MARKDOWN LAYOUT (match WHAT THE USER WANTS.style when set; otherwise pick the be
 """
 
 
+def shared_system_prefix() -> str:
+    """Byte-stable system prefix sent first by both the planner and the composer.
+
+    Anthropic caches this block on its own. Role instructions follow in a second block.
+    """
+    return f"{FINANCIAL_SYSTEM_BASE.strip()}\n\n{COMPOSER_MARKDOWN_LAYOUT.strip()}"
+
+
 def build_brief_prompt(catalog_block: str, *, slim: bool = True) -> str:
     # The planner only picks facets. The long analyst voice belongs on the composer, not here.
     base = "" if slim else f"{FINANCIAL_SYSTEM_BASE}\n\n"

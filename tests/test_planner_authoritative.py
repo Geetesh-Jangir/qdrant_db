@@ -1,5 +1,5 @@
 from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall, Wave2Policy
-from news_rag.insight.planner_policy import finalize_planner_plan
+from news_rag.insight.planner_policy import finalize_planner_plan, horizon_code
 from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
 from news_rag.insight.question_intent import planner_supplement_for_question
 
@@ -71,6 +71,78 @@ def test_fund_overview_gets_news_even_if_planner_said_data_only():
     news = next(c for c in out.tool_calls if c.tool == "search_financial_news")
     assert news.wave == 2
     assert news.arguments["scope"] == "all"
+
+
+def test_right_now_and_currently_use_one_week():
+    q = "whats happening in the market right now?"
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="overview",
+        answer_mode=AnswerMode.NEWS_ONLY,
+        window_days=30,
+        window_label="1 month",
+        tool_calls=[
+            ToolCall(
+                tool="get_market_snapshot",
+                arguments={"modules": ["index_return", "macro_series"], "window_days": 30},
+                wave=1,
+            ),
+            ToolCall(
+                tool="search_financial_news",
+                arguments={"scope": "market", "top_n": 8, "window_days": 14},
+                wave=2,
+            ),
+        ],
+    )
+    out = finalize_planner_plan(q, plan)
+    assert out.window_days == 7
+    assert out.window_label == "1W"
+    assert all(c.arguments["window_days"] == 7 for c in out.tool_calls)
+
+    current = finalize_planner_plan(
+        "how is crude currently?",
+        ExecutionPlan(
+            routed_by="planner",
+            answer_mode=AnswerMode.NEWS_ONLY,
+            window_days=30,
+            tool_calls=[
+                ToolCall(
+                    tool="get_market_snapshot",
+                    arguments={"modules": ["macro_series"], "series": ["crude"], "window_days": 30},
+                    wave=1,
+                ),
+            ],
+        ),
+    )
+    assert current.window_days == 7
+    assert current.tool_calls[0].arguments["window_days"] == 7
+
+
+def test_named_period_is_not_replaced_by_right_now():
+    q = "what is happening right now versus last month?"
+    plan = ExecutionPlan(
+        routed_by="planner",
+        answer_mode=AnswerMode.NEWS_ONLY,
+        window_days=30,
+        window_label="1 month",
+        tool_calls=[
+            ToolCall(
+                tool="get_market_snapshot",
+                arguments={"modules": ["index_return"], "window_days": 30},
+                wave=1,
+            ),
+        ],
+    )
+    out = finalize_planner_plan(q, plan)
+    assert out.window_days == 30
+    assert out.tool_calls[0].arguments["window_days"] == 30
+
+
+def test_horizon_code_labels():
+    assert horizon_code(1) == "1D"
+    assert horizon_code(7) == "1W"
+    assert horizon_code(30) == "1M"
+    assert horizon_code(14) == "14D"
 
 
 def test_plan_system_prompt_planner_authority():

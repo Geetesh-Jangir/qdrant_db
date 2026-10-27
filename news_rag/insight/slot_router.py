@@ -139,7 +139,7 @@ def _extract_stocks(question: str) -> list[str]:
 def _infer_window_days(question: str) -> tuple[int, str]:
     """Infer time window from question text."""
     q = (question or "").lower()
-    if re.search(r"\btoday\b|\bright now\b|\bcurrent\b|\blatest\b", q):
+    if re.search(r"\btoday\b|\bright now\b|\bcurrently\b|\bcurrent\b|\blatest\b|\bat the moment\b", q):
         return 7, "1 week"
     if re.search(r"\bthis week\b|\bpast week\b|\blast week\b", q):
         return 7, "1 week"

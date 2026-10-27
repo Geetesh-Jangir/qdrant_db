@@ -39,6 +39,101 @@ def _period_label(key: str) -> str:
     return str(key).strip().lower()
 
 
+def _optional_number(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _period_words(count: str, unit: str) -> str:
+    n = str(count).strip()
+    kind = (unit or "").strip().lower()
+    if kind.startswith("y"):
+        word = "year"
+    elif kind.startswith("m"):
+        word = "month"
+    elif kind.startswith("d"):
+        word = "day"
+    else:
+        word = kind or "year"
+    if n != "1":
+        word += "s"
+    return f"{n} {word}"
+
+
+def summarize_exit_load(remarks: str) -> str:
+    """Turn the API remark into one sentence. Empty when there is no remark."""
+    text = re.sub(r"\s+", " ", remarks or "").strip()
+    if not text:
+        return ""
+    matched = re.search(
+        r"(\d+(?:\.\d+)?)\s*%\s+on or before\s+(\d+)\s*([A-Za-z]+).*?\bnil\b\s+after\s+(\d+)\s*([A-Za-z]+)",
+        text,
+        re.I,
+    )
+    if matched:
+        pct, before_n, before_unit, after_n, after_unit = matched.groups()
+        before = _period_words(before_n, before_unit)
+        after = _period_words(after_n, after_unit)
+        return f"Exit load is {pct}% if you leave within {before}, and nothing after {after}."
+    if re.fullmatch(r"(?:nil|none|no exit load|0%?)", text, re.I):
+        return "This fund has no exit load."
+    return text
+
+
+def parse_fund_costs(facts: dict[str, Any] | None) -> dict[str, Any]:
+    """Expense ratio (TER) and exit-load remark from fund_facts."""
+    block = facts if isinstance(facts, dict) else {}
+    ter = block.get("ter_expense_ratio")
+    if not isinstance(ter, dict):
+        ter = block.get("expense_ratio") if isinstance(block.get("expense_ratio"), dict) else {}
+    remarks = ""
+    slabs = block.get("exit_load_slabs") or []
+    if isinstance(slabs, list):
+        for slab in slabs:
+            if not isinstance(slab, dict):
+                continue
+            note = str(slab.get("remarks") or "").strip()
+            if note:
+                remarks = note
+                break
+    if not remarks:
+        remarks = str(block.get("exit_load_remarks") or block.get("exit_load") or "").strip()
+    return {
+        "expense_ratio": {
+            "regular": _optional_number(ter.get("regular")),
+            "direct": _optional_number(ter.get("direct")),
+            "as_on_date": str(ter.get("as_on_date") or "").strip(),
+        },
+        "exit_load_remarks": remarks,
+        "exit_load_summary": summarize_exit_load(remarks),
+        "aum": _optional_number(block.get("aum")),
+        "aum_as_on_date": str(block.get("aum_as_on_date") or "").strip(),
+    }
+
+
+def expense_ratio_for_question(expense: dict[str, Any] | None, question: str) -> dict[str, Any]:
+    """Regular plan unless the user asked for the direct plan."""
+    src = expense if isinstance(expense, dict) else {}
+    wants_direct = bool(re.search(r"\bdirect\b", question or "", re.I))
+    out: dict[str, Any] = {}
+    as_on = str(src.get("as_on_date") or "").strip()
+    if as_on:
+        out["as_on_date"] = as_on
+    if wants_direct:
+        if src.get("direct") is not None:
+            out["direct"] = src["direct"]
+            out["plan"] = "direct"
+        return out
+    if src.get("regular") is not None:
+        out["regular"] = src["regular"]
+        out["plan"] = "regular"
+    return out
+
+
 def normalize_category_average_returns(raw: dict[str, Any] | None) -> dict[str, float]:
     """From fund detail `ratios.category_averages.returns` (skip inception / 10y)."""
     if not isinstance(raw, dict):

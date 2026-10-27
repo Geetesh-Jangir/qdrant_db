@@ -486,6 +486,9 @@ The server copies request onto the portfolio tool when the two disagree.
 - reading is one corrected sentence.
 Copy count into arguments.top_n and the slice into get_portfolio_data arguments.sections.
 
+### TIME
+"right now", "currently", "at the moment", and "market now" mean the last 7 days. Set time.window_days to 7 and set window_days to 7 on get_market_snapshot, search_financial_news, and get_fund_data. That percent is 1W. If the user also names a period, such as last month or this year, use that period instead of 7.
+
 - Glossary only, such as the full form of NAV: tool_calls [], direct_reply one sentence, max_words at most 40, DATA_ONLY.
 - A calculation or plan no tool can compute, such as a stepped-up SIP toward a corpus: tool_calls [], portfolio_slice none, omit direct_reply, max_words at least 400. The composer does the arithmetic and states any missing input as an assumption. Do not answer with a sentence that only says a calculation is required.
 - Concept plus one example, such as what a fund of funds is and name one: screen_funds_by_exposure top_n 1, DATA_ONLY, response_shape sections, presentation_notes telling the composer to explain the concept and then cite the screened scheme.
@@ -569,6 +572,7 @@ def make_plan(
 
     try:
         from news_rag.llm_client import planner_model, planner_provider
+        from news_rag.prompts import shared_system_prefix
 
         res = call_json_llm(
             system_prompt=plan_system_prompt(),
@@ -581,6 +585,7 @@ def make_plan(
             response_schema=PLAN_SCHEMA,
             stage="plan",
             enable_gemini_context_cache=True,
+            cached_system_prefix=shared_system_prefix(),
         )
     except Exception as exc:  # noqa: BLE001
         if query_log is not None:
@@ -623,7 +628,8 @@ def make_plan(
     if query_log is not None:
         query_log.write(
             f"PLANNER authoritative tools={plan.tool_names} answer_mode={plan.answer_mode.value} "
-            f"request_count={plan.planner_count} request_slice={plan.planner_portfolio_slice or 'none'}"
+            f"request_count={plan.planner_count} request_slice={plan.planner_portfolio_slice or 'none'} "
+            f"window_days={plan.window_days} window_label={plan.window_label}"
         )
     return plan
 

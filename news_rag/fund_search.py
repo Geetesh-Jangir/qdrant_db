@@ -1187,11 +1187,12 @@ class FundIndex:
             or entry_meta.get("category")
             or ""
         )
-        from news_rag.fund_rupeestop_metrics import normalize_category_average_returns
+        from news_rag.fund_rupeestop_metrics import normalize_category_average_returns, parse_fund_costs
 
         category_average_returns = normalize_category_average_returns(
             ratios.get("category_averages") if isinstance(ratios, dict) else None
         )
+        costs = parse_fund_costs(facts if isinstance(facts, dict) else None)
         stype = ident.get("scheme_type") or entry_meta.get("scheme_type") or "Equity"
         plan = ident.get("plan") or entry_meta.get("plan") or "Regular"
         opt = ident.get("option") or entry_meta.get("option") or "Growth"
@@ -1214,6 +1215,11 @@ class FundIndex:
             "low_52w": nav.get("low_52w"),
             "returns": returns_map,
             "category_average_returns": category_average_returns,
+            "expense_ratio": costs.get("expense_ratio") or {},
+            "exit_load_remarks": costs.get("exit_load_remarks") or "",
+            "exit_load_summary": costs.get("exit_load_summary") or "",
+            "aum": costs.get("aum"),
+            "aum_as_on_date": costs.get("aum_as_on_date") or "",
             "sectors": sectors,
             "holdings": holdings,
         }

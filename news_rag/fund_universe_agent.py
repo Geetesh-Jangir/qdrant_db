@@ -31,7 +31,7 @@ _CATEGORY_PATTERNS: list[tuple[str, str, str, list[str]]] = [
     ("Dividend Yield", "Equity", "Dividend Yield", [r"\bdividend\s*yield\b"]),
     
     # Sectoral / Thematic Equity
-    ("Banking & Financial Services", "Equity", "Sectoral - Banking", [r"\bbank(?:ing)?\b", r"\bfinancial\s*services\b", r"\bpsu\s*bank\b"]),
+    ("Banking & Financial Services", "Equity", "Sectoral - Banking", [r"\bbanking\b", r"\bbank\s*(?:&|and)\s*financial", r"\bfinancial\s*services\b", r"\bpsu\s*bank\b", r"\bbank\s+fund\b"]),
     ("Information Technology", "Equity", "Sectoral - IT", [r"\b(?:it|technology|tech|digital\s*india|software)\b"]),
     ("Healthcare & Pharma", "Equity", "Sectoral - Healthcare", [r"\bpharma(?:ceutical)?\b", r"\bhealth\s*care\b", r"\bhealthcare\b"]),
     ("Automobile & Auto Ancillary", "Equity", "Sectoral - Auto", [r"\bauto(?:mobile)?\b", r"\btransportation\b", r"\bauto\s*ancillar(?:y|ies)\b"]),
@@ -72,6 +72,51 @@ _CATEGORY_PATTERNS: list[tuple[str, str, str, list[str]]] = [
     ("Short Duration / Corporate Bond", "Debt", "Short Duration", [r"\bshort\s*duration\b", r"\bcorporate\s*bond\b", r"\bbanking\s*(&|and)\s*psu\s*debt\b"]),
     ("Gilt / Government Securities", "Debt", "Gilt", [r"\bgilt\b", r"\b10\s*year\s*gilt\b", r"\bg-sec\b", r"\bgilt\s*etf\b"]),
 ]
+
+
+def match_fund_category(text: str, *, allow_short_it: bool = True) -> tuple[str, str, str] | None:
+    """Longest category phrase wins, so large-and-mid-cap is not read as mid cap."""
+    low = (text or "").lower()
+    best: tuple[str, str, str] | None = None
+    best_len = 0
+    for cat, stype, subcat, patterns in _CATEGORY_PATTERNS:
+        if cat == "Information Technology" and not allow_short_it and not re.search(
+            r"\bit\s+sector\b|information\s+technology|\btech\b|\bsoftware\b|\bdigital\b",
+            text or "",
+            re.I,
+        ):
+            continue
+        for pat in patterns:
+            matched = re.search(pat, low)
+            if not matched:
+                continue
+            span = len(matched.group(0))
+            if span > best_len:
+                best = (cat, subcat, stype)
+                best_len = span
+    # "Bank of India Credit Risk" is the AMC, not a banking equity fund.
+    if best and best[0] == "Large Cap" and re.search(
+        r"\b(?:us|nasdaq|nyse|global|international|world)\b",
+        low,
+    ):
+        best = ("MNC / International", "Thematic - Global", "Equity")
+    if re.search(
+        r"\b(?:debt|gilt|credit\s*risk|liquid|overnight|money\s*market|corporate\s*bond|duration|bond|crisil|ibx|g-sec)\b",
+        low,
+    ):
+        if best is None or best[2] != "Debt":
+            debt_best: tuple[str, str, str] | None = None
+            debt_len = 0
+            for cat, stype, subcat, patterns in _CATEGORY_PATTERNS:
+                if stype != "Debt":
+                    continue
+                for pat in patterns:
+                    matched = re.search(pat, low)
+                    if matched and len(matched.group(0)) > debt_len:
+                        debt_best = (cat, subcat, stype)
+                        debt_len = len(matched.group(0))
+            best = debt_best or ("Debt", "Debt", "Debt")
+    return best
 
 
 @dataclass
@@ -156,12 +201,10 @@ class FundUniverseCatalog:
         return s or amc
 
     def _classify_fund(self, name: str) -> tuple[str, str, str]:
-        low = name.lower()
-        for cat, stype, subcat, patterns in _CATEGORY_PATTERNS:
-            for pat in patterns:
-                if re.search(pat, low):
-                    return cat, subcat, stype
-        return "Other Equity", "Diversified Equity", "Equity"
+        matched = match_fund_category(name)
+        if matched is None:
+            return "Other Equity", "Diversified Equity", "Equity"
+        return matched
 
     @property
     def total_funds(self) -> int:
@@ -182,6 +225,7 @@ class FundUniverseCatalog:
         keyword: str | None = None,
         limit: int = 5,
         enrich_nav: bool = True,
+        spread_amcs: bool = True,
     ) -> list[dict[str, Any]]:
         """Query the fund universe with multiple flexible filters."""
         self.ensure_loaded()
@@ -194,12 +238,10 @@ class FundUniverseCatalog:
 
         for entry in self._funds:
             if cat_clean:
-                # Match against category or sub-category or fund name
-                if (
-                    cat_clean not in entry.category.lower()
-                    and cat_clean not in entry.sub_category.lower()
-                    and cat_clean not in entry.fund_name.lower()
-                ):
+                cat_l = entry.category.lower()
+                sub_l = entry.sub_category.lower()
+                # Exact category. "mid cap" must not also pull "Large & Mid Cap".
+                if cat_clean != cat_l and cat_clean != sub_l:
                     continue
             if amc_clean:
                 if amc_clean not in entry.amc.lower() and amc_clean not in entry.amc_short.lower():
@@ -213,7 +255,7 @@ class FundUniverseCatalog:
             matches.append(entry)
 
         # Diverse representation: if no AMC specified, try to pick from distinct top AMCs
-        if not amc_clean and len(matches) > limit:
+        if spread_amcs and not amc_clean and len(matches) > limit:
             picked: list[FundEntry] = []
             seen_amcs: set[str] = set()
             for m in matches:
@@ -414,12 +456,10 @@ class FundUniverseAgent:
         return None
 
     def _extract_category(self, q: str) -> str | None:
-        low = q.lower()
-        for cat, _stype, _subcat, patterns in _CATEGORY_PATTERNS:
-            for pat in patterns:
-                if re.search(pat, low):
-                    return cat
-        return None
+        matched = match_fund_category(q)
+        if matched is None:
+            return None
+        return matched[0]
 
     def _extract_keyword(self, q: str, amc: str | None, cat: str | None) -> str | None:
         low = q.lower()

@@ -13,20 +13,50 @@ from news_rag.fund_rupeestop_metrics import (
 )
 
 _MISSING = "-"
+_RETURN_ORDER = ("1D", "1W", "1M", "3M", "6M", "9M", "YTD", "1Y", "2Y", "3Y", "5Y")
+_CAVEAT_RE = re.compile(
+    r"unexplained|cannot be stated|cannot be assessed|does not show a benchmark|"
+    r"does not show a category|missing feed|no fund-vs-benchmark|"
+    r"benchmark comparison is incomplete|gap to the index|"
+    r"leaving most of the (?:fall|move|drop)",
+    re.I,
+)
 
 _TABLE_LINE_RE = re.compile(r"^\s*\|")
 _TABLE_SEP_RE = re.compile(r"^\s*\|[-:\s|]+\|\s*$")
 _COMPOSER_SECTION_HEADINGS = (
+    "Returns",
     "Recent returns vs category",
+    "Returns vs benchmark",
+    "Returns vs category",
     "Returns vs benchmark and category",
     "Holdings that drove the move",
     "Snapshot",
     "Category average",
     "Fund vs benchmark",
-    "Returns vs benchmark",
     "Top holdings",
     "Top sectors",
 )
+
+
+def _as_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _comparison_pair_ok(fund_return: Any, peer_return: Any) -> bool:
+    """A comparison needs both numbers. All-zero pairs are an empty API feed."""
+    fund = _as_float(fund_return)
+    peer = _as_float(peer_return)
+    if fund is None or peer is None:
+        return False
+    if fund == 0.0 and peer == 0.0:
+        return False
+    return True
 
 
 def _cell(text: Any) -> str:
@@ -191,6 +221,20 @@ def build_fund_display_tables(
     rets = insights.get("fund_returns_pct") or _normalize_returns(
         snap.get("returns") or digest.get("returns_pct")
     )
+    returns_by_period: dict[str, Any] = {}
+    if isinstance(rets, dict):
+        for key, val in rets.items():
+            if _as_float(val) is None:
+                continue
+            returns_by_period[str(key).upper()] = val
+    ordered = [p for p in _RETURN_ORDER if p in returns_by_period]
+    ordered.extend(p for p in returns_by_period if p not in ordered)
+    if ordered:
+        ncol = 2
+        lines = [_table_row(["Period", "Return"], ncol), _table_row(["---", "---"], ncol)]
+        for period in ordered:
+            lines.append(_table_row([period, _cell(_fmt_pct(returns_by_period[period]))], ncol))
+        tables["fund_returns_table"] = "\n".join(lines)
     cat_avg = insights.get("category_average_returns_pct") or digest.get("category_average_returns_pct") or {}
     comparison = insights.get("comparison_periods") or digest.get("comparison_periods") or {}
 
@@ -198,16 +242,19 @@ def build_fund_display_tables(
     long_rows, short_rows = resolve_display_periods(requested)
     long_for_benchmark = long_rows if long_rows else list(LONG_HORIZON_PERIODS)
 
-    if comparison:
-        bl = _cell(_short_benchmark_label(str(bench_label or "Benchmark")))
-        long_headers = [
-            "Period",
-            "Fund",
-            "Benchmark",
-            "vs bench (pp)",
-            "Category avg",
-            "vs category (pp)",
-        ]
+    peer_rows = [row for row in comparison.values() if isinstance(row, dict)] if comparison else []
+    has_benchmark = any(
+        _comparison_pair_ok(row.get("fund_return"), row.get("benchmark_return")) for row in peer_rows
+    )
+    has_category = any(
+        _comparison_pair_ok(row.get("fund_return"), row.get("category_average_return")) for row in peer_rows
+    )
+    if has_benchmark or has_category:
+        long_headers = ["Period", "Fund"]
+        if has_benchmark:
+            long_headers.extend(["Benchmark", "vs bench (pp)"])
+        if has_category:
+            long_headers.extend(["Category avg", "vs category (pp)"])
         ncol = len(long_headers)
         lines = [
             _table_row(long_headers, ncol),
@@ -217,27 +264,36 @@ def build_fund_display_tables(
             row = comparison.get(period)
             if not isinstance(row, dict):
                 continue
+            bench_v = row.get("benchmark_return")
+            cat_v = row.get("category_average_return")
+            fund_v = row.get("fund_return")
+            bench_ok = has_benchmark and _comparison_pair_ok(fund_v, bench_v)
+            cat_ok = has_category and _comparison_pair_ok(fund_v, cat_v)
+            if not bench_ok and not cat_ok:
+                continue
             vs_cat = row.get("vs_category")
-            if vs_cat is None and row.get("fund_return") is not None and row.get("category_average_return") is not None:
-                vs_cat = round(
-                    float(row["fund_return"]) - float(row["category_average_return"]),
-                    2,
-                )
-            lines.append(
-                _table_row(
-                    [
-                        _cell(period),
-                        _cell(_fmt_pct(row.get("fund_return"))),
-                        _cell(_fmt_pct(row.get("benchmark_return"))),
-                        _cell(_fmt_pp(row.get("vs_benchmark"))),
-                        _cell(_fmt_pct(row.get("category_average_return"))),
-                        _cell(_fmt_pp(vs_cat)),
-                    ],
-                    ncol,
-                )
-            )
+            if vs_cat is None and row.get("fund_return") is not None and cat_v is not None:
+                vs_cat = round(float(row["fund_return"]) - float(cat_v), 2)
+            cells = [_cell(period), _cell(_fmt_pct(fund_v))]
+            if has_benchmark:
+                cells.extend([
+                    _cell(_fmt_pct(bench_v) if bench_ok else None),
+                    _cell(_fmt_pp(row.get("vs_benchmark")) if bench_ok else None),
+                ])
+            if has_category:
+                cells.extend([
+                    _cell(_fmt_pct(cat_v) if cat_ok else None),
+                    _cell(_fmt_pp(vs_cat) if cat_ok else None),
+                ])
+            lines.append(_table_row(cells, ncol))
         if len(lines) > 2:
             tables["vs_benchmark_table"] = "\n".join(lines)
+            if has_benchmark and has_category:
+                tables["_heading_vs_benchmark_table"] = "### Returns vs benchmark and category"
+            elif has_benchmark:
+                tables["_heading_vs_benchmark_table"] = "### Returns vs benchmark"
+            else:
+                tables["_heading_vs_benchmark_table"] = "### Returns vs category"
 
     if cat_avg and (asks_fund_category_average(question) or requested):
         ncol = 2
@@ -253,18 +309,20 @@ def build_fund_display_tables(
         short = {k: rets[k] for k in ("1M", "3M", "6M") if k in rets}
     if short_rows:
         short = {k: short[k] for k in short_rows if k in short}
-    if short or cat_avg:
+    show_short = short_rows or ("1M", "3M", "6M")
+    short_pairs: list[tuple[str, Any, Any]] = []
+    for period in show_short:
+        fund_v = short.get(period) or short.get(period.lower()) or rets.get(period)
+        cat_v = cat_avg.get(period) or cat_avg.get(period.lower())
+        if cat_v is None and isinstance(comparison.get(period), dict):
+            cat_v = comparison[period].get("category_average_return")
+        if cat_v is not None:
+            short_pairs.append((period, fund_v, cat_v))
+    if short_pairs:
         short_headers = ["Period", "Fund", "Category avg", "vs category (pp)"]
         ncol = len(short_headers)
         lines = [_table_row(short_headers, ncol), _table_row(["---"] * ncol, ncol)]
-        show_short = short_rows or ("1M", "3M", "6M")
-        for period in show_short:
-            fk = period
-            ck = period.lower()
-            fund_v = short.get(fk) or short.get(ck) or rets.get(fk)
-            cat_v = cat_avg.get(fk) or cat_avg.get(ck)
-            if fund_v is None and cat_v is None:
-                continue
+        for period, fund_v, cat_v in short_pairs:
             vs_cat = None
             if fund_v is not None and cat_v is not None:
                 vs_cat = round(float(fund_v) - float(cat_v), 2)
@@ -273,14 +331,13 @@ def build_fund_display_tables(
                     [
                         _cell(period),
                         _cell(_fmt_pct(fund_v) if fund_v is not None else None),
-                        _cell(_fmt_pct(cat_v) if cat_v is not None else None),
+                        _cell(_fmt_pct(cat_v)),
                         _cell(_fmt_pp(vs_cat)),
                     ],
                     ncol,
                 )
             )
-        if len(lines) > 2:
-            tables["short_horizon_vs_category_table"] = "\n".join(lines)
+        tables["short_horizon_vs_category_table"] = "\n".join(lines)
 
     nav = snap.get("nav") if snap.get("nav") is not None else digest.get("nav")
     nav_date = snap.get("nav_date") or digest.get("nav_date") or ""
@@ -300,6 +357,25 @@ def build_fund_display_tables(
         snap_lines.append(_table_row(["Day change", _cell(_fmt_pct(day))], snap_ncol))
     if bench_label:
         snap_lines.append(_table_row(["Benchmark", _cell(bench_label)], snap_ncol))
+    expense = snap.get("expense_ratio") if isinstance(snap.get("expense_ratio"), dict) else {}
+    if expense.get("regular") is not None:
+        ratio = f"{float(expense['regular']):.2f}%"
+        if expense.get("as_on_date"):
+            ratio = f"{ratio} (as on {expense['as_on_date']})"
+        snap_lines.append(_table_row(["Expense ratio (regular)", _cell(ratio)], snap_ncol))
+    elif expense.get("direct") is not None:
+        ratio = f"{float(expense['direct']):.2f}%"
+        if expense.get("as_on_date"):
+            ratio = f"{ratio} (as on {expense['as_on_date']})"
+        snap_lines.append(_table_row(["Expense ratio (direct)", _cell(ratio)], snap_ncol))
+    exit_load = str(snap.get("exit_load_summary") or "").strip()
+    if exit_load:
+        snap_lines.append(_table_row(["Exit load", _cell(exit_load)], snap_ncol))
+    if snap.get("aum") is not None:
+        aum_text = f"Rs {float(snap['aum']):,.2f} crore"
+        if snap.get("aum_as_on_date"):
+            aum_text = f"{aum_text} (as on {snap['aum_as_on_date']})"
+        snap_lines.append(_table_row(["AUM", _cell(aum_text)], snap_ncol))
     if hi is not None and lo is not None:
         try:
             nav_f = float(nav) if nav is not None else None
@@ -368,6 +444,7 @@ def build_fund_display_tables(
 
 
 _DISPLAY_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("fund_returns_table", "### Returns"),
     ("short_horizon_vs_category_table", "### Recent returns vs category"),
     ("vs_benchmark_table", "### Returns vs benchmark and category"),
     ("holdings_move_table", "### Holdings that drove the move"),
@@ -405,6 +482,7 @@ def format_display_tables_markdown(
         body = (tables.get(key) or "").strip()
         if not body:
             continue
+        heading = str(tables.get(f"_heading_{key}") or heading)
         parts.append(f"{heading}\n\n{body}\n")
     return "\n".join(parts).strip()
 
@@ -452,10 +530,17 @@ def strip_composer_display_sections(prose: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
 
 
+def strip_missing_data_caveats(prose: str) -> str:
+    """Drop sentences that apologise for missing comparisons or unexplained holdings."""
+    kept = [line for line in (prose or "").splitlines() if not _CAVEAT_RE.search(line)]
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
 def stitch_display_tables_into_answer(prose: str, tables: dict[str, str], *, question: str = "") -> str:
     """Append server-built tables once; composer writes narrative only."""
     block = format_display_tables_markdown(tables, question=question)
-    return _insert_before_disclaimer(strip_composer_display_sections(prose or ""), block)
+    cleaned = strip_missing_data_caveats(strip_composer_display_sections(prose or ""))
+    return _insert_before_disclaimer(cleaned, block)
 
 
 def render_news_section(news_grouped: dict[str, Any]) -> str:
@@ -491,6 +576,11 @@ def render_news_section(news_grouped: dict[str, Any]) -> str:
     if len(seen) == 0:
         return ""
     return "\n".join(lines)
+
+
+def strip_news_roundup(prose: str) -> str:
+    """Drop a news-list section. The answer should not end with an article roundup."""
+    return _strip_heading_sections(prose or "", ("recent news", "what the news says", "news themes"))
 
 
 def append_news_section(prose: str, news_grouped: dict[str, Any]) -> str:

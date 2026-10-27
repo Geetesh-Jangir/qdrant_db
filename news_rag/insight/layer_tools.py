@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from news_rag.insight.planner_policy import horizon_code
 from news_rag.insight.registry import ToolSpec, register
 
 # Default `crude` uses ICE Brent (BZ=F) — closer to India import basket than WTI.
@@ -97,6 +98,12 @@ def run_fund_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
                 break
     data["returns"] = picked or rets
     data.pop("isin", None)
+    from news_rag.fund_rupeestop_metrics import expense_ratio_for_question
+
+    data["expense_ratio"] = expense_ratio_for_question(
+        data.get("expense_ratio") if isinstance(data.get("expense_ratio"), dict) else {},
+        str(ctx.get("question") or ""),
+    )
     return {"ok": True, "data": data}
 
 
@@ -224,17 +231,28 @@ def run_index_return_tool(ctx: dict[str, Any]) -> dict[str, Any]:
             "error": "",
         }
     if low in ("nifty", "nifty50", "nifty 50"):
-        row = index_return_for_sector("Nifty 50", window_days=window)
+        row = dict(index_return_for_sector("Nifty 50", window_days=window))
         row["benchmark_label"] = "Nifty 50"
+        row["horizon"] = horizon_code(window)
         return {"ok": row.get("return_pct") is not None, "data": row}
     if low in ("sensex", "bse"):
         from news_rag.insight.index_series import _yf_return_pct
 
         pct = _yf_return_pct("^BSESN", window)
-        return {"ok": pct is not None, "data": {"benchmark_label": "Sensex", "return_pct": pct, "window_days": window, "yfinance_ticker": "^BSESN"}}
-    row = index_return_for_sector(index, window_days=window)
+        return {
+            "ok": pct is not None,
+            "data": {
+                "benchmark_label": "Sensex",
+                "return_pct": pct,
+                "window_days": window,
+                "horizon": horizon_code(window),
+                "yfinance_ticker": "^BSESN",
+            },
+        }
+    row = dict(index_return_for_sector(index, window_days=window))
     if not row.get("yfinance_ticker"):
         row["yfinance_ticker"] = nifty50_ticker()
+    row["horizon"] = horizon_code(window)
     return {"ok": row.get("return_pct") is not None, "data": row, "error": "" if row.get("return_pct") is not None else "no_price"}
 
 
@@ -249,7 +267,15 @@ def run_sector_ranking_tool(ctx: dict[str, Any]) -> dict[str, Any]:
             rows.append({"sector": name, "return_pct": row["return_pct"]})
     rows.sort(key=lambda r: r["return_pct"], reverse=True)
     n = int(ctx.get("top_n") or 6)
-    return {"ok": bool(rows), "data": {"leaders": rows[:n], "laggards": list(reversed(rows[-n:])), "window_days": window}}
+    return {
+        "ok": bool(rows),
+        "data": {
+            "leaders": rows[:n],
+            "laggards": list(reversed(rows[-n:])),
+            "window_days": window,
+            "horizon": horizon_code(window),
+        },
+    }
 
 
 def run_macro_series_tool(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -275,6 +301,7 @@ def run_macro_series_tool(ctx: dict[str, Any]) -> dict[str, Any]:
                 "yfinance_ticker": ticker,
                 "change_pct": _yf_return_pct(ticker, window),
                 "window_days": window,
+                "horizon": horizon_code(window),
             }
         )
     return {"ok": any(s.get("change_pct") is not None for s in series), "data": {"series": series}}

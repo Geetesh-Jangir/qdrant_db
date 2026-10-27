@@ -398,7 +398,7 @@ def infer_window_days_from_question(question: str, *, default_days: int) -> int:
             return n
     lower = (question or "").lower()
     if any(p in lower for p in ("right now", "currently", "at the moment", "market now")):
-        return default_days
+        return 7
     return default_days
 
 

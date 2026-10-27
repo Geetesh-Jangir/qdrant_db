@@ -51,6 +51,11 @@ def run_fund_nav(detail: dict[str, Any], need: DataNeed) -> dict[str, Any]:
             "low_52w": detail.get("low_52w"),
             "scheme_type": detail.get("scheme_type"),
             "category": detail.get("category"),
+            "expense_ratio": detail.get("expense_ratio") or {},
+            "exit_load_remarks": detail.get("exit_load_remarks") or "",
+            "exit_load_summary": detail.get("exit_load_summary") or "",
+            "aum": detail.get("aum"),
+            "aum_as_on_date": detail.get("aum_as_on_date") or "",
         },
         elapsed,
     )
@@ -479,16 +484,18 @@ def select_funds_by_nav(
             True,
             f"No screened funds have a positive {window} NAV return.",
         )
+    measured.sort(key=_ret, reverse=True)
+    label = return_window_label(window)
     if dir_clean == "any" and not gainers:
         n = top_n if count_explicit else 3
         n = min(n, len(measured))
         return (
             [_round_fund_row(row) for row in measured[:n]],
             True,
-            "The sector equity universe is down on a 1-month basis. These are the most resilient names by lowest drawdown.",
+            f"No screened fund is up over {label}. These are the strongest {label} returns.",
         )
     n = top_n if count_explicit else min(5, len(measured))
-    return [_round_fund_row(row) for row in measured[:n]], False, "Strongest 1-month NAV returns among dedicated sector equity funds."
+    return [_round_fund_row(row) for row in measured[:n]], False, f"Strongest {label} NAV returns."
 
 
 def _performance_sort_key(row: dict[str, Any], *, reverse: bool = True) -> tuple:
@@ -1227,6 +1234,20 @@ def _filter_fof_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return kept
 
 
+_CAP_CATEGORIES = frozenset({
+    "Large Cap",
+    "Mid Cap",
+    "Small Cap",
+    "Large & Mid Cap",
+    "Flexi Cap",
+    "Multi Cap",
+    "ELSS / Tax Saver",
+    "Focused",
+    "Value / Contra",
+    "Dividend Yield",
+})
+
+
 def _filter_equity_scheme_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     kept = [
         row
@@ -1236,7 +1257,41 @@ def _filter_equity_scheme_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
     return kept
 
 
-def _catalog_candidates(*, category: str = "", amc: str = "", limit: int = _SCREEN_CANDIDATE_CAP) -> list[dict[str, Any]]:
+def _even_catalog_sample(limit: int) -> list[dict[str, Any]]:
+    """Spread an unnamed 'any funds' ask across the catalog, then rank by return."""
+    from news_rag.fund_universe_agent import get_fund_universe_catalog
+
+    catalog = get_fund_universe_catalog()
+    catalog.ensure_loaded()
+    funds = catalog._funds
+    if not funds:
+        return []
+    n = max(1, min(int(limit), len(funds)))
+    if len(funds) <= n:
+        chosen = funds
+    else:
+        step = len(funds) / n
+        chosen = [funds[int(i * step)] for i in range(n)]
+    return [
+        {
+            "isin": row.isin,
+            "fund_name": row.fund_name,
+            "amc": row.amc,
+            "category": row.category,
+            "scheme_type": row.scheme_type,
+        }
+        for row in chosen
+        if row.isin
+    ]
+
+
+def _catalog_candidates(
+    *,
+    category: str = "",
+    amc: str = "",
+    limit: int = _SCREEN_CANDIDATE_CAP,
+    spread_amcs: bool = False,
+) -> list[dict[str, Any]]:
     from news_rag.fund_universe_agent import get_fund_universe_catalog
 
     catalog = get_fund_universe_catalog()
@@ -1245,6 +1300,7 @@ def _catalog_candidates(*, category: str = "", amc: str = "", limit: int = _SCRE
         amc=amc or None,
         limit=max(1, limit),
         enrich_nav=False,
+        spread_amcs=spread_amcs,
     )
     return [
         {
@@ -1281,7 +1337,7 @@ def _sector_candidates(sector_name: str, *, question: str, limit: int) -> list[d
 
 def screen_hints_from_question(question: str) -> dict[str, str]:
     """Sector, category, AMC, and stock written in the question. No example query is special-cased."""
-    from news_rag.fund_universe_agent import _CATEGORY_PATTERNS, get_fund_universe_catalog
+    from news_rag.fund_universe_agent import get_fund_universe_catalog
     from news_rag.sector_fund_ranking import _SECTOR_ALIASES
 
     text = question or ""
@@ -1290,6 +1346,10 @@ def screen_hints_from_question(question: str) -> dict[str, str]:
     stock = stock_name_from_question(text)
     if stock and not phrase_looks_like_sector_reference(stock, text):
         hints["stock_name"] = stock
+    from news_rag.fund_universe_agent import match_fund_category
+
+    matched_category = match_fund_category(text, allow_short_it=False)
+    category_name = matched_category[0] if matched_category else ""
     best = ""
     for alias in sorted(_SECTOR_ALIASES, key=len, reverse=True):
         if alias == "it":
@@ -1310,19 +1370,21 @@ def screen_hints_from_question(question: str) -> dict[str, str]:
         hints["sector_name"] = canon
     elif best:
         hints["sector_name"] = best
-    # Category filter only when no sector was resolved (avoid empty sector∩category).
-    if not hints["sector_name"]:
-        for cat, _stype, _sub, patterns in _CATEGORY_PATTERNS:
-            if cat == "Information Technology":
-                if not re.search(
-                    r"\bit\s+sector\b|information\s+technology|\btech\b|\bsoftware\b",
-                    text,
-                    re.I,
-                ):
-                    continue
-            if any(re.search(pat, low) for pat in patterns):
-                hints["category"] = cat
-                break
+    if category_name:
+        hints["category"] = category_name
+    # "Banking funds" is a scheme type. "Invested in the banking sector" is exposure.
+    # A market-cap category can sit on top of a different sector ("large cap funds in IT").
+    exposure = _exposure_ask(text) or asks_funds_with_sector_exposure(text)
+    cap_category = category_name in _CAP_CATEGORIES
+    if exposure and category_name and not cap_category:
+        hints["category"] = ""
+    if hints["category"] and hints["sector_name"] and not exposure:
+        hints["sector_name"] = ""
+    if hints["stock_name"] and hints["sector_name"]:
+        stock_l = hints["stock_name"].lower()
+        sector_l = hints["sector_name"].lower().rstrip("s")
+        if sector_l and sector_l in stock_l:
+            hints["sector_name"] = ""
     catalog = get_fund_universe_catalog()
     catalog.ensure_loaded()
     amc_best = ""
@@ -1360,9 +1422,10 @@ def _args_from_question(
         return sector_name, category, amc, stock_name, asked, False
     hints = screen_hints_from_question(question)
     sector = hints.get("sector_name") or ""
-    if not sector and sector_name and re.search(rf"\b{re.escape(sector_name)}\b", question, re.I):
+    category_out = hints.get("category") or category or ""
+    # A category named in the question wins over a sector the planner guessed from the same words.
+    if not sector and not category_out and sector_name and re.search(rf"\b{re.escape(sector_name)}\b", question, re.I):
         sector = sector_name
-    category_out = hints.get("category") or ""
     amc_out = hints.get("amc") or ""
     if amc and re.search(rf"\b{re.escape(amc)}\b", question, re.I):
         amc_out = amc
@@ -1372,10 +1435,13 @@ def _args_from_question(
     asked = str(direction or "any").strip().lower() or "any"
     heavy_return = bool(sector) and _heavy_and_return(question)
     exposure = bool(sector) and (_exposure_ask(question) or heavy_return)
+    perf = _return_direction_in_question(question)
     if heavy_return:
-        asked = _return_direction_in_question(question) or asked
+        asked = perf or asked
     elif exposure:
         asked = "any"
+    elif perf:
+        asked = perf
     return sector, category_out, amc_out, stock, asked, exposure
 
 
@@ -1442,7 +1508,19 @@ def run_funds_for_affected_question(
             notes.append(
                 f"No fund in {', '.join(names)} has a {group_direction} {window} return."
             )
-            continue
+            relaxed = run_affected_funds(
+                sector_names=names,
+                top_n=n,
+                direction="any",
+                count_explicit=True,
+                return_window=window,
+                question=question,
+                allow_broad_fallback=False,
+            )
+            rows = (relaxed.get("data") or {}).get("rankings") or []
+            if not rows:
+                continue
+            notes.append(f"Showing the most exposed funds in {', '.join(names)} instead.")
         for row in rows:
             matched = row.get("matched_sectors") or names
             sector = matched[0] if matched else names[0]
@@ -1569,7 +1647,7 @@ def run_screen_funds(
         else []
     )
     theme_fof = asks_fof_funds(question or "")
-    catalog_limit = _THEME_CANDIDATE_CAP if (theme_fof or category == "Fund of Funds") else _SCREEN_CANDIDATE_CAP
+    catalog_limit = _THEME_CANDIDATE_CAP if (theme_fof or category == "Fund of Funds") else 120
     catalog_rows = (
         _catalog_candidates(category=category, amc=amc, limit=catalog_limit)
         if category or amc
@@ -1606,7 +1684,7 @@ def run_screen_funds(
         if asks_equity_funds(question or ""):
             candidates = _filter_equity_scheme_rows(candidates)
     elif not candidates and not any((sector_name, category, amc)):
-        candidates = _catalog_candidates(limit=_PERFORMANCE_SAMPLE)
+        candidates = _even_catalog_sample(_PERFORMANCE_SAMPLE)
     if asks_equity_funds(question or "") and not theme_fof and category != "Defense & Aerospace":
         candidates = _filter_equity_scheme_rows(candidates)
     broad = candidates[:_PERFORMANCE_SAMPLE]
@@ -1638,8 +1716,45 @@ def run_screen_funds(
             return_window=window,
             sort_by="exposure",
         )
-    if require_positive_1y or asked == "positive":
-        rankings = _filter_positive_window(rankings, window)
+    if (asked == "positive" or require_positive_1y) and len(rankings) < n:
+        extra, _, _ = select_funds_by_nav(
+            pool,
+            direction="any",
+            top_n=n,
+            count_explicit=True,
+            return_window=window,
+            sort_by="performance",
+        )
+        seen = {str(row.get("isin") or "") for row in rankings}
+        for row in extra:
+            isin = str(row.get("isin") or "")
+            if isin and isin in seen:
+                continue
+            rankings.append(row)
+            if len(rankings) >= n:
+                break
+        if rankings and not any(
+            row.get(_window_field(window)) is not None and float(row[_window_field(window)]) > 0
+            for row in rankings
+        ):
+            ranking_note = (
+                f"No fund in this screen has a positive {window} return. "
+                "These are the strongest returns in that window."
+            )
+        elif len(rankings) > 1:
+            ranking_note = (
+                f"Ranked by {window} return. "
+                "Where fewer funds are positive, the next strongest are included."
+            )
+    elif require_positive_1y and asked != "positive":
+        positive = _filter_positive_window(rankings, window)
+        if positive:
+            rankings = positive
+        elif rankings:
+            ranking_note = (
+                f"No fund in this screen has a positive {window} return. "
+                "These are the strongest returns in that window."
+            )
     if random_sample and rankings:
         import random
 

@@ -1013,13 +1013,22 @@
       return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
     }
 
-    /** Drop markdown tables when structured fund_rankings will render the same data. */
+    /** Drop only a fund-ranking markdown table. Holdings, returns, and snapshot tables stay. */
     function stripMarkdownTables(text) {
       if (!text) return text;
-      return text
-        .replace(/\n\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n?)+/g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
+      return text.replace(
+        /\n\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n?)+/g,
+        function (block) {
+          const header = (block.trim().split("\n")[0] || "").toLowerCase();
+          const cells = header.split("|").map((c) => c.trim()).filter(Boolean);
+          const first = cells[0] || "";
+          if (/^(period|holding|sector|metric|stock|company|name)$/.test(first)) return block;
+          const ranking =
+            /fund/.test(first) &&
+            cells.some((c) => /\b(1w|1m|3m|6m|1y|2y|3y|5y|return)\b/.test(c));
+          return ranking ? "\n" : block;
+        }
+      ).replace(/\n{3,}/g, "\n\n").trim();
     }
 
     const FUND_RETURN_COLS = [

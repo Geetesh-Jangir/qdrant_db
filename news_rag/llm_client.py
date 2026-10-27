@@ -329,6 +329,7 @@ def call_insight_llm(
     max_tokens: int | None = None,
     temperature: float = 0.25,
     stage: str = "composer",
+    cached_system_prefix: str = "",
 ) -> LlmCallResult:
     settings = get_settings()
     provider = _effective_provider(settings)
@@ -342,7 +343,7 @@ def call_insight_llm(
                 settings.anthropic_model if provider == "anthropic" else llm_model(settings)
             ),
             max_tokens=chosen_max,
-            system_chars=len(system_prompt or ""),
+            system_chars=len((cached_system_prefix or "") + (system_prompt or "")),
             user_chars=len(user_content or ""),
         )
     try:
@@ -355,6 +356,7 @@ def call_insight_llm(
             model_override=model_override,
             max_tokens=chosen_max,
             temperature=temperature,
+            cached_system_prefix=cached_system_prefix,
         )
     finally:
         _current_llm_stage.reset(stage_token)
@@ -370,8 +372,13 @@ def _call_insight_llm_body(
     model_override: str | None,
     max_tokens: int,
     temperature: float,
+    cached_system_prefix: str = "",
 ) -> LlmCallResult:
     chosen_max = max_tokens
+    prefix = (cached_system_prefix or "").strip()
+    # Gemini and DeepSeek take one system string. Keep the shared rules in that string
+    # so the composer still sees them after they were moved out of the role prompt.
+    combined_system = f"{prefix}\n\n{system_prompt}" if prefix else system_prompt
     if provider == "anthropic":
         anthropic_model = (model_override or "").strip() or settings.anthropic_model
         try:
@@ -383,6 +390,7 @@ def _call_insight_llm_body(
                 max_tokens=chosen_max,
                 temperature=temperature,
                 query_log=query_log,
+                cached_prefix=prefix,
             )
         except Exception as exc:
             if _gemini_fallback_available(settings):
@@ -390,7 +398,7 @@ def _call_insight_llm_body(
                     query_log.write(f"anthropic_failed_falling_back_to_gemini error={exc}")
                 return _call_gemini(
                     settings,
-                    system_prompt,
+                    combined_system,
                     user_content,
                     model=settings.gemini_model,
                     max_tokens=chosen_max,
@@ -402,7 +410,7 @@ def _call_insight_llm_body(
         try:
             return _call_gemini(
                 settings,
-                system_prompt,
+                combined_system,
                 user_content,
                 model=(model_override or "").strip() or settings.gemini_model,
                 max_tokens=chosen_max,
@@ -418,7 +426,7 @@ def _call_insight_llm_body(
                         _mark_gemini_quota_exceeded(query_log, exc.response.text or "")
                 return _call_deepseek(
                     settings,
-                    system_prompt,
+                    combined_system,
                     user_content,
                     model=settings.deepseek_model,
                     max_tokens=chosen_max,
@@ -437,7 +445,7 @@ def _call_insight_llm_body(
         try:
             return _call_deepseek(
                 settings,
-                system_prompt,
+                combined_system,
                 user_content,
                 model=settings.deepseek_model,
                 max_tokens=chosen_max,
@@ -454,7 +462,7 @@ def _call_insight_llm_body(
                     query_log.write(f"deepseek_failed_falling_back_to_gemini error={exc}")
                 return _call_gemini(
                     settings,
-                    system_prompt,
+                    combined_system,
                     user_content,
                     model=settings.gemini_model,
                     max_tokens=chosen_max,
@@ -505,6 +513,7 @@ def call_json_llm(
     stage: str | None = None,
     _repair_attempt: bool = False,
     enable_gemini_context_cache: bool = False,
+    cached_system_prefix: str = "",
 ) -> LlmCallResult:
     settings = get_settings()
     provider = (provider_override or "").strip().lower() or _effective_provider(settings)
@@ -536,6 +545,9 @@ def call_json_llm(
 
     def _invoke(active_provider: str) -> LlmCallResult:
         if active_provider == "anthropic":
+            prefix = (cached_system_prefix or "").strip()
+            # The schema stays on the role block. A tools array would sit in front of the
+            # shared prefix and stop the composer from reading the planner's cache.
             return _call_anthropic(
                 settings,
                 system_prompt + schema_text,
@@ -544,8 +556,9 @@ def call_json_llm(
                 max_tokens=max_tokens,
                 temperature=temperature,
                 response_json=True,
-                response_schema=response_schema,
+                response_schema=None if prefix else response_schema,
                 query_log=query_log,
+                cached_prefix=prefix,
             )
         if active_provider == "gemini":
             return _call_gemini(
@@ -685,6 +698,7 @@ def call_json_llm(
             response_schema=response_schema,
             stage=stage,
             _repair_attempt=True,
+            cached_system_prefix=cached_system_prefix,
         )
         repaired.repaired = True
         if (
@@ -711,6 +725,67 @@ def call_json_llm(
     return result
 
 
+def anthropic_cache_control(*, hour_ttl: bool) -> dict[str, str]:
+    control = {"type": "ephemeral"}
+    if hour_ttl:
+        control["ttl"] = "1h"
+    return control
+
+
+def anthropic_system_blocks(prefix: str, role: str, *, hour_ttl: bool = True) -> list[dict[str, Any]]:
+    """Shared prefix first, role text second. Each block is its own cache breakpoint."""
+    blocks: list[dict[str, Any]] = []
+    for text in ((prefix or "").strip(), (role or "").strip()):
+        if not text:
+            continue
+        blocks.append({
+            "type": "text",
+            "text": text,
+            "cache_control": anthropic_cache_control(hour_ttl=hour_ttl),
+        })
+    return blocks
+
+
+def _system_uses_hour_ttl(system: Any) -> bool:
+    if not isinstance(system, list):
+        return False
+    return any(
+        isinstance(block, dict) and (block.get("cache_control") or {}).get("ttl") == "1h"
+        for block in system
+    )
+
+
+def build_anthropic_messages_body(
+    *,
+    model: str,
+    max_tokens: int,
+    cached_prefix: str,
+    role_prompt: str,
+    user_content: str,
+    response_schema: dict[str, Any] | None = None,
+    tool_use_enabled: bool = True,
+    hour_ttl: bool = True,
+) -> dict[str, Any]:
+    """Anthropic messages body. A shared prefix means no tools array, so the prefix can match."""
+    payload: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "system": anthropic_system_blocks(cached_prefix, role_prompt, hour_ttl=hour_ttl),
+        "messages": [{"role": "user", "content": user_content}],
+    }
+    if (cached_prefix or "").strip() or not response_schema or not tool_use_enabled:
+        return payload
+    payload["tools"] = [
+        {
+            "name": "emit_result",
+            "description": "Return the structured JSON result for this step.",
+            "input_schema": response_schema,
+        }
+    ]
+    payload["tool_choice"] = {"type": "tool", "name": "emit_result"}
+    return payload
+
+
 def _call_anthropic(
     settings: Settings,
     system_prompt: str,
@@ -722,6 +797,7 @@ def _call_anthropic(
     response_json: bool = False,
     response_schema: dict[str, Any] | None = None,
     query_log: QueryLogger | None,
+    cached_prefix: str = "",
 ) -> LlmCallResult:
     api_key = (settings.anthropic_api_key or "").strip()
     if not api_key:
@@ -729,23 +805,23 @@ def _call_anthropic(
 
     chosen_model = (model or settings.anthropic_model).strip()
     chosen_max_tokens = max_tokens or settings.llm_max_tokens
-    system = system_prompt
-    if response_json and "json" not in system.lower():
-        system = system + "\n\nRespond with a single JSON object only. No markdown fences."
+    role = system_prompt
+    prefix = (cached_prefix or "").strip()
+    if response_json and "json" not in f"{prefix}\n{role}".lower():
+        role = role + "\n\nRespond with a single JSON object only. No markdown fences."
 
     url = settings.anthropic_base_url.rstrip("/") + "/v1/messages"
-    payload: dict[str, Any] = {
-        "model": chosen_model,
-        "max_tokens": chosen_max_tokens,
-        "system": [
-            {
-                "type": "text",
-                "text": system,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ],
-        "messages": [{"role": "user", "content": user_content}],
-    }
+    tool_use_enabled = bool(getattr(settings, "insight_json_tool_use", True))
+    payload = build_anthropic_messages_body(
+        model=chosen_model,
+        max_tokens=chosen_max_tokens,
+        cached_prefix=prefix,
+        role_prompt=role,
+        user_content=user_content,
+        response_schema=response_schema,
+        tool_use_enabled=tool_use_enabled,
+        hour_ttl=True,
+    )
     # Haiku 5.5+ rejects `temperature` on the Messages API (400 deprecated).
     is_v5 = chosen_model.startswith("claude-haiku-5")
     if not is_v5:
@@ -758,30 +834,32 @@ def _call_anthropic(
         payload["output_config"] = {"effort": effort}
         if not getattr(settings, "anthropic_thinking", False):
             payload["thinking"] = {"type": "disabled"}
-    use_tools = bool(response_schema) and bool(getattr(settings, "insight_json_tool_use", True))
-    if use_tools:
-        payload["tools"] = [
-            {
-                "name": "emit_result",
-                "description": "Return the structured JSON result for this step.",
-                "input_schema": response_schema,
-            }
-        ]
-        payload["tool_choice"] = {"type": "tool", "name": "emit_result"}
+    use_tools = "tools" in payload
 
     started = time.perf_counter()
     headers = {
         "x-api-key": api_key,
         "anthropic-version": "2023-06-01",
-        "anthropic-beta": "prompt-caching-2024-07-31",
+        "anthropic-beta": "prompt-caching-2024-07-31,extended-cache-ttl-2025-04-11",
         "Content-Type": "application/json",
     }
+    flat_system = "\n\n".join(
+        block["text"] for block in anthropic_system_blocks(prefix, role, hour_ttl=False)
+    ).strip()
     with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
         response = client.post(url, headers=headers, json=payload)
+        if response.status_code == 400 and _system_uses_hour_ttl(payload.get("system")) and (
+            "ttl" in response.text.lower() or "cache" in response.text.lower()
+        ):
+            if query_log is not None:
+                query_log.write(f"anthropic_retry_5m_prompt_cache body={response.text[:200]}")
+            payload["system"] = anthropic_system_blocks(prefix, role, hour_ttl=False)
+            headers["anthropic-beta"] = "prompt-caching-2024-07-31"
+            response = client.post(url, headers=headers, json=payload)
         if response.status_code == 400 and ("cache_control" in response.text.lower() or "system" in response.text.lower()):
             if query_log is not None:
                 query_log.write(f"anthropic_retry_without_prompt_caching body={response.text[:200]}")
-            payload["system"] = system
+            payload["system"] = flat_system
             response = client.post(url, headers=headers, json=payload)
         if response.status_code == 400 and use_tools and "tool" in response.text.lower():
             if query_log is not None:

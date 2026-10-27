@@ -13,6 +13,10 @@ def test_performance_digest_from_snapshot():
                     "returns": {"1M": 2.1, "3M": 5.5, "1Y": 18.2},
                     "benchmark": "NIFTY 100 TRI",
                     "category": "Large Cap",
+                    "expense_ratio": {"regular": 1.25, "plan": "regular", "as_on_date": "2026-09-30"},
+                    "exit_load_summary": "This fund has no exit load.",
+                    "aum": 17.51,
+                    "aum_as_on_date": "2026-09-30",
                 },
                 "attribution": {
                     "fund_return": -1.2,
@@ -31,6 +35,10 @@ def test_performance_digest_from_snapshot():
     assert digest["returns_pct"]["1Y"] == 18.2
     assert digest["scheme_benchmark_name"] == "NIFTY 100 TRI"
     assert digest["nifty50_returns_pct"]["1M"] == -2.09
+    assert digest["expense_ratio"]["regular"] == 1.25
+    assert digest["exit_load_summary"] == "This fund has no exit load."
+    assert digest["aum_crore"] == 17.51
+    assert digest["aum_as_on_date"] == "2026-09-30"
 
 
 def test_fund_news_does_not_force_planner():

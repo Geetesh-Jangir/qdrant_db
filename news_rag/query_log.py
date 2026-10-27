@@ -96,6 +96,27 @@ LLM_STAGE_CATALOG: dict[str, dict[str, str]] = {
 }
 
 
+def _shrink_for_log(value: Any, depth: int = 0) -> Any:
+    """Keep numbers and names. Shorten article bodies so the log stays readable."""
+    if depth > 5:
+        return "..."
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in value.items():
+            if key in ("scraped_text", "body", "embedding", "vector"):
+                continue
+            if key in ("summary", "snippet", "text") and isinstance(item, str):
+                out[key] = clip_log_text(item, 220)
+            else:
+                out[key] = _shrink_for_log(item, depth + 1)
+        return out
+    if isinstance(value, list):
+        return [_shrink_for_log(item, depth + 1) for item in value[:20]]
+    if isinstance(value, str):
+        return clip_log_text(value, 300)
+    return value
+
+
 def clip_log_text(text: str, limit: int = 240) -> str:
     cleaned = " ".join(str(text or "").split())
     if len(cleaned) <= limit:
@@ -453,17 +474,73 @@ class QueryLogger:
         for index, line in enumerate(lines, start=1):
             self.write(f"retrieval_filter {index}={line}")
 
+    def log_execution_plan(self, plan: Any) -> None:
+        """One readable block: the decisions and the exact tool arguments."""
+        if getattr(self, "_plan_logged", False) or plan is None:
+            return
+        self._plan_logged = True
+        mode = getattr(getattr(plan, "answer_mode", None), "value", "") or ""
+        self.write(
+            "PLAN "
+            + _kv(
+                {
+                    "intent": getattr(plan, "intent", ""),
+                    "answer_mode": mode,
+                    "window_days": getattr(plan, "window_days", None),
+                    "window_label": getattr(plan, "window_label", ""),
+                    "funds": getattr(plan, "funds", None) or [],
+                    "routed_by": getattr(plan, "routed_by", ""),
+                }
+            )
+        )
+        for call in getattr(plan, "tool_calls", []) or []:
+            args = getattr(call, "arguments", {}) or {}
+            self.write(
+                f"PLAN_TOOL wave={getattr(call, 'wave', '')} "
+                f"tool={getattr(call, 'tool', '')} "
+                f"args={json.dumps(args, ensure_ascii=False, default=str)}"
+            )
+
+    def log_tool_results(self, wave: int, results: list[dict[str, Any]]) -> None:
+        """What each tool returned, with long article text shortened."""
+        self.write(f"TOOLS wave={wave} count={len(results or [])}")
+        for row in results or []:
+            if not isinstance(row, dict):
+                continue
+            self.write(
+                "TOOL "
+                + _kv(
+                    {
+                        "wave": wave,
+                        "name": row.get("tool"),
+                        "fund": row.get("fund") or None,
+                        "ok": bool(row.get("ok")),
+                        "elapsed_ms": row.get("elapsed_ms"),
+                        "error": row.get("error") or None,
+                    }
+                )
+            )
+            payload = _shrink_for_log(row.get("data") if isinstance(row.get("data"), dict) else {})
+            text = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+            if len(text) > 12000:
+                text = text[:12000] + "\n...truncated"
+            for line in text.splitlines():
+                self.write("  " + line)
+
     def log_insight_output(
         self,
         *,
         insight_source: str,
         char_count: int,
         preview: str,
+        answer: str = "",
     ) -> None:
-        self.write(
-            f"insight_output source={insight_source} chars={char_count} "
-            f"preview={clip_log_text(preview, 500)}"
-        )
+        body = answer or preview or ""
+        if len(body) > 20000:
+            body = body[:20000] + "\n...truncated"
+        self.write(f"ANSWER source={insight_source} chars={char_count}")
+        for line in body.splitlines() or [""]:
+            self.write("  " + line)
 
     def log_step(self, name: str, seconds: float, **extra: Any) -> None:
         bits = [f"step name={name} seconds={round(seconds, 3)}"]
@@ -568,6 +645,7 @@ class QueryLogger:
             insight_source=str(result.get("insight_source") or "insight_v2"),
             char_count=len(insight),
             preview=str(result.get("insight_summary") or insight)[:500],
+            answer=insight,
         )
         extra: dict[str, Any] = {
             "intent": result.get("intent"),

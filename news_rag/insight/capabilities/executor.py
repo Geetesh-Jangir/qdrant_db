@@ -363,16 +363,21 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
         screen_ctx["_sector_picks"] = picks
         return run_driver_affected_funds_adapter(screen_ctx)
     if sector:
-        spec = get_tool("sector_funds")
-        if spec and spec.run:
-            screen_ctx = {
-                **ctx,
-                "sector_name": sector,
-                "sector_keys": [sector],
-                "top_n": args.get("top_n", 5),
-            }
-            return spec.run(screen_ctx)
-    # Catalog performance / random fund screen (no sector or driver)
+        from news_rag.tools import screen_hints_from_question
+
+        q = str(ctx.get("question") or "")
+        # "Banking funds" and "large cap funds" are scheme categories. Keep the
+        # sector-weight tool for exposure asks that do not name a category.
+        if not screen_hints_from_question(q).get("category"):
+            spec = get_tool("sector_funds")
+            if spec and spec.run:
+                screen_ctx = {
+                    **ctx,
+                    "sector_name": sector,
+                    "sector_keys": [sector],
+                    "top_n": args.get("top_n", 5),
+                }
+                return spec.run(screen_ctx)
     spec = get_tool("screen_funds")
     if spec and spec.run:
         from news_rag.tools import infer_return_window
@@ -380,6 +385,7 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
         q = str(ctx.get("question") or "")
         screen_ctx = {
             **ctx,
+            "sector_name": sector or ctx.get("sector_name") or "",
             "top_n": args.get("top_n", 5),
             "direction": args.get("direction") or ctx.get("direction") or "any",
             "return_window": args.get("return_window") or infer_return_window(q),

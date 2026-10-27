@@ -63,6 +63,16 @@ def _fund_performance_digest(data_pack: dict[str, Any]) -> dict[str, Any]:
             digest["52_week_high"] = snap.get("high_52w")
         if snap.get("low_52w") is not None:
             digest["52_week_low"] = snap.get("low_52w")
+        expense = snap.get("expense_ratio")
+        if isinstance(expense, dict) and (expense.get("regular") is not None or expense.get("direct") is not None):
+            digest["expense_ratio"] = expense
+        exit_load = str(snap.get("exit_load_summary") or "").strip()
+        if exit_load:
+            digest["exit_load_summary"] = exit_load
+        if snap.get("aum") is not None:
+            digest["aum_crore"] = snap.get("aum")
+        if snap.get("aum_as_on_date"):
+            digest["aum_as_on_date"] = snap.get("aum_as_on_date")
         r52 = snap.get("52_week_range")
         if isinstance(r52, dict) and r52.get("low") is not None:
             digest["52_week_range"] = r52
@@ -529,6 +539,25 @@ def render_data_only_template(
                 lines.append(f"- **Category:** {category}")
             if benchmark:
                 lines.append(f"- **Benchmark:** {benchmark}")
+            expense = snap.get("expense_ratio") if isinstance(snap.get("expense_ratio"), dict) else {}
+            if expense.get("regular") is not None:
+                ratio = f"{float(expense['regular']):.2f}%"
+                if expense.get("as_on_date"):
+                    ratio = f"{ratio} (as on {expense['as_on_date']})"
+                lines.append(f"- **Expense ratio (regular):** {ratio}")
+            elif expense.get("direct") is not None:
+                ratio = f"{float(expense['direct']):.2f}%"
+                if expense.get("as_on_date"):
+                    ratio = f"{ratio} (as on {expense['as_on_date']})"
+                lines.append(f"- **Expense ratio (direct):** {ratio}")
+            exit_load = str(snap.get("exit_load_summary") or "").strip()
+            if exit_load:
+                lines.append(f"- **Exit load:** {exit_load}")
+            if snap.get("aum") is not None:
+                aum_text = f"Rs {float(snap['aum']):,.2f} crore"
+                if snap.get("aum_as_on_date"):
+                    aum_text = f"{aum_text} (as on {snap['aum_as_on_date']})"
+                lines.append(f"- **AUM:** {aum_text}")
 
             if isinstance(range_52w, dict) and range_52w.get("low") and range_52w.get("high"):
                 lines.append(f"- **52-Week Range:** ₹{range_52w['low']} – ₹{range_52w['high']}")

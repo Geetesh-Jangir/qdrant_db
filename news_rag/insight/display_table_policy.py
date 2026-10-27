@@ -20,6 +20,7 @@ TABLE_SNAPSHOT = "snapshot_table"
 TABLE_CATEGORY = "category_average_table"
 TABLE_PORTFOLIO = "portfolio_holdings_table"
 TABLE_SECTORS = "portfolio_sectors_table"
+TABLE_RETURNS = "fund_returns_table"
 
 _ALL_KEYS = frozenset({
     TABLE_SHORT,
@@ -29,6 +30,7 @@ _ALL_KEYS = frozenset({
     TABLE_CATEGORY,
     TABLE_PORTFOLIO,
     TABLE_SECTORS,
+    TABLE_RETURNS,
 })
 
 _NEWS_RE = re.compile(
@@ -129,6 +131,7 @@ def resolve_display_table_policy(
         if asks_fund_category_average(q):
             inc.update({TABLE_CATEGORY, TABLE_LONG})
         elif _PERF_RE.search(q) or intent in ("lookup", "compare"):
+            inc.add(TABLE_RETURNS)
             if wants_short:
                 inc.add(TABLE_SHORT)
             if wants_long:
@@ -143,7 +146,7 @@ def resolve_display_table_policy(
         )
 
     if intent == "explain_cause" or _WHY_RE.search(q):
-        inc = {TABLE_SHORT, TABLE_HOLDINGS, TABLE_LONG}
+        inc = {TABLE_RETURNS, TABLE_SHORT, TABLE_HOLDINGS, TABLE_LONG}
         if _NAV_SNAPSHOT_RE.search(q):
             inc.add(TABLE_SNAPSHOT)
         return DisplayTablePolicy(
@@ -173,6 +176,7 @@ def resolve_display_table_policy(
     if _named_fund_overview(q, plan):
         return DisplayTablePolicy(
             include=frozenset({
+                TABLE_RETURNS,
                 TABLE_SNAPSHOT,
                 TABLE_SHORT,
                 TABLE_LONG,
@@ -180,11 +184,12 @@ def resolve_display_table_policy(
                 TABLE_PORTFOLIO,
                 TABLE_SECTORS,
             }),
-            rationale="Named-fund overview — snapshot, returns, top holdings, sectors. News is appended separately.",
+            rationale="Named-fund overview — returns, snapshot, top holdings, sectors.",
         )
 
     inc = set()
     if _PERF_RE.search(q) or intent in ("overview", "compare", "lookup"):
+        inc.add(TABLE_RETURNS)
         if wants_short:
             inc.add(TABLE_SHORT)
         if wants_long:
@@ -197,7 +202,7 @@ def resolve_display_table_policy(
     if not inc and plan and "attribution" in str(plan.tool_names):
         inc.add(TABLE_HOLDINGS)
 
-    if not inc and _PERF_RE.search(q):
+    if _PERF_RE.search(q) and TABLE_SHORT not in inc and TABLE_LONG not in inc:
         inc.update({TABLE_SHORT, TABLE_LONG})
 
     rationale = "Tables match performance / holdings / NAV signals in the question."
@@ -220,4 +225,7 @@ def filter_display_tables(
     for key in policy.include:
         if tables.get(key):
             out[key] = tables[key]
+            heading = tables.get(f"_heading_{key}")
+            if heading:
+                out[f"_heading_{key}"] = heading
     return out

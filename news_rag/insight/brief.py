@@ -445,7 +445,7 @@ def _infer_window_days(question: str) -> tuple[int, str]:
         return 365, "1 year"
     if "3 month" in q or "quarter" in q:
         return 90, "3 months"
-    if re.search(r"\b(last|past|this)\s+week\b|\bright now\b|\btoday\b", q):
+    if re.search(r"\b(last|past|this)\s+week\b|\bright now\b|\bcurrently\b|\bat the moment\b|\btoday\b", q):
         return 7, "7 days"
     if re.search(r"\b(last|past|this)(?:\s+one)?\s+month\b|\bone month\b", q):
         return 30, "1 month"

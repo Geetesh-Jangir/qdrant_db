@@ -46,7 +46,7 @@ def split_attribution_for_composer(attr: dict[str, Any]) -> tuple[dict[str, Any]
                 bucket = internal[key]
                 bucket.append(_internal_contribution_row(row))
         display[key] = cleaned
-    for key in ("explained_pct", "unexplained_pct", "fund_return_pct", "fund_return", "top_sector", "top_sector_weight_pct", "sector_weights", "priced_weight_pct", "missing_price"):
+    for key in ("fund_return_pct", "fund_return", "top_sector", "top_sector_weight_pct", "sector_weights", "priced_weight_pct"):
         if key in attr:
             display[key] = attr[key]
     if not internal["detractors"] and not internal["contributors"]:

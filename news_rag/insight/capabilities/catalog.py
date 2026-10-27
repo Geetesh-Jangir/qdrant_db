@@ -17,7 +17,8 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     "get_fund_data": {
         "description": (
             "One named mutual fund scheme: NAV, day change, benchmark, category, 52-week range, "
-            "return windows, optional return series / attribution, optional fund managers."
+            "regular expense ratio, exit load, AUM, return windows, optional return series / "
+            "attribution, optional fund managers. Direct expense ratio is included only when the user asks for the direct plan."
         ),
         "when_to_use": (
             "User names a specific scheme (e.g. HDFC Large Cap Fund) and asks NAV, returns, "
@@ -247,7 +248,7 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         if driver_move in ("up", "down", "tighten", "ease", "weaken", "strengthen"):
             out["driver_move"] = driver_move
         rw = str(src.get("return_window") or "").strip().upper()
-        if rw in ("1W", "1M", "3M", "1Y"):
+        if rw in ("1W", "1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y"):
             out["return_window"] = rw
         if src.get("random_sample"):
             out["random_sample"] = True

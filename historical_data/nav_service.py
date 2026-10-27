@@ -156,10 +156,15 @@ def _calculate_window_stats(
     else:
         cutoff_dt = latest_dt - timedelta(days=days)
         cutoff_str = cutoff_dt.strftime("%Y-%m-%d")
-        subset = [r for r in records_asc if r["nav_date"] >= cutoff_str]
-        # Ensure we have at least 2 points if total records >= 2
-        if len(subset) < 2 and len(records_asc) >= 2:
-            subset = records_asc[-min(len(records_asc), max(2, days // 2)):]
+        # Start from the last NAV on or before the cutoff. If the fund did not
+        # exist yet, this window has no return — do not reuse a shorter history.
+        older = [r for r in records_asc if r["nav_date"] <= cutoff_str]
+        if not older:
+            return None
+        start_row = older[-1]
+        if start_row["nav_date"] >= latest_date_str:
+            return None
+        subset = [r for r in records_asc if r["nav_date"] >= start_row["nav_date"]]
 
     if not subset:
         return None
