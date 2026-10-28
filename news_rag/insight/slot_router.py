@@ -777,6 +777,15 @@ def slot_route(
     if not q:
         return None
 
+    from news_rag.fund_rating_screen import asks_rating_list, rating_list_plan
+    from news_rag.fund_risk import asks_rating_concept, rating_concept_plan
+
+    if asks_rating_list(q):
+        return rating_list_plan(q)
+
+    if asks_rating_concept(q):
+        return rating_concept_plan(q)
+
     from news_rag.insight.glossary import glossary_execution_plan
 
     gplan = glossary_execution_plan(q)

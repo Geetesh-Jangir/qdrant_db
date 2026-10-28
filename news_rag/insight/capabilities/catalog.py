@@ -17,7 +17,8 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     "get_fund_data": {
         "description": (
             "One named mutual fund scheme: NAV, day change, benchmark, category, 52-week range, "
-            "regular expense ratio, exit load, AUM, return windows, optional return series / "
+            "regular expense ratio, exit load, AUM, return windows, maximum drawdown, "
+            "the SEBI riskometer and RupeeStop score, optional return series / "
             "attribution, optional fund managers. Direct expense ratio is included only when the user asks for the direct plan."
         ),
         "when_to_use": (
@@ -28,11 +29,12 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "Do not use for 'which funds hold banking' or 'top 5 funds in IT sector' — use "
             "screen_funds_by_exposure. Do not use for holdings inside a fund — use get_portfolio_data."
         ),
-        "modules": ["snapshot", "return_series", "attribution", "managers"],
+        "modules": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk"],
         "args_schema": {
-            "modules": {"type": "list", "items": ["snapshot", "return_series", "attribution", "managers"]},
+            "modules": {"type": "list", "items": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk"]},
+            "include_category": {"type": "bool", "default": False},
             "windows": {"type": "list", "items": ["1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y"]},
-            "periods": {"type": "list", "items": ["1W", "1M", "3M", "6M", "1Y"]},
+            "periods": {"type": "list", "items": ["1y", "3y", "5y", "10y", "inception"]},
             "window_days": {"type": "int", "min": 7, "max": 365, "default": 30},
             "top_n": {"type": "int", "min": 3, "max": 12, "default": 3},
         },
@@ -131,6 +133,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
                 "enum": ["1W", "1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y"],
                 "default": "1M",
             },
+            "focus_question": {
+                "type": "str",
+                "description": "The one part of a multi-part question this screen should match, such as naming one multi cap fund.",
+            },
             "random_sample": {"type": "bool", "default": False},
             "require_positive_1y": {"type": "bool", "default": False},
         },
@@ -210,7 +216,7 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     if tool == "get_fund_data":
-        allowed = ("snapshot", "return_series", "attribution", "managers")
+        allowed = ("snapshot", "return_series", "attribution", "managers", "drawdown", "risk")
         modules = [m for m in (src.get("modules") or ["snapshot"]) if m in allowed]
         if not modules:
             modules = ["snapshot"]
@@ -219,6 +225,11 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
             "window_days": _clamp(src.get("window_days"), 7, 365, 30),
             "top_n": _clamp(src.get("top_n"), 3, 12, 3),
         }
+        periods = [str(p).lower() for p in (src.get("periods") or []) if str(p).lower() in ("1y", "3y", "5y", "10y", "inception")]
+        if periods:
+            out["periods"] = periods
+        if src.get("include_category"):
+            out["include_category"] = True
         if "managers" not in modules:
             windows = [w for w in (src.get("windows") or ["1M"]) if str(w).upper() in _WINDOWS]
             out["windows"] = [w.upper() for w in windows] or ["1M"]
@@ -237,7 +248,15 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
 
     if tool == "compare_funds":
         mode = str(src.get("mode") or "both").lower()
-        return {"mode": mode if mode in ("metrics", "overlap", "both") else "both"}
+        out = {"mode": mode if mode in ("metrics", "overlap", "both") else "both"}
+        periods = [
+            str(p).lower()
+            for p in (src.get("drawdown_periods") or [])
+            if str(p).lower() in ("1y", "3y", "5y")
+        ]
+        if periods:
+            out["drawdown_periods"] = periods
+        return out
 
     if tool == "search_financial_news":
         scope = str(src.get("scope") or "market").lower()
@@ -272,6 +291,9 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
             out["random_sample"] = True
         if src.get("require_positive_1y"):
             out["require_positive_1y"] = True
+        focus = str(src.get("focus_question") or "").strip()
+        if focus:
+            out["focus_question"] = focus[:180]
         return out
 
     if tool == "get_market_snapshot":

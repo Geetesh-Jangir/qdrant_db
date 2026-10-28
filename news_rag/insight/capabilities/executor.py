@@ -6,6 +6,7 @@ The executor validates args, respects fan-out caps, and uses the TTL cache.
 
 from __future__ import annotations
 
+import logging
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any
@@ -14,6 +15,8 @@ from news_rag.config import get_settings
 from news_rag.insight.capabilities.cache import get_capability_cache
 from news_rag.insight.capabilities.catalog import validate_capability_args
 from news_rag.insight.contracts import ToolCall, RequestTelemetry
+
+logger = logging.getLogger(__name__)
 
 
 def _capability_cache_key(
@@ -39,6 +42,11 @@ def _capability_cache_key(
         key = f"{key}|attr_w={args.get('window_days', 30)}|attr_n={args.get('top_n', 3)}"
     if "return_series" in (args.get("modules") or []):
         key = f"{key}|series_w={args.get('window_days', 180)}"
+    if "drawdown" in (args.get("modules") or []):
+        periods = ",".join(args.get("periods") or [])
+        key = f"{key}|dd={periods}|cat={bool(args.get('include_category'))}"
+    if "risk" in (args.get("modules") or []):
+        key = f"{key}|risk=1"
     return key
 
 
@@ -96,6 +104,27 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
             if vs:
                 results["vs_benchmark"] = vs
 
+    if "drawdown" in modules:
+        from news_rag.fund_drawdown import load_fund_drawdown
+
+        try:
+            results["drawdown"] = load_fund_drawdown(
+                fund_name,
+                list(args.get("periods") or []),
+                str(ctx.get("question") or ""),
+                include_category=bool(args.get("include_category")),
+            )
+        except Exception as exc:
+            logger.warning("drawdown load failed for %s: %s", fund_name, exc)
+
+    if "risk" in modules:
+        from news_rag.fund_risk import load_fund_risk
+
+        try:
+            results["risk"] = load_fund_risk(fund_name, str(ctx.get("question") or ""))
+        except Exception as exc:
+            logger.warning("risk load failed for %s: %s", fund_name, exc)
+
     if "managers" in modules:
         from news_rag.fund_search import fetch_fund_managers_for_query
 
@@ -133,7 +162,12 @@ def _run_get_portfolio_data(fund_name: str, args: dict[str, Any], ctx: dict[str,
 
 def _run_compare_funds(fund_names: list[str], args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     from news_rag.insight.tool_runners import run_compare_funds_adapter
-    compare_ctx = {**ctx, "fund_names": fund_names, "overlap": args.get("mode") in ("overlap", "both")}
+    compare_ctx = {
+        **ctx,
+        "fund_names": fund_names,
+        "overlap": args.get("mode") in ("overlap", "both"),
+        "drawdown_periods": args.get("drawdown_periods") or [],
+    }
     return run_compare_funds_adapter(compare_ctx)
 
 
@@ -399,6 +433,18 @@ def _run_get_macro_news(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, 
 
 def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     """Delegate to sector_funds / driver_affected_funds / screen_funds."""
+    question = str(ctx.get("question") or "")
+    from news_rag.fund_rating_screen import asks_rating_list, run_rating_list
+
+    rating_question = question if asks_rating_list(question) else ""
+    if not rating_question:
+        focus = str(args.get("focus_question") or "").strip()
+        if focus and asks_rating_list(focus):
+            rating_question = focus
+    if args.get("rating_screen") or rating_question:
+        result = run_rating_list(rating_question or question)
+        return {"ok": bool(result.get("success")), "data": result}
+
     from news_rag.insight.registry import ensure_registry, get_tool
 
     ensure_registry()
@@ -490,7 +536,7 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
     if spec and spec.run:
         from news_rag.tools import infer_return_window
 
-        q = str(ctx.get("question") or "")
+        q = str(args.get("focus_question") or ctx.get("question") or "")
         screen_ctx = {
             **ctx,
             "sector_name": sector or ctx.get("sector_name") or "",

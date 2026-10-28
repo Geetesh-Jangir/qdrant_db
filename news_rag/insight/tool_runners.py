@@ -606,6 +606,20 @@ def run_compare_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         data["shared_count"] = overlap["overlap_count"]
         data["shared_holdings"] = [row["stock"] for row in overlap["rows"][:20]]
         data["fund_briefs"] = [_fund_compare_brief(detail) for detail in details]
+        from news_rag.fund_drawdown import periods_for_question
+
+        parsed, note = periods_for_question(str(ctx.get("question") or ""), comparison=True)
+        periods = [str(p) for p in (ctx.get("drawdown_periods") or []) if str(p) in ("1y", "3y", "5y")]
+        if not periods:
+            periods = parsed
+        if note:
+            data["drawdown_note"] = note
+        try:
+            from news_rag.fund_drawdown import compare_drawdown_rows
+
+            data["drawdown_cells"] = compare_drawdown_rows(data["fund_briefs"], periods)
+        except Exception:
+            data["drawdown_cells"] = {}
         out["data"] = data
     return out
 
@@ -621,6 +635,7 @@ def _fund_compare_brief(detail: dict[str, Any]) -> dict[str, Any]:
         top_sector = f"{top_rows[0].get('sector') or '—'} ({float(top_rows[0].get('percentage') or 0):.2f}%)"
     return {
         "fund_name": detail.get("fund_short_name") or detail.get("fund_name"),
+        "isin": detail.get("isin") or "",
         "category": detail.get("category") or "",
         "nav": detail.get("nav"),
         "nav_date": detail.get("nav_date") or "",

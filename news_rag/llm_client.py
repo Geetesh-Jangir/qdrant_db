@@ -746,15 +746,6 @@ def anthropic_system_blocks(prefix: str, role: str, *, hour_ttl: bool = True) ->
     return blocks
 
 
-def _system_uses_hour_ttl(system: Any) -> bool:
-    if not isinstance(system, list):
-        return False
-    return any(
-        isinstance(block, dict) and (block.get("cache_control") or {}).get("ttl") == "1h"
-        for block in system
-    )
-
-
 def build_anthropic_messages_body(
     *,
     model: str,
@@ -848,15 +839,11 @@ def _call_anthropic(
     ).strip()
     with httpx.Client(timeout=_llm_http_timeout(settings)) as client:
         response = client.post(url, headers=headers, json=payload)
-        if response.status_code == 400 and _system_uses_hour_ttl(payload.get("system")) and (
-            "ttl" in response.text.lower() or "cache" in response.text.lower()
+        error_text = response.text.lower()
+        # A rejected 1-hour TTL stays a failure. Do not resend the prompt with the 5-minute cache.
+        if response.status_code == 400 and "ttl" not in error_text and (
+            "cache_control" in error_text or "system" in error_text
         ):
-            if query_log is not None:
-                query_log.write(f"anthropic_retry_5m_prompt_cache body={response.text[:200]}")
-            payload["system"] = anthropic_system_blocks(prefix, role, hour_ttl=False)
-            headers["anthropic-beta"] = "prompt-caching-2024-07-31"
-            response = client.post(url, headers=headers, json=payload)
-        if response.status_code == 400 and ("cache_control" in response.text.lower() or "system" in response.text.lower()):
             if query_log is not None:
                 query_log.write(f"anthropic_retry_without_prompt_caching body={response.text[:200]}")
             payload["system"] = flat_system

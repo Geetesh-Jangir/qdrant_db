@@ -667,6 +667,13 @@ def _attach_screen_facts(rows: list[dict[str, Any]], question: str) -> None:
             row["risk_label"] = detail.get("risk_label") or ""
         if "inception" in facts:
             row["inception_date"] = detail.get("inception_date") or ""
+        if "drawdown" in facts:
+            from news_rag.fund_drawdown import attach_screen_drawdown
+
+            try:
+                attach_screen_drawdown(row, question)
+            except Exception:
+                row["drawdown_1y"] = row.get("drawdown_1y") or ""
         if "manager_name" in facts or "manager_experience" in facts:
             managers = detail.get("managers") if isinstance(detail.get("managers"), dict) else None
             if not managers or not (managers.get("current") or managers.get("past")):

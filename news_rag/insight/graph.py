@@ -214,6 +214,9 @@ def node_route(state: GraphState) -> str | None:
     plan = state.plan
     if plan is None:
         raise GraphUnavailable("No execution plan after routing")
+    from news_rag.fund_drawdown import ensure_drawdown_tools
+    from news_rag.fund_rating_screen import ensure_rating_screen
+    from news_rag.fund_risk import ensure_risk_tools
     from news_rag.insight.multi_fact import (
         ensure_compare_template,
         ensure_multi_fact_tools,
@@ -223,6 +226,9 @@ def node_route(state: GraphState) -> str | None:
     ensure_multi_fact_tools(state.question, plan)
     ensure_screen_facts(state.question, plan)
     ensure_compare_template(plan)
+    ensure_drawdown_tools(state.question, plan)
+    ensure_risk_tools(state.question, plan)
+    ensure_rating_screen(state.question, plan)
 
     # Set deadline budget based on query class
     if plan.query_class == QueryClass.SIMPLE:
@@ -674,6 +680,17 @@ RULES:
 5. If you truly do not know, say so in one sentence.
 """
 
+COMPOSE_SYSTEM_FACTS = """ROLE: COMPOSER — one note for an investor
+FACTS has every figure the user asked for.
+
+RULES:
+1. Cover every topic in FACTS. Leave a blank line between topics so the note is easy to read.
+2. Write plain sentences. For sectors, use one bullet per sector and keep its weight.
+3. Use only figures written in FACTS. Do not invent a total, a cause, or a forecast.
+4. Do not use a table. Do not repeat a figure you already stated. Do not add expense ratio, AUM, or exit load unless FACTS includes them.
+5. Do not give a buy or sell view. Do not mention FACTS, tools, or the pipeline.
+"""
+
 COMPOSE_SYSTEM_NEWS = """ROLE: COMPOSER — insight from the articles
 The user asked what the news means. ARTICLES are the only source.
 
@@ -720,7 +737,12 @@ def node_compose(state: GraphState) -> str | None:
             return None
         raise GraphUnavailable("No LLM key configured for composer")
 
-    evidence_dict = pack.compact() if pack else {}
+    fact_brief = ""
+    if pack and len(plan.asked_facts or []) >= 2:
+        from news_rag.insight.evidence_pack import investor_fact_brief
+
+        fact_brief = investor_fact_brief(pack.data_pack, plan.asked_facts)
+    evidence_dict = {"FACTS": fact_brief} if fact_brief else (pack.compact() if pack else {})
     news_articles = (
         news_insight_articles(state.question or "", pack.news_grouped)
         if pack and is_article_only_news(plan, pack)
@@ -746,6 +768,8 @@ def node_compose(state: GraphState) -> str | None:
     wants["measured_window_days"] = plan.window_days
     if (plan.presentation_notes or "").strip():
         wants["presentation_notes"] = plan.presentation_notes.strip()
+    if plan.sub_queries:
+        wants["parts"] = [str(part.get("text") or "").strip() for part in plan.sub_queries if str(part.get("text") or "").strip()]
     if (plan.concept_brief or "").strip():
         wants["concept_brief"] = plan.concept_brief.strip()
     from news_rag.insight.computed_answers import asks_computed_illustration
@@ -774,6 +798,15 @@ def node_compose(state: GraphState) -> str | None:
         )
         compose_system = COMPOSE_SYSTEM_NEWS
         max_tokens = 700
+    elif fact_brief:
+        wants["max_words"] = max(int(wants.get("max_words") or 0), 450)
+        user_content = (
+            f"QUESTION:\n{state.question.strip()}\n\n"
+            f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
+            f"FACTS:\n{fact_brief}"
+        )
+        compose_system = COMPOSE_SYSTEM_FACTS
+        max_tokens = 900
     elif precise:
         wants["max_words"] = min(int(wants.get("max_words") or 220), 50)
         wants["style"] = "short_answer"
@@ -840,7 +873,7 @@ def node_compose(state: GraphState) -> str | None:
         from news_rag.insight.fund_display import clean_news_insight
 
         polished_text = clean_news_insight(polished_text)
-    display_tables = pack.display_tables if pack else {}
+    display_tables = {} if fact_brief else (pack.display_tables if pack else {})
     if display_tables and any(k for k in display_tables if k != "_title"):
         polished_text = stitch_display_tables_into_answer(
             polished_text,

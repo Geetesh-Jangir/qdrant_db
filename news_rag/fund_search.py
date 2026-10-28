@@ -800,6 +800,28 @@ def _infer_category_and_type(name: str) -> tuple[str, str]:
     return category, scheme_type
 
 
+def _fund_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _named_weights(rows: Any) -> list[dict[str, Any]]:
+    """Keep label and percentage only. Rating inputs never belong here."""
+    if not isinstance(rows, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = _fund_text(row.get("label") or row.get("name") or row.get("asset"))
+        try:
+            percentage = round(float(row.get("percentage")), 2)
+        except (TypeError, ValueError):
+            continue
+        if label:
+            cleaned.append({"label": label, "percentage": percentage})
+    return cleaned
+
+
 class FundIndex:
     def __init__(self) -> None:
         self._loaded: bool = False
@@ -1221,6 +1243,13 @@ class FundIndex:
             "aum": costs.get("aum"),
             "aum_as_on_date": costs.get("aum_as_on_date") or "",
             "inception_date": str(ident.get("inception_date") or "").strip(),
+            "sebi_riskometer": _fund_text(
+                ident.get("sebi_riskometer")
+                or raw.get("sebi_riskometer")
+                or ((raw.get("risk") or {}).get("sebi_riskometer") if isinstance(raw.get("risk"), dict) else "")
+            ),
+            "market_cap": _named_weights(raw.get("market_cap") or alloc.get("market_cap") or port.get("market_cap")),
+            "asset_allocation": _named_weights(alloc.get("asset")),
             "risk_label": str((raw.get("risk") or {}).get("label") or "").strip() if isinstance(raw.get("risk"), dict) else "",
             "managers": parse_fund_managers_from_api_payload(raw),
             "sectors": sectors,
@@ -1239,6 +1268,23 @@ class FundIndex:
         if not raw:
             return None
         return self._entries_by_isin.get(raw) or self._entries_by_isin.get(resolve_canonical_isin(raw))
+
+    def isins_in_category(self, category: str, *, exclude_isin: str = "", limit: int = 30) -> tuple[list[str], bool]:
+        """Other regular-growth schemes in the same catalog category."""
+        self._ensure_loaded()
+        wanted = (category or "").strip().casefold()
+        skip = (exclude_isin or "").strip().upper()
+        if not wanted:
+            return [], False
+        matches: list[str] = []
+        for entry in self._entries:
+            isin = str(entry.get("isin") or "").strip().upper()
+            label = str(entry.get("category") or "").strip().casefold()
+            if not isin or isin == skip or label != wanted:
+                continue
+            matches.append(isin)
+        truncated = len(matches) > limit
+        return matches[:limit], truncated
 
     def get_fund_detail(self, isin: str) -> dict[str, Any] | None:
         """Get full details (sectors, holdings, info) for an ISIN with caching."""

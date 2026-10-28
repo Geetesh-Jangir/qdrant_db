@@ -28,6 +28,16 @@ def test_slot_router_glossary_no_tools():
     assert plan.tool_names == []
 
 
+def test_rs_rating_question_is_a_composer_concept_not_a_tool_call():
+    assert direct_glossary_reply("what is rs rating") is None
+    plan = slot_route("How can a fund be a Good Choice and still have Very High risk?", confidence_threshold=0.97)
+    assert plan is not None
+    assert plan.tool_names == []
+    assert plan.requires_compose is True
+    assert "four pillars" in plan.concept_brief
+    assert plan.funds == []
+
+
 def test_fund_nav_not_glossary():
     q = "what is the nav of Axis ELSS Tax Saver Fund"
     assert not asks_precise_definition(q)

@@ -8,12 +8,14 @@ from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall, Wave
 from news_rag.insight.top_n import top_n_from_question
 
 _SNAPSHOT_FACTS = frozenset(
-    {"nav", "aum", "expense", "exit_load", "returns", "benchmark", "risk", "inception"}
+    {"nav", "aum", "expense", "exit_load", "returns", "benchmark", "inception"}
 )
 
 
 def requested_fund_facts(question: str) -> set[str]:
     """Facts named in one question. Empty when the question is not a fact list."""
+    from news_rag.fund_drawdown import drawdown_words
+
     q = question or ""
     facts: set[str] = set()
     if re.search(r"\b(?:nav|net\s+asset\s+value)\b", q, re.I):
@@ -24,7 +26,7 @@ def requested_fund_facts(question: str) -> set[str]:
         facts.add("expense")
     if re.search(r"\bexit\s+load\b", q, re.I):
         facts.add("exit_load")
-    if re.search(r"\bhistorical\s+performance\b|\breturns?\b", q, re.I):
+    if re.search(r"\bhistorical\s+performance\b|\bperformance\b|\bperforming\b|\breturns?\b", q, re.I):
         facts.add("returns")
     if re.search(
         r"\bfund[\s_]*managers?\b|\bmanagers?\b|\bwho\s+manages\b|\bmanaged\s+by\b",
@@ -34,10 +36,14 @@ def requested_fund_facts(question: str) -> set[str]:
         facts.add("managers")
     if re.search(r"\bbenchmark\b", q, re.I):
         facts.add("benchmark")
-    if re.search(r"\brisk(?:ometer)?\b", q, re.I):
+    from news_rag.fund_risk import asks_fund_risk
+
+    if asks_fund_risk(q):
         facts.add("risk")
     if re.search(r"\b(?:inception|launch\s+date|fund\s+age)\b", q, re.I):
         facts.add("inception")
+    if drawdown_words(q):
+        facts.add("drawdown")
     if re.search(r"\bsectors?\b", q, re.I):
         facts.add("sectors")
     if re.search(r"\bholdings?\b", q, re.I):
@@ -82,6 +88,7 @@ def screen_fact_names(question: str) -> list[str]:
         "manager_experience",
         "sectors",
         "holdings",
+        "drawdown",
     ]
     return [name for name in order if name in facts]
 
@@ -124,6 +131,8 @@ def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan
     modules: list[str] = []
     if facts & _SNAPSHOT_FACTS:
         modules.append("snapshot")
+    if "risk" in facts:
+        modules.append("risk")
     if "managers" in facts:
         modules.append("managers")
 
@@ -135,7 +144,10 @@ def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan
 
     calls: list[ToolCall] = []
     if modules:
-        calls.append(ToolCall(tool="get_fund_data", arguments={"modules": modules}, wave=1))
+        arguments: dict[str, object] = {"modules": modules}
+        if facts & {"returns", "benchmark"}:
+            arguments["windows"] = ["1Y", "3Y", "5Y"]
+        calls.append(ToolCall(tool="get_fund_data", arguments=arguments, wave=1))
     if sections:
         top_n = top_n_from_question(
             question,
@@ -155,8 +167,17 @@ def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan
     plan.tool_calls = calls
     plan.asked_facts = sorted(facts)
     plan.answer_mode = AnswerMode.DATA_ONLY
-    plan.requires_compose = False
-    plan.wave_2_policy = Wave2Policy(trigger="none")
+    if len(facts) >= 2:
+        plan.requires_compose = True
+        plan.max_words = max(int(plan.max_words or 0), 320)
+        plan.presentation_notes = (
+            f"{plan.presentation_notes} The user named several facts ({', '.join(sorted(facts))}). "
+            "Write one readable note that covers every fact, with a blank line between topics. "
+            "Name each sector and its weight when sectors were asked. Do not use a table."
+        ).strip()
+    else:
+        plan.requires_compose = False
+        plan.wave_2_policy = Wave2Policy(trigger="none")
     return plan
 
 

@@ -453,6 +453,7 @@ _DISPLAY_SECTIONS: tuple[tuple[str, str], ...] = (
     ("portfolio_sectors_table", "### Top sectors"),
     ("snapshot_table", "### Snapshot"),
     ("category_average_table", "### Category average"),
+    ("drawdown_table", "### Drawdown"),
 )
 
 

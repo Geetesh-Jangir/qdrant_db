@@ -194,6 +194,9 @@ def test_aum_and_exit_load_render_only_those_lines():
     )
     ensure_multi_fact_tools(q, plan)
     assert plan.tool_calls[0].arguments["modules"] == ["snapshot"]
+    assert set(plan.asked_facts) >= {"aum", "exit_load"}
+    assert plan.requires_compose is True
+    plan.requires_compose = False
     pack = build_evidence_pack(
         plan,
         [

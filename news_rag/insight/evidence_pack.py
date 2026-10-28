@@ -367,6 +367,29 @@ def build_evidence_pack(
     all_tables = build_fund_display_tables(data_pack, digest=perf, question=question)
     table_policy = resolve_display_table_policy(question, plan)
     display_tables = filter_display_tables(all_tables, table_policy)
+    drawdown_parts: list[str] = []
+    for key, value in data_pack.items():
+        if not str(key).startswith("fund:") or not isinstance(value, dict):
+            continue
+        body = _drawdown_body(value)
+        if body:
+            drawdown_parts.append(body)
+    if drawdown_parts:
+        display_tables = dict(display_tables)
+        display_tables["drawdown_table"] = "\n\n".join(drawdown_parts)
+    asked = set(plan.asked_facts or [])
+    if asked & {"benchmark", "returns"}:
+        display_tables = dict(display_tables)
+        if all_tables.get("vs_benchmark_table"):
+            display_tables["vs_benchmark_table"] = all_tables["vs_benchmark_table"]
+            heading = all_tables.get("_heading_vs_benchmark_table")
+            if heading:
+                display_tables["_heading_vs_benchmark_table"] = heading
+        elif not display_tables.get("vs_benchmark_table"):
+            benchmark_lines = _benchmark_lines_from_pack(data_pack)
+            if benchmark_lines:
+                display_tables["vs_benchmark_table"] = benchmark_lines
+                display_tables["_heading_vs_benchmark_table"] = "### Returns vs benchmark"
 
     return EvidencePack(
         rows=rows,
@@ -530,6 +553,142 @@ def _portfolio_top_n(plan: ExecutionPlan) -> int:
     return 5
 
 
+def _benchmark_lines_from_pack(data_pack: dict[str, Any]) -> str:
+    """Fund versus benchmark rows when the display table was not built."""
+    lines: list[str] = []
+    for key, value in data_pack.items():
+        if not str(key).startswith("fund:") or not isinstance(value, dict):
+            continue
+        insights = value.get("fund_insights") if isinstance(value.get("fund_insights"), dict) else {}
+        vs = value.get("vs_benchmark") if isinstance(value.get("vs_benchmark"), dict) else insights.get("vs_benchmark")
+        if not isinstance(vs, dict):
+            continue
+        periods = vs.get("periods") if isinstance(vs.get("periods"), dict) else {}
+        name = str(vs.get("benchmark_name") or insights.get("scheme_benchmark_name") or "benchmark")
+        rows: list[str] = []
+        for label in ("1Y", "3Y", "5Y"):
+            row = periods.get(label)
+            if not isinstance(row, dict):
+                continue
+            fund_return = row.get("fund_return")
+            benchmark_return = row.get("benchmark_return")
+            gap = row.get("vs_benchmark")
+            if fund_return is None and benchmark_return is None:
+                continue
+            rows.append(
+                f"| {label} | {fund_return if fund_return is not None else '—'}% | "
+                f"{benchmark_return if benchmark_return is not None else '—'}% | "
+                f"{gap if gap is not None else '—'} |"
+            )
+        if not rows:
+            continue
+        lines.extend(
+            [
+                f"Benchmark: {name}",
+                "",
+                "| Period | Fund | Benchmark | Fund vs benchmark (pp) |",
+                "| --- | ---: | ---: | ---: |",
+                *rows,
+            ]
+        )
+    return "\n".join(lines)
+
+
+def investor_fact_brief(data_pack: dict[str, Any], asked: list[str] | set[str]) -> str:
+    """Short fact sheet for a question that names several facts. The composer rewrites this."""
+    wanted = set(asked or [])
+    if len(wanted) < 2:
+        return ""
+    fund = next(
+        (value for key, value in data_pack.items() if str(key).startswith("fund:") and isinstance(value, dict)),
+        {},
+    )
+    portfolio = next(
+        (value for key, value in data_pack.items() if str(key).startswith("portfolio:") and isinstance(value, dict)),
+        {},
+    )
+    parts: list[str] = []
+    snap = fund.get("snapshot") if isinstance(fund.get("snapshot"), dict) else {}
+    name = snap.get("fund_name") or fund.get("fund_name") or ""
+    if name:
+        parts.append(str(name))
+    if "nav" in wanted and snap.get("nav") is not None:
+        nav_line = f"NAV: ₹{float(snap['nav']):,.2f}"
+        if snap.get("nav_date"):
+            nav_line += f" as on {snap['nav_date']}"
+        parts.append(nav_line)
+    if "drawdown" in wanted:
+        body = _drawdown_body(fund)
+        if body:
+            parts.append("Drawdown:\n" + body)
+    if "risk" in wanted:
+        risk_body = _risk_body(fund)
+        if risk_body:
+            parts.append("Risk:\n" + risk_body)
+    if wanted & {"benchmark", "returns"}:
+        versus = _benchmark_lines_from_pack(data_pack)
+        if versus:
+            parts.append(versus)
+    if "managers" in wanted:
+        managers = fund.get("managers") if isinstance(fund.get("managers"), dict) else {}
+        current = [row for row in (managers.get("current") or []) if isinstance(row, dict) and row.get("name")]
+        if current:
+            lines = ["Fund manager:"]
+            for row in current:
+                bits = [str(row.get("name"))]
+                if row.get("managing_since"):
+                    bits.append(f"managing since {row['managing_since']}")
+                if row.get("total_experience_years") not in (None, ""):
+                    bits.append(f"{row['total_experience_years']} years of experience")
+                lines.append("- " + ", ".join(bits))
+            parts.append("\n".join(lines))
+    if "sectors" in wanted:
+        sectors = [row for row in (portfolio.get("sectors") or []) if isinstance(row, dict)]
+        if sectors:
+            as_on = portfolio.get("as_on") or ""
+            lines = [f"Top sectors{f' as on {as_on}' if as_on else ''}:"]
+            for row in sectors:
+                label = row.get("sector") or row.get("name") or ""
+                weight = row.get("weight_pct") if row.get("weight_pct") is not None else row.get("percentage")
+                if not label:
+                    continue
+                if weight is None:
+                    lines.append(f"- {label}")
+                else:
+                    lines.append(f"- {label}: {float(weight):.2f}%")
+            if len(lines) > 1:
+                parts.append("\n".join(lines))
+    return "\n\n".join(part for part in parts if part)
+
+
+def _risk_body(fund_data: dict[str, Any]) -> str:
+    payload = fund_data.get("risk") if isinstance(fund_data.get("risk"), dict) else None
+    if not payload:
+        return ""
+    lines = str(payload.get("lines") or "").strip()
+    if lines:
+        return lines
+    from news_rag.fund_risk import render_risk_lines
+
+    return render_risk_lines(payload)
+
+
+def _drawdown_body(fund_data: dict[str, Any]) -> str:
+    payload = fund_data.get("drawdown") if isinstance(fund_data.get("drawdown"), dict) else None
+    if not payload:
+        return ""
+    from news_rag.fund_drawdown import render_drawdown_body
+
+    return render_drawdown_body(payload, str(payload.get("question") or ""))
+
+
+def _with_drawdown(text: str, fund_data: dict[str, Any]) -> str:
+    body = _drawdown_body(fund_data)
+    if not body:
+        return text
+    return text.rstrip() + "\n\n### Drawdown\n\n" + body
+
+
 def _show_snapshot_field(plan: ExecutionPlan, field: str) -> bool:
     asked = set(plan.asked_facts or [])
     return not asked or field in asked
@@ -672,6 +831,15 @@ def _render_fund_compare_markdown(compare: dict[str, Any]) -> str:
                 raw = returns.get(window)
                 values.append(_compare_cell(f"{float(raw):.2f}%" if raw is not None else None))
             lines.append("| " + " | ".join([window, *values]) + " |")
+    cells = compare.get("drawdown_cells") if isinstance(compare.get("drawdown_cells"), dict) else {}
+    if cells:
+        lines.extend(["", "### Drawdown", *_compare_header(briefs)[1:]])
+        labels = {"1y": "1Y worst fall", "3y": "3Y worst fall", "5y": "5Y worst fall"}
+        for period, values in cells.items():
+            lines.append("| " + " | ".join([labels.get(period, period), *[_compare_cell(v) for v in values]]) + " |")
+        note = str(compare.get("drawdown_note") or "").strip()
+        if note:
+            lines.extend(["", note])
     lines.extend(["", "### Overlapping stocks"])
     rows = [row for row in (overlap.get("rows") or []) if isinstance(row, dict)]
     if not rows:
@@ -692,102 +860,41 @@ def _render_fund_compare_markdown(compare: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _screen_cell(value: Any) -> str:
-    if value is None or value == "":
-        return "—"
-    return str(value).replace("|", "/")
-
-
 def _render_screen_markdown(screen: Any) -> str | None:
     if not isinstance(screen, dict):
         return None
     rankings = [row for row in (screen.get("rankings") or screen.get("funds") or []) if isinstance(row, dict)]
     note = str(screen.get("ranking_note") or screen.get("note") or "").strip()
     if not rankings:
-        lines = ["### Fund screen", "No funds matched your screen filters."]
+        lines = ["### Funds", "No funds matched your screen filters."]
         if note:
             lines.append(note)
         return "\n".join(lines)
-    def _filled(key: str) -> bool:
-        return all(row.get(key) is not None and str(row.get(key)).strip() != "" for row in rankings)
-
-    columns: list[tuple[str, str]] = [("Fund", "fund_name")]
-    if _filled("category"):
-        columns.append(("Category", "category"))
-    if _filled("sector_weight_pct"):
-        columns.append(("Sector weight", "sector_weight_pct"))
-    if _filled("aum"):
-        columns.append(("AUM (Rs crore)", "aum"))
-    if all(
-        (row.get("nav") is not None and str(row.get("nav")).strip() != "")
-        or (row.get("latest_nav") is not None and str(row.get("latest_nav")).strip() != "")
-        for row in rankings
-    ):
-        columns.append(("NAV", "nav"))
-    if _filled("expense_ratio"):
-        columns.append(("Expense ratio", "expense_ratio"))
-    if _filled("exit_load_summary"):
-        columns.append(("Exit load", "exit_load_summary"))
-    for label, key in (
-        ("1W return", "return_1w_pct"),
-        ("1M return", "return_1m_pct"),
-        ("3M return", "return_3m_pct"),
-        ("6M return", "return_6m_pct"),
-        ("1Y return", "return_1y_pct"),
-        ("3Y return", "return_3y_pct"),
-        ("5Y return", "return_5y_pct"),
-    ):
-        if _filled(key):
-            columns.append((label, key))
-    if _filled("top_sector"):
-        columns.append(("Top sector", "top_sector"))
-    if _filled("top_holding"):
-        columns.append(("Top holding", "top_holding"))
-    if _filled("manager_name"):
-        columns.append(("Fund manager", "manager_name"))
-    if _filled("manager_experience"):
-        columns.append(("Manager experience", "manager_experience"))
-    if _filled("benchmark"):
-        columns.append(("Benchmark", "benchmark"))
-    if _filled("risk_label"):
-        columns.append(("Risk", "risk_label"))
-    if _filled("inception_date"):
-        columns.append(("Inception", "inception_date"))
-    lines = ["### Fund screen", ""]
+    lead = _screen_lead(rankings)
     if note:
-        lines.extend([note, ""])
-    lines.append("| " + " | ".join(label for label, _key in columns) + " |")
-    text_keys = {
-        "fund_name",
-        "category",
-        "exit_load_summary",
-        "top_sector",
-        "top_holding",
-        "manager_name",
-        "manager_experience",
-        "benchmark",
-        "risk_label",
-        "inception_date",
-    }
-    lines.append("| " + " | ".join("---" if key in text_keys else "---:" for _label, key in columns) + " |")
-    for row in rankings[:15]:
-        cells = []
-        for _label, key in columns:
-            if key == "nav":
-                value = row.get("nav") if row.get("nav") is not None else row.get("latest_nav")
-            elif key == "sector_weight_pct" and row.get(key) is not None:
-                value = f"{float(row[key]):.2f}%"
-            elif key == "aum" and row.get(key) is not None:
-                value = f"{float(row[key]):,.2f}"
-            elif key == "expense_ratio" and row.get(key) is not None:
-                value = f"{float(row[key]):.2f}%"
-            elif key.startswith("return_") and row.get(key) is not None:
-                value = f"{float(row[key]):.2f}%"
-            else:
-                value = row.get(key)
-            cells.append(_screen_cell(value))
-        lines.append("| " + " | ".join(cells) + " |")
-    return "\n".join(lines)
+        lead = f"{lead} {note}"
+    return f"### Funds\n\n{lead}\n\nThe funds are in the table below."
+
+
+def _screen_lead(rankings: list[dict[str, Any]]) -> str:
+    count = len(rankings)
+    word = "fund" if count == 1 else "funds"
+    category = _shared_value(rankings, "category")
+    label = _shared_value(rankings, "rs_label")
+    sentence = f"{count} {word}"
+    if category:
+        sentence += f" in {category}"
+    if label:
+        sentence += f" labeled {label}"
+    return sentence + "."
+
+
+def _shared_value(rankings: list[dict[str, Any]], key: str) -> str:
+    values = {str(row.get(key) or "").strip() for row in rankings}
+    values.discard("")
+    if len(values) == 1:
+        return next(iter(values))
+    return ""
 
 
 def render_data_only_template(
@@ -820,6 +927,11 @@ def render_data_only_template(
 
     if fund_entries:
         f_data = fund_entries[0]
+        asked = set(plan.asked_facts or [])
+        if _drawdown_body(f_data) and asked <= {"drawdown"}:
+            return "### Drawdown\n\n" + _drawdown_body(f_data)
+        if _risk_body(f_data) and asked <= {"risk"}:
+            return "### Risk\n\n" + _risk_body(f_data)
         mgr_block = f_data.get("managers")
         has_managers = bool(
             isinstance(mgr_block, dict) and (mgr_block.get("current") or mgr_block.get("past"))
@@ -837,7 +949,7 @@ def render_data_only_template(
             if has_managers and (not asked or "managers" in asked):
                 parts.append(_render_fund_managers_markdown(mgr_block, plan))
             if parts:
-                return "\n\n".join(part for part in parts if part)
+                return _with_drawdown("\n\n".join(part for part in parts if part), f_data)
 
     if fund_entries and not portfolio_entries:
         f_data = fund_entries[0]
@@ -856,18 +968,18 @@ def render_data_only_template(
             lines.append(dt["category_average_table"])
             if dt.get("vs_benchmark_table"):
                 lines.extend(["", "### Fund vs benchmark (1Y / 3Y / 5Y)", "", dt["vs_benchmark_table"]])
-            return "\n".join(lines)
+            return _with_drawdown("\n".join(lines), f_data)
 
         if dt.get("vs_benchmark_table") and plan.answer_mode == AnswerMode.DATA_ONLY:
             name = dt.get("_title") or (plan.funds[0] if plan.funds else "Fund")
             lines = [f"### Returns — {name}", "", dt["vs_benchmark_table"]]
             if dt.get("short_horizon_vs_category_table"):
                 lines.extend(["", dt["short_horizon_vs_category_table"]])
-            return "\n".join(lines)
+            return _with_drawdown("\n".join(lines), f_data)
 
         snap = f_data.get("snapshot") or (f_data if f_data.get("nav") is not None else {})
         if plan.asked_facts and snap and snap.get("nav") is not None:
-            return _snapshot_markdown(snap, plan)
+            return _with_drawdown(_snapshot_markdown(snap, plan), f_data)
         if snap and snap.get("nav") is not None:
             name = snap.get("fund_name") or snap.get("fund_short_name") or (plan.funds[0] if plan.funds else "Fund")
             nav = snap.get("nav")
@@ -916,7 +1028,7 @@ def render_data_only_template(
                 ret_strs = [f"{k}: {v:+.2f}%" if isinstance(v, (int, float)) else f"{k}: {v}" for k, v in rets.items() if v is not None]
                 lines.append(" | ".join(ret_strs))
 
-            return "\n".join(lines)
+            return _with_drawdown("\n".join(lines), f_data)
 
     # Check for Portfolio Holdings / Sectors
     if portfolio_entries and not fund_entries:

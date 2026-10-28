@@ -64,6 +64,14 @@ PLAN_SCHEMA: dict[str, Any] = {
                 "intent": {"type": "string", "enum": list(INTENTS)},
                 "answer_mode": {"type": "string", "enum": list(ANSWER_MODES)},
                 "query_class": {"type": "string", "enum": list(QUERY_CLASSES)},
+                "task": {
+                    "type": "string",
+                    "enum": ["explain", "data"],
+                    "description": (
+                        "explain when the user wants to understand a term, a fund type, or which categories exist. "
+                        "data when they want numbers, a fund list, or one named scheme."
+                    ),
+                },
             },
             "required": ["goal", "intent", "answer_mode"],
         },
@@ -361,7 +369,61 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
         planner_count=planner_count,
         planner_portfolio_slice=planner_slice,
     )
+    if str(under.get("task") or "").strip().lower() == "explain":
+        from news_rag.fund_rating_categories import explanation_brief
+
+        example = _example_part(plan.sub_queries)
+        plan.direct_reply = ""
+        plan.can_answer_directly = False
+        plan.requires_compose = True
+        plan.concept_brief = explanation_brief()
+        plan.max_words = max(int(plan.max_words or 0), 280 if example or len(plan.sub_queries) > 1 else 180)
+        if example:
+            screen = next((call for call in plan.tool_calls if call.tool == "screen_funds_by_exposure"), None)
+            if screen is None:
+                screen = ToolCall(
+                    tool="screen_funds_by_exposure",
+                    arguments={"top_n": 1, "direction": "any", "focus_question": example},
+                    why="The user asked for one example fund.",
+                    required=True,
+                )
+            else:
+                args = dict(screen.arguments or {})
+                args["top_n"] = 1
+                args["direction"] = "any"
+                args["focus_question"] = example
+                screen.arguments = args
+            plan.tool_calls = [screen]
+            note = (
+                "Answer every part of the question. Explain from concept_brief. "
+                "Then name exactly one fund from the screen rankings. Use that fund name. "
+                "Do not say that no fund was provided."
+            )
+        else:
+            plan.tool_calls = []
+            plan.funds = []
+            note = (
+                "Answer from concept_brief. Explain the idea in plain sentences. "
+                "Do not name a fund. Do not invent a category, a return, or a score."
+            )
+        plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
     return plan
+
+
+def _example_part(sub_queries: list[dict[str, Any]]) -> str:
+    """A planner part that asks for a fund name, separate from the explanation."""
+    import re
+
+    pattern = re.compile(
+        r"\b(?:name|example|which|show|give|suggest|pick)\b.{0,48}\bfunds?\b|"
+        r"\bfunds?\b.{0,32}\b(?:name|example)\b",
+        re.I,
+    )
+    for part in sub_queries:
+        text = str(part.get("text") or "").strip()
+        if text and pattern.search(text):
+            return text
+    return ""
 
 
 def tools_to_facets(tool_names: list[str]) -> tuple[list[str], dict[str, str]]:
@@ -457,6 +519,7 @@ Read the user's question and emit ONE structured JSON ExecutionPlan using ONLY t
 ### FIELDS THE PARSER ACCEPTS
 Optional fields may be omitted. Do not invent field names.
 - `understanding.intent`: lookup, overview, explain_cause, compare, rank, outlook. A definition or a SIP/FIRE calculation uses lookup.
+- `understanding.task`: explain or data. explain means the user wants to understand a word, a fund type, or which categories exist, including a misspelled question such as "what are multi cap fund" or "sub category of the equity funds". data means they want a number, a list of schemes, a rating, or one named fund. A screen hint that names a category does not make an explanation into a fund list.
 - `understanding.answer_mode`: DATA_ONLY, NEWS_ONLY, INSIGHT_FUSION.
 - `entities.funds`, `entities.sectors`, `entities.stocks`: string arrays, as the user wrote them. Correct an obvious misspelling of a name they did give. Do not invent a fund they did not name.
 - `entities.drivers`: objects {{"id", "direction"}}. id is one of: {', '.join(DRIVER_IDS)}. direction is up, down, tighten, ease, weaken, or strengthen. Do not use macro_drivers.
@@ -489,9 +552,11 @@ Copy count into arguments.top_n and the slice into get_portfolio_data arguments.
 ### TIME
 "right now", "currently", "at the moment", and "market now" mean the last 7 days. Set time.window_days to 7 and set window_days to 7 on get_market_snapshot, search_financial_news, and get_fund_data. That percent is 1W. If the user also names a period, such as last month or this year, use that period instead of 7.
 
-- Glossary only, such as the full form of NAV: tool_calls [], direct_reply one sentence, max_words at most 40, DATA_ONLY.
-- A calculation or plan no tool can compute, such as a stepped-up SIP toward a corpus: tool_calls [], portfolio_slice none, omit direct_reply, max_words at least 400. The composer does the arithmetic and states any missing input as an assumption. Do not answer with a sentence that only says a calculation is required.
-- Concept plus one example, such as what a fund of funds is and name one: screen_funds_by_exposure top_n 1, DATA_ONLY, response_shape sections, presentation_notes telling the composer to explain the concept and then cite the screened scheme.
+- Glossary only, such as the full form of NAV: tool_calls [], direct_reply one sentence, max_words at most 40, DATA_ONLY, task data.
+- What a category or fund type is, or which categories exist: task explain, tool_calls [], omit direct_reply, max_words at least 180. The composer writes the explanation. Do not call screen_funds_by_exposure. "5 multi cap funds" and "best multi cap fund" are task data and do use the screen.
+- A question with more than one part: list each part in presentation.sub_queries. Keep task explain when the parts are an explanation. If one part asks for the name of a fund, also add one screen_funds_by_exposure call with top_n 1. The composer answers every part and cites that one scheme.
+- A calculation or plan no tool can compute, such as a stepped-up SIP toward a corpus: tool_calls [], portfolio_slice none, omit direct_reply, task data, max_words at least 400. The composer does the arithmetic and states any missing input as an assumption. Do not answer with a sentence that only says a calculation is required.
+- Concept plus one example, such as what a fund of funds is and name one: task data, screen_funds_by_exposure top_n 1, DATA_ONLY, response_shape sections, presentation_notes telling the composer to explain the concept and then cite the screened scheme.
 
 ### WAVES
 1. DATA_ONLY is a metric lookup: a NAV, a top-N holdings or sectors list, a comparison table, a definition. Do not call search_financial_news. trigger is none.
@@ -533,7 +598,10 @@ Crude oil up, no fund named:
 {{"request": {{"count": 5, "portfolio_slice": "none", "reading": "Sectors and funds if crude oil rises"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Which sectors and funds benefit if crude rises", "intent": "explain_cause", "answer_mode": "NEWS_ONLY", "query_class": "standard"}}, "entities": {{"drivers": [{{"id": "crude_oil", "direction": "up"}}]}}, "tool_calls": [{{"tool": "get_market_snapshot", "arguments": {{"modules": ["macro_series", "sector_ranking"], "series": ["crude"]}}, "wave": 1}}, {{"tool": "screen_funds_by_exposure", "arguments": {{"driver": "crude_oil", "direction": "positive", "top_n": 5}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "macro", "top_n": 8, "window_days": 7}}, "wave": 2}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 250}}}}
 
 Glossary:
-{{"scope": {{"kind": "in_scope", "direct_reply": "SIP stands for Systematic Investment Plan: a fixed amount invested in a mutual fund at regular intervals."}}, "understanding": {{"goal": "Define SIP", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Definition of SIP"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 40}}}}
+{{"scope": {{"kind": "in_scope", "direct_reply": "SIP stands for Systematic Investment Plan: a fixed amount invested in a mutual fund at regular intervals."}}, "understanding": {{"goal": "Define SIP", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "task": "data"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Definition of SIP"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 40}}}}
+
+What a category is, or which categories exist:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Explain what a multi cap fund is", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "task": "explain"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "What a multi cap fund is"}}, "entities": {{}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 180}}}}
 
 Stepped-up SIP illustration:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Illustrate a stepped-up SIP that reaches 2 crore in 20 years", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "SIP plan for a 2 crore goal in 20 years with a 10 percent annual step-up"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 420}}}}

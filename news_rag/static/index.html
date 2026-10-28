@@ -1215,6 +1215,14 @@
       const showManager = rows.every((r) => rowHasValue(r, "manager_name"));
       const showExperience = rows.every((r) => rowHasValue(r, "manager_experience"));
       const showBenchmark = rows.every((r) => rowHasValue(r, "benchmark"));
+      const showRsLabel = rows.every((r) => rowHasValue(r, "rs_label"));
+      const showRsScore = rows.every((r) => rowHasValue(r, "final_score"));
+      const showCat1 = rows.every((r) => rowHasValue(r, "category_avg_1y_pct"));
+      const showVs1 = rows.every((r) => rowHasValue(r, "vs_category_1y_pct"));
+      const showCat3 = rows.every((r) => rowHasValue(r, "category_avg_3y_pct"));
+      const showVs3 = rows.every((r) => rowHasValue(r, "vs_category_3y_pct"));
+      const showCat5 = rows.every((r) => rowHasValue(r, "category_avg_5y_pct"));
+      const showVs5 = rows.every((r) => rowHasValue(r, "vs_category_5y_pct"));
       const showRisk = rows.every((r) => rowHasValue(r, "risk_label"));
       const showInception = rows.every((r) => rowHasValue(r, "inception_date"));
       const thead = document.createElement("thead");
@@ -1223,6 +1231,12 @@
         ? ["Fund", "Category", "Sector", "Weight %"]
         : ["Fund", "Category"];
       headers.push(...retCols.map(([l]) => l));
+      if (showCat1) headers.push("Category avg 1Y");
+      if (showVs1) headers.push("1Y vs category");
+      if (showCat3) headers.push("Category avg 3Y");
+      if (showVs3) headers.push("3Y vs category");
+      if (showCat5) headers.push("Category avg 5Y");
+      if (showVs5) headers.push("5Y vs category");
       if (showAum) headers.push("AUM (Rs crore)");
       if (showExpense) headers.push("Expense ratio");
       if (showExit) headers.push("Exit load");
@@ -1230,6 +1244,8 @@
       if (showManager) headers.push("Fund manager");
       if (showExperience) headers.push("Manager experience");
       if (showBenchmark) headers.push("Benchmark");
+      if (showRsLabel) headers.push("RS label");
+      if (showRsScore) headers.push("RS score");
       if (showRisk) headers.push("Risk");
       if (showInception) headers.push("Inception");
       for (const h of headers) {
@@ -1262,6 +1278,12 @@
               { text: row.category || row.scheme_type || "—", cls: "" },
             ];
         cells.push(...retCells);
+        if (showCat1) cells.push({ text: fmtPct(row.category_avg_1y_pct), cls: "num" });
+        if (showVs1) cells.push({ text: fmtPct(row.vs_category_1y_pct), cls: "num" });
+        if (showCat3) cells.push({ text: fmtPct(row.category_avg_3y_pct), cls: "num" });
+        if (showVs3) cells.push({ text: fmtPct(row.vs_category_3y_pct), cls: "num" });
+        if (showCat5) cells.push({ text: fmtPct(row.category_avg_5y_pct), cls: "num" });
+        if (showVs5) cells.push({ text: fmtPct(row.vs_category_5y_pct), cls: "num" });
         if (showAum) cells.push({ text: row.aum != null ? Number(row.aum).toLocaleString("en-IN", { maximumFractionDigits: 2 }) : "—", cls: "num" });
         if (showExpense) cells.push({ text: row.expense_ratio != null ? Number(row.expense_ratio).toFixed(2) + "%" : "—", cls: "num" });
         if (showExit) cells.push({ text: row.exit_load_summary || "—", cls: "" });
@@ -1269,6 +1291,8 @@
         if (showManager) cells.push({ text: row.manager_name || "—", cls: "" });
         if (showExperience) cells.push({ text: row.manager_experience || "—", cls: "" });
         if (showBenchmark) cells.push({ text: row.benchmark || "—", cls: "" });
+        if (showRsLabel) cells.push({ text: row.rs_label || "—", cls: "" });
+        if (showRsScore) cells.push({ text: row.final_score != null && row.final_score !== "" ? String(row.final_score) : "—", cls: "num" });
         if (showRisk) cells.push({ text: row.risk_label || "—", cls: "" });
         if (showInception) cells.push({ text: row.inception_date || "—", cls: "" });
         for (const cell of cells) {

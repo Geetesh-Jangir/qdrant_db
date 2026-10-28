@@ -71,6 +71,10 @@ def _normalize_term(raw: str) -> str | None:
     t = re.sub(r"\s+", " ", t)
     if not t:
         return None
+    for prefix in ("the ", "a ", "an "):
+        if t.startswith(prefix) and t[len(prefix):] in _TERM_ALIASES:
+            t = t[len(prefix):]
+            break
     if t in _TERM_ALIASES:
         return _TERM_ALIASES[t]
     if t in _REPLIES:
