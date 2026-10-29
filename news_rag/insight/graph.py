@@ -46,9 +46,10 @@ from news_rag.insight.fund_display import (
     news_insight_articles,
     normalize_user_facing_text,
     stitch_display_tables_into_answer,
+    strip_context_disclaimer,
     strip_news_roundup,
 )
-from news_rag.insight.grounding import cores_in_text, strip_media_attribution, strip_ungrounded_numbers
+from news_rag.insight.grounding import cores_in_text, derived_cores, strip_media_attribution, strip_ungrounded_numbers
 from news_rag.insight.plan import make_plan
 from news_rag.insight.slot_router import slot_route
 from news_rag.llm_client import (
@@ -62,7 +63,6 @@ from news_rag.query_log import QueryLogger
 
 logger = logging.getLogger(__name__)
 
-DISCLAIMER = "*For context only — not investment advice.*"
 DEFAULT_OUT_OF_SCOPE = (
     "I can help with Indian mutual funds, stocks, sectors and the market. "
     "Ask me about a fund's NAV or returns, what a fund holds, how a sector is doing, "
@@ -85,6 +85,10 @@ class GraphState:
     query_log: QueryLogger | None = None
     prior_context: dict[str, Any] | None = None
     telemetry: RequestTelemetry | None = None
+    conversation_id: str = ""
+    memory: dict[str, Any] | None = None
+    memory_passed_view: dict[str, Any] | None = None
+    memory_sent_composer: bool = False
 
     start_time: float = field(default_factory=time.time)
     deadline_ms: float = 20000.0
@@ -125,19 +129,60 @@ class Node:
 # Node Implementations
 # ---------------------------------------------------------------------------
 
+def _conversation_id(state: GraphState) -> str:
+    raw = state.prior_context if isinstance(state.prior_context, dict) else {}
+    return str(raw.get("conversation_id") or "").strip()
+
+
+def _attach_conversation(state: GraphState, ctx: dict[str, Any]) -> dict[str, Any]:
+    if not state.conversation_id:
+        return ctx
+    turn = 0
+    if isinstance(state.memory, dict):
+        turn = int(state.memory.get("turn_count") or 0)
+    ctx["conversation_id"] = state.conversation_id
+    ctx["conversation_turn"] = turn + 1
+    return ctx
+
+
+def _load_planner_memory(state: GraphState) -> dict[str, Any] | None:
+    from news_rag.insight.memory.prompt import prompt_view
+    from news_rag.insight.memory.store import get_memory
+
+    state.conversation_id = _conversation_id(state)
+    state.memory = get_memory(state.conversation_id) if state.conversation_id else None
+    view = prompt_view(state.memory)
+    state.memory_passed_view = view
+    if state.query_log is not None:
+        state.query_log.write("MEMORY_PASSED " + json.dumps(view, ensure_ascii=False))
+    if not view:
+        return None
+    return {"conversation_id": state.conversation_id, "memory": view}
+
+
 def node_route(state: GraphState) -> str | None:
     """The planner LLM is the router. The slot router is only the fallback if it fails."""
-    settings = get_settings()
-    threshold = float(getattr(settings, "slot_router_confidence", 0.8))
-    slot_plan = slot_route(state.question, confidence_threshold=threshold)
+    from news_rag.fund_risk import blocked_reply
 
+    blocked = blocked_reply(state.question or "")
+    if blocked:
+        state.answer = _clean_answer(blocked)
+        state.reply_kind = "direct"
+        state.route_reason = "blocked question"
+        if state.query_log is not None:
+            state.query_log.write("ROUTE blocked private_or_methodology")
+        return "reply"
+
+    settings = get_settings()
     plan = make_plan(
         state.question,
-        prior_context=state.prior_context,
+        prior_context=_load_planner_memory(state),
         query_log=state.query_log,
         telemetry=state.telemetry,
     )
     if plan is None:
+        threshold = float(getattr(settings, "slot_router_confidence", 0.8))
+        slot_plan = slot_route(state.question, confidence_threshold=threshold)
         if slot_plan is not None:
             state.plan = slot_plan
             state.route_reason = "planner unavailable; using slot_router fallback"
@@ -159,6 +204,9 @@ def node_route(state: GraphState) -> str | None:
     plan = state.plan
     if plan is None:
         raise GraphUnavailable("No execution plan after routing")
+    from news_rag.insight.memory.update import apply_planner_refs
+
+    apply_planner_refs(state.memory, plan)
     from news_rag.fund_drawdown import ensure_drawdown_tools
     from news_rag.fund_rating_screen import ensure_rating_screen
     from news_rag.fund_risk import ensure_risk_tools
@@ -325,11 +373,11 @@ def _maybe_enrich_picked_fund_from_screen(state: GraphState) -> None:
     from news_rag.insight.capabilities.executor import execute_capability
     from news_rag.insight.contracts import ToolCall
 
-    ctx = {
+    ctx = _attach_conversation(state, {
         "question": q,
         "window_days": plan.window_days if plan else 30,
         "fund_names": [fund],
-    }
+    })
     for tc in (
         ToolCall(
             tool="get_fund_data",
@@ -368,7 +416,7 @@ def node_wave1(state: GraphState) -> str | None:
         c.tool in ("compare_funds", "get_fund_data", "get_portfolio_data") for c in after_screen
     )
 
-    context = {
+    context = _attach_conversation(state, {
         "question": state.question,
         "fund_names": state.resolved_funds,
         "sector_name": state.sector_keys[0] if state.sector_keys else (plan.sectors[0] if plan.sectors else ""),
@@ -379,7 +427,7 @@ def node_wave1(state: GraphState) -> str | None:
         "window_days": plan.window_days,
         "direction": "any",
         "top_n": 5,
-    }
+    })
 
     deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 5000.0, 25000.0))
     t0 = time.time()
@@ -449,38 +497,36 @@ def node_wave1(state: GraphState) -> str | None:
 
 
 def _ensure_portfolio_for_fund_news(state: GraphState) -> None:
+    """A fund answer that uses news needs holdings and sectors, even when the question never says news."""
     from news_rag.tools import asks_fund_related_news
 
-    if not asks_fund_related_news(state.question or ""):
+    plan = state.plan
+    news_planned = bool(plan and any(call.tool == "search_financial_news" for call in plan.tool_calls))
+    if not news_planned and not asks_fund_related_news(state.question or ""):
         return
     if not state.resolved_funds:
         return
-    from news_rag.insight.capabilities.executor import execute_capability
+    from news_rag.insight.capabilities.executor import _return_slice_covers, execute_capability
     from news_rag.insight.contracts import ToolCall
 
     fund = state.resolved_funds[0]
-    plan = state.plan
-    ctx = {
+    ctx = _attach_conversation(state, {
         "question": state.question,
         "window_days": plan.window_days if plan else 30,
         "fund_names": [fund],
-    }
+    })
     has_portfolio = any(
-        r.get("tool") == "get_portfolio_data" and r.get("ok") for r in state.wave1_results
+        r.get("tool") == "get_portfolio_data" and r.get("ok")
+        and _return_slice_covers("get_portfolio_data", {"sections": ["holdings", "sectors"]}, r.get("data") or {})
+        for r in state.wave1_results
     )
-    has_metrics = any(
-        r.get("tool") == "get_fund_data" and r.get("ok") for r in state.wave1_results
-    )
+    has_metrics = any(r.get("tool") == "get_fund_data" and r.get("ok") for r in state.wave1_results)
     extra: list[ToolCall] = []
     if not has_metrics:
         extra.append(
             ToolCall(
                 tool="get_fund_data",
-                arguments={
-                    "modules": ["snapshot", "return_series", "attribution"],
-                    "top_n": 3,
-                    "window_days": min(plan.window_days if plan else 30, 30),
-                },
+                arguments={"modules": ["snapshot"], "top_n": 3, "windows": ["1M"]},
                 wave=1,
             )
         )
@@ -494,12 +540,7 @@ def _ensure_portfolio_for_fund_news(state: GraphState) -> None:
         )
     for tc in extra:
         state.wave1_results.extend(
-            execute_capability(
-                tc,
-                fund_names=[fund],
-                ctx=ctx,
-                telemetry=state.telemetry,
-            )
+            execute_capability(tc, fund_names=[fund], ctx=ctx, telemetry=state.telemetry)
         )
 
 
@@ -535,7 +576,7 @@ def node_wave2(state: GraphState) -> str | None:
         state.route_reason = "no Wave 2 calls"
         return "evidence_gate"
 
-    context = {
+    context = _attach_conversation(state, {
         "question": state.question,
         "fund_names": state.resolved_funds,
         "sector_name": state.sector_keys[0] if state.sector_keys else "",
@@ -545,7 +586,7 @@ def node_wave2(state: GraphState) -> str | None:
         "top_n": 3,
         "wave1_results": state.wave1_results,
         "query_log": state.query_log,
-    }
+    })
 
     deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 4000.0, 25000.0))
     t0 = time.time()
@@ -605,16 +646,21 @@ You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words),
 
 CORE RULES:
 0. **Concept + data:** When WHAT THE USER WANTS includes `concept_brief`, explain that concept first (1–3 sentences), then use EVIDENCE for the example fund/scheme. Do not skip the concept or invent fund names.
-1. **Match the question.** A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay. One named figure — NAV, AUM, one return window, or the benchmark — is one sentence: the fund name and that figure only. Do not add another return window, the expense ratio, the exit load, holdings, or a comment.
+1. **Match the question.** Read the whole question. You write the answer. A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay. Do not dump the whole snapshot. One named figure and nothing else asked is one sentence: the fund name and that figure only. If the question has more than one part, answer every part: the figure from EVIDENCE, then the meaning, then whether a low or high value is generally better, if they asked. A misspelled or awkward wording still means the intended ask.
 2. **Returns in prose:** Compare a fund with its benchmark only when a benchmark return is present, and with the category average only when that average is present. If neither is present, do not write a comparison and do not say that the comparison is missing or cannot be stated. If only one side is present, compare only that side. Cite the exact gap in percentage points. Do not say "about" when the gap is computable. Do not fill a missing side with a hyphen or a guess. Do not write a returns bullet list. When several funds are compared, put the returns in the table you build. Do not say how much of the move is unexplained, or that named holdings fail to explain the fund's return. When the user asked for several of expense ratio, exit load, and AUM, state each one they asked for. Do not add the ones they did not ask for. Do not mention a direct-plan expense ratio unless that is the field in the snapshot. Do not say these figures are unavailable when they are present. When NEWS is present and the user did not ask for a returns list, do not walk 1-month, 3-month, 1-year, 3-year, and 5-year one after another. Use a return only inside a point that also uses the news.
 3. **Tables.** When the evidence has several funds or several figures, you build one markdown table. You choose the columns from the question. A named return period is the only return column. If no period was named, include the return periods present in the evidence. One title line, then the table. Do not repeat those numbers in a paragraph. A single figure, such as one NAV, stays one sentence and is not a table.
 4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
-5. **What stands out.** When NEWS is in EVIDENCE, that is the answer. Read the articles together with the holdings, sector weights, and measured returns. Open with `### What stands out` and one finding that is off or unusually important. The finding names a holding or sector, one measured figure (its weight or a return), and what the news says about it. Then two to four shorter points that do the same with other articles. Skip an article that does not touch a holding, a sector, or the fund's move. Do not paste a headline or a publisher. Do not invent a cause the news does not state. Do not add `### Recent news`. Do not add a returns table, a top-holdings table, or a top-sectors table unless the question asked for that list. If NEWS is absent, do not write this section.
-6. **Numbers:** If EVIDENCE has measured figures, those figures must match EVIDENCE. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and calculations are yours to write, with the actual amounts. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
+5. **What stands out.** When NEWS or insight_links are in EVIDENCE, that is the answer. Open with `### What stands out` and one sentence on the largest exposure that the news actually touches. Then one block per insight_links row, in that order. A holding block is a bold line `**Name · 6.46% · Telecom - Services**` copied from that row's name, weight_pct, and sector. A sector block is `**Name · 8.45% of the fund**`. A macro block is `**Macro · name**` with no invented weight. After the bold line, write the facts in that row's points: the event and the figure the article reported. Use every point for that row. The last sentence is one of those facts. Do not add a closer about how the fund may behave, whether a forecast is confirmed, or that the news matters more to the stock than to the fund. Cover holdings, sectors, and macro when those rows exist. Do not leave a weight blank. Do not write that a name is outside the top five, that a weight is missing, or that the effect cannot be measured. Do not paste a headline or a publisher. Do not add `### Recent news`, `### Fund basics`, or `### Recent performance context`. Do not add a holdings or sectors table unless the question asked for that list. If NEWS is absent, do not write this section.
+6. **Numbers and knowledge:** If EVIDENCE has measured figures, those figures must match EVIDENCE. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and a standard educational read are yours to write. You may say what a term means and whether a lower or higher figure is generally better for the investor (for example a lower expense ratio usually leaves more of the return with the investor). That is not a buy or sell. Stay with mutual funds, stocks, and markets. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
 7. **Horizon on every measured percent.** Each price or return row has `horizon` (1D, 1W, 1M, 3M, 6M, 1Y, or a day count such as 14D). WHAT THE USER WANTS also has `measured_window`. Write that code on the figure: Nifty **+0.7% (1W)**. If one figure is 1W and another is 1M, label both. Do not call a 1W or 1M change "the latest session", "today", or "right now".
 8. **No invented levels.** A macro row is a percent change, not a Brent price, a rupee level, or an Indian bond yield. Do not print a level the row does not contain, and do not leave a blank where a number should be. A level or a percent that appears only in a news summary is what that article reported, not the measured move.
 9. Never mention: DATA, NEWS, EVIDENCE, DISPLAY, tool, pipeline, JSON, yfinance, proxy.
 10. The markdown table in the answer is the table the user reads. Do not add a second copy of the same numbers.
+11. **Shape.** A RupeeStop rating lead is placed above your answer. Do not repeat that score or those pillar marks. Bold only the label, a pillar mark, and the figure the user asked for. One block per part of the question, in that order. A table only when there are several funds or several figures.
+12. **End summary.** Write `### Summary` only when WHAT THE USER WANTS has `end_summary` true. Two or three sentences: the overall read, not a repeat of every number. When `end_summary` is false, do not add a summary.
+13. Answer only what the question asked. If the user asked for a figure and it is not in EVIDENCE, write one sentence: "We can't get that data right now." If they did not ask for it, leave it out. Do not say that a figure is missing, not included, or cannot be shown. A rating list names the fund, the label, and the score. When pillar scores are present, write them in one line. Do not mention a return unless the question asked for one. When one fund is the period performer and another is the rated fund, name both. Say the performer's return over that period is the better return. Say the rated fund is the better rating only when its score is higher. Do not say the rated fund won that period when its return is lower. Do not open with "I can't recommend." Do not tell the reader to buy.
+14. **Managers.** Write only the managers present in EVIDENCE. Current managers are the default. Do not mention former managers unless they are in EVIDENCE.
+15. **Risk.** The SEBI riskometer is how risky the fund is. A pillar mark, including the risk pillar, is a score from internal calculations. A lower risk-pillar mark does not mean the fund is less risky, and a higher mark does not mean it is more risky. Do not turn a pillar mark into a percentage of its maximum. When you add mid-cap and small-cap weights, write that sum. Do not write "approx" without the number. When drawdown episodes are present, write them once under the heading `### Maximum drawdown across periods`, one line per period. Do not list those same falls again in the opening or in a second Drawdown section. Do not say drawdown is missing, not recorded, or not available. Do not mention a return period or write "see the table below" unless that return is in EVIDENCE and the answer contains the table.
 """
 
 COMPOSE_SYSTEM_PRECISE = """ROLE: COMPOSER — one specific figure
@@ -653,9 +699,7 @@ RULES:
 
 def _clean_answer(text: str) -> str:
     text = normalize_user_facing_text(re.sub(r"```(?:json|markdown)?", "", text or "").strip())
-    if DISCLAIMER.lower().strip("*") not in text.lower():
-        text = text.rstrip() + "\n\n" + DISCLAIMER
-    return text
+    return strip_context_disclaimer(text)
 
 
 def _compose_table(state: GraphState, rows: str) -> str:
@@ -665,16 +709,25 @@ def _compose_table(state: GraphState, rows: str) -> str:
         return ""
     res = call_insight_llm(
         system_prompt=(
-            "You write the answer table. Choose the columns from the question. "
-            "A named return period is the only return column. "
-            "If no period was named, include the return periods that are in the rows. "
-            "Output one markdown table and a one-line title. No essay. "
-            "Use only values in the rows. Do not invent a number."
+            "You write the answer from the rows. Use the figures that are in the rows. "
+            "When a row has 1-year, 3-year, and 5-year returns, those are the return periods to show. "
+            "Do not add 1 week, 1 month, 3 months, 6 months, 9 months, 2 years, 4 years, year to date, or since inception unless that period is in the rows. "
+            "When a benchmark return is in the rows, compare the fund with that benchmark. "
+            "When a category average is in the rows, compare the fund with that average too. "
+            "When a SEBI riskometer, a RupeeStop label, a score, or pillar marks are in the rows, include them. "
+            "A pillar mark is a score. It does not say the fund is more risky or less risky. The riskometer is the risk level. "
+            "When the rows are a suggestion, name the RupeeStop label and the score. Do not open with \"I can't recommend.\" Do not tell the reader to buy. "
+            "When one row is the period performer and another is the rated fund, call the rated fund the stronger rating only when its score is higher. "
+            "State the performer's return for the named period. Mention a pillar only when that pillar mark is higher on the rated fund. "
+            "Do not say the rated fund won that period when its return is lower. "
+            "Do not write that a figure is absent, not included, or cannot be shown. "
+            "If the user asked for one specific figure and it is not in the rows, write one sentence: \"We can't get that data right now.\" "
+            "End with ### Summary and two or three complete sentences."
         ),
         user_content=f"QUESTION:\n{state.question.strip()}\n\nROWS:\n{rows}",
         query_log=state.query_log,
         model_override=composer_model(settings),
-        max_tokens=900,
+        max_tokens=1600,
         temperature=0.2,
         stage="composer",
         cached_system_prefix=shared_system_prefix(),
@@ -704,6 +757,30 @@ def _compose_extra_parts(state: GraphState, notes: str) -> str:
         cached_system_prefix=shared_system_prefix(),
     )
     return (res.raw_text or "").strip() if res else ""
+
+
+def _wants_end_summary(plan: ExecutionPlan, question: str) -> bool:
+    """An analysis gets a short close. A single fact does not."""
+    from news_rag.insight.multi_fact import asks_one_figure
+
+    if asks_one_figure(question) and len(plan.sub_queries or []) < 2:
+        return False
+    if len(plan.sub_queries or []) > 1:
+        return plan.intent in ("overview", "explain_cause", "compare")
+    if plan.intent in ("overview", "explain_cause", "compare"):
+        return True
+    return bool(re.search(r"\bwhy\b|\brisk analysis\b|\bhow risky\b", question or "", re.I))
+
+
+def _rating_lead_for_pack(pack: EvidencePack | None, question: str) -> str:
+    from news_rag.fund_risk import rating_lead
+
+    if pack is None:
+        return ""
+    for value in (pack.data_pack or {}).values():
+        if isinstance(value, dict) and isinstance(value.get("rs_rating"), dict):
+            return rating_lead(value["rs_rating"], question)
+    return ""
 
 
 def node_compose(state: GraphState) -> str | None:
@@ -740,29 +817,13 @@ def node_compose(state: GraphState) -> str | None:
                 state.route_reason = "composer table"
                 return None
 
-    if template_answer and not plan.requires_compose:
-        state.answer = _clean_answer(template_answer)
-        state.route_reason = "DATA_ONLY direct template (<10ms)"
-        return None
-
-    if template_answer and plan.requires_compose and pack is not None:
-        from news_rag.insight.evidence_pack import extra_part_brief
-
-        notes = extra_part_brief(pack.data_pack)
-        extra = _compose_extra_parts(state, notes)
-        if extra:
-            state.answer = _clean_answer(f"{template_answer}\n\n{extra}")
-            state.route_reason = "template plus composer for the remaining parts"
-            return None
-        if notes:
-            state.answer = _clean_answer(template_answer)
-            state.route_reason = "template kept; composer added nothing"
-            return None
-
-    # LLM Composition
+    # DATA_ONLY is a fetch choice, not a finished dump. The composer writes the answer.
     settings = get_settings()
     if not llm_api_key_configured(settings):
-        # Fallback to deterministic partial if no key configured
+        if template_answer:
+            state.answer = _clean_answer(template_answer)
+            state.route_reason = "DATA_ONLY template (no composer key)"
+            return None
         if pack:
             state.answer = _clean_answer("Here is the requested information:\n\n" + json.dumps(pack.data_pack, indent=2))
             return None
@@ -793,10 +854,25 @@ def node_compose(state: GraphState) -> str | None:
         "asks_for_advice": plan.asks_for_advice,
         **(policy_meta or {}),
     }
-    from news_rag.insight.planner_policy import horizon_code
+    return_windows: list[str] = []
+    for call in plan.tool_calls:
+        modules = list((call.arguments or {}).get("modules") or [])
+        if call.tool == "get_fund_data" and any(name in modules for name in ("snapshot", "vs_benchmark", "return_series")):
+            return_windows.extend(str(item) for item in ((call.arguments or {}).get("windows") or []))
+    if return_windows:
+        wants["measured_window"] = ", ".join(dict.fromkeys(return_windows))
+        wants["measured_window_days"] = plan.window_days
+    wants["end_summary"] = _wants_end_summary(plan, state.question or "")
+    if state.memory:
+        from news_rag.insight.memory.prompt import prompt_view
 
-    wants["measured_window"] = horizon_code(plan.window_days)
-    wants["measured_window_days"] = plan.window_days
+        view = prompt_view(state.memory)
+        if view:
+            wants["conversation"] = view
+            state.memory_sent_composer = True
+    if plan.answer_depth == "more":
+        wants["explain_more"] = True
+        wants["max_words"] = max(int(wants.get("max_words") or 0), 220)
     if (plan.presentation_notes or "").strip():
         wants["presentation_notes"] = plan.presentation_notes.strip()
     if plan.sub_queries:
@@ -816,11 +892,9 @@ def node_compose(state: GraphState) -> str | None:
     )
 
     from news_rag.insight.glossary import asks_precise_definition
-    from news_rag.insight.multi_fact import asks_one_figure
 
-    one_figure = asks_one_figure(state.question or "") and not (plan.concept_brief or "").strip()
-    precise = asks_precise_definition(state.question or "") and not (
-        evidence_dict.get("rows") or evidence_dict.get("data_pack")
+    glossary_only = asks_precise_definition(state.question or "") and not (
+        evidence_dict.get("rows") or evidence_dict.get("data_pack") or evidence_dict.get("DATA")
     )
     if news_articles:
         wants["max_words"] = max(int(wants.get("max_words") or 0), 180)
@@ -831,7 +905,7 @@ def node_compose(state: GraphState) -> str | None:
         )
         compose_system = COMPOSE_SYSTEM_NEWS
         max_tokens = 700
-    elif one_figure or precise:
+    elif glossary_only:
         wants["max_words"] = 40
         wants["style"] = "short_answer"
         user_content = (
@@ -852,6 +926,7 @@ def node_compose(state: GraphState) -> str | None:
         max_tokens = 900
     else:
         compose_system = COMPOSE_SYSTEM
+        wants["max_words"] = max(int(wants.get("max_words") or 0), 180)
         word_budget = int(wants.get("max_words") or plan.max_words or 220)
         max_tokens = max(500, min(2500, word_budget * 4))
         if pack and pack.news_grouped:
@@ -864,11 +939,13 @@ def node_compose(state: GraphState) -> str | None:
             evidence_text = json.dumps(ordered, ensure_ascii=False)
             user_content = (
                 f"QUESTION:\n{state.question.strip()}\n\n"
-                "TASK: NEWS is in EVIDENCE. Open with ### What stands out and one finding "
-                "that is off or unusually important. The finding must use a fact from NEWS and "
-                "one measured figure together: a holding weight, a sector weight, or a return. "
-                "Then two to four shorter points that do the same. Do not open with a returns recap. "
-                "Do not list every return period. Do not paste headlines.\n\n"
+                "TASK: NEWS is in EVIDENCE. Open with ### What stands out. "
+                "Write one block per insight_links row. State the weight and the facts in that row's points, "
+                "including the article text. Use those articles. "
+                "The last sentence of each block is a fact from those points. "
+                "Do not add a closer about how the fund may behave, whether a forecast is confirmed, "
+                "or that the news matters more to the stock than to the fund. "
+                "Do not open with a returns recap. Do not paste headlines.\n\n"
                 f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
                 f"EVIDENCE:\n{evidence_text}"
             )
@@ -901,7 +978,10 @@ def node_compose(state: GraphState) -> str | None:
     raw_text = (res.raw_text or "").strip() if res else ""
     if not raw_text:
         state.pipeline_errors.append({"stage": "compose", "tool": "", "message": "empty response"})
-        # Fallback: render whatever structured data we have
+        if template_answer:
+            state.answer = _clean_answer(template_answer)
+            state.route_reason = "composer empty; template fallback"
+            return None
         if pack and pack.data_pack:
             state.answer = _clean_answer(json.dumps(pack.data_pack))
             return None
@@ -916,6 +996,7 @@ def node_compose(state: GraphState) -> str | None:
     )
     if news_articles or measured:
         allowed_numbers = cores_in_text(evidence_text) | cores_in_text(state.question or "")
+        allowed_numbers |= derived_cores(allowed_numbers)
         grounded_text = strip_ungrounded_numbers(raw_text, allowed_numbers)
     else:
         grounded_text = raw_text
@@ -924,7 +1005,14 @@ def node_compose(state: GraphState) -> str | None:
         from news_rag.insight.fund_display import clean_news_insight
 
         polished_text = clean_news_insight(polished_text)
-    display_tables = {} if fact_brief else (pack.display_tables if pack else {})
+    from news_rag.insight.fund_display import strip_missing_data_caveats, strip_private_leaks
+    from news_rag.insight.multi_fact import asks_one_figure
+
+    polished_text = strip_private_leaks(strip_missing_data_caveats(polished_text))
+    lead = _rating_lead_for_pack(pack, state.question or "")
+    if lead and "RupeeStop rating" not in polished_text and "out of" not in polished_text[:180]:
+        polished_text = f"{lead}\n\n{polished_text}".strip()
+    display_tables = {} if fact_brief or asks_one_figure(state.question or "") else (pack.display_tables if pack else {})
     if display_tables and any(k for k in display_tables if k != "_title"):
         polished_text = stitch_display_tables_into_answer(
             polished_text,
@@ -1039,6 +1127,58 @@ def run_graph(state: GraphState) -> GraphState:
     return state
 
 
+def _store_turn_memory(state: GraphState, sources: list[dict[str, Any]] | None) -> dict[str, int]:
+    """Write the frame after the turn. A failed lookup is recorded as no subject."""
+    from news_rag.insight.memory.evidence import drain_cache_events
+    from news_rag.insight.memory.prompt import memory_json_tokens, prompt_view
+    from news_rag.insight.memory.store import save_sources, save_turn_record
+    from news_rag.insight.memory.update import commit_turn
+
+    empty_tokens = {"planner": 0, "composer": 0}
+    if not state.conversation_id or state.plan is None:
+        return empty_tokens
+    if state.query_log is not None:
+        for event in drain_cache_events(state.conversation_id):
+            beside = f" beside={event['beside']}" if event.get("beside") else ""
+            state.query_log.write(f"CACHE status={event['status']} key={event['key']}{beside}")
+    query_id = state.query_log.query_id if state.query_log is not None else ""
+    if sources and query_id:
+        save_sources(query_id, sources, conversation_id=state.conversation_id)
+    saved = commit_turn(
+        state.conversation_id,
+        state.plan,
+        state.wave1_results + state.wave2_results,
+    )
+    stored_view = prompt_view(saved)
+    passed_view = state.memory_passed_view if isinstance(state.memory_passed_view, dict) else {}
+    planner_tokens = memory_json_tokens(passed_view)
+    composer_tokens = planner_tokens if state.memory_sent_composer else 0
+    sent_to = []
+    if planner_tokens:
+        sent_to.append("planner")
+    if composer_tokens:
+        sent_to.append("composer")
+    if query_id:
+        save_turn_record(query_id, {
+            "query_id": query_id,
+            "passed": {
+                "sent_to": sent_to,
+                "token_estimate": {"planner": planner_tokens, "composer": composer_tokens},
+                "memory": passed_view,
+            },
+            "stored": {
+                "updated_by": "python",
+                "memory": stored_view,
+            },
+        })
+    if state.query_log is not None:
+        state.query_log.write("MEMORY_STORED " + json.dumps(stored_view, ensure_ascii=False))
+        state.query_log.write(
+            f"MEMORY_TOKENS planner={planner_tokens} composer={composer_tokens}"
+        )
+    return {"planner": planner_tokens, "composer": composer_tokens}
+
+
 def build_result(state: GraphState) -> dict[str, Any]:
     plan = state.plan
     pack = state.evidence_pack
@@ -1115,6 +1255,15 @@ def build_result(state: GraphState) -> dict[str, Any]:
         "research": research,
         "answer_trace": {"mode": "two_wave_graph", "route": [t["node"] for t in state.trace]},
     }
+    query_id = state.query_log.query_id if state.query_log is not None else ""
+    used_news = bool(sources)
+    res["memory_tokens"] = _store_turn_memory(state, sources if used_news else None)
+    res["query_id"] = query_id
+    res["used_news"] = used_news
+    res["sources_href"] = f"sources?query_id={query_id}" if used_news and query_id else ""
+    if query_id:
+        res["memory_passed_href"] = f"memory-passed?query_id={query_id}"
+        res["memory_stored_href"] = f"memory-stored?query_id={query_id}"
 
     if state.telemetry:
         state.telemetry.finalize()

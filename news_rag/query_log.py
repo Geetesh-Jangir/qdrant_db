@@ -138,6 +138,28 @@ def new_fund_brief_logger() -> QueryLogger:
     return new_query_logger(kind="fund_brief")
 
 
+def _tool_digest(row: dict[str, Any]) -> str:
+    """One line: what a tool returned, and where it came back empty."""
+    data = row.get("data") if isinstance(row.get("data"), dict) else {}
+    parts = [f"TOOL_DIGEST name={row.get('tool') or ''} ok={bool(row.get('ok'))}"]
+    if row.get("error"):
+        parts.append(f"FAILED error={row.get('error')}")
+    keys = [str(key) for key in data if key != "fund_name"]
+    parts.append("retrieved=" + (",".join(keys) if keys else "nothing"))
+    drawdown = data.get("drawdown") if isinstance(data.get("drawdown"), dict) else None
+    if drawdown is not None:
+        periods = [str(period) for period in (drawdown.get("periods") or [])]
+        episodes = list(drawdown.get("episodes") or [])
+        parts.append("drawdown_periods=" + (",".join(periods) if periods else "none"))
+        parts.append(f"drawdown_episodes={len(episodes)}")
+        if not episodes:
+            parts.append("FAILED drawdown returned no episodes")
+    risk = data.get("risk") if isinstance(data.get("risk"), dict) else None
+    if isinstance(risk, dict) and risk.get("smaller_companies_pct") is not None:
+        parts.append(f"smaller_companies_pct={risk.get('smaller_companies_pct')}")
+    return " ".join(parts)
+
+
 class QueryLogger:
     def __init__(self, query_id: str, log_path: Path, *, kind: str = "ask", question: str = "") -> None:
         self.query_id = query_id
@@ -520,6 +542,7 @@ class QueryLogger:
                     }
                 )
             )
+            self.write("  " + _tool_digest(row))
             payload = _shrink_for_log(row.get("data") if isinstance(row.get("data"), dict) else {})
             text = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
             if len(text) > 12000:

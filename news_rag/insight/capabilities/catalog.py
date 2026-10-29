@@ -19,7 +19,9 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "One named mutual fund scheme: NAV, day change, benchmark, category, 52-week range, "
             "regular expense ratio, exit load, AUM, return windows, maximum drawdown, "
             "the SEBI riskometer and RupeeStop score, optional return series / "
-            "attribution, optional fund managers. Direct expense ratio is included only when the user asks for the direct plan."
+            "attribution, optional fund managers, vs_benchmark, or rating. "
+            "Request only the modules the question needs. "
+            "Direct expense ratio is included only when the user asks for the direct plan."
         ),
         "when_to_use": (
             "User names a specific scheme (e.g. HDFC Large Cap Fund) and asks NAV, returns, "
@@ -29,11 +31,14 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "Do not use for 'which funds hold banking' or 'top 5 funds in IT sector' — use "
             "screen_funds_by_exposure. Do not use for holdings inside a fund — use get_portfolio_data."
         ),
-        "modules": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk"],
+        "modules": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating"],
         "args_schema": {
-            "modules": {"type": "list", "items": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk"]},
+            "modules": {"type": "list", "items": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating"]},
             "include_category": {"type": "bool", "default": False},
-            "windows": {"type": "list", "items": ["1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y"]},
+            "windows": {
+                "type": "list",
+                "items": "A period code: 1D, 1W, 2W, 1M, 2M, 6M, 8M, 1Y, 3Y, or YTD. List every period the user named.",
+            },
             "periods": {"type": "list", "items": ["1y", "3y", "5y", "10y", "inception"]},
             "window_days": {"type": "int", "min": 7, "max": 365, "default": 30},
             "top_n": {"type": "int", "min": 3, "max": 12, "default": 3},
@@ -197,7 +202,6 @@ def capability_catalog_text() -> str:
 # Argument validation
 # ---------------------------------------------------------------------------
 
-_WINDOWS = {"1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y"}
 _MACRO_SERIES = {"crude", "brent", "wti", "usdinr", "gold", "silver", "yield"}
 
 
@@ -216,7 +220,7 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     if tool == "get_fund_data":
-        allowed = ("snapshot", "return_series", "attribution", "managers", "drawdown", "risk")
+        allowed = ("snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating")
         modules = [m for m in (src.get("modules") or ["snapshot"]) if m in allowed]
         if not modules:
             modules = ["snapshot"]
@@ -230,9 +234,15 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
             out["periods"] = periods
         if src.get("include_category"):
             out["include_category"] = True
-        if "managers" not in modules:
-            windows = [w for w in (src.get("windows") or ["1M"]) if str(w).upper() in _WINDOWS]
-            out["windows"] = [w.upper() for w in windows] or ["1M"]
+        if any(name in modules for name in ("snapshot", "vs_benchmark", "return_series")):
+            from news_rag.insight.return_windows import normalize_window_code
+
+            windows = []
+            for raw in src.get("windows") or ["1M"]:
+                code = normalize_window_code(str(raw))
+                if code and code not in windows:
+                    windows.append(code)
+            out["windows"] = windows or ["1M"]
         return out
 
     if tool == "get_portfolio_data":

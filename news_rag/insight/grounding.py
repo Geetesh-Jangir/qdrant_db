@@ -113,12 +113,41 @@ def mentions_publication_date(text: str, published_keys: set[str]) -> bool:
     return False
 
 
+def derived_cores(allowed: set[str]) -> set[str]:
+    """Sums of two measured figures, so a mid-cap plus small-cap total is not deleted."""
+    numbers: list[float] = []
+    for core in allowed:
+        try:
+            value = float(core)
+        except ValueError:
+            continue
+        if 0 < abs(value) <= 100:
+            numbers.append(value)
+    extra: set[str] = set()
+    for index, left in enumerate(numbers[:30]):
+        for right in numbers[index + 1 : 30]:
+            total = round(left + right, 2)
+            extra.add(numeric_core(f"{total:.2f}"))
+            extra.add(numeric_core(f"{total:.1f}"))
+            extra.add(str(int(round(total))))
+    extra.discard("")
+    return extra
+
+
 def cores_in_text(blob: str) -> set[str]:
     cores: set[str] = set()
     for match in _ANY_NUMBER_RE.finditer(blob or ""):
         core = numeric_core(match.group(0))
-        if core:
-            cores.add(core)
+        if not core:
+            continue
+        cores.add(core)
+        try:
+            value = float(core)
+        except ValueError:
+            continue
+        cores.add(numeric_core(f"{value:.2f}"))
+        cores.add(numeric_core(f"{value:.1f}"))
+    cores.discard("")
     return cores
 
 

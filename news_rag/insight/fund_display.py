@@ -19,7 +19,22 @@ _CAVEAT_RE = re.compile(
     r"unexplained|cannot be stated|cannot be assessed|does not show a benchmark|"
     r"does not show a category|missing feed|no fund-vs-benchmark|"
     r"benchmark comparison is incomplete|gap to the index|"
-    r"leaving most of the (?:fall|move|drop)",
+    r"leaving most of the (?:fall|move|drop)|"
+    r"not in the data|cannot be compared|no news|are not in the data|so it cannot|"
+    r"not available in (?:this|the) data|cannot be reported|no drawdown episodes|"
+    r"drawdown history is not|are not recorded|does not include|not available here|"
+    r"holding-level sizing|treated as context|not a measured driver|"
+    r"does not show how much|only context|was not included|"
+    r"not a top-five|not a top five|top-five holding|cannot be measured|"
+    r"does not show a .{0,40}weight|"
+    r"no return figures|cannot be broken down",
+    re.I,
+)
+_LEAK_RE = re.compile(
+    r"\b(?:claude|haiku|gemini|gpt-\d|qdrant|langgraph)\b|"
+    r"backend\.rupeestop\.com|/api/v1/|"
+    r"\b(?:get_fund_data|get_portfolio_data|search_financial_news)\b|"
+    r"\b(?:sharpe|sortino)\b",
     re.I,
 )
 
@@ -33,6 +48,9 @@ _COMPOSER_SECTION_HEADINGS = (
     "Returns vs benchmark and category",
     "Holdings that drove the move",
     "Snapshot",
+    "Fund basics",
+    "The fund",
+    "Recent performance context",
     "Category average",
     "Fund vs benchmark",
     "Top holdings",
@@ -394,6 +412,33 @@ def build_fund_display_tables(
             pass
     if len(snap_lines) > 2:
         tables["snapshot_table"] = "\n".join(snap_lines)
+        returns = snap.get("returns") if isinstance(snap.get("returns"), dict) else {}
+        month = returns.get("1M")
+        if month is None:
+            month = snap.get("window_pct")
+        fact_lines = [_table_row(["Metric", "Value"], snap_ncol), _table_row(["---", "---"], snap_ncol)]
+        if category:
+            fact_lines.append(_table_row(["Category", _cell(category)], snap_ncol))
+        if bench_label:
+            fact_lines.append(_table_row(["Benchmark", _cell(bench_label)], snap_ncol))
+        if nav is not None:
+            fact_lines.append(_table_row([f"NAV ({_cell(nav_date or 'latest')})", _cell(_fmt_inr(nav))], snap_ncol))
+        if month is not None:
+            fact_lines.append(_table_row(["1 month", _cell(_fmt_pct(month, signed=True))], snap_ncol))
+        if expense.get("regular") is not None:
+            ratio = f"{float(expense['regular']):.2f}%"
+            if expense.get("as_on_date"):
+                ratio = f"{ratio} (as on {expense['as_on_date']})"
+            fact_lines.append(_table_row(["Expense ratio", _cell(ratio)], snap_ncol))
+        if snap.get("aum") is not None:
+            aum_text = f"Rs {float(snap['aum']):,.2f} crore"
+            if snap.get("aum_as_on_date"):
+                aum_text = f"{aum_text} (as on {snap['aum_as_on_date']})"
+            fact_lines.append(_table_row(["AUM", _cell(aum_text)], snap_ncol))
+        if exit_load:
+            fact_lines.append(_table_row(["Exit load", _cell(exit_load)], snap_ncol))
+        if len(fact_lines) > 2:
+            tables["fund_facts_table"] = "\n".join(fact_lines)
 
     attr = (block or {}).get("attribution") if block else None
     rows = []
@@ -452,6 +497,7 @@ _DISPLAY_SECTIONS: tuple[tuple[str, str], ...] = (
     ("portfolio_holdings_table", "### Top holdings"),
     ("portfolio_sectors_table", "### Top sectors"),
     ("snapshot_table", "### Snapshot"),
+    ("fund_facts_table", "### The fund"),
     ("category_average_table", "### Category average"),
     ("drawdown_table", "### Drawdown"),
 )
@@ -534,15 +580,66 @@ def strip_composer_display_sections(prose: str) -> str:
 
 def strip_missing_data_caveats(prose: str) -> str:
     """Drop sentences that apologise for missing comparisons or unexplained holdings."""
-    kept = [line for line in (prose or "").splitlines() if not _CAVEAT_RE.search(line)]
+    kept: list[str] = []
+    for line in (prose or "").splitlines():
+        if not line.strip() or line.strip().startswith("#") or _TABLE_LINE_RE.search(line):
+            if line.strip().startswith("#") and _CAVEAT_RE.search(line):
+                continue
+            kept.append(line)
+            continue
+        parts = re.split(r"(?<=[.!?])\s+", line)
+        clean = [part for part in parts if part and not _CAVEAT_RE.search(part)]
+        if clean:
+            kept.append(" ".join(clean))
     return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
+def strip_private_leaks(prose: str) -> str:
+    """Drop a sentence that names the model, an endpoint, a tool, or a rating input."""
+    kept: list[str] = []
+    for line in (prose or "").splitlines():
+        parts = re.split(r"(?<=[.!?])\s+", line)
+        clean = [part for part in parts if part and not _LEAK_RE.search(part)]
+        if clean:
+            kept.append(" ".join(clean))
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
+def strip_empty_table_pointers(prose: str, tables: dict[str, str] | None = None) -> str:
+    """Drop 'see the table below' when no returns table is actually attached."""
+    tables = tables or {}
+    has_returns = any(
+        str(tables.get(key) or "").strip()
+        for key in ("fund_returns_table", "short_horizon_vs_category_table", "vs_benchmark_table")
+    )
+    if has_returns:
+        return prose
+    kept: list[str] = []
+    for line in (prose or "").splitlines():
+        if re.search(r"see the table below", line, re.I):
+            continue
+        kept.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
+def strip_context_disclaimer(prose: str) -> str:
+    """Drop the closing 'for context only' line, with either dash."""
+    text = re.sub(
+        r"(?im)^[ \t]*\*?For context only\s+[-—–]\s+not investment advice\.?\*?[ \t]*\n?",
+        "",
+        prose or "",
+    )
+    return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
 def stitch_display_tables_into_answer(prose: str, tables: dict[str, str], *, question: str = "") -> str:
     """Append server-built tables once; composer writes narrative only."""
     block = format_display_tables_markdown(tables, question=question)
-    cleaned = strip_missing_data_caveats(strip_composer_display_sections(prose or ""))
-    return _insert_before_disclaimer(cleaned, block)
+    cleaned = strip_empty_table_pointers(
+        strip_missing_data_caveats(strip_composer_display_sections(prose or "")),
+        tables,
+    )
+    return strip_context_disclaimer(_insert_before_disclaimer(cleaned, block))
 
 
 _PUBLISHER_TAIL = re.compile(

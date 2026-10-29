@@ -98,7 +98,7 @@ _TYPE_WORDS = (
 
 
 def _spaced_category_words(text: str) -> str:
-    """Join words users often type as one, such as largecap."""
+    """Join words users often type as one, such as largecap or large and mid cap."""
     spaced = text or ""
     for compact, phrase in (
         ("largecap", "large cap"),
@@ -108,6 +108,19 @@ def _spaced_category_words(text: str) -> str:
         ("multicap", "multi cap"),
     ):
         spaced = re.sub(rf"\b{compact}\b", phrase, spaced, flags=re.I)
+    spaced = re.sub(
+        r"\blarge\s+cap\s+(?:and|&)\s+mid(?:\s+cap)?\b",
+        "large & mid cap",
+        spaced,
+        flags=re.I,
+    )
+    spaced = re.sub(
+        r"\blarge\s+(?:and|&)\s+mid(?:\s+cap)?\b",
+        "large & mid cap",
+        spaced,
+        flags=re.I,
+    )
+    spaced = re.sub(r"\blarge\s+mid(?:\s+cap)?\b", "large & mid cap", spaced, flags=re.I)
     return spaced
 
 _TAXONOMY_RE = re.compile(
@@ -127,12 +140,21 @@ class CategoryMatch:
     locked: bool
 
 
+def _phrase_in(phrase: str, low: str) -> bool:
+    forms = {phrase}
+    if " & " in phrase:
+        forms.add(phrase.replace(" & ", " and "))
+    if " and " in phrase:
+        forms.add(phrase.replace(" and ", " & "))
+    return any(re.search(rf"\b{re.escape(form)}\b", low) for form in forms)
+
+
 def match_scheme_category(question: str) -> CategoryMatch | None:
     """A named scheme category locks the search. A fund type alone does not."""
     text = _spaced_category_words(question or "")
     low = text.lower()
     for phrase, fund_type, category in _CATEGORY_ALIASES:
-        if phrase and re.search(rf"\b{re.escape(phrase)}\b", low):
+        if phrase and _phrase_in(phrase, low):
             if category:
                 return CategoryMatch(fund_type, category, True)
             return CategoryMatch(fund_type, "", False)
@@ -147,7 +169,10 @@ def categories_for(fund_type: str) -> tuple[str, ...]:
 
 
 def asks_taxonomy(question: str) -> bool:
-    return bool(_TAXONOMY_RE.search(question or ""))
+    q = question or ""
+    if re.search(r"\b(?:best in category|good choice|underperformer|recommended)\b", q, re.I):
+        return False
+    return bool(_TAXONOMY_RE.search(q))
 
 
 def taxonomy_reply(question: str) -> str:

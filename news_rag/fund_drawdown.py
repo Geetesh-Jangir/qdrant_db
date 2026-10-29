@@ -391,8 +391,9 @@ def load_fund_drawdown(fund_name: str, periods: list[str], question: str = "", *
     isin = str((detail or {}).get("isin") or "").strip().upper()
     catalog = get_fund_index().catalog_entry(isin) if isin else None
     category = str((catalog or {}).get("category") or (detail or {}).get("category") or "").strip()
-    episodes = fetch_drawdown_periods(isin, periods) if isin else []
-    _periods, note = periods_for_question(question, comparison=False)
+    resolved, note = periods_for_question(question, comparison=False)
+    wanted = [period for period in periods if period in _PERIODS] or resolved
+    episodes = fetch_drawdown_periods(isin, wanted) if isin else []
     if include_category and isin and category:
         for episode in episodes:
             if str(episode.get("period") or "") not in _DEFAULT_PERIODS:
@@ -417,6 +418,7 @@ def load_fund_drawdown(fund_name: str, periods: list[str], question: str = "", *
     return {
         "fund_name": fund_label,
         "isin": isin,
+        "periods": wanted,
         "episodes": episodes,
         "note": note,
         "current_check": bool(_CURRENT_RE.search(question or "")),
@@ -429,7 +431,10 @@ def ensure_drawdown_tools(question: str, plan: Any) -> Any:
     """Add the drawdown fetch for a fund, a comparison, or a screen. Leave news in place."""
     from news_rag.insight.contracts import AnswerMode, ToolCall, Wave2Policy
     from news_rag.insight.multi_fact import requested_fund_facts
+    from news_rag.insight.planner_policy import planner_owns
 
+    if planner_owns(plan):
+        return plan
     q = question or ""
     if is_drawdown_definition(q):
         plan.tool_calls = []

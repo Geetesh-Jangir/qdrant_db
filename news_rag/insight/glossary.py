@@ -85,6 +85,36 @@ def _normalize_term(raw: str) -> str | None:
     return _TERM_ALIASES.get(t)
 
 
+_SECOND_PART_RE = re.compile(
+    r"\bwhat\s+does\b.+\bmeans?\b|"
+    r"\bwhat\s+is\s+meant\s+by\b|"
+    r"\bmeaning\s+of\b|"
+    r"\b(?:and|also)\b.{0,80}\b(?:why|explain|how)\b",
+    re.I,
+)
+_WHAT_DOES_MEAN_RE = re.compile(r"\bwhat\s+does\s+(.+?)\s+means?\b", re.I)
+
+
+def has_second_part(question: str) -> bool:
+    """A figure plus a meaning, or a later why or explain, is more than one question."""
+    return bool(_SECOND_PART_RE.search(question or ""))
+
+
+def meaning_reply(question: str) -> str:
+    """The glossary line for a 'what does this mean' clause, including a small misspelling."""
+    match = _WHAT_DOES_MEAN_RE.search(question or "")
+    if not match:
+        return ""
+    raw = re.sub(r"\s+", " ", match.group(1).lower()).strip()
+    raw = raw.replace("ration", "ratio")
+    if "expense" in raw:
+        return _REPLIES["ter"]
+    key = _normalize_term(raw)
+    if key and key in _REPLIES:
+        return _REPLIES[key]
+    return ""
+
+
 def extract_glossary_term(question: str) -> str | None:
     q = (question or "").strip()
     if not q:

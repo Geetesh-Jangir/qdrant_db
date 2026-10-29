@@ -84,19 +84,18 @@ def run_fund_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
     if not out.get("ok"):
         return out
     data = dict(out.get("data") or {})
-    windows = list(ctx.get("windows") or ["1W", "1M", "3M", "6M", "1Y"])
-    rets = data.get("returns") if isinstance(data.get("returns"), dict) else {}
-    want = {str(w).upper() for w in windows}
-    picked: dict[str, Any] = {}
-    for w in sorted(want, key=len):
-        for key, val in rets.items():
-            if val is None:
-                continue
-            label = str(key).upper().replace("RETURN_", "").replace("_PCT", "")
-            if label == w:
-                picked[w] = val
-                break
-    data["returns"] = picked or rets
+    windows = list(ctx.get("windows") or ["1M"])
+    isin = str(data.get("isin") or "")
+    from news_rag.insight.return_windows import returns_for_windows
+
+    measured, limits = returns_for_windows(
+        isin,
+        [str(item) for item in windows],
+        inception_date=str(data.get("inception_date") or ""),
+    )
+    data["returns"] = measured
+    if limits:
+        data["unavailable_returns"] = limits
     data.pop("isin", None)
     from news_rag.fund_rupeestop_metrics import expense_ratio_for_question
 

@@ -56,6 +56,7 @@ def run_fund_nav(detail: dict[str, Any], need: DataNeed) -> dict[str, Any]:
             "exit_load_summary": detail.get("exit_load_summary") or "",
             "aum": detail.get("aum"),
             "aum_as_on_date": detail.get("aum_as_on_date") or "",
+            "inception_date": detail.get("inception_date") or "",
         },
         elapsed,
     )

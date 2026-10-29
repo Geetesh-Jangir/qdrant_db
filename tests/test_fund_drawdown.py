@@ -187,6 +187,33 @@ def test_drawdown_nav_and_benchmark_all_reach_the_composer():
     assert "1Y" in arguments["windows"]
 
 
+def test_risk_analysis_without_periods_still_loads_one_three_and_five_year(monkeypatch):
+    from news_rag.fund_drawdown import load_fund_drawdown
+
+    seen: list[list[str]] = []
+
+    def fake_fetch(isin: str, periods: list[str]) -> list[dict]:
+        seen.append(list(periods))
+        return [
+            {"period": period, "max_drawdown": -12.5, "fund_name": "Bandhan Large Cap", "recovered": True}
+            for period in periods
+        ]
+
+    monkeypatch.setattr("news_rag.fund_drawdown.fetch_drawdown_periods", fake_fetch)
+    monkeypatch.setattr(
+        "news_rag.fund_search.resolve_fund_for_query",
+        lambda name: ({"isin": "INF194K01516", "fund_name": name, "category": "large cap"}, [], []),
+    )
+    monkeypatch.setattr(
+        "news_rag.fund_search.get_fund_index",
+        lambda: type("Index", (), {"catalog_entry": lambda self, isin: {"category": "large cap"}})(),
+    )
+    payload = load_fund_drawdown("Bandhan Large Cap Fund", [], "do the risk analysis of the bandhan large cap?")
+    assert seen == [["1y", "3y", "5y"]]
+    assert [row["period"] for row in payload["episodes"]] == ["1y", "3y", "5y"]
+    assert payload["periods"] == ["1y", "3y", "5y"]
+
+
 def test_drawdown_question_fetches_only_the_drawdown_module():
     plan = _plan(
         [

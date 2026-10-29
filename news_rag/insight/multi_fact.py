@@ -51,12 +51,16 @@ def requested_fund_facts(question: str) -> set[str]:
     return facts
 
 
-_ONE_FIGURE = frozenset({"nav", "aum", "expense", "exit_load", "returns", "benchmark"})
+_ONE_FIGURE = frozenset({"nav", "aum", "expense", "exit_load", "returns", "benchmark", "managers"})
 
 
 def asks_one_figure(question: str) -> bool:
     """One named figure, such as NAV, AUM, one return, or the benchmark."""
+    from news_rag.insight.glossary import has_second_part
+
     text = question or ""
+    if has_second_part(text):
+        return False
     if re.search(r"\b(?:different|difference|compare|versus|\bvs\b|why|also)\b", text, re.I):
         return False
     if re.search(r"\bfunds\b", text, re.I):
@@ -109,6 +113,10 @@ def screen_fact_names(question: str) -> list[str]:
 
 def ensure_screen_facts(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     """A sector screen plus extra facts stays a screen. Do not swap in one other fund."""
+    from news_rag.insight.planner_policy import planner_owns
+
+    if planner_owns(plan):
+        return plan
     if not any(call.tool == "screen_funds_by_exposure" for call in plan.tool_calls):
         return plan
     if not screen_fact_names(question):
@@ -138,6 +146,10 @@ def ensure_screen_facts(question: str, plan: ExecutionPlan) -> ExecutionPlan:
 
 def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     """A named fact uses one call and a data answer. A fund overview is left alone."""
+    from news_rag.insight.planner_policy import planner_owns
+
+    if planner_owns(plan):
+        return plan
     facts = requested_fund_facts(question)
     if not plan.funds or not facts:
         return plan
@@ -201,6 +213,10 @@ def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan
 
 def ensure_compare_template(plan: ExecutionPlan, question: str = "") -> ExecutionPlan:
     """A fund comparison answer is the facts table plus the holdings overlap table."""
+    from news_rag.insight.planner_policy import planner_owns
+
+    if planner_owns(plan):
+        return plan
     if not any(call.tool == "compare_funds" for call in plan.tool_calls):
         return plan
     for call in plan.tool_calls:

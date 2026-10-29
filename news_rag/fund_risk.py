@@ -56,14 +56,28 @@ _RISK_RE = re.compile(
     re.I,
 )
 _HIDDEN_RE = re.compile(
-    r"\b(?:risk|performance|portfolio[\s_]*quality|fund manager)\s+pillar\b|"
-    r"\bpillar\s+scores?\b|portfolio[\s_]*quality\s+score|"
     r"\bhow (?:do you|is the score|are we) (?:calculat|scor)|"
     r"\bmethodology\b|\binternal (?:score|calculation)|"
     r"\b(?:sharpe|sortino)\b|"
     r"\b(?:pillar|score)\b.{0,24}\bweights?\b|"
     r"\bweights?\b.{0,24}\b(?:pillar|score)\b",
     re.I,
+)
+_PRIVATE_RE = re.compile(
+    r"\b(?:which|what)\s+(?:llm|model|ai)\b|"
+    r"\bwhat model\b|\bwhich model\b|"
+    r"\b(?:system|your)\s+prompt\b|"
+    r"\bapi\s+endpoint\b|\bbackend\.rupeestop\b|"
+    r"\bqdrant\b|\barchitecture\b|"
+    r"\bhow (?:does|do) (?:the|this|your) (?:system|pipeline|router)\b",
+    re.I,
+)
+_PRIVATE_REPLY = "I can help with a fund, a return, or the news. I don't share how this assistant is built."
+_PILLARS = (
+    ("performance", "Performance", 40),
+    ("risk", "Risk", 25),
+    ("portfolioQuality", "Portfolio quality", 25),
+    ("fundManager", "Fund manager", 10),
 )
 _PILLAR_SCORE_RE = re.compile(
     r"\b(?:portfolio[\s_]*quality\s+score|(?:risk|performance|fund manager)\s+pillar|pillar\s+scores?|sharpe|sortino)\b",
@@ -121,8 +135,21 @@ def asks_about_score_bands(question: str) -> bool:
 
 
 def asks_hidden_rating(question: str) -> bool:
-    """A pillar score, a rating input, or the formula is not shown."""
+    """The formula and the rating inputs are not shown. The pillar marks are."""
     return bool(_HIDDEN_RE.search(question or ""))
+
+
+def asks_private_system(question: str) -> bool:
+    """Model, prompt, endpoint, and architecture questions are refused."""
+    return bool(_PRIVATE_RE.search(question or ""))
+
+
+def blocked_reply(question: str) -> str:
+    if asks_hidden_rating(question):
+        return _HIDDEN_REPLY
+    if asks_private_system(question):
+        return _PRIVATE_REPLY
+    return ""
 
 
 def asks_fund_risk(question: str) -> bool:
@@ -177,7 +204,74 @@ def normalize_rating(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     }
     if score is not None:
         summary["final_score"] = score
+    pillars = _public_pillars(data.get("pillars"))
+    if pillars:
+        summary["pillars"] = pillars
     return summary
+
+
+def _public_pillars(raw: Any) -> dict[str, dict[str, Any]]:
+    """Score and max mark only. Inputs used to calculate a pillar are dropped."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for key, label, default_max in _PILLARS:
+        block = raw.get(key)
+        if not isinstance(block, dict) or block.get("score") is None:
+            continue
+        try:
+            score = round(float(block["score"]), 2)
+        except (TypeError, ValueError):
+            continue
+        try:
+            maximum = int(float(block.get("max") or default_max))
+        except (TypeError, ValueError):
+            maximum = default_max
+        out[key] = {"label": label, "score": score, "max": maximum}
+    return out
+
+
+def pillar_focus(question: str) -> str:
+    """The one pillar a question is about. Empty when the whole rating should lead."""
+    text = question or ""
+    if re.search(r"\bfund\s+managers?\b|\bwho\s+manages\b|\bmanaged\s+by\b", text, re.I):
+        return "fundManager"
+    if re.search(r"portfolio[\s_]*quality", text, re.I):
+        return "portfolioQuality"
+    if re.search(r"\bperformance\b", text, re.I):
+        return "performance"
+    if re.search(r"\brisk(?:y|ometer| analysis)?\b", text, re.I):
+        return "risk"
+    return ""
+
+
+def rating_lead(summary: dict[str, Any] | None, question: str = "") -> str:
+    """The opening lines. One pillar when that is the question, otherwise the score and four marks."""
+    if not isinstance(summary, dict):
+        return ""
+    pillars = summary.get("pillars") if isinstance(summary.get("pillars"), dict) else {}
+    focus = pillar_focus(question)
+    if focus and focus in pillars:
+        row = pillars[focus]
+        name = "Risk pillar" if focus == "risk" else row["label"]
+        line = f"**{name}:** {row['score']} out of {row['max']}."
+        if focus == "risk":
+            line += " This mark is a score. It does not say the fund is more risky or less risky."
+        return line
+    if summary.get("final_score") is None:
+        return ""
+    marks = [
+        f"{pillars[key]['label']} {pillars[key]['score']}/{pillars[key]['max']}"
+        for key, _label, _max in _PILLARS
+        if key in pillars
+    ]
+    line = (
+        f"**RupeeStop rating:** {float(summary['final_score']):.2f} out of "
+        f"{int(summary.get('max_score') or 100)}, {summary.get('label') or ''}."
+    )
+    if marks:
+        line += " " + " · ".join(marks) + "."
+    return line.strip()
 
 
 def exposure_from_detail(detail: dict[str, Any] | None) -> dict[str, Any]:
@@ -193,6 +287,13 @@ def exposure_from_detail(detail: dict[str, Any] | None) -> dict[str, Any]:
     total = round(sum(row["percentage"] for row in caps), 2) if caps else 0.0
     if caps and abs(total - 100) > 0.5:
         out["market_cap_shortfall"] = True
+    smaller = [
+        float(row["percentage"])
+        for row in caps
+        if "mid" in str(row.get("label") or "").lower() or "small" in str(row.get("label") or "").lower()
+    ]
+    if smaller:
+        out["smaller_companies_pct"] = round(sum(smaller), 2)
     return out
 
 
@@ -323,19 +424,23 @@ def _use_rating_concept(plan: ExecutionPlan) -> ExecutionPlan:
 
 
 def ensure_risk_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
-    if asks_rating_concept(question):
-        return _use_rating_concept(plan)
-    if _is_band_definition(question, plan):
+    from news_rag.insight.planner_policy import planner_owns
+
+    if asks_hidden_rating(question):
         plan.tool_calls = []
-        plan.direct_reply = _BAND_EXPLANATION
+        plan.direct_reply = _HIDDEN_REPLY
         plan.requires_compose = False
         plan.answer_mode = AnswerMode.DATA_ONLY
         plan.wave_2_policy = Wave2Policy(trigger="none")
         plan.asked_facts = []
         return plan
-    if asks_hidden_rating(question):
+    if planner_owns(plan):
+        return plan
+    if asks_rating_concept(question):
+        return _use_rating_concept(plan)
+    if _is_band_definition(question, plan):
         plan.tool_calls = []
-        plan.direct_reply = _HIDDEN_REPLY
+        plan.direct_reply = _BAND_EXPLANATION
         plan.requires_compose = False
         plan.answer_mode = AnswerMode.DATA_ONLY
         plan.wave_2_policy = Wave2Policy(trigger="none")

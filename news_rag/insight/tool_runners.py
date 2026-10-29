@@ -605,7 +605,9 @@ def run_compare_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         data["holding_overlap"] = overlap
         data["shared_count"] = overlap["overlap_count"]
         data["shared_holdings"] = [row["stock"] for row in overlap["rows"][:20]]
-        data["fund_briefs"] = [_fund_compare_brief(detail) for detail in details]
+        windows = _compare_return_windows(str(ctx.get("question") or ""))
+        data["fund_briefs"] = [_enrich_compare_brief(detail, windows) for detail in details]
+        data["return_windows"] = windows
         from news_rag.fund_drawdown import periods_for_question
 
         parsed, note = periods_for_question(str(ctx.get("question") or ""), comparison=True)
@@ -647,6 +649,51 @@ def _fund_compare_brief(detail: dict[str, Any]) -> dict[str, Any]:
         "returns": {str(k).upper(): v for k, v in returns.items() if v is not None},
         "benchmark": detail.get("benchmark") or "",
     }
+
+
+def _compare_return_windows(question: str) -> list[str]:
+    """1, 3 and 5 years unless the question names a period."""
+    from news_rag.fund_rupeestop_metrics import periods_requested_in_question
+
+    named = periods_requested_in_question(question or "")
+    return named or ["1Y", "3Y", "5Y"]
+
+
+def _enrich_compare_brief(detail: dict[str, Any], windows: list[str]) -> dict[str, Any]:
+    """Keep the named return windows and attach benchmark, category, and the public rating."""
+    brief = _fund_compare_brief(detail)
+    returns = brief.get("returns") if isinstance(brief.get("returns"), dict) else {}
+    brief["returns"] = {code: returns[code] for code in windows if returns.get(code) is not None}
+    brief["return_windows"] = list(windows)
+    isin = str(brief.get("isin") or "")
+    try:
+        from news_rag.fund_rupeestop_metrics import build_comparison_periods, fetch_vs_benchmark
+
+        versus = fetch_vs_benchmark(isin) if isin else None
+        averages = detail.get("category_average_returns") if isinstance(detail.get("category_average_returns"), dict) else {}
+        comparison = build_comparison_periods(detail, versus, averages)
+        kept = {code: comparison[code] for code in windows if code in comparison}
+        if kept:
+            brief["comparison"] = kept
+        if isinstance(versus, dict) and versus.get("benchmark_name"):
+            brief["benchmark"] = versus.get("benchmark_name")
+    except Exception:
+        pass
+    try:
+        from news_rag.fund_risk import fetch_public_rating
+
+        rating = fetch_public_rating(isin) if isin else None
+    except Exception:
+        rating = None
+    if isinstance(rating, dict):
+        brief["rs_label"] = rating.get("label") or ""
+        brief["rs_score"] = rating.get("final_score")
+        if rating.get("pillars"):
+            brief["pillars"] = rating["pillars"]
+    riskometer = str(detail.get("sebi_riskometer") or "").strip()
+    if riskometer:
+        brief["riskometer"] = riskometer
+    return brief
 
 
 # ---------------------------------------------------------------------------

@@ -37,8 +37,9 @@ def test_why_moved_gets_holdings():
     assert TABLE_HOLDINGS in pol.include
 
 
-def test_tell_me_about_fund_keeps_the_snapshot_and_skips_unasked_lists():
+def test_tell_me_about_fund_uses_a_short_fund_table():
     from news_rag.insight.display_table_policy import (
+        TABLE_FUND_FACTS,
         TABLE_HOLDINGS,
         TABLE_PORTFOLIO,
         TABLE_RETURNS,
@@ -54,7 +55,8 @@ def test_tell_me_about_fund_keeps_the_snapshot_and_skips_unasked_lists():
         window_days=30,
     )
     pol = resolve_display_table_policy(q, plan)
-    assert TABLE_SNAPSHOT in pol.include
+    assert TABLE_FUND_FACTS in pol.include
+    assert TABLE_SNAPSHOT not in pol.include
     assert TABLE_RETURNS not in pol.include
     assert TABLE_PORTFOLIO not in pol.include
     assert TABLE_SECTORS not in pol.include

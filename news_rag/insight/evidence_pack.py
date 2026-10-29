@@ -367,16 +367,6 @@ def build_evidence_pack(
     all_tables = build_fund_display_tables(data_pack, digest=perf, question=question)
     table_policy = resolve_display_table_policy(question, plan)
     display_tables = filter_display_tables(all_tables, table_policy)
-    drawdown_parts: list[str] = []
-    for key, value in data_pack.items():
-        if not str(key).startswith("fund:") or not isinstance(value, dict):
-            continue
-        body = _drawdown_body(value)
-        if body:
-            drawdown_parts.append(body)
-    if drawdown_parts:
-        display_tables = dict(display_tables)
-        display_tables["drawdown_table"] = "\n\n".join(drawdown_parts)
     asked = set(plan.asked_facts or [])
     if asked & {"benchmark", "returns"}:
         display_tables = dict(display_tables)
@@ -390,6 +380,12 @@ def build_evidence_pack(
             if benchmark_lines:
                 display_tables["vs_benchmark_table"] = benchmark_lines
                 display_tables["_heading_vs_benchmark_table"] = "### Returns vs benchmark"
+
+    from news_rag.insight.insight_links import build_insight_links
+
+    links = build_insight_links(data_pack, news_grouped)
+    if links:
+        data_pack["insight_links"] = links
 
     return EvidencePack(
         rows=rows,
@@ -594,31 +590,218 @@ def _benchmark_lines_from_pack(data_pack: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _row_bits(row: dict[str, Any]) -> list[str]:
+    bits: list[str] = []
+    for key, value in row.items():
+        if str(key).startswith("_") or value in ("", None):
+            continue
+        if key == "pillars" and isinstance(value, dict):
+            marks = []
+            for pillar in value.values():
+                if isinstance(pillar, dict) and pillar.get("score") is not None:
+                    marks.append(f"{pillar.get('label') or ''} {pillar.get('score')}/{pillar.get('max')}".strip())
+            if marks:
+                bits.append("pillars=" + "; ".join(marks))
+            continue
+        if isinstance(value, (dict, list)):
+            continue
+        bits.append(f"{key}={value}")
+    return bits
+
+
+_MEASURE_WINDOWS = ("1Y", "3Y", "5Y")
+
+
+def _complete_shown_funds(data_pack: dict[str, Any]) -> None:
+    """Put 1Y/3Y/5Y, the riskometer, the benchmark, and the category average on each shown fund."""
+    screen = data_pack.get("screen") if isinstance(data_pack.get("screen"), dict) else None
+    rows = [row for row in ((screen or {}).get("rankings") or (screen or {}).get("funds") or []) if isinstance(row, dict)]
+    compare = data_pack.get("compare") if isinstance(data_pack.get("compare"), dict) else None
+    rows.extend(row for row in ((compare or {}).get("fund_briefs") or []) if isinstance(row, dict))
+    for row in rows[:8]:
+        _complete_fund_row(row)
+
+
+def _complete_fund_row(row: dict[str, Any]) -> None:
+    isin = str(row.get("isin") or "").strip()
+    if not isin:
+        return
+    returns = row.get("returns") if isinstance(row.get("returns"), dict) else {}
+    has_return = any(row.get(f"return_{code.lower()}_pct") is not None for code in _MEASURE_WINDOWS) or any(
+        returns.get(code) is not None for code in _MEASURE_WINDOWS
+    )
+    has_risk = bool(row.get("riskometer"))
+    has_average = any(row.get(f"category_avg_{code.lower()}_pct") is not None for code in _MEASURE_WINDOWS)
+    has_benchmark = isinstance(row.get("comparison"), dict) and bool(row.get("comparison"))
+    if has_return and has_risk and has_average and has_benchmark:
+        return
+    try:
+        from news_rag.fund_search import get_fund_index
+
+        detail = get_fund_index().get_fund_detail(isin) or {}
+    except Exception:
+        detail = {}
+    if not isinstance(detail, dict):
+        detail = {}
+    catalog_returns = detail.get("returns") if isinstance(detail.get("returns"), dict) else {}
+    averages = detail.get("category_average_returns") if isinstance(detail.get("category_average_returns"), dict) else {}
+    owned = row.get("returns") if isinstance(row.get("returns"), dict) else None
+    for code in _MEASURE_WINDOWS:
+        raw = catalog_returns.get(code.lower())
+        if raw is None:
+            raw = catalog_returns.get(code)
+        if raw is not None:
+            number = round(float(raw), 2)
+            row.setdefault(f"return_{code.lower()}_pct", number)
+            if owned is not None:
+                owned.setdefault(code, number)
+        average = averages.get(code)
+        if average is None:
+            average = averages.get(code.lower())
+        if average is not None:
+            row.setdefault(f"category_avg_{code.lower()}_pct", round(float(average), 2))
+    riskometer = str(detail.get("sebi_riskometer") or "").strip()
+    if riskometer and not row.get("riskometer"):
+        row["riskometer"] = riskometer
+    if has_benchmark or not detail:
+        return
+    try:
+        from news_rag.fund_rupeestop_metrics import build_comparison_periods, fetch_vs_benchmark
+
+        versus = fetch_vs_benchmark(isin)
+        comparison = build_comparison_periods(detail, versus, averages)
+    except Exception:
+        comparison = {}
+    if not comparison:
+        return
+    row["comparison"] = comparison
+    for code, item in comparison.items():
+        if not isinstance(item, dict):
+            continue
+        if item.get("benchmark_return") is not None:
+            row.setdefault(f"benchmark_{code.lower()}_pct", item["benchmark_return"])
+        if item.get("vs_benchmark") is not None:
+            row.setdefault(f"vs_benchmark_{code.lower()}_pct", item["vs_benchmark"])
+        if item.get("category_average_return") is not None:
+            row.setdefault(f"category_avg_{code.lower()}_pct", item["category_average_return"])
+
+
 def table_source(data_pack: dict[str, Any]) -> str:
     """Compact rows the composer uses when it builds the answer table."""
+    _complete_shown_funds(data_pack)
     lines: list[str] = []
     screen = data_pack.get("screen") if isinstance(data_pack.get("screen"), dict) else None
     rankings = list((screen or {}).get("rankings") or (screen or {}).get("funds") or [])
     for row in rankings[:8]:
-        if not isinstance(row, dict):
+        if isinstance(row, dict):
+            bits = _row_bits(row)
+            if bits:
+                lines.append(" | ".join(bits))
+    note = str((screen or {}).get("ranking_note") or "").strip()
+    if note:
+        lines.append(f"note={note}")
+    for key, block in data_pack.items():
+        if not str(key).startswith("fund:") or not isinstance(block, dict):
             continue
-        bits = [
-            f"{key}={value}"
-            for key, value in row.items()
-            if not str(key).startswith("_") and not isinstance(value, (dict, list)) and value not in ("", None)
-        ]
+        snap = block.get("snapshot") if isinstance(block.get("snapshot"), dict) else {}
+        insights = block.get("fund_insights") if isinstance(block.get("fund_insights"), dict) else {}
+        rating = block.get("rs_rating") if isinstance(block.get("rs_rating"), dict) else {}
+        returns = snap.get("returns") if isinstance(snap.get("returns"), dict) else {}
+        flat: dict[str, Any] = {
+            "fund": snap.get("fund_name") or insights.get("fund_name") or block.get("fund_name") or "",
+            "nav": snap.get("nav"),
+            "expense_ratio": (snap.get("expense_ratio") or {}).get("regular") if isinstance(snap.get("expense_ratio"), dict) else None,
+            "aum": snap.get("aum"),
+            "benchmark": snap.get("benchmark") or insights.get("benchmark_name") or insights.get("scheme_benchmark_name"),
+            "category": insights.get("category"),
+            "label": rating.get("label"),
+            "final_score": rating.get("final_score"),
+            "pillars": rating.get("pillars"),
+            "riskometer": insights.get("riskometer") or insights.get("sebi_riskometer"),
+        }
+        for code, value in returns.items():
+            if value is not None:
+                flat[f"return_{code}"] = value
+        _add_category_comparison(flat, insights)
+        bits = _row_bits(flat)
         if bits:
             lines.append(" | ".join(bits))
     compare = data_pack.get("compare") if isinstance(data_pack.get("compare"), dict) else None
-    for brief in list((compare or {}).get("fund_briefs") or [])[:6]:
-        if isinstance(brief, dict):
-            lines.append("brief " + " | ".join(
-                f"{key}={value}" for key, value in brief.items() if not isinstance(value, (dict, list)) and value not in ("", None)
-            ))
-            returns = brief.get("returns") if isinstance(brief.get("returns"), dict) else {}
-            if returns:
-                lines.append("returns " + " | ".join(f"{key}={value}" for key, value in returns.items() if value is not None))
+    briefs = [row for row in ((compare or {}).get("fund_briefs") or []) if isinstance(row, dict)][:6]
+    categories = {str(row.get("category") or "").strip().lower() for row in briefs}
+    categories.discard("")
+    same_category = len(categories) == 1
+    for brief in briefs:
+        lines.append(_compare_brief_line(brief, same_category=same_category))
     return "\n".join(lines)
+
+
+def _add_category_comparison(flat: dict[str, Any], insights: dict[str, Any]) -> None:
+    """Copy the 1Y/3Y/5Y fund, benchmark, and category-average figures the tool already returned."""
+    periods = insights.get("comparison_periods") if isinstance(insights.get("comparison_periods"), dict) else {}
+    averages = insights.get("category_average_returns_pct") if isinstance(insights.get("category_average_returns_pct"), dict) else {}
+    fund_returns = insights.get("fund_returns_pct") if isinstance(insights.get("fund_returns_pct"), dict) else {}
+    for code in ("1Y", "3Y", "5Y"):
+        row = periods.get(code) if isinstance(periods.get(code), dict) else {}
+        fund_return = row.get("fund_return")
+        if fund_return is None:
+            fund_return = fund_returns.get(code)
+        if fund_return is not None:
+            flat[f"{code}_fund"] = fund_return
+        if row.get("benchmark_return") is not None:
+            flat[f"{code}_benchmark"] = row.get("benchmark_return")
+        average = row.get("category_average_return")
+        if average is None:
+            average = averages.get(code)
+        if average is not None:
+            flat[f"{code}_category_avg"] = average
+        if row.get("vs_category") is not None:
+            flat[f"{code}_vs_category"] = row.get("vs_category")
+        if row.get("vs_benchmark") is not None:
+            flat[f"{code}_vs_benchmark"] = row.get("vs_benchmark")
+
+
+def _compare_brief_line(brief: dict[str, Any], *, same_category: bool) -> str:
+    """One comparison row: 1Y/3Y/5Y unless a period was named, plus rating and benchmark."""
+    windows = [str(code) for code in (brief.get("return_windows") or ["1Y", "3Y", "5Y"])]
+    returns = brief.get("returns") if isinstance(brief.get("returns"), dict) else {}
+    bits = [f"fund={brief.get('fund_name') or ''}"]
+    if brief.get("category"):
+        bits.append(f"category={brief.get('category')}")
+    if brief.get("benchmark"):
+        bits.append(f"benchmark={brief.get('benchmark')}")
+    if brief.get("riskometer"):
+        bits.append(f"riskometer={brief.get('riskometer')}")
+    if brief.get("rs_label"):
+        bits.append(f"rs_label={brief.get('rs_label')}")
+    if brief.get("rs_score") is not None:
+        bits.append(f"rs_score={brief.get('rs_score')}")
+    pillars = brief.get("pillars") if isinstance(brief.get("pillars"), dict) else {}
+    marks = []
+    for pillar in pillars.values():
+        if isinstance(pillar, dict) and pillar.get("score") is not None:
+            marks.append(f"{pillar.get('label') or ''} {pillar.get('score')}/{pillar.get('max')}".strip())
+    if marks:
+        bits.append("pillars=" + "; ".join(marks))
+    if brief.get("expense_ratio") is not None:
+        bits.append(f"expense_ratio={brief.get('expense_ratio')}")
+    if brief.get("aum") is not None:
+        bits.append(f"aum={brief.get('aum')}")
+    comparison = brief.get("comparison") if isinstance(brief.get("comparison"), dict) else {}
+    for code in windows:
+        row = comparison.get(code) if isinstance(comparison.get(code), dict) else {}
+        fund_return = row.get("fund_return")
+        if fund_return is None:
+            fund_return = returns.get(code)
+        if fund_return is None:
+            continue
+        piece = f"{code} fund={fund_return}"
+        if row.get("benchmark_return") is not None:
+            piece += f" benchmark={row.get('benchmark_return')} vs_benchmark={row.get('vs_benchmark')}"
+        if same_category and row.get("category_average_return") is not None:
+            piece += f" category_avg={row.get('category_average_return')} vs_category={row.get('vs_category')}"
+        bits.append(piece)
+    return "brief " + " | ".join(bits)
 
 
 def extra_part_brief(data_pack: dict[str, Any]) -> str:
@@ -785,6 +968,9 @@ def _snapshot_markdown(snap: dict[str, Any], plan: ExecutionPlan) -> str:
             if v is not None
         ]
         lines.append(" | ".join(ret_strs))
+    for row in snap.get("unavailable_returns") or []:
+        if isinstance(row, dict) and str(row.get("note") or "").strip():
+            lines.append(f"- {row['note']}")
     return "\n".join(lines)
 
 
@@ -816,7 +1002,7 @@ def _portfolio_markdown(p_data: dict[str, Any], plan: ExecutionPlan) -> str:
     return "\n".join(lines)
 
 
-_RETURN_ROWS = ("1W", "1M", "3M", "6M", "1Y", "2Y", "3Y", "5Y")
+_RETURN_ROWS = ("1Y", "3Y", "5Y")
 
 
 def _compare_cell(value: Any) -> str:
@@ -897,7 +1083,8 @@ def _render_fund_compare_markdown(
         _row("Exit load", [_compare_cell(b.get("exit_load_summary")) for b in briefs])
 
         lines.extend(["", "### Historical returns", *_compare_header(briefs)[1:]])
-        for window in _RETURN_ROWS:
+        windows = [str(code) for code in (compare.get("return_windows") or _RETURN_ROWS)]
+        for window in windows:
             values = []
             for brief in briefs:
                 returns = brief.get("returns") if isinstance(brief.get("returns"), dict) else {}

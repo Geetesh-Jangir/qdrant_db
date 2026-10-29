@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Source articles</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; background: #f8fafc; }
+    body { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .nav { display: flex; gap: 1rem; font-size: 0.9rem; margin-bottom: 1.5rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; }
+    .nav a { color: #2563eb; text-decoration: none; font-weight: 500; }
+    h1 { font-size: 1.4rem; margin: 0 0 0.5rem; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.8rem 1rem; margin: 0.6rem 0; }
+    .card a { color: #1d4ed8; font-weight: 600; text-decoration: none; }
+    .meta { color: #64748b; font-size: 0.85rem; margin-top: 0.25rem; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href=".">Ask a Question</a>
+    <a href="fund">Fund News Brief</a>
+    <a href="fund-search">Fund Search & Explorer</a>
+    <a href="backfill">Historical backfill</a>
+  </div>
+  <h1>Source articles</h1>
+  <p id="status" class="meta">Loading…</p>
+  <div id="list"></div>
+  <script src="static/rag-api.js?v=4"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const queryId = params.get("query_id") || "";
+    const statusEl = document.getElementById("status");
+    const listEl = document.getElementById("list");
+
+    if (!queryId) {
+      statusEl.textContent = "This page needs a query id.";
+    } else {
+      fetch(ragUrl("api/ask/sources/" + encodeURIComponent(queryId)))
+        .then((response) => parseRagJsonResponse(response))
+        .then((data) => {
+          const articles = Array.isArray(data.articles) ? data.articles : [];
+          if (!articles.length) {
+            statusEl.textContent = "No source articles are stored for this answer.";
+            return;
+          }
+          statusEl.textContent = articles.length + " article" + (articles.length === 1 ? "" : "s");
+          for (const row of articles) {
+            const card = document.createElement("div");
+            card.className = "card";
+            const title = row.title || row.url || "Article";
+            if (row.url) {
+              const link = document.createElement("a");
+              link.href = row.url;
+              link.target = "_blank";
+              link.rel = "noopener";
+              link.textContent = title;
+              card.appendChild(link);
+            } else {
+              card.textContent = title;
+            }
+            const meta = document.createElement("div");
+            meta.className = "meta";
+            const published = row.published_at ? String(row.published_at).slice(0, 10) : "";
+            meta.textContent = [row.source, published].filter(Boolean).join(" · ");
+            card.appendChild(meta);
+            listEl.appendChild(card);
+          }
+        })
+        .catch((err) => {
+          statusEl.textContent = err.message || String(err);
+        });
+    }
+  </script>
+</body>
+</html>

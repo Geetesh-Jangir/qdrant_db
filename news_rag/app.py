@@ -172,6 +172,48 @@ def backfill_page() -> FileResponse:
     return _html_page("backfill.html")
 
 
+@app.get("/sources")
+def sources_page() -> FileResponse:
+    return _html_page("sources.html")
+
+
+@app.get("/memory-passed")
+def memory_passed_page() -> FileResponse:
+    return _html_page("memory.html")
+
+
+@app.get("/memory-stored")
+def memory_stored_page() -> FileResponse:
+    return _html_page("memory.html")
+
+
+@app.get("/api/ask/memory/{query_id}")
+def ask_memory(
+    query_id: str,
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    from news_rag.insight.memory.store import turn_record
+
+    record = turn_record(query_id)
+    if record is None:
+        return {"query_id": query_id, "passed": None, "stored": None}
+    return record
+
+
+@app.get("/api/ask/sources/{query_id}")
+def ask_sources(
+    query_id: str,
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    from news_rag.insight.memory.store import sources_for
+
+    return {"query_id": query_id, "articles": sources_for(query_id)}
+
+
 @app.get("/api/backfill/status")
 def backfill_status(
     authorization: str | None = Header(default=None),

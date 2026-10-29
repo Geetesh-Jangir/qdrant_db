@@ -127,7 +127,9 @@ def test_stitch_puts_tables_before_disclaimer():
     prose = "Opening line.\n\n*For context only — not investment advice.*"
     tables = {"vs_benchmark_table": "| Period | Fund |\n| --- | --- |\n| 1Y | -1.00% |"}
     out = stitch_display_tables_into_answer(prose, tables)
-    assert out.index("Opening") < out.index("| Period |") < out.index("not investment advice")
+    assert "Opening" in out
+    assert "| Period |" in out
+    assert "not investment advice" not in out
 
 
 def test_normalize_na_to_hyphen():

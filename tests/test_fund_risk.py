@@ -77,16 +77,16 @@ def test_category_question_explains_the_ranges_without_a_tool_call():
     assert "0 to 49 Underperformer" in plan.concept_brief
 
 
-def test_public_summary_drops_pillars_and_inputs():
+def test_public_summary_keeps_pillar_marks_and_drops_inputs():
     summary = _public_summary()
     assert summary["final_score"] == 64.55
     assert summary["label"] == "Good Choice"
     assert summary["fund_type"] == "equity"
-    blob = " ".join(summary.keys()).lower()
-    assert "pillar" not in blob
-    assert "input" not in blob
-    assert "sharpe" not in blob
-    assert "32.05" not in str(summary)
+    assert summary["pillars"]["performance"]["score"] == 32.05
+    assert summary["pillars"]["performance"]["max"] == 40
+    assert summary["pillars"]["fundManager"]["score"] == 6.5
+    assert "inputs" not in summary
+    assert "sharpe" not in str(summary).lower()
 
 
 def test_what_is_rs_rating_goes_to_the_composer_with_the_pillars():
@@ -122,7 +122,13 @@ def test_good_choice_versus_very_high_does_not_look_up_a_fund():
     assert "not a statement that the fund is low risk" in plan.concept_brief
 
 
-def test_portfolio_quality_question_is_refused_without_a_tool_call():
+def test_portfolio_quality_score_is_the_mark_not_the_formula():
+    from news_rag.fund_risk import rating_lead
+
+    text = rating_lead(_public_summary(), "What is the portfolio quality score?")
+    assert "15.5 out of 25" in text
+    assert "32.05" not in text
+    assert "sharpe" not in text.lower()
     plan = ExecutionPlan(
         intent="lookup",
         answer_mode=AnswerMode.DATA_ONLY,
@@ -130,8 +136,8 @@ def test_portfolio_quality_question_is_refused_without_a_tool_call():
         tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1)],
     )
     ensure_risk_tools("What is the portfolio quality score?", plan)
-    assert plan.tool_calls == []
-    assert plan.direct_reply == "Internal calculations are not shown."
+    assert plan.tool_calls
+    assert plan.direct_reply == ""
 
 
 def test_methodology_question_is_refused():
@@ -209,7 +215,7 @@ def test_why_very_high_keeps_the_risk_fetch():
     assert any(item.tool == "search_financial_news" for item in plan.tool_calls)
 
 
-def test_risk_pillar_question_is_refused():
+def test_risk_pillar_question_keeps_the_fund_lookup():
     plan = ExecutionPlan(
         intent="lookup",
         answer_mode=AnswerMode.DATA_ONLY,
@@ -217,8 +223,8 @@ def test_risk_pillar_question_is_refused():
         tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1)],
     )
     ensure_risk_tools("What is the risk pillar?", plan)
-    assert plan.tool_calls == []
-    assert plan.direct_reply == "Internal calculations are not shown."
+    assert plan.direct_reply == ""
+    assert any(call.tool == "get_fund_data" for call in plan.tool_calls)
 
 
 def test_score_question_does_not_add_drawdown():
@@ -250,6 +256,72 @@ def test_risk_only_template_shows_the_public_lines():
     assert "Very High" in text
     assert "82.91%" in text
     assert "sharpe" not in text.lower()
+
+
+def test_risk_analysis_lead_does_not_treat_the_pillar_as_the_risk_level():
+    from news_rag.fund_risk import exposure_from_detail, rating_lead
+    from news_rag.insight.fund_display import strip_missing_data_caveats
+    from news_rag.insight.grounding import cores_in_text, derived_cores, strip_ungrounded_numbers
+
+    text = rating_lead(_public_summary(), "do the risk analysis of the bandhan large cap?")
+    assert "Risk pillar" in text
+    assert "10.5 out of 25" in text
+    assert "does not say the fund is more risky or less risky" in text
+    exposure = exposure_from_detail(
+        {
+            "market_cap": [
+                {"label": "Large Cap", "percentage": 80.54},
+                {"label": "Mid Cap", "percentage": 10.87},
+                {"label": "Small Cap", "percentage": 7.76},
+            ]
+        }
+    )
+    assert exposure["smaller_companies_pct"] == 18.63
+    allowed = cores_in_text("10.87 7.76") | derived_cores(cores_in_text("10.87 7.76"))
+    kept = strip_ungrounded_numbers("about 18.63% sits in smaller companies", allowed)
+    assert "18.63%" in kept
+    cleaned = strip_missing_data_caveats(
+        "The fund is Very High risk. Drawdown history is not available in this data."
+    )
+    assert "Very High" in cleaned
+    assert "not available" not in cleaned
+
+
+def test_rating_lead_lists_every_mark_for_a_fund_question():
+    from news_rag.fund_risk import blocked_reply, rating_lead
+
+    text = rating_lead(_public_summary(), "tell me about hdfc large cap")
+    assert "64.55" in text
+    assert "Good Choice" in text
+    assert "32.05/40" in text
+    assert "6.5/10" in text
+    assert "sharpe" not in text.lower()
+    assert blocked_reply("which model is used for generating the response?")
+    assert "built" in blocked_reply("which model is used?")
+    assert blocked_reply("how do you calculate the score?") == "Internal calculations are not shown."
+
+
+def test_missing_apology_and_private_leak_are_removed():
+    from news_rag.insight.fund_display import strip_missing_data_caveats, strip_private_leaks
+
+    text = "The 1-year return is not in the data, so it cannot be compared.\nNAV is 74."
+    cleaned = strip_missing_data_caveats(text)
+    assert "cannot be compared" not in cleaned
+    assert "NAV is 74" in cleaned
+    leaked = "This answer uses claude. NAV is 74."
+    hidden = strip_private_leaks(leaked)
+    assert "claude" not in hidden.lower()
+    assert "NAV is 74" in hidden
+
+
+def test_vs_benchmark_module_is_not_replaced_by_snapshot():
+    from news_rag.insight.capabilities.catalog import validate_capability_args
+
+    args = validate_capability_args("get_fund_data", {"modules": ["vs_benchmark", "rating"]})
+    assert args["modules"] == ["vs_benchmark", "rating"]
+    assert "snapshot" not in args["modules"]
+    assert "return_series" not in args["modules"]
+    assert "attribution" not in args["modules"]
 
 
 def test_mixed_question_adds_risk_lines_to_the_note():

@@ -85,6 +85,9 @@ def check_guardrails(question: str) -> GuardrailResult:
     historical = bool(_HISTORICAL_CONTEXT.search(q))
     for pat in _PREDICTIVE_PATTERNS:
         if pat.search(q):
+            if "recommend" in pat.pattern and re.search(r"\bfunds?\b", q, re.I):
+                if not re.search(r"\bshould\s+i\s+(?:buy|sell|hold|invest)\b", q, re.I):
+                    continue
             if historical and "should" not in pat.pattern.lower() and "recommend" not in pat.pattern.lower():
                 continue
             return GuardrailResult("refuse_advice", ADVICE_DISCLAIMER, reason="predictive_or_advice")

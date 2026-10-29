@@ -48,7 +48,7 @@
       max-width: 100%; min-width: 0; overflow: hidden; box-sizing: border-box;
     }
     #insight {
-      max-width: 100%; min-width: 0; overflow-wrap: anywhere; word-break: break-word;
+      max-width: 100%; min-width: 0; overflow-wrap: break-word;
     }
     .answer-box h2 {
       font-size: 1.15rem; margin: 0 0 1rem; font-weight: 700; color: #0f172a;
@@ -115,6 +115,9 @@
       letter-spacing: 0;
     }
     .insight-body h4 { font-size: 0.98rem; margin: 0.9rem 0 0.35rem; color: #1e293b; }
+    .insight-body p { margin: 0.7rem 0; line-height: 1.55; }
+    .insight-body ul { margin: 0.4rem 0 0.9rem; padding-left: 1.25rem; }
+    .insight-body li { margin: 0.28rem 0; }
     .insight-body ol { margin: 0 0 1rem; padding-left: 1.4rem; }
     .insight-body ol li { margin-bottom: 0.55rem; }
     .insight-headline {
@@ -158,6 +161,7 @@
       text-align: right;
       white-space: nowrap;
       max-width: none;
+      font-variant-numeric: tabular-nums;
     }
     .insight-body table.insight-table tr:last-child td { border-bottom: none; }
     .fund-rankings-block {
@@ -360,6 +364,18 @@
     .timeline-chip.running { border-color: #3b82f6; background: #eff6ff; color: #1d4ed8; font-weight: 600; }
     .timeline-chip.done { border-color: #10b981; background: #ecfdf5; color: #065f46; }
     .timeline-chip.error { border-color: #ef4444; background: #fef2f2; color: #991b1b; }
+    .thread { display: flex; flex-direction: column; gap: 0.75rem; margin: 1rem 0 1rem; }
+    .bubble { border-radius: 12px; padding: 0.85rem 1rem; }
+    .bubble.user { background: #eff6ff; border: 1px solid #bfdbfe; margin-left: 2.5rem; }
+    .bubble.assistant { background: #fff; border: 1px solid #e2e8f0; margin-right: 1.5rem; }
+    .bubble .usage { margin-top: 0.75rem; font-size: 0.8rem; color: #475569; }
+    .bubble .usage table { width: 100%; border-collapse: collapse; }
+    .bubble .usage th, .bubble .usage td { text-align: left; padding: 0.15rem 0.35rem; border-bottom: 1px solid #e2e8f0; }
+    .sources-link a { color: #1d4ed8; display: inline-block; margin-right: 0.9rem; }
+    .composer-bar { position: sticky; bottom: 0; background: #f8fafc; padding: 0.5rem 0 0.25rem; }
+    .chat-actions { display: flex; gap: 0.5rem; align-items: center; }
+    button.secondary { background: #e2e8f0; color: #0f172a; }
+    body { padding-bottom: 1.5rem; }
   </style>
 </head>
 <body>
@@ -374,13 +390,7 @@
   <h1>News Insight</h1>
   <p class="sub">Ask questions about Indian stocks, sectors, and macroeconomic developments. Answers are synthesized from your verified news store.</p>
 
-  <div class="search-card">
-    <form id="form">
-      <label for="question">Your Question</label>
-      <textarea id="question" name="question" placeholder="e.g. What's happening in the automobile sector over the last week?" required></textarea>
-      <button type="submit" id="submit">Get Insight</button>
-    </form>
-  </div>
+  <div id="thread" class="thread"></div>
 
   <div id="timeline" class="timeline-container hidden">
     <strong>Execution Timeline:</strong>
@@ -392,19 +402,16 @@
   <p id="status" class="meta hidden" style="margin-top:1rem;padding:0.75rem 1rem;background:#eff6ff;border-radius:8px;border:1px solid #bfdbfe;"></p>
   <p id="error" class="err hidden"></p>
 
-  <div id="result" class="hidden">
-    <div class="answer-box">
-      <h2>💡 Summary Insight</h2>
-      <div id="insight"></div>
-      <div id="fundRankings" class="fund-rankings-block hidden" aria-label="Fund rankings table"></div>
-      <div id="fundManagers" class="fund-managers-block hidden" aria-label="Fund managers"></div>
-      <p class="meta" id="meta"></p>
-      <div id="usage" class="usage hidden"></div>
-      <p class="meta-log hidden" id="debugLog"></p>
-    </div>
-    <div class="sources">
-      <h2>📰 Related Source Articles</h2>
-      <div id="sources"></div>
+  <div class="composer-bar">
+    <div class="search-card">
+      <form id="form">
+        <label for="question">Your Question</label>
+        <textarea id="question" name="question" placeholder="e.g. What's happening in the automobile sector over the last week?" required></textarea>
+        <div class="chat-actions">
+          <button type="submit" id="submit">Send</button>
+          <button type="button" id="newChat" class="secondary">New chat</button>
+        </div>
+      </form>
     </div>
   </div>
 
@@ -412,22 +419,63 @@
     const form = document.getElementById("form");
     const submit = document.getElementById("submit");
     const errorEl = document.getElementById("error");
-    const resultEl = document.getElementById("result");
-    const insightEl = document.getElementById("insight");
-    const fundRankingsEl = document.getElementById("fundRankings");
-    const fundManagersEl = document.getElementById("fundManagers");
-    const metaEl = document.getElementById("meta");
-    const usageEl = document.getElementById("usage");
-    const debugLogEl = document.getElementById("debugLog");
-    const sourcesEl = document.getElementById("sources");
+    const threadEl = document.getElementById("thread");
     const statusEl = document.getElementById("status");
     const timelineEl = document.getElementById("timeline");
     const timelineStepsEl = document.getElementById("timelineSteps");
     const ribbonEl = document.getElementById("ribbon");
+    let resultEl = null;
+    let insightEl = null;
+    let fundRankingsEl = null;
+    let fundManagersEl = null;
+    let metaEl = null;
+    let usageEl = null;
+    let debugLogEl = null;
+    let sourcesEl = null;
 
     let conversationId = sessionStorage.getItem("rag_conversation_id") || ("conv_" + Math.random().toString(36).substring(2, 9));
     sessionStorage.setItem("rag_conversation_id", conversationId);
-    let priorTurns = [];
+    let askedAt = 0;
+
+    function secondsSinceClick() {
+      if (!askedAt) return null;
+      return ((performance.now() - askedAt) / 1000).toFixed(1);
+    }
+
+    function conversationTokensForStage(stage, memoryTokens) {
+      const tokens = memoryTokens || {};
+      if (stage === "plan") return tokens.planner || 0;
+      if (stage === "compose" || stage === "composer") return tokens.composer || 0;
+      return 0;
+    }
+
+    function beginBubble(question) {
+      const user = document.createElement("div");
+      user.className = "bubble user";
+      user.textContent = question;
+      threadEl.appendChild(user);
+      const bot = document.createElement("div");
+      bot.className = "bubble assistant";
+      bot.innerHTML = '<div class="insight"></div><div class="fund-rankings-block hidden"></div><div class="fund-managers-block hidden"></div><p class="meta"></p><div class="usage"></div><p class="sources-link"></p><p class="meta-log hidden"></p>';
+      threadEl.appendChild(bot);
+      resultEl = bot;
+      insightEl = bot.querySelector(".insight");
+      fundRankingsEl = bot.querySelector(".fund-rankings-block");
+      fundManagersEl = bot.querySelector(".fund-managers-block");
+      metaEl = bot.querySelector(".meta");
+      usageEl = bot.querySelector(".usage");
+      sourcesEl = bot.querySelector(".sources-link");
+      debugLogEl = bot.querySelector(".meta-log");
+      bot.scrollIntoView({ block: "nearest" });
+    }
+
+    document.getElementById("newChat").addEventListener("click", () => {
+      conversationId = "conv_" + Math.random().toString(36).substring(2, 9);
+      sessionStorage.setItem("rag_conversation_id", conversationId);
+      threadEl.innerHTML = "";
+      document.getElementById("question").value = "";
+      resultEl = null;
+    });
 
     function resetTimeline() {
       if (timelineStepsEl) timelineStepsEl.innerHTML = "";
@@ -527,7 +575,6 @@
     function normalizeMarkdown(text) {
       let t = String(text || "").replace(/\r\n/g, "\n");
       t = t.replace(/[ \t]+(#{1,4}\s+)/g, "\n\n$1");
-      t = t.replace(/[ \t]+(\d+[.)]\s+)/g, "\n$1");
       t = t.replace(/[ \t]+([*•]\s+)/g, "\n$1");
       return t;
     }
@@ -554,41 +601,37 @@
       const table = document.createElement("table");
       table.className = "insight-table";
       const body = document.createElement("tbody");
-      let headerDone = false;
-      let columnCount = 0;
-      let headerLabels = [];
+      const parsed = [];
       for (const row of rows) {
         let cells = row.replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
         if (cells.every((c) => /^:?-+:?$/.test(c))) continue;
-        if (!headerDone) {
-          columnCount = cells.length;
-          headerLabels = cells.map((c) => c.toLowerCase());
-        } else if (columnCount > 0) {
-          while (cells.length < columnCount) cells.push("-");
-          if (cells.length > columnCount) cells = cells.slice(0, columnCount);
+        parsed.push(cells);
+      }
+      if (!parsed.length) return wrap;
+      const headerLabels = parsed[0].map((c) => c.toLowerCase());
+      const columnCount = headerLabels.length;
+      const numericCols = headerLabels.map((label, colIdx) => {
+        if (colIdx === 0 || /^(holding|metric|period|stock|name|sector|company|fund)\b/.test(label)) {
+          return false;
         }
+        if (columnHeaderIsNumeric(label)) return true;
+        const samples = parsed.slice(1).map((cells) => cells[colIdx] || "");
+        const numericSamples = samples.filter((cell) => looksNumericCell(cell));
+        return samples.length > 0 && numericSamples.length * 2 >= samples.length;
+      });
+      parsed.forEach((cells, rowIdx) => {
+        while (cells.length < columnCount) cells.push("-");
+        if (cells.length > columnCount) cells = cells.slice(0, columnCount);
         const tr = document.createElement("tr");
-        const isHeader = !headerDone;
-        const tag = isHeader ? "th" : "td";
-        const numericRow = !isHeader && looksNumericRowLabel(cells[0] || "");
-        headerDone = true;
+        const tag = rowIdx === 0 ? "th" : "td";
         cells.forEach((cell, colIdx) => {
           const el = document.createElement(tag);
-          const label = headerLabels[colIdx] || "";
-          const labelCol =
-            colIdx === 0 ||
-            /^(holding|metric|period|stock|name|sector|company)\b/.test(label);
-          const numericCol =
-            !labelCol &&
-            (looksNumericCell(cell) ||
-              columnHeaderIsNumeric(label) ||
-              numericRow);
-          if (numericCol) el.classList.add("insight-num");
+          if (numericCols[colIdx]) el.classList.add("insight-num");
           el.innerHTML = formatMarkdown(cell);
           tr.appendChild(el);
         });
         body.appendChild(tr);
-      }
+      });
       table.appendChild(body);
       wrap.appendChild(table);
       return wrap;
@@ -943,60 +986,53 @@
     }
 
     function renderUsage(data) {
+      if (!usageEl) return;
       const calls = Array.isArray(data.llm_calls_detail) ? data.llm_calls_detail : [];
-      const runs = (data.research && data.research.tool_runs) || [];
-      const tools = [];
-      for (const row of runs) {
-        const name = row && row.tool;
-        if (name && !tools.includes(name)) tools.push(name);
-      }
-      const input = data.llm_input_tokens;
-      const output = data.llm_output_tokens;
-      if (input == null && output == null && !calls.length && !tools.length) {
-        usageEl.classList.add("hidden");
-        usageEl.innerHTML = "";
-        return;
-      }
-      usageEl.classList.remove("hidden");
+      const rows = calls.filter((call) => {
+        const stage = String(call.stage || "");
+        return stage === "plan" || stage === "compose" || stage === "composer";
+      });
+      const clickSec = secondsSinceClick();
+      const wall = data.telemetry && data.telemetry.wall_ms;
+      const totalSec = clickSec != null ? clickSec : (wall != null ? (Number(wall) / 1000).toFixed(1) : "—");
       usageEl.innerHTML = "";
-      const title = document.createElement("h3");
-      title.textContent = "This answer";
-      usageEl.appendChild(title);
       const totals = document.createElement("p");
       totals.className = "card-meta";
-      const n = data.llm_calls != null ? data.llm_calls : calls.length;
-      const cached = data.cached_input_tokens || (data.telemetry && data.telemetry.cached_input_tokens) || 0;
-      const cacheNote = cached > 0 ? ` · prompt cache: ${cached} tokens (Hit ⚡)` : ` · prompt cache: miss`;
-      totals.textContent =
-        `${n} LLM call${n === 1 ? "" : "s"} · input tokens ${input ?? "—"} · output tokens ${output ?? "—"}${cacheNote}`;
+      totals.textContent = "Total " + totalSec + "s from click to full answer";
       usageEl.appendChild(totals);
-      const toolLine = document.createElement("p");
-      toolLine.className = "card-meta";
-      toolLine.textContent = tools.length ? "Tools: " + tools.join(", ") : "Tools: none";
-      usageEl.appendChild(toolLine);
-      if (!calls.length) return;
-      const scroll = document.createElement("div");
-      scroll.className = "usage-table-scroll";
+      const memoryTokens = data.memory_tokens || {};
+      const memoryLine = document.createElement("p");
+      memoryLine.className = "card-meta";
+      const plannerTokens = memoryTokens.planner || 0;
+      const composerTokens = memoryTokens.composer || 0;
+      memoryLine.textContent =
+        "Conversation memory: ~" + plannerTokens + " tokens to the planner, ~" +
+        composerTokens + " tokens to the composer";
+      usageEl.appendChild(memoryLine);
+      if (!rows.length) return;
       const table = document.createElement("table");
       const head = document.createElement("tr");
-      for (const label of ["#", "Stage", "Model", "Input", "Output", "Cache", "Seconds"]) {
+      for (const label of ["Stage", "Model", "Input", "Output", "Cache", "Conversation", "Seconds"]) {
         const th = document.createElement("th");
         th.textContent = label;
         head.appendChild(th);
       }
       table.appendChild(head);
-      for (const call of calls) {
+      for (const call of rows) {
         const tr = document.createElement("tr");
+        const stage = String(call.stage || "");
+        const stageLabel = stage === "plan" ? "Plan" : "Composer";
         const cacheCell = call.cached_tokens
-          ? `⚡ ${call.cached_tokens}`
-          : (call.cache_creation_tokens ? `created ${call.cache_creation_tokens}` : "—");
+          ? String(call.cached_tokens)
+          : "0";
+        const memoryCell = "~" + conversationTokensForStage(stage, memoryTokens);
         for (const value of [
-          call.call_index,
-          call.stage || "",
+          stageLabel,
           call.model || "",
           call.input_tokens,
           call.output_tokens,
           cacheCell,
+          memoryCell,
           call.duration_sec,
         ]) {
           const td = document.createElement("td");
@@ -1005,8 +1041,7 @@
         }
         table.appendChild(tr);
       }
-      scroll.appendChild(table);
-      usageEl.appendChild(scroll);
+      usageEl.appendChild(table);
     }
 
     function fmtPct(v) {
@@ -1326,7 +1361,7 @@
     }
 
     function handleFinalData(data) {
-      resultEl.classList.remove("hidden");
+      if (resultEl) resultEl.classList.remove("hidden");
       showPipelineIssues(data);
 
       const insightText = (data.insight || data.answer || "").trim();
@@ -1345,12 +1380,18 @@
         );
       }
       let insightForDisplay = insightText;
+      const proseCoversManagers = /fund manager/i.test(insightText);
       if (hasRankings) insightForDisplay = stripMarkdownTables(insightForDisplay);
-      if (hasManagers) insightForDisplay = managerInsightIntro(insightForDisplay);
+      if (hasManagers && !proseCoversManagers) insightForDisplay = managerInsightIntro(insightForDisplay);
       const displayData = { ...data, insight: insightForDisplay };
       renderInsight(insightEl, displayData, insightForDisplay);
       renderFundRankings(fundRankingsEl, data.fund_rankings, data.fund_return_window);
-      renderFundManagers(fundManagersEl, data.fund_managers);
+      if (proseCoversManagers) {
+        fundManagersEl.classList.add("hidden");
+        fundManagersEl.innerHTML = "";
+      } else {
+        renderFundManagers(fundManagersEl, data.fund_managers);
+      }
 
       const sourceLabel = providerLabel(data);
       const scorePart =
@@ -1373,56 +1414,36 @@
         debugLogEl.classList.add("hidden");
       }
 
-      sourcesEl.innerHTML = "";
-      const srcList = data.sources || [];
-      if (!srcList.length) {
-        const empty = document.createElement("p");
-        empty.className = "card-meta";
-        empty.textContent =
-          data.outcome === "no_data"
-            ? "No matching articles were retrieved from our news index for this question (check date range and Qdrant data)."
-            : "No source articles were attached to this answer.";
-        sourcesEl.appendChild(empty);
-      }
-      for (const row of srcList) {
-        const div = document.createElement("div");
-        div.className = "card";
-        const titleText = row.title || row.url || "Article";
-        if (row.url) {
+      if (sourcesEl) {
+        sourcesEl.innerHTML = "";
+        const links = [];
+        if (data.memory_passed_href) links.push([data.memory_passed_href, "Memory sent to the LLM"]);
+        if (data.memory_stored_href) links.push([data.memory_stored_href, "Memory after this answer"]);
+        if (data.sources_href) links.push([data.sources_href, "Source articles"]);
+        for (const pair of links) {
           const link = document.createElement("a");
-          link.href = row.url;
-          link.target = "_blank";
-          link.rel = "noopener";
-          link.textContent = titleText;
-          div.appendChild(link);
-        } else {
-          const span = document.createElement("span");
-          span.textContent = titleText;
-          div.appendChild(span);
+          link.href = ragUrl(pair[0]);
+          link.textContent = pair[1];
+          sourcesEl.appendChild(link);
         }
-        const line = document.createElement("div");
-        line.className = "card-meta";
-        const pub = row.published_at ? row.published_at.slice(0, 10) : "";
-        line.textContent = [row.source, pub].filter(Boolean).join(" · ");
-        div.appendChild(line);
-        sourcesEl.appendChild(div);
       }
-      resultEl.classList.remove("hidden");
+      if (resultEl) resultEl.classList.remove("hidden");
     }
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
+      askedAt = performance.now();
       errorEl.classList.add("hidden");
-      resultEl.classList.add("hidden");
       submit.disabled = true;
-      submit.textContent = "Synthesizing Insight...";
+      submit.textContent = "Sending...";
       resetTimeline();
 
       const q = document.getElementById("question").value.trim();
+      beginBubble(q);
+      document.getElementById("question").value = "";
       const body = {
         question: q,
         conversation_id: conversationId,
-        prior_turns: priorTurns.slice(-4),
       };
 
       let streamedText = "";
@@ -1496,8 +1517,6 @@
             } else if (eventType === "done") {
               gotDoneEvent = true;
               handleFinalData(data);
-              if (data.telemetry) renderRibbon(data.telemetry);
-              priorTurns.push({ question: q, answer: data.insight || streamedText });
             } else if (eventType === "request_failed" || eventType === "error") {
               throw new Error(data.error || data.message || "Request failed");
             }
@@ -1519,14 +1538,13 @@
           const syncData = await parseRagJsonResponse(syncRes);
           if (!syncRes.ok) throw new Error(syncData.detail || syncRes.statusText);
           handleFinalData(syncData);
-          if (syncData.telemetry) renderRibbon(syncData.telemetry);
         } catch (err) {
           errorEl.textContent = err.message || String(err);
           errorEl.classList.remove("hidden");
         }
       } finally {
         submit.disabled = false;
-        submit.textContent = "Get Insight";
+        submit.textContent = "Send";
       }
     });
   </script>

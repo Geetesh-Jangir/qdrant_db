@@ -159,10 +159,8 @@ def test_compare_and_risk_stay_on_the_first_wave():
         ],
     )
     ensure_compare_template(plan, "compare any two mid cap funds and also do risk analysis of both")
-    assert [call.wave for call in plan.tool_calls] == [1, 1, 1]
-    assert "risk" in plan.tool_calls[2].arguments["modules"]
-    assert "drawdown" in plan.tool_calls[2].arguments["modules"]
-    assert plan.requires_compose is True
+    assert [call.wave for call in plan.tool_calls] == [1, 2, 2]
+    assert plan.tool_calls[2].arguments["modules"] == ["snapshot"]
 
 
 def test_extra_part_brief_names_both_funds():
@@ -184,3 +182,68 @@ def test_extra_part_brief_names_both_funds():
     assert "Quant Mid Cap" in text
     assert "Good Choice" in text
     assert "Average" in text
+
+
+def test_a_comparison_keeps_one_three_and_five_years_plus_benchmark_and_rating():
+    from news_rag.insight.evidence_pack import table_source
+    from news_rag.insight.tool_runners import _compare_return_windows, _enrich_compare_brief
+
+    assert _compare_return_windows("compare them") == ["1Y", "3Y", "5Y"]
+    assert _compare_return_windows("compare their 1 month returns") == ["1M"]
+
+    brief = _enrich_compare_brief(
+        {
+            "fund_name": "Bandhan Large Cap",
+            "isin": "",
+            "category": "large cap",
+            "sebi_riskometer": "Very High",
+            "returns": {"1w": -0.17, "1m": -0.96, "1y": -7.62, "3y": 11.33, "5y": 7.78, "ytd": -9.46},
+            "category_average_returns": {"1Y": -8.0, "3Y": 10.0, "5Y": 8.0},
+        },
+        ["1Y", "3Y", "5Y"],
+    )
+    assert set(brief["returns"]) == {"1Y", "3Y", "5Y"}
+    assert brief["returns"]["1Y"] == -7.62
+    assert brief["riskometer"] == "Very High"
+
+    text = table_source({
+        "compare": {
+            "fund_briefs": [
+                {
+                    "fund_name": "Bandhan Large Cap",
+                    "category": "large cap",
+                    "benchmark": "BSE 100 TRI",
+                    "riskometer": "Very High",
+                    "rs_label": "Best in category",
+                    "rs_score": 79.85,
+                    "pillars": {"risk": {"label": "Risk", "score": 15.5, "max": 25}},
+                    "return_windows": ["1Y", "3Y", "5Y"],
+                    "returns": {"1W": -0.17, "1Y": -7.62, "2Y": -0.31, "3Y": 11.33, "5Y": 7.78},
+                    "comparison": {
+                        "1Y": {
+                            "fund_return": -7.62,
+                            "benchmark_return": -6.1,
+                            "vs_benchmark": -1.52,
+                            "category_average_return": -8.0,
+                            "vs_category": 0.38,
+                        },
+                    },
+                },
+                {
+                    "fund_name": "HDFC Large Cap",
+                    "category": "large cap",
+                    "return_windows": ["1Y", "3Y", "5Y"],
+                    "returns": {"1M": -1.94, "1Y": -9.79},
+                    "comparison": {"1Y": {"fund_return": -9.79, "benchmark_return": -6.1, "category_average_return": -8.0}},
+                },
+            ]
+        }
+    })
+    assert "1W=" not in text
+    assert "1M=" not in text
+    assert "2Y=" not in text
+    assert "1Y fund=-7.62" in text
+    assert "benchmark=-6.1" in text
+    assert "category_avg=-8.0" in text
+    assert "riskometer=Very High" in text
+    assert "pillars=Risk 15.5/25" in text

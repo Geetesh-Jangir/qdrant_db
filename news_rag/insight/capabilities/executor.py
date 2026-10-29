@@ -31,8 +31,15 @@ def _capability_cache_key(
         top_n = int(args.get("top_n") or 3)
         find = str(args.get("find") or "").strip()
         return f"{fund_name}|sections={sections}|top_n={top_n}|find={find}"
+    if tool == "screen_funds_by_exposure":
+        question = " ".join(str(ctx.get("question") or args.get("focus_question") or "").lower().split())[:180]
+        return (
+            f"screen|q={question}|w={args.get('return_window')}|n={args.get('top_n')}|"
+            f"rating={bool(args.get('rating_screen'))}|sector={args.get('sector') or ''}"
+        )
     modules = ",".join(args.get("modules") or [])
-    key = f"{fund_name}|{modules}"
+    windows = ",".join(str(item) for item in (args.get("windows") or []))
+    key = f"{fund_name}|{modules}|w={windows}"
     if "managers" in (args.get("modules") or []):
         from news_rag.insight.manager_view import infer_manager_roster_focus
 
@@ -64,7 +71,7 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
             **ctx,
             "fund_name": fund_name,
             "fund_names": [fund_name],
-            "windows": args.get("windows") or ["1W", "1M", "3M", "6M", "1Y"],
+            "windows": args.get("windows") or ["1M"],
         }
         snap = run_fund_snapshot(snap_ctx)
         if snap.get("ok"):
@@ -88,21 +95,29 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
         if attr.get("ok"):
             results["attribution"] = attr.get("data", {})
 
-    if "snapshot" in modules or "vs_benchmark" in modules:
+    if "vs_benchmark" in modules or "rating" in modules or results.keys() - {"fund_name"}:
         from news_rag.fund_search import resolve_fund_for_query
-        from news_rag.fund_rupeestop_metrics import (
-            fetch_vs_benchmark,
-            merge_fund_insight_metrics,
-        )
 
         detail, _amb, _close = resolve_fund_for_query(fund_name)
         isin = str((detail or {}).get("isin") or "").strip()
-        vs = fetch_vs_benchmark(isin) if isin else None
-        insights = merge_fund_insight_metrics(detail, vs_benchmark=vs)
-        if insights:
-            results["fund_insights"] = insights
+        if "vs_benchmark" in modules and isin:
+            from news_rag.fund_rupeestop_metrics import (
+                fetch_vs_benchmark,
+                merge_fund_insight_metrics,
+            )
+
+            vs = fetch_vs_benchmark(isin)
+            insights = merge_fund_insight_metrics(detail, vs_benchmark=vs)
+            if insights:
+                results["fund_insights"] = insights
             if vs:
                 results["vs_benchmark"] = vs
+        if isin:
+            from news_rag.fund_risk import fetch_public_rating
+
+            rating = fetch_public_rating(isin)
+            if rating:
+                results["rs_rating"] = rating
 
     if "drawdown" in modules:
         from news_rag.fund_drawdown import load_fund_drawdown
@@ -209,6 +224,8 @@ def _portfolio_for_fund_news(ctx: dict[str, Any]) -> tuple[list[dict[str, Any]],
 
 
 def _group_layered_articles(articles: list[dict[str, Any]]) -> dict[str, dict[str, list[dict[str, str]]]]:
+    from news_rag.snippet_clean import article_body_for_llm
+
     layer_map = {"holding": "holdings", "sector": "sectors", "macro": "macro"}
     grouped: dict[str, dict[str, list[dict[str, str]]]] = {}
     for row in articles:
@@ -217,7 +234,9 @@ def _group_layered_articles(articles: list[dict[str, Any]]) -> dict[str, dict[st
         scope = layer_map.get(str(row.get("_news_layer") or ""), "macro")
         entity = str(row.get("_news_source_label") or row.get("source") or "general").strip()
         title = str(row.get("title") or "").strip()
-        text = str(row.get("text") or row.get("summary") or "")[:900]
+        text = article_body_for_llm(row, limit=500)
+        if not text:
+            text = str(row.get("text") or row.get("summary") or "")[:500]
         grouped.setdefault(scope, {}).setdefault(entity, []).append(
             {
                 "title": title,
@@ -615,6 +634,101 @@ _RUNNERS = {
 }
 
 
+def _conversation_id(ctx: dict[str, Any] | None) -> str:
+    return str((ctx or {}).get("conversation_id") or "").strip()
+
+
+def _conversation_turn(ctx: dict[str, Any] | None) -> int:
+    try:
+        return int((ctx or {}).get("conversation_turn") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def widen_portfolio_args(question: str, args: dict[str, Any]) -> dict[str, Any]:
+    """'Each holding' is the full list. A named count such as top 5 stays that count."""
+    import re
+
+    q = question or ""
+    if re.search(r"\btop\s+\d+\b|\b\d+\s+(?:holdings?|stocks?|sectors?)\b", q, re.I):
+        return args
+    wants_all = bool(
+        re.search(r"\b(?:each|every|all)\b[\w\s]{0,30}\b(?:holdings?|stocks?|sectors?|weights?)", q, re.I)
+        or re.search(r"\bweight(?:age)?s?\b[\w\s]{0,30}\b(?:each|every|all|holdings?)", q, re.I)
+    )
+    if not wants_all:
+        return args
+    out = dict(args)
+    out["top_n"] = 50
+    return out
+
+
+def _take_conversation_slice(ctx: dict[str, Any] | None, fund: str, tool: str, args: dict[str, Any]) -> Any | None:
+    conv = _conversation_id(ctx)
+    if not conv or not fund:
+        return None
+    from news_rag.insight.memory.evidence import note_cache, recall_slice, recall_wider_portfolio, slice_key
+
+    key = slice_key(fund, tool, args)
+    data = recall_slice(conv, fund, tool, args)
+    if data is None and tool == "get_portfolio_data":
+        data = recall_wider_portfolio(conv, fund, args)
+    if data is None or not _return_slice_covers(tool, args, data):
+        note_cache(conv, "fetched", key)
+        return None
+    note_cache(conv, "hit", key)
+    return data
+
+
+def _return_slice_covers(tool: str, args: dict[str, Any], data: Any) -> bool:
+    """Reuse a cached call only when it already has every section, module, and period asked now."""
+    if not isinstance(data, dict):
+        return False
+    if tool == "get_portfolio_data":
+        sections = [str(item).lower() for item in (args.get("sections") or ["holdings", "sectors"])]
+        for section in sections:
+            rows = data.get(section)
+            if not isinstance(rows, list) or not rows:
+                return False
+        return True
+    if tool != "get_fund_data":
+        return True
+    modules = [str(item).lower() for item in (args.get("modules") or [])]
+    module_keys = {
+        "snapshot": ("snapshot",),
+        "rating": ("rs_rating", "rating"),
+        "risk": ("risk",),
+        "drawdown": ("drawdown",),
+        "managers": ("managers",),
+        "attribution": ("attribution",),
+        "vs_benchmark": ("vs_benchmark",),
+        "return_series": ("return_series",),
+    }
+    for module in modules:
+        keys = module_keys.get(module)
+        if keys and not any(isinstance(data.get(key), (dict, list)) and data.get(key) for key in keys):
+            return False
+    windows = [str(item).upper() for item in (args.get("windows") or []) if str(item).strip()]
+    if not windows:
+        return True
+    snap = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
+    returns = snap.get("returns") if isinstance(snap.get("returns"), dict) else {}
+    limits = snap.get("unavailable_returns") if isinstance(snap.get("unavailable_returns"), list) else []
+    covered = {str(key).upper() for key in returns}
+    covered.update(str(row.get("window") or "").upper() for row in limits if isinstance(row, dict))
+    return all(code in covered for code in windows)
+
+
+def _keep_conversation_slice(ctx: dict[str, Any] | None, fund: str, tool: str, args: dict[str, Any], data: Any, ok: bool) -> None:
+    conv = _conversation_id(ctx)
+    if not conv or not fund or not ok:
+        return
+    from news_rag.insight.memory.evidence import beside_keys, note_cache, remember_slice
+
+    key = remember_slice(conv, fund, tool, args, data, turn=_conversation_turn(ctx))
+    note_cache(conv, "stored", key, beside=beside_keys(conv, key))
+
+
 def execute_capability(
     call: ToolCall,
     *,
@@ -633,6 +747,8 @@ def execute_capability(
         return [{"ok": False, "tool": call.tool, "fund": "", "error": f"unknown_capability:{call.tool}", "data": {}, "elapsed_ms": 0}]
 
     args = validate_capability_args(call.tool, call.arguments)
+    if call.tool == "get_portfolio_data":
+        args = widen_portfolio_args(str((ctx or {}).get("question") or ""), args)
     base_ctx = dict(ctx or {})
     cache = get_capability_cache()
     results: list[dict[str, Any]] = []
@@ -649,9 +765,19 @@ def execute_capability(
         if not target_funds:
             return [{"ok": False, "tool": call.tool, "fund": "", "error": "no_funds_resolved", "data": {}, "elapsed_ms": 0}]
         for name in target_funds:
+            remembered = _take_conversation_slice(base_ctx, name, call.tool, args)
+            if remembered is not None:
+                results.append({
+                    "ok": True, "tool": call.tool, "fund": name, "data": remembered,
+                    "elapsed_ms": 0, "cached": True,
+                })
+                continue
             cache_key = _capability_cache_key(call.tool, name, args, base_ctx)
             cached = cache.get(call.tool, cache_key)
+            if cached is not None and not _return_slice_covers(call.tool, args, cached):
+                cached = None
             if cached is not None:
+                _keep_conversation_slice(base_ctx, name, call.tool, args, cached, True)
                 results.append({"ok": True, "tool": call.tool, "fund": name, "data": cached, "elapsed_ms": 0, "cached": True})
                 continue
             t0 = time.perf_counter()
@@ -665,12 +791,22 @@ def execute_capability(
                    "error": out.get("error", "")}
             if row["ok"]:
                 cache.set(call.tool, cache_key, row["data"])
+                _keep_conversation_slice(base_ctx, name, call.tool, args, row["data"], True)
             results.append(row)
             if telemetry:
                 telemetry.add_tool(call.tool, wave=call.wave, ok=row["ok"],
                                    duration_ms=elapsed, fund=name)
     else:
-        # Non-per-fund capabilities
+        label = call.tool
+        remembered = _take_conversation_slice(base_ctx, label, call.tool, args)
+        if remembered is not None:
+            results.append({
+                "ok": True, "tool": call.tool, "fund": "", "data": remembered,
+                "elapsed_ms": 0, "cached": True,
+            })
+            if telemetry:
+                telemetry.add_tool(call.tool, wave=call.wave, ok=True, duration_ms=0)
+            return results
         if call.tool == "compare_funds":
             t0 = time.perf_counter()
             try:
@@ -689,6 +825,8 @@ def execute_capability(
         row = {"ok": bool(out.get("ok")), "tool": call.tool, "fund": "",
                "data": out.get("data", {}), "elapsed_ms": elapsed,
                "error": out.get("error", "")}
+        if row["ok"]:
+            _keep_conversation_slice(base_ctx, label, call.tool, args, row["data"], True)
         results.append(row)
         if telemetry:
             telemetry.add_tool(call.tool, wave=call.wave, ok=row["ok"], duration_ms=elapsed)

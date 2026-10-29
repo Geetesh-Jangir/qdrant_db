@@ -24,6 +24,7 @@ def test_parse_plan_drops_unknown_tools_and_clamps_values():
     assert plan.window_days == 1825
     assert plan.random_fund_count == 10
     assert plan.max_words == 30
+    assert plan.requires_compose is True
 
 
 def test_a_nav_lookup_plans_no_news_facets():
@@ -79,6 +80,7 @@ def test_lookup_route_skips_news_and_sends_no_identifiers_to_the_writer(monkeypa
         style="short_answer",
         max_words=60,
     )
+    monkeypatch.setattr(graph_mod, "make_plan", lambda *a, **k: None)
     monkeypatch.setattr(graph_mod, "slot_route", lambda *a, **k: plan)
     monkeypatch.setattr(graph_mod, "_resolve_funds", lambda *a, **k: (["Fund A"], []))
 
@@ -97,6 +99,7 @@ def test_lookup_route_skips_news_and_sends_no_identifiers_to_the_writer(monkeypa
 
 def test_unmatched_fund_replies_without_calling_tools(monkeypatch):
     plan = Plan(funds=["Nonexistent Fund"], tool_calls=[ToolCall(tool="get_fund_data", why="")])
+    monkeypatch.setattr(graph_mod, "make_plan", lambda *a, **k: None)
     monkeypatch.setattr(graph_mod, "slot_route", lambda *a, **k: plan)
     monkeypatch.setattr(graph_mod, "_resolve_funds", lambda *a, **k: ([], ["Nonexistent Fund"]))
     state = graph_mod.run_graph(_state())

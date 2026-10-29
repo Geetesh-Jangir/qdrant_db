@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Conversation memory</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; background: #f8fafc; }
+    body { max-width: 800px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .nav { display: flex; gap: 1rem; font-size: 0.9rem; margin-bottom: 1.5rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; }
+    .nav a { color: #2563eb; text-decoration: none; font-weight: 500; }
+    h1 { font-size: 1.4rem; margin: 0 0 0.5rem; }
+    .meta { color: #475569; font-size: 0.92rem; line-height: 1.5; }
+    pre { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; overflow-x: auto; font-size: 0.85rem; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href=".">Ask a Question</a>
+    <a href="fund">Fund News Brief</a>
+    <a href="fund-search">Fund Search & Explorer</a>
+    <a href="backfill">Historical backfill</a>
+  </div>
+  <h1 id="title">Conversation memory</h1>
+  <p id="status" class="meta">Loading…</p>
+  <pre id="json"></pre>
+  <script src="static/rag-api.js?v=4"></script>
+  <script>
+    const passedPage = window.location.pathname.indexOf("memory-passed") !== -1;
+    const params = new URLSearchParams(window.location.search);
+    const queryId = params.get("query_id") || "";
+    const titleEl = document.getElementById("title");
+    const statusEl = document.getElementById("status");
+    const jsonEl = document.getElementById("json");
+    titleEl.textContent = passedPage ? "Memory sent to the LLM" : "Memory after this answer";
+
+    function show(text) {
+      jsonEl.textContent = text;
+    }
+
+    if (!queryId) {
+      statusEl.textContent = "This page needs a query id.";
+      show("");
+    } else {
+      fetch(ragUrl("api/ask/memory/" + encodeURIComponent(queryId)))
+        .then((response) => parseRagJsonResponse(response))
+        .then((data) => {
+          if (!data || (!data.passed && !data.stored)) {
+            statusEl.textContent = "No memory record is stored for this answer.";
+            show("");
+            return;
+          }
+          if (passedPage) {
+            const passed = data.passed || {};
+            const tokens = passed.token_estimate || {};
+            const sent = Array.isArray(passed.sent_to) ? passed.sent_to : [];
+            const who = sent.length ? sent.join(" and ") : "neither model";
+            statusEl.textContent =
+              "Estimated memory JSON: ~" + (tokens.planner || 0) + " tokens to the planner, ~" +
+              (tokens.composer || 0) + " tokens to the composer. Sent to " + who +
+              ". This is only the memory JSON, not the full prompt. The model reads it and does not write the stored memory.";
+            show(JSON.stringify(passed.memory || {}, null, 2));
+            return;
+          }
+          const stored = data.stored || {};
+          statusEl.textContent =
+            "Python wrote this after the answer, from the tool result and the planner's pointers. The LLM does not change this JSON.";
+          show(JSON.stringify(stored.memory || {}, null, 2));
+        })
+        .catch((err) => {
+          statusEl.textContent = err.message || String(err);
+          show("");
+        });
+    }
+  </script>
+</body>
+</html>

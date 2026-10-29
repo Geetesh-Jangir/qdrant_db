@@ -13,7 +13,7 @@ import re
 import threading
 import time
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable
 from urllib.parse import quote
 
@@ -66,6 +66,21 @@ _ABOVE_RE = re.compile(
 )
 _LIST_RE = re.compile(r"\bfunds?\b", re.I)
 _RANK_WORD_RE = re.compile(r"\b(?:highest|best|top|lowest|worst|random)\b", re.I)
+_BUY_RE = re.compile(r"\bshould\s+i\s+(?:buy|sell|hold|invest)\b", re.I)
+_SUGGEST_RE = re.compile(
+    r"\b(?:recommend(?:ed|ation)?|suggest(?:ion|ed)?)\b|\bgood\s+funds?\b|\brandom\s+funds?\b",
+    re.I,
+)
+_PERFORM_RE = re.compile(
+    r"\b(?:perform(?:ing|ed|s)?|doing)\b.{0,40}\b(?:well|poorly|badly|worse|worst|better)\b|"
+    r"\b(?:well|poorly|badly)\b.{0,24}\bperform",
+    re.I,
+)
+_POOR_RE = re.compile(r"\b(?:poorly|badly|worse|worst)\b", re.I)
+_POSITIVE_RETURN_RE = re.compile(
+    r"\bpositive\s+returns?\b|\bshowing\s+(?:a\s+)?positive\b|\bperforming\s+positive\b|\bpositive\b",
+    re.I,
+)
 
 
 def _looks_like_fund_list(question: str) -> bool:
@@ -93,6 +108,8 @@ class RatingScreenSpec:
     compare_category: bool
     random_sample: bool
     amc: str
+    suggestion: str = ""
+    label_fallback: str = ""
 
     @property
     def walks(self) -> bool:
@@ -153,11 +170,74 @@ def _label_in(question: str) -> str:
     return ""
 
 
+def _suggestion_spec(question: str) -> RatingScreenSpec | None:
+    """A good, recommended, or random fund, or a fund that did well or poorly over a period."""
+    q = question or ""
+    if _BUY_RE.search(q) or not _LIST_RE.search(q):
+        return None
+    window = _return_window(q)
+    wants_positive = bool(_POSITIVE_RETURN_RE.search(q))
+    wants_period = bool(_PERFORM_RE.search(q) or wants_positive or _POOR_RE.search(q))
+    if wants_period and window:
+        match = match_scheme_category(q)
+        named = bool(match and match.locked and match.category)
+        if wants_positive:
+            direction = "positive"
+        elif _POOR_RE.search(q):
+            direction = "lowest"
+        else:
+            direction = "highest"
+        search_one = named or direction != "positive"
+        return RatingScreenSpec(
+            count=1,
+            fund_type=(match.fund_type if match and match.fund_type else "equity"),
+            category=match.category if named else ("large cap" if search_one else ""),
+            locked=search_one,
+            label="",
+            min_score=None,
+            highest_score=False,
+            return_window=window,
+            return_direction=direction,
+            compare_category=False,
+            random_sample=False,
+            amc="",
+            suggestion="period",
+            label_fallback="Recommended",
+        )
+    if explicit_fund_count(q) and window:
+        return None
+    if not _SUGGEST_RE.search(q):
+        return None
+    match = match_scheme_category(q)
+    named_label = _label_in(q)
+    count = explicit_fund_count(q) or 1
+    locked = bool(match and match.locked and match.category)
+    return RatingScreenSpec(
+        count=count,
+        fund_type=(match.fund_type if match and match.fund_type else "equity"),
+        category=match.category if locked else "",
+        locked=locked,
+        label=named_label or "Best in category",
+        min_score=None,
+        highest_score=not locked,
+        return_window="",
+        return_direction="",
+        compare_category=False,
+        random_sample=bool(re.search(r"\brandom\b", q, re.I)),
+        amc="",
+        suggestion="rated",
+        label_fallback="" if named_label else "Recommended",
+    )
+
+
 def parse_rating_screen(question: str) -> RatingScreenSpec | None:
     """A category rating list, or None when the catalog should answer."""
     q = question or ""
     if asks_taxonomy(q):
         return None
+    suggested = _suggestion_spec(q)
+    if suggested is not None:
+        return suggested
     if not _looks_like_fund_list(q):
         return None
     from news_rag.tools import asks_funds_with_sector_exposure
@@ -186,6 +266,8 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
     if not fund_type:
         fund_type = "equity"
     count = explicit_fund_count(q)
+    if count is None and re.search(r"\ba\s+fund\b", q, re.I) and not re.search(r"\bfunds\b", q, re.I):
+        count = 1
     if count is None:
         count = 1 if (highest_score or direction in {"highest", "lowest"}) else 5
     return RatingScreenSpec(
@@ -238,6 +320,11 @@ def _public_row(raw: dict[str, Any], *, fund_type: str, category: str) -> dict[s
             row[f"category_avg_{field}_pct"] = round(float(inputs.get(key)), 2)
         except (TypeError, ValueError):
             pass
+    from news_rag.fund_risk import _public_pillars
+
+    pillars = _public_pillars(raw.get("pillars"))
+    if pillars:
+        row["pillars"] = pillars
     return row
 
 
@@ -371,6 +458,24 @@ def run_rating_list(
         return {"success": False, "rankings": [], "ranking_note": ""}
     loader = fetch or fetch_category_ratings
     pricer = price or _price
+    if spec.suggestion == "period":
+        return _run_period_peer(spec, question, loader, pricer)
+    result = _execute_rating_list(spec, question, loader, pricer)
+    if result["rankings"] or not spec.label_fallback:
+        return result
+    fallback = replace(spec, label=spec.label_fallback, label_fallback="")
+    result = _execute_rating_list(fallback, question, loader, pricer)
+    note = "No Best in category fund was available, so this is a Recommended fund."
+    result["ranking_note"] = f"{result['ranking_note']} {note}".strip()
+    return result
+
+
+def _execute_rating_list(
+    spec: RatingScreenSpec,
+    question: str,
+    loader: Callable[[str, str], dict[str, Any]],
+    pricer: Callable[[list[dict[str, Any]], str], list[dict[str, Any]]],
+) -> dict[str, Any]:
     if spec.locked:
         names = [spec.category] if spec.category else []
     elif spec.walks:
@@ -505,6 +610,156 @@ def _note(spec: RatingScreenSpec, found: int) -> str:
             "Category avg is that category's average. vs category is the difference."
         )
     return " ".join(parts)
+
+
+def rating_is_stronger(rated_score: Any, other_score: Any) -> bool:
+    """The rated fund is the stronger rating only when its score is higher."""
+    try:
+        return float(rated_score) > float(other_score)
+    except (TypeError, ValueError):
+        return False
+
+
+def _period_value(row: dict[str, Any], window: str) -> float | None:
+    if row.get("_return") is not None:
+        try:
+            return float(row["_return"])
+        except (TypeError, ValueError):
+            return None
+    trail = row.get(f"_trail_{window}")
+    if trail is not None:
+        try:
+            return float(trail)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _best_label(rows: list[dict[str, Any]], label: str) -> dict[str, Any] | None:
+    matching = [row for row in rows if str(row.get("rs_label") or "") == label and row.get("final_score") is not None]
+    if not matching:
+        return None
+    return max(matching, key=lambda row: float(row.get("final_score") or -1))
+
+
+def _higher_pillars(rated: dict[str, Any], other: dict[str, Any]) -> list[str]:
+    rated_pillars = rated.get("pillars") if isinstance(rated.get("pillars"), dict) else {}
+    other_pillars = other.get("pillars") if isinstance(other.get("pillars"), dict) else {}
+    names: list[str] = []
+    for pillar in rated_pillars.values():
+        if not isinstance(pillar, dict) or pillar.get("score") is None:
+            continue
+        label = str(pillar.get("label") or "")
+        other_score = None
+        for candidate in other_pillars.values():
+            if isinstance(candidate, dict) and str(candidate.get("label") or "") == label:
+                other_score = candidate.get("score")
+                break
+        if other_score is None:
+            continue
+        try:
+            if float(pillar["score"]) > float(other_score):
+                names.append(label)
+        except (TypeError, ValueError):
+            continue
+    return names
+
+
+def _run_period_peer(
+    spec: RatingScreenSpec,
+    question: str,
+    loader: Callable[[str, str], dict[str, Any]],
+    pricer: Callable[[list[dict[str, Any]], str], list[dict[str, Any]]],
+) -> dict[str, Any]:
+    """The period's performer, then the top-rated fund in that same category."""
+    window = spec.return_window
+    if spec.locked and spec.category:
+        names = [spec.category]
+    else:
+        names = list(categories_for(spec.fund_type))
+    called: list[str] = []
+    performer: dict[str, Any] | None = None
+    rated: dict[str, Any] | None = None
+    category = ""
+    for category_name in names:
+        payload = loader(spec.fund_type, category_name)
+        called.append(category_name)
+        rows = _rows_from_payload(payload, fund_type=spec.fund_type, category=category_name)
+        if window in {"1Y", "3Y", "5Y"}:
+            ranked = [row for row in rows if _period_value(row, window) is not None]
+        else:
+            ranked = pricer(rows[:40], window)
+            ranked = [row for row in ranked if _period_value(row, window) is not None]
+        if spec.return_direction == "positive":
+            ranked = [row for row in ranked if (_period_value(row, window) or 0) > 0]
+        reverse = spec.return_direction != "lowest"
+        ranked.sort(key=lambda row: _period_value(row, window) or 0, reverse=reverse)
+        if not ranked:
+            continue
+        performer = ranked[0]
+        rated = _best_label(rows, "Best in category") or _best_label(rows, "Recommended")
+        category = category_name
+        break
+    if performer is None:
+        return {
+            "success": False,
+            "screen_type": "rs_rating",
+            "rankings": [],
+            "ranking_note": "",
+            "categories_called": called,
+            "priced_isins": [],
+            "count": 0,
+            "return_window": window,
+        }
+    performer = ranked[0]
+    rated = _best_label(rows, "Best in category") or _best_label(rows, "Recommended")
+    public_performer = _strip(performer)
+    public_performer["pick_role"] = "performance"
+    public_performer["period_return"] = _period_value(performer, window)
+    public_performer["period"] = window
+    rankings = [public_performer]
+    same = rated is not None and str(rated.get("isin") or "") == str(performer.get("isin") or "")
+    if rated is not None and not same:
+        public_rated = _strip(rated)
+        public_rated["pick_role"] = "rating"
+        public_rated["period_return"] = _period_value(rated, window)
+        public_rated["period"] = window
+        rankings.append(public_rated)
+    elif same:
+        public_performer["pick_role"] = "performance_and_rating"
+    note_parts = []
+    if category == "large cap" and "large cap" not in (question or "").lower() and "largecap" not in (question or "").lower():
+        note_parts.append("The search was large cap.")
+    if same or rated is None:
+        note_parts.append("This fund leads the period and carries the rating label.")
+    else:
+        stronger = rating_is_stronger(rated.get("final_score"), performer.get("final_score"))
+        if stronger:
+            note_parts.append(
+                "The period return is better for the performance fund. "
+                "The rated fund has the stronger rating because its score is higher."
+            )
+        else:
+            note_parts.append("The rated fund does not have the stronger rating.")
+        higher = _higher_pillars(rated, performer)
+        if higher:
+            note_parts.append("Higher pillars on the rated fund: " + ", ".join(higher) + ".")
+        performer_return = _period_value(performer, window)
+        rated_return = _period_value(rated, window)
+        if performer_return is not None and rated_return is not None and rated_return < performer_return and reverse:
+            note_parts.append("The rated fund did not win this period.")
+        if not reverse and performer_return is not None and rated_return is not None and rated_return > performer_return:
+            note_parts.append("The rated fund did not have the weaker period return.")
+    return {
+        "success": True,
+        "screen_type": "rs_rating",
+        "rankings": rankings,
+        "ranking_note": " ".join(note_parts),
+        "categories_called": called,
+        "priced_isins": [str(performer.get("isin") or "")],
+        "count": len(rankings),
+        "return_window": window,
+    }
 
 
 def rating_list_plan(question: str):
@@ -647,6 +902,20 @@ def _apply_category_difference(question: str, plan) -> None:
 def ensure_rating_screen(question: str, plan) -> None:
     """A rating list uses the category API. Later facts about that fund stay on the plan."""
     spec = parse_rating_screen(question)
+    if spec is not None and spec.suggestion:
+        _install_suggestion_screen(plan, spec, question)
+        return
+    if (getattr(plan, "routed_by", "") or "") == "planner":
+        _apply_category_difference(question, plan)
+        spec = parse_rating_screen(question)
+        if spec is None:
+            return
+        for call in plan.tool_calls:
+            if call.tool == "screen_funds_by_exposure":
+                call.arguments["rating_screen"] = True
+                call.arguments["top_n"] = spec.count
+        return
+    spec = parse_rating_screen(question)
     if spec is None:
         _apply_category_difference(question, plan)
         return
@@ -671,3 +940,42 @@ def ensure_rating_screen(question: str, plan) -> None:
             )
         ]
     _apply_category_difference(question, plan)
+
+
+def _install_suggestion_screen(plan, spec: RatingScreenSpec, question: str = "") -> None:
+    """Use the rating screen and drop a sector the user did not name."""
+    from news_rag.insight.contracts import AnswerMode, ToolCall
+
+    screen = next((call for call in plan.tool_calls if call.tool == "screen_funds_by_exposure"), None)
+    if screen is None:
+        screen = ToolCall(
+            tool="screen_funds_by_exposure",
+            arguments={},
+            why="Rated fund suggestion.",
+            required=True,
+        )
+        plan.tool_calls = [screen, *plan.tool_calls]
+    args = dict(screen.arguments or {})
+    args["sector"] = ""
+    args["driver"] = ""
+    args["focus_question"] = " ".join((question or "").split())[:180]
+    args["return_window"] = spec.return_window
+    args["rating_screen"] = True
+    args["top_n"] = spec.count
+    screen.arguments = args
+    plan.direct_reply = ""
+    plan.requires_compose = True
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    if spec.suggestion == "period":
+        note = (
+            "Name the period performer and the rated fund in the same category. "
+            "Call the rated fund the stronger rating only when its score is higher. "
+            "Do not say you cannot recommend a fund. Do not tell the reader to buy."
+        )
+    else:
+        note = (
+            "Name the RupeeStop label and the score. "
+            "Do not say you cannot recommend a fund. Do not tell the reader to buy."
+        )
+    if note not in (plan.presentation_notes or ""):
+        plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()

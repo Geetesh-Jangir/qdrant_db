@@ -25,18 +25,29 @@ _CURRENT_ROSTER = re.compile(
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+_BOTH_ROSTER = re.compile(
+    r"\b(?:"
+    r"current\s+and\s+(?:past|former|previous)|"
+    r"(?:past|former|previous)\s+and\s+current|"
+    r"all\s+(?:the\s+)?managers|manager\s+history|"
+    r"history\s+of\s+(?:the\s+)?managers"
+    r")\b",
+    re.I,
+)
+
+
 def infer_manager_roster_focus(question: str) -> str:
-    """Return ``current``, ``past``, or ``all`` from question wording."""
+    """Current managers unless the question asks for former ones."""
     q = (question or "").strip()
-    if not q:
+    if _BOTH_ROSTER.search(q):
         return "all"
     wants_past = bool(_PAST_ROSTER.search(q))
     wants_current = bool(_CURRENT_ROSTER.search(q))
-    if wants_past and not wants_current:
+    if wants_past and wants_current:
+        return "all"
+    if wants_past:
         return "past"
-    if wants_current and not wants_past:
-        return "current"
-    return "all"
+    return "current"
 
 
 def _parse_iso_date(s: str) -> str:
@@ -139,10 +150,11 @@ def enrich_manager_payload(mgr: dict[str, Any], question: str) -> dict[str, Any]
     else:
         show_current, show_past = current, past
 
-    note = build_roster_note(focus, current, past, ctx, fund_name)
+    note = "" if focus == "current" else build_roster_note(focus, current, past, ctx, fund_name)
 
     return {
         **mgr,
+        "past": [] if focus == "current" else past,
         "roster_focus": focus,
         "display_current": show_current,
         "display_past": show_past,

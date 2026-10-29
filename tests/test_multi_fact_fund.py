@@ -25,12 +25,112 @@ def test_table_source_lists_the_screen_rows():
     assert "Axis Liquid" in text
     assert "return_1m_pct=5.32" in text
     assert "Tata Liquid" in text
+
+
+def test_table_source_keeps_pillar_marks_and_the_fetched_return():
+    from news_rag.insight.evidence_pack import table_source
+
+    text = table_source(
+        {
+            "screen": {
+                "rankings": [
+                    {
+                        "fund_name": "Bandhan Large Cap Fund",
+                        "final_score": 79.85,
+                        "rs_label": "Best in category",
+                        "pillars": {"performance": {"label": "Performance", "score": 37.6, "max": 40}},
+                    }
+                ]
+            },
+            "fund:bandhan": {
+                "snapshot": {
+                    "fund_name": "Bandhan Large Cap Fund",
+                    "nav": 74.21,
+                    "returns": {"1Y": -7.62},
+                    "expense_ratio": {"regular": 2.2},
+                },
+                "rs_rating": {"label": "Best in category", "final_score": 79.85},
+            },
+        }
+    )
+    assert "pillars=Performance 37.6/40" in text
+    assert "return_1Y=-7.62" in text
+    assert "expense_ratio=2.2" in text
+
+
+def test_fund_insights_category_average_reaches_the_composer_row():
+    from news_rag.insight.evidence_pack import table_source
+
+    text = table_source({
+        "fund:hdfc": {
+            "fund_name": "HDFC Large Cap Fund - Growth",
+            "fund_insights": {
+                "benchmark_name": "nifty 100 tri",
+                "category_average_returns_pct": {"1Y": -7.9, "3Y": 9.34, "5Y": 7.27},
+                "comparison_periods": {
+                    "1Y": {
+                        "fund_return": -9.79,
+                        "benchmark_return": -5.18,
+                        "category_average_return": -7.9,
+                        "vs_benchmark": -4.61,
+                        "vs_category": -1.89,
+                    },
+                    "3Y": {"fund_return": 7.58, "category_average_return": 9.34, "vs_category": -1.76},
+                },
+            },
+            "rs_rating": {"label": "Good Choice", "final_score": 64.55},
+        }
+    })
+    assert "1Y_fund=-9.79" in text
+    assert "1Y_category_avg=-7.9" in text
+    assert "1Y_vs_category=-1.89" in text
+    assert "1Y_benchmark=-5.18" in text
+    assert "3Y_category_avg=9.34" in text
+    assert "5Y_category_avg=7.27" in text
+
+
+def test_a_rating_row_is_filled_with_returns_riskometer_and_category_average(monkeypatch):
+    from news_rag.insight.evidence_pack import table_source
+
+    class Index:
+        def get_fund_detail(self, isin):
+            assert isin == "INF194K01516"
+            return {
+                "returns": {"1y": -7.62, "3y": 11.33, "5y": 7.78},
+                "category_average_returns": {"1Y": -8.0, "3Y": 10.0, "5Y": 8.1},
+                "sebi_riskometer": "Very High",
+            }
+
+    monkeypatch.setattr("news_rag.fund_search.get_fund_index", lambda: Index())
+    monkeypatch.setattr(
+        "news_rag.fund_rupeestop_metrics.fetch_vs_benchmark",
+        lambda isin: {"periods": {"1Y": {"benchmark_return": -6.1, "vs_benchmark": -1.52}}},
+    )
+    text = table_source({
+        "screen": {
+            "rankings": [{
+                "isin": "INF194K01516",
+                "fund_name": "Bandhan Large Cap Fund",
+                "final_score": 79.85,
+                "rs_label": "Best in category",
+            }]
+        }
+    })
+    assert "return_1y_pct=-7.62" in text
+    assert "return_3y_pct=11.33" in text
+    assert "return_5y_pct=7.78" in text
+    assert "riskometer=Very High" in text
+    assert "category_avg_1y_pct=-8.0" in text
+    assert "benchmark_1y_pct=-6.1" in text
     assert asks_one_figure("what is the aum of hdfc large cap")
     assert asks_one_figure("what is the nav of axis bluechip")
     assert asks_one_figure("what is the 1 month return of this fund")
     assert asks_one_figure("what is the benchmark of parag parikh flexi cap")
     assert not asks_one_figure("what is the nav and aum of hdfc large cap")
     assert not asks_one_figure("show me 5 funds and their one month returns")
+    assert not asks_one_figure(
+        "what is the expense ratio of the hdfc large cap fund and what does expense ration means?"
+    )
 
 
 def test_manager_name_question_fetches_managers_not_the_snapshot():

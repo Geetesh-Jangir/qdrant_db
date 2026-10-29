@@ -150,8 +150,9 @@ def test_locked_large_cap_does_not_request_mid_cap():
     assert [row["isin"] for row in result["rankings"]] == ["INF1"]
     assert "no more" in result["ranking_note"].lower()
     stored = result["rankings"][0]
-    assert "pillars" not in stored
     assert "sharpe" not in stored
+    assert stored["pillars"]["performance"]["score"] == 10
+    assert "inputs" not in stored["pillars"]["performance"]
     assert stored["rs_label"] == "Best in category"
 
 
@@ -351,15 +352,15 @@ def test_highest_rating_plus_returns_and_risk_keeps_the_fund_lookup():
     )
     ensure_screen_facts(question, plan)
     ensure_rating_screen(question, plan)
-    assert [call.tool for call in plan.tool_calls] == ["screen_funds_by_exposure", "get_fund_data"]
-    assert plan.tool_calls[1].wave == 1
-    modules = plan.tool_calls[1].arguments["modules"]
-    assert "return_series" in modules
-    assert "risk" in modules
-    assert "drawdown" in modules
+    assert [call.tool for call in plan.tool_calls] == [
+        "screen_funds_by_exposure",
+        "get_fund_data",
+        "search_financial_news",
+    ]
+    assert plan.tool_calls[1].arguments["modules"] == ["snapshot"]
+    assert plan.tool_calls[1].wave == 2
     assert plan.tool_calls[0].arguments["rating_screen"] is True
     assert plan.tool_calls[0].arguments["top_n"] == 1
-    assert plan.requires_compose is True
 
 
 def test_one_month_return_keeps_only_that_column():
@@ -406,3 +407,197 @@ def test_elss_list_drops_an_invented_fund_and_keeps_the_difference():
     assert plan.requires_compose is True
     assert "3 years" in plan.concept_brief
     assert "80C" in plan.concept_brief
+
+
+def test_large_and_mid_cap_uses_the_rating_category():
+    from news_rag.fund_rating_categories import asks_taxonomy, match_scheme_category
+
+    question = "tell me a fund thats best in category and is in large and mid cap"
+    assert asks_taxonomy(question) is False
+    match = match_scheme_category(question)
+    assert match is not None
+    assert match.category == "large & mid cap"
+    assert match.locked is True
+    spec = parse_rating_screen(question)
+    assert spec is not None
+    assert spec.category == "large & mid cap"
+    assert spec.label == "Best in category"
+    assert spec.count == 1
+    for wording in ("large & mid cap", "large and midcap", "large mid cap"):
+        found = match_scheme_category(f"best in category {wording}")
+        assert found is not None
+        assert found.category == "large & mid cap"
+    mid = match_scheme_category("best in category mid cap")
+    assert mid is not None
+    assert mid.category == "mid cap"
+
+
+def test_a_rating_pick_does_not_apologise_for_returns_or_pillars():
+    from news_rag.insight.fund_display import strip_missing_data_caveats
+
+    prose = (
+        'Bandhan Large Cap Fund is labelled "Best in category", with a final score of **79.85**. '
+        "The data does not include return periods, so no return figures can be shown.\n\n"
+        "Its components are not in the data, so the score cannot be broken down into drivers. "
+        "The benchmark is the BSE 100 TRI."
+    )
+    cleaned = strip_missing_data_caveats(prose)
+    assert "79.85" in cleaned
+    assert "no return figures" not in cleaned
+    assert "cannot be broken down" not in cleaned
+    assert "BSE 100" in cleaned
+
+
+def test_a_good_fund_request_uses_best_in_category_and_drops_an_unnamed_sector():
+    from news_rag.fund_rating_screen import ensure_rating_screen
+    from news_rag.insight.contracts import ExecutionPlan, ToolCall
+
+    spec = parse_rating_screen("recommend me a good fund")
+    assert spec is not None
+    assert spec.label == "Best in category"
+    assert spec.label_fallback == "Recommended"
+    assert spec.count == 1
+    assert spec.category == ""
+    assert spec.suggestion == "rated"
+    assert parse_rating_screen("should I buy a fund") is None
+
+    plan = ExecutionPlan(
+        routed_by="planner",
+        tool_calls=[
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"sector": "Diversified Fmcg", "top_n": 1, "focus_question": "good performing fund"},
+                wave=1,
+            )
+        ],
+    )
+    ensure_rating_screen("recommend me a good fund", plan)
+    args = plan.tool_calls[0].arguments
+    assert args["rating_screen"] is True
+    assert args["sector"] == ""
+    assert args["focus_question"] == "recommend me a good fund"
+    assert args["return_window"] == ""
+
+
+def test_an_empty_best_in_category_list_falls_back_to_recommended():
+    def fetch(fund_type: str, category: str) -> dict:
+        if category == "large cap":
+            return _payload(_rating("INFREC", label="Recommended", score=72, trail=4))
+        return _payload()
+
+    result = run_rating_list("recommend me a good fund", fetch=fetch)
+    assert result["rankings"][0]["isin"] == "INFREC"
+    assert result["rankings"][0]["rs_label"] == "Recommended"
+    assert "Recommended fund" in result["ranking_note"]
+
+
+def test_a_one_month_performer_is_shown_beside_the_same_category_rating():
+    from news_rag.fund_rating_screen import rating_is_stronger
+
+    def fetch(fund_type: str, category: str) -> dict:
+        assert category == "large cap"
+        performer = _rating("INFPERF", label="Good Choice", score=60, trail=1)
+        performer["pillars"] = {
+            "performance": {"score": 20, "max": 40},
+            "risk": {"score": 22, "max": 25},
+        }
+        rated = _rating("INFRATED", label="Best in category", score=80, trail=2)
+        rated["pillars"] = {
+            "performance": {"score": 30, "max": 40},
+            "risk": {"score": 18, "max": 25},
+        }
+        return _payload(performer, rated)
+
+    def price(rows: list, window: str) -> list:
+        assert window == "1M"
+        returns = {"INFPERF": 4.2, "INFRATED": 1.1}
+        for row in rows:
+            row["_return"] = returns[row["isin"]]
+            row["return_1m_pct"] = returns[row["isin"]]
+        return rows
+
+    result = run_rating_list(
+        "give me a fund which is performing well in the last 1 month",
+        fetch=fetch,
+        price=price,
+    )
+    by_role = {row["pick_role"]: row for row in result["rankings"]}
+    assert by_role["performance"]["isin"] == "INFPERF"
+    assert by_role["performance"]["period_return"] == 4.2
+    assert by_role["rating"]["isin"] == "INFRATED"
+    assert "The search was large cap." in result["ranking_note"]
+    assert "stronger rating" in result["ranking_note"]
+    assert "Higher pillars on the rated fund: Performance." in result["ranking_note"]
+    assert "The rated fund did not win this period." in result["ranking_note"]
+    assert rating_is_stronger(80, 60) is True
+    assert rating_is_stronger(50, 70) is False
+
+
+def test_a_positive_one_month_return_is_paired_with_best_in_category():
+    spec = parse_rating_screen("suggest me a good fund that is showing a positive return in last 1 month")
+    assert spec is not None
+    assert spec.suggestion == "period"
+    assert spec.return_window == "1M"
+    assert spec.return_direction == "positive"
+    assert spec.locked is False
+
+    def fetch(fund_type: str, category: str) -> dict:
+        if category == "large cap":
+            return _payload(_rating("INFDOWN", label="Best in category", score=90, trail=1, category="large cap"))
+        if category == "mid cap":
+            up = _rating("INFUP", label="Good Choice", score=60, trail=1, category="mid cap")
+            best = _rating("INFBEST", label="Best in category", score=81, trail=1, category="mid cap")
+            return _payload(up, best)
+        return _payload()
+
+    def price(rows: list, window: str) -> list:
+        values = {"INFDOWN": -1.5, "INFUP": 2.4, "INFBEST": 0.4}
+        for row in rows:
+            row["_return"] = values.get(row["isin"], -1.0)
+        return rows
+
+    result = run_rating_list(
+        "suggest me a good fund that is showing a positive return in last 1 month",
+        fetch=fetch,
+        price=price,
+    )
+    assert result["categories_called"] == ["large cap", "mid cap"]
+    by_role = {row["pick_role"]: row for row in result["rankings"]}
+    assert by_role["performance"]["isin"] == "INFUP"
+    assert by_role["performance"]["period_return"] == 2.4
+    assert by_role["rating"]["isin"] == "INFBEST"
+    assert "period return is better for the performance fund" in result["ranking_note"]
+    assert "stronger rating" in result["ranking_note"]
+
+
+def test_a_named_large_cap_positive_year_stays_in_large_cap():
+    from news_rag.insight.memory.evidence import slice_slot
+
+    question = "recommend me large cap fund which is performing positive in last one year"
+    spec = parse_rating_screen(question)
+    assert spec is not None
+    assert spec.suggestion == "period"
+    assert spec.category == "large cap"
+    assert spec.locked is True
+    assert spec.return_window == "1Y"
+    assert spec.return_direction == "positive"
+
+    def fetch(fund_type: str, category: str) -> dict:
+        assert category == "large cap"
+        down = _rating("INFDOWN", label="Best in category", score=88, trail=-3, category="large cap")
+        up = _rating("INFUP", label="Good Choice", score=64, trail=6, category="large cap")
+        return _payload(down, up)
+
+    result = run_rating_list(question, fetch=fetch)
+    assert result["categories_called"] == ["large cap"]
+    by_role = {row["pick_role"]: row for row in result["rankings"]}
+    assert by_role["performance"]["isin"] == "INFUP"
+    assert by_role["rating"]["isin"] == "INFDOWN"
+    month = "suggest me a good fund that is showing a positive return in last 1 month"
+    assert slice_slot(
+        "screen_funds_by_exposure",
+        {"focus_question": question, "top_n": 1, "return_window": "1Y", "rating_screen": True},
+    ) != slice_slot(
+        "screen_funds_by_exposure",
+        {"focus_question": month, "top_n": 1, "return_window": "1M", "rating_screen": True},
+    )

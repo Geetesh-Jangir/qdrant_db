@@ -109,6 +109,13 @@ class ExecutionPlan(BaseModel):
     planner_count: int = 0
     planner_portfolio_slice: str = ""
 
+    # Conversation pointers the planner names. Python resolves them. They are not regex.
+    turn_relation: str = ""
+    stack_refs: list[int] = Field(default_factory=list)
+    list_ordinals: list[int] = Field(default_factory=list)
+    answer_depth: str = "short"
+    refers_to_turn: int = 0
+
     @property
     def wave1_calls(self) -> list[ToolCall]:
         return [c for c in self.tool_calls if c.wave == 1]

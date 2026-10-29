@@ -10,6 +10,7 @@ Slot rules replace bulky prompt examples to minimize prompt bloat and overfittin
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from news_rag.insight.brief import QuestionBrief, SubAsk
@@ -137,6 +138,22 @@ PLAN_SCHEMA: dict[str, Any] = {
                     "why": {"type": "string"},
                 },
                 "required": ["tool"],
+            },
+        },
+        "memory": {
+            "type": "object",
+            "description": (
+                "How this question uses the conversation. continue keeps the fund. "
+                "partial_keep changes the period or the section. reset starts a new subject. "
+                "stack_refs and list_ordinals are numbers from Conversation memory. "
+                "depth is more when the user did not understand or asked to be told more."
+            ),
+            "properties": {
+                "turn_relation": {"type": "string", "enum": ["continue", "partial_keep", "reset"]},
+                "stack_refs": {"type": "array", "items": {"type": "integer"}},
+                "list_ordinals": {"type": "array", "items": {"type": "integer"}},
+                "depth": {"type": "string", "enum": ["short", "more"]},
+                "refers_to_turn": {"type": "integer"},
             },
         },
         "wave_2_policy": {
@@ -314,6 +331,33 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
 
     request = data.get("request") if isinstance(data.get("request"), dict) else {}
     planner_count, planner_slice = _apply_planner_request(tool_calls, request)
+    memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
+    relation = str(memory.get("turn_relation") or "").strip()
+    if relation not in ("continue", "partial_keep", "reset"):
+        relation = ""
+    depth = str(memory.get("depth") or "").strip()
+    if depth not in ("short", "more"):
+        depth = "short"
+    stack_refs = []
+    for ref in memory.get("stack_refs") or []:
+        try:
+            number = int(ref)
+        except (TypeError, ValueError):
+            continue
+        if 1 <= number <= 5 and number not in stack_refs:
+            stack_refs.append(number)
+    list_ordinals = []
+    for ref in memory.get("list_ordinals") or []:
+        try:
+            number = int(ref)
+        except (TypeError, ValueError):
+            continue
+        if number >= 1 and number not in list_ordinals:
+            list_ordinals.append(number)
+    try:
+        refers_to_turn = int(memory.get("refers_to_turn") or 0)
+    except (TypeError, ValueError):
+        refers_to_turn = 0
 
     # Wave 2 Policy
     policy = Wave2Policy(
@@ -368,7 +412,14 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
         confidence=0.9,
         planner_count=planner_count,
         planner_portfolio_slice=planner_slice,
+        turn_relation=relation,
+        stack_refs=stack_refs,
+        list_ordinals=list_ordinals,
+        answer_depth=depth,
+        refers_to_turn=refers_to_turn,
     )
+    canned = bool((plan.direct_reply or "").strip() and not plan.tool_calls)
+    plan.requires_compose = not canned
     if str(under.get("task") or "").strip().lower() == "explain":
         from news_rag.fund_rating_categories import explanation_brief
 
@@ -520,7 +571,7 @@ Read the user's question and emit ONE structured JSON ExecutionPlan using ONLY t
 Optional fields may be omitted. Do not invent field names.
 - `understanding.intent`: lookup, overview, explain_cause, compare, rank, outlook. A definition or a SIP/FIRE calculation uses lookup.
 - `understanding.task`: explain or data. explain means the user wants to understand a word, a fund type, or which categories exist, including a misspelled question such as "what are multi cap fund" or "sub category of the equity funds". data means they want a number, a list of schemes, a rating, or one named fund. A screen hint that names a category does not make an explanation into a fund list.
-- `understanding.answer_mode`: DATA_ONLY, NEWS_ONLY, INSIGHT_FUSION.
+- `understanding.answer_mode`: DATA_ONLY, NEWS_ONLY, INSIGHT_FUSION. DATA_ONLY means do not fetch news. The composer still writes the answer.
 - `entities.funds`, `entities.sectors`, `entities.stocks`: string arrays, as the user wrote them. Correct an obvious misspelling of a name they did give. Do not invent a fund they did not name.
 - `entities.drivers`: objects {{"id", "direction"}}. id is one of: {', '.join(DRIVER_IDS)}. direction is up, down, tighten, ease, weaken, or strengthen. Do not use macro_drivers.
 - `request`: count (integer), portfolio_slice (holdings, sectors, both, none), reading (one sentence). Required when the question is about what is inside one fund. Otherwise set portfolio_slice to none and count to 0.
@@ -541,6 +592,23 @@ Optional fields may be omitted. Do not invent field names.
 
 ### PLANNER AUTHORITY
 You are the sole routing authority. Read the question as a person would. A misspelling still means the intended word.
+When the message includes Conversation memory, that block is the only earlier context. It has the current fund, a numbered fund stack (ref 1 is the newest), the list on screen, a news topic, and the last two one-line gists. It does not contain figures or article text.
+Set memory.turn_relation to continue, partial_keep, or reset. continue keeps the same fund and period. partial_keep changes the period or the section and keeps the fund. reset starts a new subject and names that fund in entities.funds.
+"I didn't understand" and "tell me more" are continue with memory.depth set to more. Repeat the same tools. Do not switch to a new overview.
+If one part points at an earlier fund, set memory.stack_refs to those numbers. A follow-up may name the previous fund and the one before it. If a part points at a row of the list, set memory.list_ordinals. Do not invent a fund from a sector or a holding that appeared only inside an explanation.
+A news follow-up keeps the news topic. "How is my fund affected" uses the fund plus that topic and fetches holdings or sectors and news. "Tell me more about that news" searches the topic again and does not dump the fund. "What is the RBI rate" is a definition with no fund tool. The topic stays for a later question.
+
+### MINIMAL TOOLS
+A specific question lists only the modules that answer it. query_class is simple. Do not add search_financial_news, return_series, or attribution.
+- NAV, AUM, expense ratio, or exit load: get_fund_data modules ["snapshot"] only.
+- One return period, such as 1 month: get_fund_data modules ["snapshot"] and windows set to that one code, such as ["1M"]. Do not add return_series and do not add the other periods. A period can be any length. Use 2M, 8M, 14D, YTD, 6M, or 1Y when that is what they asked. Two periods means both codes, such as ["6M", "1Y"]. Set time.label to those periods, not to 1 month, unless they asked for 1 month.
+- A named-fund overview that also fetches news: add get_portfolio_data sections ["holdings", "sectors"] on wave 1. The news has to be tied to a weight. A later question that asks for a different section, period, or module is a new tool call. Do not reuse the previous call's arguments.
+- Versus the benchmark only: get_fund_data modules ["vs_benchmark"] only. Do not add snapshot, return_series, or attribution.
+- The fund manager's name: get_fund_data modules ["managers"] only.
+- One pillar mark (performance, risk, portfolio quality, or fund manager): get_fund_data modules ["rating"] only. Add ["risk"] only when they ask how risky the fund is.
+- A risk analysis: get_fund_data modules ["risk", "drawdown", "rating"] and periods ["1y", "3y", "5y"] when no horizon was named. The risk pillar is a score, not a statement that the fund is more or less risky.
+A question with more than one part is still one plan. List each part in presentation.sub_queries and put every tool those parts need on wave 1. A figure plus what it means, or whether a low or high value is good, is several parts: fetch the figure, and leave the meaning and the judgement to the composer. No extra tool is required for a definition. A misspelling still means the intended word. Do not drop a part.
+"Returns of this fund for 1 month, and why did they change?" is two parts: get_fund_data modules ["snapshot", "attribution"] with windows ["1M"], plus search_financial_news on wave 1. Do not load 1W, 3M, 6M, 1Y, or return_series.
 
 ### REQUEST
 The server copies request onto the portfolio tool when the two disagree.
@@ -560,8 +628,8 @@ Copy count into arguments.top_n and the slice into get_portfolio_data arguments.
 - Concept plus one example, such as what a fund of funds is and name one: task data, screen_funds_by_exposure top_n 1, DATA_ONLY, response_shape sections, presentation_notes telling the composer to explain the concept and then cite the screened scheme.
 
 ### WAVES
-1. DATA_ONLY is a metric lookup: a NAV, a top-N holdings or sectors list, a comparison table, a definition. Do not call search_financial_news. trigger is none.
-2. "Tell me about <fund>", "how is <fund>", or any overview of one named fund is INSIGHT_FUSION, not DATA_ONLY. Wave 1 gets snapshot, returns, attribution, and the portfolio. Wave 2 always calls search_financial_news with scope all and top_n 8. The answer must connect those articles to the holdings and the return.
+1. DATA_ONLY is a fetch choice: a NAV, a list, a comparison, or a definition, and no search_financial_news. trigger is none. It is not a finished dump. The composer writes the reply, including a meaning or a high-or-low read from standard mutual-fund knowledge.
+2. "Tell me about <fund>" or "how is <fund>" is INSIGHT_FUSION. Wave 1 gets get_fund_data modules ["snapshot", "rating"] and search_financial_news. Do not add return_series, attribution, or the portfolio unless that part of the question asks for returns, what drove the move, holdings, or sectors.
 3. NEWS_ONLY is macro or market news with no fund numbers. Wave 1 may call get_market_snapshot. trigger is always, with one search_financial_news call on wave 2.
 4. Wave 1 tools: get_fund_data, get_portfolio_data, compare_funds, get_market_snapshot, screen_funds_by_exposure. INSIGHT_FUSION is the mode when metrics and news are both needed.
 5. If trigger is always, add the search_financial_news call with wave 2. If trigger is negative_return, material_sector, or none, do not add a wave-2 call. The bridge adds news when the condition is true. For "why did the fund fall", use negative_return and threshold -1.0. For a generic "why did it move", use threshold -2.0.
@@ -574,8 +642,17 @@ Copy count into arguments.top_n and the slice into get_portfolio_data arguments.
 NAV:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Check NAV of fund", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "NAV of HDFC Top 100"}}, "entities": {{"funds": ["HDFC Top 100"]}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot"]}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 50}}}}
 
+Expense ratio, what it means, and whether low or high is good:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Expense ratio, its meaning, and whether low or high is better", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "task": "data"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Expense ratio of HDFC Large Cap, what it means, and whether low or high is good"}}, "entities": {{"funds": ["HDFC Large Cap Fund"]}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot"]}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 180, "sub_queries": [{{"text": "the expense ratio figure"}}, {{"text": "what expense ratio means"}}, {{"text": "whether a low or high ratio is good"}}]}}}}
+
 Tell me about one fund:
-{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Overview of HDFC Large Cap with news tied to its holdings", "intent": "overview", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "request": {{"count": 5, "portfolio_slice": "both", "reading": "Overview of HDFC Large Cap Fund"}}, "entities": {{"funds": ["HDFC Large Cap Fund"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "all", "top_n": 8, "window_days": 30}}, "wave": 2}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 420, "notes": "Connect holdings and the return to the articles"}}}}
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Overview of HDFC Large Cap", "intent": "overview", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "both", "reading": "Overview of HDFC Large Cap Fund"}}, "entities": {{"funds": ["HDFC Large Cap Fund"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "rating"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "all", "top_n": 8, "window_days": 30}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 280, "sub_queries": [{{"text": "what the fund is"}}, {{"text": "what the news means for it"}}], "notes": "Rating first. Then what stands out in the news, tied to a holding or sector weight. End with a short overall read."}}}}
+
+One month return and why it changed:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "1 month return and why it changed", "intent": "explain_cause", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "1 month return of Bandhan Large Cap and why it changed"}}, "entities": {{"funds": ["Bandhan Large Cap Fund"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "attribution", "rating"], "windows": ["1M"], "window_days": 30}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "all", "top_n": 8, "window_days": 30}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 280, "sub_queries": [{{"text": "1 month return"}}, {{"text": "why it changed"}}]}}}}
+
+Versus the benchmark only:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Fund versus its benchmark", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Bandhan Large Cap versus its benchmark"}}, "entities": {{"funds": ["Bandhan Large Cap Fund"]}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["vs_benchmark", "rating"]}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 80}}}}
 
 Why the fund fell:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Explain the recent drop", "intent": "explain_cause", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "both", "reading": "Why Parag Parikh Flexi Cap fell"}}, "entities": {{"funds": ["Parag Parikh Flexi Cap"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}], "wave_2_policy": {{"trigger": "negative_return", "threshold": -1.0, "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 280}}}}
@@ -614,6 +691,17 @@ Out of scope:
     return _SYSTEM_CACHE
 
 
+def _slot_fallback(question: str) -> ExecutionPlan | None:
+    """Used only when the planner cannot return a plan."""
+    from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
+    from news_rag.insight.slot_router import slot_route
+
+    det_plan = slot_route(question, confidence_threshold=0.88)
+    if det_plan is None:
+        return None
+    return normalize_portfolio_plan_from_question(question, det_plan)
+
+
 def make_plan(
     question: str,
     *,
@@ -623,12 +711,10 @@ def make_plan(
 ) -> ExecutionPlan | None:
     """The structured planning LLM call. Emits a validated ExecutionPlan."""
     from news_rag.config import get_settings
-    from news_rag.insight.slot_router import slot_route
 
     settings = get_settings()
-    det_plan = slot_route(question, confidence_threshold=0.88)
     if not llm_api_key_configured(settings):
-        return det_plan
+        return _slot_fallback(question)
 
     from news_rag.insight.question_intent import planner_supplement_for_question
 
@@ -636,8 +722,8 @@ def make_plan(
     supplement = planner_supplement_for_question(question)
     if supplement:
         user += f"\n\n{supplement}"
-    if prior_context:
-        user += f"\n\nPrevious conversation turns: {prior_context}"
+    if isinstance(prior_context, dict) and prior_context.get("memory"):
+        user += "\n\nConversation memory: " + json.dumps(prior_context["memory"], ensure_ascii=False)
 
     try:
         from news_rag.llm_client import planner_model, planner_provider
@@ -659,9 +745,7 @@ def make_plan(
     except Exception as exc:  # noqa: BLE001
         if query_log is not None:
             query_log.write(f"PLAN_FAIL error={str(exc)[:200]}")
-        from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
-
-        return normalize_portfolio_plan_from_question(question, det_plan) if det_plan else det_plan
+        return _slot_fallback(question)
 
     if telemetry is not None and res is not None:
         telemetry.add_llm_usage(
@@ -677,9 +761,7 @@ def make_plan(
 
     data = res.parsed if isinstance(res.parsed, dict) else {}
     if not data:
-        from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
-
-        return normalize_portfolio_plan_from_question(question, det_plan) if det_plan else det_plan
+        return _slot_fallback(question)
 
     plan = parse_plan(data)
     plan.random_fund_count = min(
@@ -688,12 +770,6 @@ def make_plan(
     from news_rag.insight.planner_policy import finalize_planner_plan
 
     plan = finalize_planner_plan(question, plan)
-    if not plan.tool_calls and det_plan and det_plan.tool_calls:
-        if query_log is not None:
-            query_log.write("PLANNER_EMPTY_TOOLS fallback=deterministic_slot_plan")
-        from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
-
-        return normalize_portfolio_plan_from_question(question, det_plan)
     if query_log is not None:
         query_log.write(
             f"PLANNER authoritative tools={plan.tool_names} answer_mode={plan.answer_mode.value} "

@@ -17,6 +17,7 @@ TABLE_SHORT = "short_horizon_vs_category_table"
 TABLE_LONG = "vs_benchmark_table"
 TABLE_HOLDINGS = "holdings_move_table"
 TABLE_SNAPSHOT = "snapshot_table"
+TABLE_FUND_FACTS = "fund_facts_table"
 TABLE_CATEGORY = "category_average_table"
 TABLE_PORTFOLIO = "portfolio_holdings_table"
 TABLE_SECTORS = "portfolio_sectors_table"
@@ -27,6 +28,7 @@ _ALL_KEYS = frozenset({
     TABLE_LONG,
     TABLE_HOLDINGS,
     TABLE_SNAPSHOT,
+    TABLE_FUND_FACTS,
     TABLE_CATEGORY,
     TABLE_PORTFOLIO,
     TABLE_SECTORS,
@@ -174,7 +176,7 @@ def resolve_display_table_policy(
         )
 
     if _named_fund_overview(q, plan):
-        inc = {TABLE_SNAPSHOT}
+        inc = {TABLE_FUND_FACTS}
         if re.search(r"\b(?:returns?|performance|performing)\b", q, re.I):
             inc.update({TABLE_RETURNS, TABLE_SHORT, TABLE_LONG})
         if re.search(r"\bholdings?\b|\btop\s+stocks?\b|\bwhat\s+(?:does|do)\s+it\s+hold\b", q, re.I):
@@ -183,7 +185,7 @@ def resolve_display_table_policy(
             inc.add(TABLE_SECTORS)
         return DisplayTablePolicy(
             include=frozenset(inc),
-            rationale="Named-fund overview — snapshot, plus returns, holdings, or sectors only when asked.",
+            rationale="Named-fund overview — a short fund table, plus returns, holdings, or sectors only when asked.",
         )
 
     inc = set()
