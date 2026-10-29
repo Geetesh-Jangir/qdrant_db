@@ -37,8 +37,14 @@ def test_why_moved_gets_holdings():
     assert TABLE_HOLDINGS in pol.include
 
 
-def test_tell_me_about_fund_gets_snapshot_holdings_and_returns():
-    from news_rag.insight.display_table_policy import TABLE_PORTFOLIO, TABLE_SECTORS, TABLE_SNAPSHOT
+def test_tell_me_about_fund_keeps_the_snapshot_and_skips_unasked_lists():
+    from news_rag.insight.display_table_policy import (
+        TABLE_HOLDINGS,
+        TABLE_PORTFOLIO,
+        TABLE_RETURNS,
+        TABLE_SECTORS,
+        TABLE_SNAPSHOT,
+    )
 
     q = "tell me about hdfc large cap fund"
     plan = ExecutionPlan(
@@ -49,7 +55,14 @@ def test_tell_me_about_fund_gets_snapshot_holdings_and_returns():
     )
     pol = resolve_display_table_policy(q, plan)
     assert TABLE_SNAPSHOT in pol.include
-    assert TABLE_LONG in pol.include
-    assert TABLE_PORTFOLIO in pol.include
-    assert TABLE_SECTORS in pol.include
-    assert TABLE_HOLDINGS in pol.include
+    assert TABLE_RETURNS not in pol.include
+    assert TABLE_PORTFOLIO not in pol.include
+    assert TABLE_SECTORS not in pol.include
+    assert TABLE_HOLDINGS not in pol.include
+    asked = resolve_display_table_policy(
+        "tell me the top holdings and sectors and 1 year return of hdfc large cap",
+        plan,
+    )
+    assert TABLE_PORTFOLIO in asked.include
+    assert TABLE_SECTORS in asked.include
+    assert TABLE_RETURNS in asked.include

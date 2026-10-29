@@ -1,12 +1,36 @@
 from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
 from news_rag.insight.evidence_pack import build_evidence_pack, render_data_only_template
-from news_rag.insight.multi_fact import ensure_multi_fact_tools, requested_fund_facts
+from news_rag.insight.multi_fact import asks_one_figure, ensure_multi_fact_tools, requested_fund_facts
 
 
 def test_named_facts_cover_nav_manager_sectors_returns_and_exit_load():
     q = "tell me nav, fund_manager, top 5 sectors, historical performance and exit load of hdfc large cap fund?"
     facts = requested_fund_facts(q)
     assert facts >= {"nav", "managers", "sectors", "returns", "exit_load"}
+
+
+def test_table_source_lists_the_screen_rows():
+    from news_rag.insight.evidence_pack import table_source
+
+    text = table_source(
+        {
+            "screen": {
+                "rankings": [
+                    {"fund_name": "Axis Liquid", "return_1m_pct": 5.32, "return_1y_pct": 6.42},
+                    {"fund_name": "Tata Liquid", "return_1m_pct": 5.26, "return_1y_pct": 6.32},
+                ]
+            }
+        }
+    )
+    assert "Axis Liquid" in text
+    assert "return_1m_pct=5.32" in text
+    assert "Tata Liquid" in text
+    assert asks_one_figure("what is the aum of hdfc large cap")
+    assert asks_one_figure("what is the nav of axis bluechip")
+    assert asks_one_figure("what is the 1 month return of this fund")
+    assert asks_one_figure("what is the benchmark of parag parikh flexi cap")
+    assert not asks_one_figure("what is the nav and aum of hdfc large cap")
+    assert not asks_one_figure("show me 5 funds and their one month returns")
 
 
 def test_manager_name_question_fetches_managers_not_the_snapshot():

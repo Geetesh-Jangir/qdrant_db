@@ -140,14 +140,9 @@ def _amc_outside_label(question: str, label: str) -> str:
 
 
 def _return_window(question: str) -> str:
-    low = (question or "").lower()
-    if re.search(r"\b(?:5|five)\s*[- ]?(?:y|yr|year)s?\b", low):
-        return "5Y"
-    if re.search(r"\b(?:3|three)\s*[- ]?(?:y|yr|year)s?\b", low):
-        return "3Y"
-    if re.search(r"\b(?:1|one)\s*[- ]?(?:y|yr|year)s?\b", low):
-        return "1Y"
-    return ""
+    from news_rag.tools import explicit_return_window
+
+    return explicit_return_window(question)
 
 
 def _label_in(question: str) -> str:
@@ -453,7 +448,11 @@ def run_rating_list(
 def _keep_asked_return(rows: list[dict[str, Any]], window: str) -> None:
     if not window:
         return
-    keep = {"1Y": "return_1y_pct", "3Y": "return_3y_pct", "5Y": "return_5y_pct"}.get(window, "")
+    from news_rag.tools import _RETURN_FIELDS
+
+    keep = _RETURN_FIELDS.get(window, "")
+    if not keep:
+        return
     for row in rows:
         for key in list(row):
             if key.startswith("return_") and key != keep:
@@ -540,23 +539,135 @@ def rating_list_plan(question: str):
     )
 
 
+def _followup_modules(question: str) -> list[str]:
+    """Facts about the chosen fund that a rating row does not contain."""
+    text = question or ""
+    modules: list[str] = []
+    if re.search(r"\b(?:historical|past)\s+returns?\b|\breturn\s+history\b", text, re.I):
+        modules.append("return_series")
+    if re.search(r"\brisk\s+analysis\b|\bhow\s+risky\b|\brisk\s+of\s+(?:the|this)\s+fund\b", text, re.I):
+        modules.append("risk")
+        from news_rag.fund_risk import include_drawdown_with_risk
+
+        if include_drawdown_with_risk(text):
+            modules.append("drawdown")
+    return modules
+
+
+def _keep_followup_plan(plan, spec: RatingScreenSpec, modules: list[str]) -> None:
+    """The planner already covers later parts. Stamp the rating screen and keep them."""
+    from news_rag.insight.contracts import AnswerMode, ToolCall
+
+    screen = next((call for call in plan.tool_calls if call.tool == "screen_funds_by_exposure"), None)
+    if screen is None:
+        screen = ToolCall(
+            tool="screen_funds_by_exposure",
+            arguments={"top_n": spec.count, "rating_screen": True},
+            why="Pick the rated fund, then load the later facts.",
+            required=True,
+        )
+        plan.tool_calls = [screen, *plan.tool_calls]
+    screen.arguments["rating_screen"] = True
+    screen.arguments["top_n"] = spec.count
+    if modules:
+        plan.tool_calls = [call for call in plan.tool_calls if call.tool != "search_financial_news"]
+        call = next((item for item in plan.tool_calls if item.tool == "get_fund_data"), None)
+        if call is None:
+            call = ToolCall(tool="get_fund_data", arguments={"modules": []}, wave=1)
+            plan.tool_calls.append(call)
+        call.wave = 1
+        current = [str(name) for name in (call.arguments.get("modules") or [])]
+        for name in modules:
+            if name not in current:
+                current.append(name)
+        call.arguments["modules"] = current
+        if "drawdown" in current and not call.arguments.get("periods"):
+            call.arguments["periods"] = ["1y", "3y", "5y"]
+    plan.concept_brief = ""
+    plan.direct_reply = ""
+    plan.requires_compose = True
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    if (plan.max_words or 0) < 320:
+        plan.max_words = 320
+    note = (
+        "Answer every part. Name the fund from the screen. "
+        "Historical returns and the risk read come from the fund data."
+    )
+    if note not in (plan.presentation_notes or ""):
+        plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
+
+
+def _user_named_funds(question: str, funds: list[str]) -> list[str]:
+    """Keep a scheme only when the user wrote its name. A category list must not invent one."""
+    text = (question or "").lower()
+    kept: list[str] = []
+    skip = {"fund", "funds", "growth", "regular", "plan", "direct", "elss", "tax", "saver"}
+    for name in funds:
+        tokens = [
+            word
+            for word in re.findall(r"[a-z0-9]+", name.lower())
+            if len(word) > 3 and word not in skip
+        ]
+        if tokens and any(word in text for word in tokens[:2]):
+            kept.append(name)
+    return kept
+
+
+def _difference_brief(question: str) -> str:
+    if not re.search(r"\b(?:different|difference|unlike|compared with|versus|vs)\b", question or "", re.I):
+        return ""
+    match = match_scheme_category(question)
+    if match is None or not match.category:
+        return ""
+    notes = {
+        "elss": (
+            "ELSS is an equity fund with a lock-in of 3 years. "
+            "The amount invested can be claimed under Section 80C, up to that section's limit. "
+            "Other equity funds, such as large cap or flexi cap, do not have this lock-in and are not Section 80C products."
+        ),
+    }
+    return notes.get(match.category, "")
+
+
+def _apply_category_difference(question: str, plan) -> None:
+    brief = _difference_brief(question)
+    if not brief:
+        return
+    plan.concept_brief = brief
+    plan.requires_compose = True
+    plan.direct_reply = ""
+    plan.funds = _user_named_funds(question, list(plan.funds or []))
+    if (plan.max_words or 0) < 220:
+        plan.max_words = 220
+    note = "Name the funds from the screen when it has them. Then explain the difference from the concept brief."
+    if note not in (plan.presentation_notes or ""):
+        plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
+
+
 def ensure_rating_screen(question: str, plan) -> None:
-    """A rating list replaces the catalog screen. An explanation stays with the composer."""
+    """A rating list uses the category API. Later facts about that fund stay on the plan."""
     spec = parse_rating_screen(question)
     if spec is None:
+        _apply_category_difference(question, plan)
         return
     from news_rag.insight.contracts import AnswerMode, ToolCall
 
-    plan.funds = []
-    plan.direct_reply = ""
-    plan.concept_brief = ""
-    plan.answer_mode = AnswerMode.DATA_ONLY
-    plan.requires_compose = False
-    plan.tool_calls = [
-        ToolCall(
-            tool="screen_funds_by_exposure",
-            arguments={"top_n": spec.count, "rating_screen": True},
-            why="Category RS rating screen.",
-            required=True,
-        )
-    ]
+    follow = _followup_modules(question)
+    others = [call for call in plan.tool_calls if call.tool != "screen_funds_by_exposure"]
+    if follow or ((plan.routed_by or "") == "planner" and (others or len(plan.sub_queries) > 1)):
+        _keep_followup_plan(plan, spec, follow)
+    else:
+        plan.funds = []
+        plan.direct_reply = ""
+        plan.concept_brief = ""
+        plan.answer_mode = AnswerMode.DATA_ONLY
+        plan.requires_compose = False
+        plan.tool_calls = [
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"top_n": spec.count, "rating_screen": True},
+                why="Category RS rating screen.",
+                required=True,
+            )
+        ]
+    _apply_category_difference(question, plan)

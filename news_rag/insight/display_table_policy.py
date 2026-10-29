@@ -174,26 +174,27 @@ def resolve_display_table_policy(
         )
 
     if _named_fund_overview(q, plan):
+        inc = {TABLE_SNAPSHOT}
+        if re.search(r"\b(?:returns?|performance|performing)\b", q, re.I):
+            inc.update({TABLE_RETURNS, TABLE_SHORT, TABLE_LONG})
+        if re.search(r"\bholdings?\b|\btop\s+stocks?\b|\bwhat\s+(?:does|do)\s+it\s+hold\b", q, re.I):
+            inc.update({TABLE_HOLDINGS, TABLE_PORTFOLIO})
+        if re.search(r"\bsectors?\b|\bsector\s+allocation\b", q, re.I):
+            inc.add(TABLE_SECTORS)
         return DisplayTablePolicy(
-            include=frozenset({
-                TABLE_RETURNS,
-                TABLE_SNAPSHOT,
-                TABLE_SHORT,
-                TABLE_LONG,
-                TABLE_HOLDINGS,
-                TABLE_PORTFOLIO,
-                TABLE_SECTORS,
-            }),
-            rationale="Named-fund overview — returns, snapshot, top holdings, sectors.",
+            include=frozenset(inc),
+            rationale="Named-fund overview — snapshot, plus returns, holdings, or sectors only when asked.",
         )
 
     inc = set()
-    if _PERF_RE.search(q) or intent in ("overview", "compare", "lookup"):
-        inc.add(TABLE_RETURNS)
-        if wants_short:
-            inc.add(TABLE_SHORT)
-        if wants_long:
-            inc.add(TABLE_LONG)
+    asks_returns = bool(re.search(r"\b(?:returns?|performance|performing)\b", q, re.I))
+    if asks_returns or _PERF_RE.search(q):
+        if asks_returns or intent in ("compare",):
+            inc.add(TABLE_RETURNS)
+            if wants_short:
+                inc.add(TABLE_SHORT)
+            if wants_long:
+                inc.add(TABLE_LONG)
     if _HOLDINGS_RE.search(q) or _WHY_RE.search(q):
         inc.add(TABLE_HOLDINGS)
     if _NAV_SNAPSHOT_RE.search(q):

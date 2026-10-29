@@ -1070,7 +1070,9 @@
       const hw = (highlightWindow || "").toUpperCase();
       const complete = FUND_RETURN_COLS.filter(([, field]) => rows.every((r) => rowHasValue(r, field)));
       if (!hw) return complete;
-      return complete.filter(([label]) => label === hw).concat(complete.filter(([label]) => label !== hw));
+      const asked = complete.filter(([label]) => label === hw);
+      const rest = complete.filter(([label]) => label !== hw);
+      return asked.concat(rest);
     }
 
     function hasFundManagersPayload(mgr) {

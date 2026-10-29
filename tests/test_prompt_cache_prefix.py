@@ -36,6 +36,7 @@ def test_planner_and_composer_share_the_first_system_block():
     assert "ROLE: COMPOSER" in composer["system"][1]["text"]
     assert "senior financial analyst" not in COMPOSE_SYSTEM
     assert "MARKDOWN LAYOUT" not in COMPOSE_SYSTEM
+    assert "What stands out" in COMPOSE_SYSTEM
     assert "MARKDOWN LAYOUT" in prefix
 
 

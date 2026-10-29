@@ -1,5 +1,5 @@
 from news_rag.fund_search import build_holding_overlap
-from news_rag.insight.contracts import AnswerMode, ExecutionPlan
+from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
 from news_rag.insight.evidence_pack import build_evidence_pack, render_data_only_template
 
 
@@ -101,3 +101,86 @@ def test_no_overlap_message_and_overlap_table():
     assert "Reliance Industries" in table
     assert "8.20%" in table
     assert "5.50%" in table
+
+
+def test_compare_table_includes_risk_for_both_funds():
+    from news_rag.insight.evidence_pack import _render_fund_compare_markdown
+
+    text = _render_fund_compare_markdown(
+        {
+            "holding_overlap": {"fund_names": ["Axis Midcap", "Quant Mid Cap"], "rows": []},
+            "fund_briefs": [
+                {"fund_name": "Axis Midcap", "nav": 115.06, "returns": {}},
+                {"fund_name": "Quant Mid Cap", "nav": 206.47, "returns": {}},
+            ],
+        },
+        [
+            {
+                "fund_name": "Axis Midcap",
+                "risk": {
+                    "fund_name": "Axis Midcap",
+                    "riskometer": "Very High",
+                    "label": "Good Choice",
+                    "final_score": 64.47,
+                    "assets": [{"label": "Equity", "percentage": 90.25}],
+                    "market_cap": [{"label": "Mid Cap", "percentage": 65.38}],
+                },
+            },
+            {
+                "fund_name": "Quant Mid Cap",
+                "risk": {
+                    "fund_name": "Quant Mid Cap",
+                    "riskometer": "Very High",
+                    "label": "Average",
+                    "final_score": 54.3,
+                    "assets": [{"label": "Equity", "percentage": 86.76}],
+                    "market_cap": [{"label": "Mid Cap", "percentage": 72.68}],
+                },
+            },
+        ],
+    )
+    assert "### Risk" in text
+    assert "Good Choice" in text
+    assert "Average" in text
+    assert "64.47" in text
+    assert "54.30" in text
+    assert "Very High" in text
+
+
+def test_compare_and_risk_stay_on_the_first_wave():
+    from news_rag.insight.multi_fact import ensure_compare_template
+
+    plan = ExecutionPlan(
+        routed_by="planner",
+        tool_calls=[
+            ToolCall(tool="screen_funds_by_exposure", arguments={"top_n": 2}, wave=1),
+            ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=2),
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=2),
+        ],
+    )
+    ensure_compare_template(plan, "compare any two mid cap funds and also do risk analysis of both")
+    assert [call.wave for call in plan.tool_calls] == [1, 1, 1]
+    assert "risk" in plan.tool_calls[2].arguments["modules"]
+    assert "drawdown" in plan.tool_calls[2].arguments["modules"]
+    assert plan.requires_compose is True
+
+
+def test_extra_part_brief_names_both_funds():
+    from news_rag.insight.evidence_pack import extra_part_brief
+
+    text = extra_part_brief(
+        {
+            "fund:Axis": {
+                "fund_name": "Axis Midcap",
+                "risk": {"lines": "SEBI riskometer: Very High. RupeeStop assessment: 64.47, Good Choice."},
+            },
+            "fund:Quant": {
+                "fund_name": "Quant Mid Cap",
+                "risk": {"lines": "SEBI riskometer: Very High. RupeeStop assessment: 54.30, Average."},
+            },
+        }
+    )
+    assert "Axis Midcap" in text
+    assert "Quant Mid Cap" in text
+    assert "Good Choice" in text
+    assert "Average" in text

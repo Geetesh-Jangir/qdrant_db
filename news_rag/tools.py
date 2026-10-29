@@ -258,9 +258,8 @@ def return_window_label(window: str | None) -> str:
     return _RETURN_WINDOW_LABELS.get(w, w)
 
 
-def infer_return_window(question: str, explicit: str | None = None) -> str:
-    if explicit:
-        return normalize_return_window(explicit)
+def explicit_return_window(question: str) -> str:
+    """The period the user named. Empty when they did not name one."""
     text = (question or "").lower()
     if re.search(r"\b5\s*years?\b|\bfive\s+years?\b|\b60\s*months?\b", text):
         return "5Y"
@@ -268,20 +267,26 @@ def infer_return_window(question: str, explicit: str | None = None) -> str:
         return "3Y"
     if re.search(r"\b2\s*years?\b|\btwo\s+years?\b|\b24\s*months?\b", text):
         return "2Y"
-    if re.search(r"\b(last|past|this)\s+week\b|\b1\s*week\b|\bone\s+week\b|\b7\s*days?\b", text):
+    if re.search(r"\b(last|past|this)\s+week\b|\b1\s*weeks?\b|\bone\s+weeks?\b|\b7\s*days?\b", text):
         return "1W"
     if re.search(r"\b6\s*months?\b|\bsix\s+months?\b|\bhalf\s*year\b|\b180\s*days?\b", text):
         return "6M"
     if re.search(r"\b3\s*months?\b|\bthree\s+months?\b|\b90\s*days?\b", text):
         return "3M"
     if re.search(
-        r"\b(?:last|past|this)\s+month\b|\b1\s*month\b|\bone\s+month\b|\b30\s*days?\b",
+        r"\b(?:last|past|this)\s+months?\b|\b1\s*months?\b|\bone\s+months?\b|\b30\s*days?\b",
         text,
     ):
         return "1M"
-    if re.search(r"\b(?:last|past)\s+year\b|\b1\s*year\b|\bone\s+year\b", text):
+    if re.search(r"\b(?:last|past)\s+years?\b|\b1\s*years?\b|\bone\s+years?\b", text):
         return "1Y"
-    return "1M"
+    return ""
+
+
+def infer_return_window(question: str, explicit: str | None = None) -> str:
+    if explicit:
+        return normalize_return_window(explicit)
+    return explicit_return_window(question) or "1M"
 
 
 def _window_field(window: str) -> str:
@@ -612,6 +617,18 @@ def enrich_rankings_with_nav(
     return enriched[:top_n]
 
 
+def _drop_unnamed_returns(rows: list[dict[str, Any]], question: str) -> None:
+    """A named period keeps that return. No named period keeps every return."""
+    named = explicit_return_window(question)
+    keep = _RETURN_FIELDS.get(named, "")
+    if not keep or not rows:
+        return
+    for row in rows:
+        for key in list(row):
+            if str(key).startswith("return_") and key != keep:
+                row.pop(key, None)
+
+
 def _attach_screen_facts(rows: list[dict[str, Any]], question: str) -> None:
     """Copy the facts named in the question onto each screened fund."""
     from concurrent.futures import ThreadPoolExecutor
@@ -621,6 +638,7 @@ def _attach_screen_facts(rows: list[dict[str, Any]], question: str) -> None:
 
     facts = screen_fact_names(question)
     if not facts or not rows:
+        _drop_unnamed_returns(rows, question)
         return
     index = get_fund_index()
 
@@ -640,6 +658,8 @@ def _attach_screen_facts(rows: list[dict[str, Any]], question: str) -> None:
         if "category" in facts and detail.get("category"):
             row["category"] = detail.get("category")
         if "returns" in facts:
+            named = explicit_return_window(question)
+            keep = _RETURN_FIELDS.get(named, "")
             for source, field in (
                 ("1w", "return_1w_pct"),
                 ("1m", "return_1m_pct"),
@@ -649,6 +669,8 @@ def _attach_screen_facts(rows: list[dict[str, Any]], question: str) -> None:
                 ("3y", "return_3y_pct"),
                 ("5y", "return_5y_pct"),
             ):
+                if keep and field != keep:
+                    continue
                 if returns.get(source) is not None:
                     row[field] = returns.get(source)
         if "sectors" in facts:
@@ -702,6 +724,7 @@ def _attach_screen_facts(rows: list[dict[str, Any]], question: str) -> None:
 
     with ThreadPoolExecutor(max_workers=min(8, len(rows))) as pool:
         list(pool.map(_one, rows))
+    _drop_unnamed_returns(rows, question)
 
 
 def run_sector_funds(

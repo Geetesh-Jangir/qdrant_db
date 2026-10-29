@@ -51,6 +51,20 @@ def requested_fund_facts(question: str) -> set[str]:
     return facts
 
 
+_ONE_FIGURE = frozenset({"nav", "aum", "expense", "exit_load", "returns", "benchmark"})
+
+
+def asks_one_figure(question: str) -> bool:
+    """One named figure, such as NAV, AUM, one return, or the benchmark."""
+    text = question or ""
+    if re.search(r"\b(?:different|difference|compare|versus|\bvs\b|why|also)\b", text, re.I):
+        return False
+    if re.search(r"\bfunds\b", text, re.I):
+        return False
+    facts = requested_fund_facts(text)
+    return len(facts) == 1 and facts <= _ONE_FIGURE
+
+
 def screen_fact_names(question: str) -> list[str]:
     """Facts to add onto a fund screen. The word sector alone is the screen, not a column."""
     facts = set(requested_fund_facts(question))
@@ -98,6 +112,10 @@ def ensure_screen_facts(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     if not any(call.tool == "screen_funds_by_exposure" for call in plan.tool_calls):
         return plan
     if not screen_fact_names(question):
+        return plan
+    from news_rag.fund_rating_screen import _followup_modules
+
+    if _followup_modules(question):
         return plan
     plan.tool_calls = [
         call for call in plan.tool_calls if call.tool not in ("get_fund_data", "get_portfolio_data")
@@ -181,11 +199,35 @@ def ensure_multi_fact_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan
     return plan
 
 
-def ensure_compare_template(plan: ExecutionPlan) -> ExecutionPlan:
+def ensure_compare_template(plan: ExecutionPlan, question: str = "") -> ExecutionPlan:
     """A fund comparison answer is the facts table plus the holdings overlap table."""
     if not any(call.tool == "compare_funds" for call in plan.tool_calls):
         return plan
+    for call in plan.tool_calls:
+        if call.tool in ("compare_funds", "get_fund_data"):
+            call.wave = 1
+    if re.search(r"\brisk\s+analysis\b|\brisk\s+of\s+both\b", question or "", re.I):
+        call = next((item for item in plan.tool_calls if item.tool == "get_fund_data"), None)
+        if call is None:
+            call = ToolCall(tool="get_fund_data", arguments={"modules": []}, wave=1)
+            plan.tool_calls.append(call)
+        modules = [str(name) for name in (call.arguments.get("modules") or [])]
+        for name in ("risk", "drawdown"):
+            if name not in modules:
+                modules.append(name)
+        call.arguments["modules"] = modules
+        if "drawdown" in modules and not call.arguments.get("periods"):
+            call.arguments["periods"] = ["1y", "3y", "5y"]
+        call.wave = 1
+        plan.requires_compose = True
+        plan.max_words = max(int(plan.max_words or 0), 320)
+        note = "The comparison table is already shown. Write a risk read for every fund from the fund notes."
+        if note not in (plan.presentation_notes or ""):
+            plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
+    else:
+        plan.requires_compose = False
+    if len(plan.sub_queries) > 1:
+        plan.requires_compose = True
     plan.answer_mode = AnswerMode.DATA_ONLY
-    plan.requires_compose = False
     plan.wave_2_policy = Wave2Policy(trigger="none")
     return plan

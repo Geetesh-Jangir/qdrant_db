@@ -325,3 +325,84 @@ def test_best_in_category_list_shows_one_year_against_the_category_average():
     assert large["vs_category_1y_pct"] == 2.0
     assert "return_1m_pct" not in large
     assert "category avg" in result["ranking_note"].lower()
+
+
+def test_highest_rating_plus_returns_and_risk_keeps_the_fund_lookup():
+    from news_rag.fund_rating_screen import ensure_rating_screen
+    from news_rag.insight.contracts import ExecutionPlan, ToolCall
+    from news_rag.insight.multi_fact import ensure_screen_facts
+
+    question = (
+        "tell me the highest rating equity fund? and also historical returns "
+        "and also do the risk analysis of the fund"
+    )
+    plan = ExecutionPlan(
+        routed_by="planner",
+        tool_calls=[
+            ToolCall(tool="screen_funds_by_exposure", arguments={"top_n": 1}),
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=2),
+            ToolCall(tool="search_financial_news", arguments={}, wave=1),
+        ],
+        sub_queries=[
+            {"text": "highest rating equity fund"},
+            {"text": "historical returns"},
+            {"text": "risk analysis"},
+        ],
+    )
+    ensure_screen_facts(question, plan)
+    ensure_rating_screen(question, plan)
+    assert [call.tool for call in plan.tool_calls] == ["screen_funds_by_exposure", "get_fund_data"]
+    assert plan.tool_calls[1].wave == 1
+    modules = plan.tool_calls[1].arguments["modules"]
+    assert "return_series" in modules
+    assert "risk" in modules
+    assert "drawdown" in modules
+    assert plan.tool_calls[0].arguments["rating_screen"] is True
+    assert plan.tool_calls[0].arguments["top_n"] == 1
+    assert plan.requires_compose is True
+
+
+def test_one_month_return_keeps_only_that_column():
+    from news_rag.fund_rating_screen import _keep_asked_return
+    from news_rag.tools import explicit_return_window
+
+    question = "recommend me any 5 debt funds and show me their one months returns"
+    assert explicit_return_window(question) == "1M"
+    assert explicit_return_window("recommend me any 5 debt funds") == ""
+    spec = parse_rating_screen(question)
+    assert spec is not None
+    assert spec.return_window == "1M"
+    assert spec.return_direction == ""
+    row = {
+        "fund_name": "Axis Liquid Fund",
+        "return_1w_pct": 3.7,
+        "return_1m_pct": 5.32,
+        "return_3m_pct": 5.9,
+        "return_1y_pct": 6.42,
+    }
+    _keep_asked_return([row], spec.return_window)
+    assert row["return_1m_pct"] == 5.32
+    assert "return_1w_pct" not in row
+    assert "return_1y_pct" not in row
+    untouched = {"return_1m_pct": 1.0, "return_1y_pct": 2.0}
+    _keep_asked_return([untouched], "")
+    assert untouched["return_1y_pct"] == 2.0
+
+
+def test_elss_list_drops_an_invented_fund_and_keeps_the_difference():
+    from news_rag.fund_rating_screen import ensure_rating_screen
+    from news_rag.insight.contracts import ExecutionPlan, ToolCall
+
+    question = "can you show me any 2 elss funds and also tell me how they are different from other funds"
+    plan = ExecutionPlan(
+        routed_by="planner",
+        funds=["Aditya Birla Sun Life ELSS Tax Saver Fund - Growth"],
+        tool_calls=[ToolCall(tool="screen_funds_by_exposure", arguments={"top_n": 2}, wave=1)],
+        sub_queries=[{"text": "show 2 elss funds"}, {"text": "how they are different"}],
+    )
+    ensure_rating_screen(question, plan)
+    assert plan.funds == []
+    assert any(call.tool == "screen_funds_by_exposure" for call in plan.tool_calls)
+    assert plan.requires_compose is True
+    assert "3 years" in plan.concept_brief
+    assert "80C" in plan.concept_brief

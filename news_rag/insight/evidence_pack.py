@@ -594,6 +594,47 @@ def _benchmark_lines_from_pack(data_pack: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def table_source(data_pack: dict[str, Any]) -> str:
+    """Compact rows the composer uses when it builds the answer table."""
+    lines: list[str] = []
+    screen = data_pack.get("screen") if isinstance(data_pack.get("screen"), dict) else None
+    rankings = list((screen or {}).get("rankings") or (screen or {}).get("funds") or [])
+    for row in rankings[:8]:
+        if not isinstance(row, dict):
+            continue
+        bits = [
+            f"{key}={value}"
+            for key, value in row.items()
+            if not str(key).startswith("_") and not isinstance(value, (dict, list)) and value not in ("", None)
+        ]
+        if bits:
+            lines.append(" | ".join(bits))
+    compare = data_pack.get("compare") if isinstance(data_pack.get("compare"), dict) else None
+    for brief in list((compare or {}).get("fund_briefs") or [])[:6]:
+        if isinstance(brief, dict):
+            lines.append("brief " + " | ".join(
+                f"{key}={value}" for key, value in brief.items() if not isinstance(value, (dict, list)) and value not in ("", None)
+            ))
+            returns = brief.get("returns") if isinstance(brief.get("returns"), dict) else {}
+            if returns:
+                lines.append("returns " + " | ".join(f"{key}={value}" for key, value in returns.items() if value is not None))
+    return "\n".join(lines)
+
+
+def extra_part_brief(data_pack: dict[str, Any]) -> str:
+    """Risk notes for each fund. The comparison table does not replace these."""
+    parts: list[str] = []
+    for key, value in data_pack.items():
+        if not str(key).startswith("fund:") or not isinstance(value, dict):
+            continue
+        body = _risk_body(value)
+        if not body:
+            continue
+        name = str(value.get("fund_name") or key.removeprefix("fund:")).strip()
+        parts.append(f"{name}\n{body}")
+    return "\n\n".join(parts)
+
+
 def investor_fact_brief(data_pack: dict[str, Any], asked: list[str] | set[str]) -> str:
     """Short fact sheet for a question that names several facts. The composer rewrites this."""
     wanted = set(asked or [])
@@ -793,7 +834,39 @@ def _compare_header(briefs: list[dict[str, Any]]) -> list[str]:
     ]
 
 
-def _render_fund_compare_markdown(compare: dict[str, Any]) -> str:
+def _mix_cell(rows: Any) -> str:
+    if not isinstance(rows, list):
+        return "—"
+    parts: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or "").strip()
+        try:
+            percentage = float(row.get("percentage"))
+        except (TypeError, ValueError):
+            continue
+        if label:
+            parts.append(f"{label} {percentage:.2f}%")
+    return ", ".join(parts) if parts else "—"
+
+
+def _risk_for_brief(brief: dict[str, Any], fund_entries: list[dict[str, Any]]) -> dict[str, Any]:
+    name = str(brief.get("fund_name") or "").strip().lower()
+    for entry in fund_entries:
+        risk = entry.get("risk") if isinstance(entry.get("risk"), dict) else None
+        if not risk:
+            continue
+        fund_name = str(risk.get("fund_name") or entry.get("fund_name") or "").strip().lower()
+        if fund_name and (fund_name == name or fund_name in name or name in fund_name):
+            return risk
+    return {}
+
+
+def _render_fund_compare_markdown(
+    compare: dict[str, Any],
+    fund_entries: list[dict[str, Any]] | None = None,
+) -> str:
     overlap = compare.get("holding_overlap") if isinstance(compare.get("holding_overlap"), dict) else {}
     fund_names = [str(name) for name in (overlap.get("fund_names") or []) if name]
     briefs = [row for row in (compare.get("fund_briefs") or []) if isinstance(row, dict)]
@@ -840,6 +913,24 @@ def _render_fund_compare_markdown(compare: dict[str, Any]) -> str:
         note = str(compare.get("drawdown_note") or "").strip()
         if note:
             lines.extend(["", note])
+    risks = [_risk_for_brief(brief, fund_entries or []) for brief in briefs]
+    if any(risks):
+        lines.extend(["", "### Risk", *_compare_header(briefs)[1:]])
+
+        def _risk_row(label: str, values: list[str]) -> None:
+            lines.append("| " + " | ".join([label, *values]) + " |")
+
+        _risk_row("SEBI riskometer", [_compare_cell(risk.get("riskometer")) for risk in risks])
+        _risk_row("RS label", [_compare_cell(risk.get("label")) for risk in risks])
+        _risk_row(
+            "RS score",
+            [
+                _compare_cell(f"{float(risk['final_score']):.2f}" if risk.get("final_score") is not None else None)
+                for risk in risks
+            ],
+        )
+        _risk_row("Asset mix", [_mix_cell(risk.get("assets")) for risk in risks])
+        _risk_row("Market cap", [_mix_cell(risk.get("market_cap")) for risk in risks])
     lines.extend(["", "### Overlapping stocks"])
     rows = [row for row in (overlap.get("rows") or []) if isinstance(row, dict)]
     if not rows:
@@ -915,7 +1006,8 @@ def render_data_only_template(
 
     compare = data.get("compare") if isinstance(data.get("compare"), dict) else None
     if compare and isinstance(compare.get("holding_overlap"), dict):
-        return _render_fund_compare_markdown(compare)
+        fund_entries = [value for key, value in data.items() if str(key).startswith("fund:") and isinstance(value, dict)]
+        return _render_fund_compare_markdown(compare, fund_entries)
 
     screen_answer = _render_screen_markdown(data.get("screen"))
     if screen_answer:

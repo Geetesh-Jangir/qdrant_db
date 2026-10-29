@@ -126,90 +126,35 @@ class Node:
 # ---------------------------------------------------------------------------
 
 def node_route(state: GraphState) -> str | None:
-    """Intake & routing: Fast-path slot router or single structured planner LLM."""
+    """The planner LLM is the router. The slot router is only the fallback if it fails."""
     settings = get_settings()
     threshold = float(getattr(settings, "slot_router_confidence", 0.8))
-
-    from news_rag.insight.question_intent import (
-        plan_matches_intent,
-        prefers_planner_over_slot,
-        resolve_question_intent,
-    )
-
-    intent = resolve_question_intent(state.question)
     slot_plan = slot_route(state.question, confidence_threshold=threshold)
-    pref_planner = prefers_planner_over_slot(state.question)
-    slot_ok_conf = slot_plan is not None and slot_plan.confidence >= threshold
-    if (
-        slot_plan is not None
-        and plan_matches_intent(slot_plan, intent)
-        and intent.kind == "fund_portfolio"
-        and slot_plan.answer_mode == AnswerMode.DATA_ONLY
-        and slot_plan.confidence >= 0.9
-    ):
-        slot_ok_conf = True
-    use_slot = (
-        slot_plan is not None
-        and slot_ok_conf
-        and plan_matches_intent(slot_plan, intent)
-        and not pref_planner
-    )
 
-    if use_slot and slot_plan is not None:
-        state.plan = slot_plan
+    plan = make_plan(
+        state.question,
+        prior_context=state.prior_context,
+        query_log=state.query_log,
+        telemetry=state.telemetry,
+    )
+    if plan is None:
+        if slot_plan is not None:
+            state.plan = slot_plan
+            state.route_reason = "planner unavailable; using slot_router fallback"
+            if state.query_log is not None:
+                state.query_log.write("ROUTER choice=slot_router fallback=planner_failed")
+        else:
+            raise GraphUnavailable("Planner returned no plan")
+    else:
+        state.plan = plan
         state.route_reason = (
-            f"slot_router fast-path (confidence={slot_plan.confidence:.2f}, intent={intent.kind})"
+            f"planner LLM ({len(plan.tool_calls)} tools, planner_intent={plan.intent})"
         )
         if state.query_log is not None:
             state.query_log.write(
-                f"ROUTER choice=slot_router confidence={slot_plan.confidence:.2f} intent={intent.kind}"
+                f"ROUTER choice=planner tools={len(plan.tool_calls)} "
+                f"planner_intent={plan.intent} answer_mode={plan.answer_mode.value}"
             )
-    else:
-        if slot_plan is not None and state.query_log is not None:
-            if slot_plan.confidence < threshold:
-                reason = "below_threshold"
-            elif pref_planner:
-                reason = "planner_preferred"
-            elif not plan_matches_intent(slot_plan, intent):
-                reason = "intent_mismatch"
-            else:
-                reason = "unknown"
-            state.query_log.write(
-                f"ROUTER slot_skipped reason={reason} slot_conf={slot_plan.confidence:.2f} "
-                f"intent={intent.kind} slot_tools={slot_plan.tool_names}"
-            )
-        plan = make_plan(
-            state.question,
-            prior_context=state.prior_context,
-            query_log=state.query_log,
-            telemetry=state.telemetry,
-        )
-        if plan is None:
-            if slot_plan is not None:
-                state.plan = slot_plan
-                state.route_reason = "planner unavailable; using slot_router fallback"
-                if state.query_log is not None:
-                    state.query_log.write("ROUTER choice=slot_router fallback=planner_failed")
-            else:
-                raise GraphUnavailable("Planner returned no plan")
-        else:
-            state.plan = plan
-            if (
-                (plan.routed_by or "") != "planner"
-                and not plan_matches_intent(plan, intent)
-                and state.query_log is not None
-            ):
-                state.query_log.write(
-                    f"ROUTER planner_plan intent_check=weak intent={intent.kind} tools={plan.tool_names}"
-                )
-            state.route_reason = (
-                f"planner LLM ({len(plan.tool_calls)} tools, planner_intent={plan.intent})"
-            )
-            if state.query_log is not None:
-                state.query_log.write(
-                    f"ROUTER choice=planner tools={len(plan.tool_calls)} "
-                    f"planner_intent={plan.intent} answer_mode={plan.answer_mode.value}"
-                )
 
     plan = state.plan
     if plan is None:
@@ -225,7 +170,7 @@ def node_route(state: GraphState) -> str | None:
 
     ensure_multi_fact_tools(state.question, plan)
     ensure_screen_facts(state.question, plan)
-    ensure_compare_template(plan)
+    ensure_compare_template(plan, state.question)
     ensure_drawdown_tools(state.question, plan)
     ensure_risk_tools(state.question, plan)
     ensure_rating_screen(state.question, plan)
@@ -331,7 +276,8 @@ def node_resolve(state: GraphState) -> str | None:
 
     # Missing fund check
     wanted_funds = bool(plan.funds) or plan.random_fund_count > 0
-    if wanted_funds and not funds and not plan.sectors and not plan.stocks and not plan.drivers:
+    has_screen = any(call.tool == "screen_funds_by_exposure" for call in plan.tool_calls)
+    if wanted_funds and not funds and not plan.sectors and not plan.stocks and not plan.drivers and not has_screen:
         state.reply_kind = "not_found"
         names = ", ".join(plan.funds) or "that fund"
         state.answer = (
@@ -418,7 +364,9 @@ def node_wave1(state: GraphState) -> str | None:
 
     screen_first = [c for c in calls if c.tool == "screen_funds_by_exposure"]
     after_screen = [c for c in calls if c.tool != "screen_funds_by_exposure"]
-    sequence_screen = bool(screen_first) and any(c.tool == "compare_funds" for c in after_screen)
+    sequence_screen = bool(screen_first) and any(
+        c.tool in ("compare_funds", "get_fund_data", "get_portfolio_data") for c in after_screen
+    )
 
     context = {
         "question": state.question,
@@ -657,27 +605,27 @@ You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words),
 
 CORE RULES:
 0. **Concept + data:** When WHAT THE USER WANTS includes `concept_brief`, explain that concept first (1–3 sentences), then use EVIDENCE for the example fund/scheme. Do not skip the concept or invent fund names.
-1. **Match the question.** A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay.
-2. **Returns in prose:** Compare a fund with its benchmark only when a benchmark return is present, and with the category average only when that average is present. If neither is present, do not write a comparison and do not say that the comparison is missing or cannot be stated. If only one side is present, compare only that side. Cite the exact gap in percentage points. Do not say "about" when the gap is computable. Do not fill a missing side with a hyphen or a guess. Do not write a returns bullet list or a "Returns (horizon labelled)" section; the returns table is appended for you. Do not say how much of the move is unexplained, or that named holdings fail to explain the fund's return. When PERFORMANCE or the snapshot includes expense_ratio, exit_load_summary, or aum_crore, state all three that are present: the expense ratio (regular unless the field is direct), the exit-load sentence, and AUM in crore with its as-on date. Do not mention a direct-plan expense ratio unless that is the field in the snapshot. Do not say these figures are unavailable when they are present.
-3. **Tables (server decides).** Read WHAT THE USER WANTS `tables_in_answer` and `tables_rationale`. Only those comparison blocks are appended after your text — do not hand-build `|` tables for fund returns or rankings. A small table is fine when EVIDENCE is empty and you are showing a calculation you did. If `tables_in_answer` is empty, skip vs-benchmark/category table talk unless the user explicitly asked for returns. Holdings: **weight %** and **holding return %** only (no per-stock pp). `holding_contribution_pp_internal` is for ranking only.
+1. **Match the question.** A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay. One named figure — NAV, AUM, one return window, or the benchmark — is one sentence: the fund name and that figure only. Do not add another return window, the expense ratio, the exit load, holdings, or a comment.
+2. **Returns in prose:** Compare a fund with its benchmark only when a benchmark return is present, and with the category average only when that average is present. If neither is present, do not write a comparison and do not say that the comparison is missing or cannot be stated. If only one side is present, compare only that side. Cite the exact gap in percentage points. Do not say "about" when the gap is computable. Do not fill a missing side with a hyphen or a guess. Do not write a returns bullet list. When several funds are compared, put the returns in the table you build. Do not say how much of the move is unexplained, or that named holdings fail to explain the fund's return. When the user asked for several of expense ratio, exit load, and AUM, state each one they asked for. Do not add the ones they did not ask for. Do not mention a direct-plan expense ratio unless that is the field in the snapshot. Do not say these figures are unavailable when they are present. When NEWS is present and the user did not ask for a returns list, do not walk 1-month, 3-month, 1-year, 3-year, and 5-year one after another. Use a return only inside a point that also uses the news.
+3. **Tables.** When the evidence has several funds or several figures, you build one markdown table. You choose the columns from the question. A named return period is the only return column. If no period was named, include the return periods present in the evidence. One title line, then the table. Do not repeat those numbers in a paragraph. A single figure, such as one NAV, stays one sentence and is not a table.
 4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
-5. **No news roundup.** Do not add `### Recent news`, `### What the news says`, or a list of article titles. A news fact belongs in the narrative only when it explains a measured move for a holding or sector already in the answer. For a sector overview, use the reported facts from the articles to explain that sector's measured move, not one caveat sentence. When DATA includes `macro_news`, that block is already the short list for this question's window. Use those articles in the answer. Do not leave them out, and do not replace them with a backdrop that is not written in them. Do not invent a cause, and do not add a section that calls funds examples.
+5. **What stands out.** When NEWS is in EVIDENCE, that is the answer. Read the articles together with the holdings, sector weights, and measured returns. Open with `### What stands out` and one finding that is off or unusually important. The finding names a holding or sector, one measured figure (its weight or a return), and what the news says about it. Then two to four shorter points that do the same with other articles. Skip an article that does not touch a holding, a sector, or the fund's move. Do not paste a headline or a publisher. Do not invent a cause the news does not state. Do not add `### Recent news`. Do not add a returns table, a top-holdings table, or a top-sectors table unless the question asked for that list. If NEWS is absent, do not write this section.
 6. **Numbers:** If EVIDENCE has measured figures, those figures must match EVIDENCE. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and calculations are yours to write, with the actual amounts. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
 7. **Horizon on every measured percent.** Each price or return row has `horizon` (1D, 1W, 1M, 3M, 6M, 1Y, or a day count such as 14D). WHAT THE USER WANTS also has `measured_window`. Write that code on the figure: Nifty **+0.7% (1W)**. If one figure is 1W and another is 1M, label both. Do not call a 1W or 1M change "the latest session", "today", or "right now".
 8. **No invented levels.** A macro row is a percent change, not a Brent price, a rupee level, or an Indian bond yield. Do not print a level the row does not contain, and do not leave a blank where a number should be. A level or a percent that appears only in a news summary is what that article reported, not the measured move.
 9. Never mention: DATA, NEWS, EVIDENCE, DISPLAY, tool, pipeline, JSON, yfinance, proxy.
-10. Do not repeat UI fund_rankings tables — one summary line is enough.
+10. The markdown table in the answer is the table the user reads. Do not add a second copy of the same numbers.
 """
 
-COMPOSE_SYSTEM_PRECISE = """ROLE: COMPOSER — **precise short answer only**
-The user asked a narrow definition, acronym, or factual question. EVIDENCE may be empty.
+COMPOSE_SYSTEM_PRECISE = """ROLE: COMPOSER — one specific figure
+The user asked for one thing: a NAV, an AUM, one return window, a benchmark, or a short definition.
 
 RULES:
-1. Answer **only** what was asked — nothing else.
-2. Prefer **one sentence** (two only if the question has two explicit parts). No ### headings, no bullet lists, no "what stands out", no worked examples, no investing tips.
-3. Respect `max_words` in WHAT THE USER WANTS strictly (usually ≤50).
-4. Do not mention tools, EVIDENCE, or the pipeline.
-5. If you truly do not know, say so in one sentence.
+1. One sentence. Name the fund and the figure they asked for. Nothing else.
+2. A 1-month return is only the 1-month figure. Do not add 1-year, 3-year, or 5-year returns.
+3. Use the number in EVIDENCE. If it is missing, say so in that same sentence.
+4. No heading, no bullets, no other facts, no investing comment.
+5. Do not mention tools, EVIDENCE, or the pipeline.
 """
 
 COMPOSE_SYSTEM_FACTS = """ROLE: COMPOSER — one note for an investor
@@ -710,22 +658,105 @@ def _clean_answer(text: str) -> str:
     return text
 
 
+def _compose_table(state: GraphState, rows: str) -> str:
+    """The composer chooses the columns and writes the markdown table."""
+    settings = get_settings()
+    if not rows.strip() or not llm_api_key_configured(settings):
+        return ""
+    res = call_insight_llm(
+        system_prompt=(
+            "You write the answer table. Choose the columns from the question. "
+            "A named return period is the only return column. "
+            "If no period was named, include the return periods that are in the rows. "
+            "Output one markdown table and a one-line title. No essay. "
+            "Use only values in the rows. Do not invent a number."
+        ),
+        user_content=f"QUESTION:\n{state.question.strip()}\n\nROWS:\n{rows}",
+        query_log=state.query_log,
+        model_override=composer_model(settings),
+        max_tokens=900,
+        temperature=0.2,
+        stage="composer",
+        cached_system_prefix=shared_system_prefix(),
+    )
+    return (res.raw_text or "").strip() if res else ""
+
+
+def _compose_extra_parts(state: GraphState, notes: str) -> str:
+    """The table is already the answer. The composer writes only the parts it left out."""
+    settings = get_settings()
+    if not notes.strip() or not llm_api_key_configured(settings):
+        return ""
+    plan = state.plan
+    res = call_insight_llm(
+        system_prompt=(
+            "The comparison table is already shown. Do not repeat it. "
+            "Write one short risk read for every fund in the notes, using only those notes. "
+            "Name the SEBI riskometer, the RS label, and the RS score. "
+            "Do not invent a pillar score or a recommendation."
+        ),
+        user_content=f"QUESTION:\n{state.question.strip()}\n\nFUND NOTES:\n{notes}",
+        query_log=state.query_log,
+        model_override=composer_model(settings),
+        max_tokens=max(500, min(1200, int((plan.max_words if plan else 320) or 320) * 3)),
+        temperature=0.2,
+        stage="composer",
+        cached_system_prefix=shared_system_prefix(),
+    )
+    return (res.raw_text or "").strip() if res else ""
+
+
 def node_compose(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
     pack = state.evidence_pack
 
-    # Fast Path: Check for DATA_ONLY Template (skip when concept + compose required)
+    template_answer = None
     if (
         plan.answer_mode == AnswerMode.DATA_ONLY
         and pack is not None
-        and not plan.requires_compose
         and not (plan.concept_brief or "").strip()
     ):
-        template_answer = render_data_only_template(pack, plan)
-        if template_answer:
+        saved_compose = plan.requires_compose
+        plan.requires_compose = False
+        try:
+            template_answer = render_data_only_template(pack, plan)
+        finally:
+            plan.requires_compose = saved_compose
+
+    if template_answer and pack is not None and not (plan.concept_brief or "").strip():
+        from news_rag.insight.evidence_pack import extra_part_brief, table_source
+        from news_rag.insight.multi_fact import asks_one_figure
+
+        rows = table_source(pack.data_pack)
+        if rows and not asks_one_figure(state.question or ""):
+            built = _compose_table(state, rows)
+            if built:
+                if plan.requires_compose:
+                    extra = _compose_extra_parts(state, extra_part_brief(pack.data_pack))
+                    if extra:
+                        built = f"{built}\n\n{extra}"
+                state.answer = _clean_answer(built)
+                state.route_reason = "composer table"
+                return None
+
+    if template_answer and not plan.requires_compose:
+        state.answer = _clean_answer(template_answer)
+        state.route_reason = "DATA_ONLY direct template (<10ms)"
+        return None
+
+    if template_answer and plan.requires_compose and pack is not None:
+        from news_rag.insight.evidence_pack import extra_part_brief
+
+        notes = extra_part_brief(pack.data_pack)
+        extra = _compose_extra_parts(state, notes)
+        if extra:
+            state.answer = _clean_answer(f"{template_answer}\n\n{extra}")
+            state.route_reason = "template plus composer for the remaining parts"
+            return None
+        if notes:
             state.answer = _clean_answer(template_answer)
-            state.route_reason = "DATA_ONLY direct template (<10ms)"
+            state.route_reason = "template kept; composer added nothing"
             return None
 
     # LLM Composition
@@ -785,7 +816,9 @@ def node_compose(state: GraphState) -> str | None:
     )
 
     from news_rag.insight.glossary import asks_precise_definition
+    from news_rag.insight.multi_fact import asks_one_figure
 
+    one_figure = asks_one_figure(state.question or "") and not (plan.concept_brief or "").strip()
     precise = asks_precise_definition(state.question or "") and not (
         evidence_dict.get("rows") or evidence_dict.get("data_pack")
     )
@@ -798,6 +831,16 @@ def node_compose(state: GraphState) -> str | None:
         )
         compose_system = COMPOSE_SYSTEM_NEWS
         max_tokens = 700
+    elif one_figure or precise:
+        wants["max_words"] = 40
+        wants["style"] = "short_answer"
+        user_content = (
+            f"QUESTION:\n{state.question.strip()}\n\n"
+            f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
+            f"EVIDENCE:\n{evidence_text}"
+        )
+        compose_system = COMPOSE_SYSTEM_PRECISE
+        max_tokens = 120
     elif fact_brief:
         wants["max_words"] = max(int(wants.get("max_words") or 0), 450)
         user_content = (
@@ -807,20 +850,28 @@ def node_compose(state: GraphState) -> str | None:
         )
         compose_system = COMPOSE_SYSTEM_FACTS
         max_tokens = 900
-    elif precise:
-        wants["max_words"] = min(int(wants.get("max_words") or 220), 50)
-        wants["style"] = "short_answer"
-        user_content = (
-            f"QUESTION:\n{state.question.strip()}\n\n"
-            f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
-            f"EVIDENCE:\n{evidence_text}"
-        )
-        compose_system = COMPOSE_SYSTEM_PRECISE
-        max_tokens = 150
     else:
         compose_system = COMPOSE_SYSTEM
         word_budget = int(wants.get("max_words") or plan.max_words or 220)
         max_tokens = max(500, min(2500, word_budget * 4))
+        if pack and pack.news_grouped:
+            wants["max_words"] = max(int(wants.get("max_words") or 0), 420)
+            max_tokens = max(max_tokens, min(2500, int(wants["max_words"]) * 4))
+            ordered = dict(evidence_dict)
+            news_block = ordered.pop("NEWS", None)
+            if news_block is not None:
+                ordered = {"NEWS": news_block, **ordered}
+            evidence_text = json.dumps(ordered, ensure_ascii=False)
+            user_content = (
+                f"QUESTION:\n{state.question.strip()}\n\n"
+                "TASK: NEWS is in EVIDENCE. Open with ### What stands out and one finding "
+                "that is off or unusually important. The finding must use a fact from NEWS and "
+                "one measured figure together: a holding weight, a sector weight, or a return. "
+                "Then two to four shorter points that do the same. Do not open with a returns recap. "
+                "Do not list every return period. Do not paste headlines.\n\n"
+                f"WHAT THE USER WANTS:\n{json.dumps(wants, ensure_ascii=False)}\n\n"
+                f"EVIDENCE:\n{evidence_text}"
+            )
 
     t0 = time.time()
     res = call_insight_llm(
