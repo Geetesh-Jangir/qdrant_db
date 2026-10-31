@@ -1,4 +1,6 @@
 from news_rag.fund_risk import (
+    asks_risk_trend_comparison,
+    asks_sebi_riskometer,
     ensure_risk_tools,
     exposure_from_detail,
     normalize_rating,
@@ -87,6 +89,65 @@ def test_public_summary_keeps_pillar_marks_and_drops_inputs():
     assert summary["pillars"]["fundManager"]["score"] == 6.5
     assert "inputs" not in summary
     assert "sharpe" not in str(summary).lower()
+
+
+def test_debt_pillar_max_uses_api_max_score_field():
+    from news_rag.fund_risk import normalize_rating
+
+    payload = {
+        "data": {
+            "fundType": "debt",
+            "finalScore": 63,
+            "label": "Good Choice",
+            "pillars": {
+                "performance": {"score": 21, "maxScore": 35},
+                "risk": {"score": 8, "maxScore": 25},
+                "portfolioQuality": {"score": 20, "maxScore": 25},
+                "fundManager": {"score": 14, "maxScore": 15},
+            },
+        }
+    }
+    summary = normalize_rating(payload)
+    assert summary is not None
+    assert summary["pillars"]["performance"]["max"] == 35
+    assert summary["pillars"]["fundManager"]["max"] == 15
+    assert summary["pillars"]["fundManager"]["score"] == 14
+
+
+def test_general_pillar_max_question_uses_concept_brief():
+    from news_rag.fund_risk import asks_pillar_structure, asks_rating_concept, ensure_risk_tools
+
+    question = "what are the rupeestop pillars and what is each pillar max score"
+    assert asks_pillar_structure(question)
+    assert asks_rating_concept(question)
+    plan = ExecutionPlan(intent="lookup", answer_mode=AnswerMode.DATA_ONLY, funds=[], tool_calls=[])
+    ensure_risk_tools(question, plan)
+    assert plan.tool_calls == []
+    assert "depends on the fund type" in plan.concept_brief
+
+
+def test_fund_quality_question_maps_to_portfolio_quality_pillar():
+    from news_rag.fund_risk import asks_pillar_mark, pillar_focus
+
+    q = "whats the fund quality of the absl Banking & PSU Debt Fund"
+    assert pillar_focus(q) == "portfolioQuality"
+    assert asks_pillar_mark(q)
+
+
+def test_fund_manager_name_ask_is_not_fund_manager_pillar():
+    from news_rag.fund_risk import pillar_focus, rating_lead
+
+    q = "tell me a random fund and tell me the name of the fund manager"
+    assert pillar_focus(q) == ""
+    lead = rating_lead(
+        {
+            "final_score": 70,
+            "label": "Recommended",
+            "pillars": {"fundManager": {"label": "Fund manager", "score": 4.75, "max": 10}},
+        },
+        q,
+    )
+    assert lead == ""
 
 
 def test_what_is_rs_rating_goes_to_the_composer_with_the_pillars():
@@ -215,6 +276,43 @@ def test_why_very_high_keeps_the_risk_fetch():
     assert any(item.tool == "search_financial_news" for item in plan.tool_calls)
 
 
+def test_sebi_risk_score_question_is_detected():
+    assert asks_sebi_riskometer("whats the sebi risk score of this")
+    assert not asks_sebi_riskometer("what is the risk pillar score")
+
+
+def test_less_riskier_question_gets_trend_composer_note():
+    assert asks_risk_trend_comparison("is it less riskier?")
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="explain_cause",
+        answer_mode=AnswerMode.DATA_ONLY,
+        funds=["Aditya Birla Sun Life Banking & PSU Debt Fund - Growth"],
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["risk", "drawdown", "rating"], "periods": ["1y", "3y", "5y"]},
+                wave=1,
+            )
+        ],
+    )
+    ensure_risk_tools("is it less riskier?", plan)
+    assert "We can't get that data right now" in (plan.presentation_notes or "")
+    assert plan.requires_compose is True
+
+
+def test_strip_removes_risk_trend_apology():
+    from news_rag.insight.fund_display import strip_missing_data_caveats
+
+    prose = (
+        "**Short answer: the data here cannot show whether this fund has become less risky over time.** "
+        "We only have one snapshot of risk measures, with no earlier reading to compare against."
+    )
+    cleaned = strip_missing_data_caveats(prose)
+    assert "snapshot" not in cleaned.lower()
+    assert "earlier reading" not in cleaned.lower()
+
+
 def test_risk_pillar_question_keeps_the_fund_lookup():
     plan = ExecutionPlan(
         intent="lookup",
@@ -224,7 +322,22 @@ def test_risk_pillar_question_keeps_the_fund_lookup():
     )
     ensure_risk_tools("What is the risk pillar?", plan)
     assert plan.direct_reply == ""
-    assert any(call.tool == "get_fund_data" for call in plan.tool_calls)
+    call = next(item for item in plan.tool_calls if item.tool == "get_fund_data")
+    assert call.arguments["modules"] == ["rating"]
+    assert plan.requires_compose is True
+
+
+def test_planner_pillar_question_replaces_wrong_modules():
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        funds=["Taurus Large Cap Fund - Regular Plan - Growth"],
+        tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["managers"]}, wave=1)],
+    )
+    ensure_risk_tools("tell me about the risk pillar of this fund", plan)
+    call = next(item for item in plan.tool_calls if item.tool == "get_fund_data")
+    assert call.arguments["modules"] == ["rating"]
 
 
 def test_score_question_does_not_add_drawdown():

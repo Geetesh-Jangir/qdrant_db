@@ -142,6 +142,12 @@ def _tool_digest(row: dict[str, Any]) -> str:
     """One line: what a tool returned, and where it came back empty."""
     data = row.get("data") if isinstance(row.get("data"), dict) else {}
     parts = [f"TOOL_DIGEST name={row.get('tool') or ''} ok={bool(row.get('ok'))}"]
+    if row.get("cached"):
+        parts.append(f"cached={row.get('cache_layer') or 'yes'}")
+    if row.get("partial"):
+        parts.append("partial=true")
+    if row.get("refetched"):
+        parts.append("refetched=true")
     if row.get("error"):
         parts.append(f"FAILED error={row.get('error')}")
     keys = [str(key) for key in data if key != "fund_name"]
@@ -538,6 +544,8 @@ class QueryLogger:
                         "fund": row.get("fund") or None,
                         "ok": bool(row.get("ok")),
                         "elapsed_ms": row.get("elapsed_ms"),
+                        "cached": row.get("cached") or None,
+                        "partial": row.get("partial") or None,
                         "error": row.get("error") or None,
                     }
                 )

@@ -361,3 +361,25 @@ def asks_fund_category_average(question: str) -> bool:
             re.I,
         )
     )
+
+
+def asks_category_performance(question: str) -> bool:
+    """How the fund's category is doing — not a sector screen or a random fund list."""
+    q = (question or "").strip()
+    if not q or not re.search(r"\bcategory\b", q, re.I):
+        return False
+    if asks_fund_category_average(q):
+        return True
+    if not re.search(
+        r"\b(?:perform|performance|performing|doing|fared|return(?:s|ed)?)\b",
+        q,
+        re.I,
+    ):
+        return False
+    if re.search(r"\bsector\b", q, re.I):
+        return False
+    from news_rag.tools import asks_funds_with_sector_exposure
+
+    if asks_funds_with_sector_exposure(q):
+        return False
+    return True

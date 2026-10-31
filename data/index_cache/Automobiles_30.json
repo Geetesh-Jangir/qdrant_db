@@ -2,8 +2,8 @@
   "sector_label": "Automobiles",
   "benchmark_label": "Automobiles",
   "yfinance_ticker": "^CNXAUTO",
-  "return_pct": -3.08,
+  "return_pct": -2.66,
   "window_days": 30,
   "substituted_broad_index": false,
-  "cached_at": 1793182237.1672397
+  "cached_at": 1793339627.4920707
 }

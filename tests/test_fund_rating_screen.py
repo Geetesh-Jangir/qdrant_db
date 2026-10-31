@@ -1,6 +1,7 @@
 """Category RS-rating lists. Payloads are fake. No live HTTP."""
 
-from news_rag.fund_rating_screen import parse_rating_screen, run_rating_list
+from news_rag.fund_rating_screen import ensure_rating_screen, parse_rating_screen, run_rating_list
+from news_rag.insight.contracts import ExecutionPlan, ToolCall
 from news_rag.insight.slot_router import slot_route
 
 
@@ -126,6 +127,51 @@ def test_good_choice_list_uses_the_funds_table():
     assert "good choice" in template.lower()
     assert "| Fund |" not in template
     assert "HDFC Large Cap" not in template
+
+
+def test_name_one_flexi_cap_without_fund_word_uses_ratings():
+    spec = parse_rating_screen("tell me name of a flexi cap")
+    assert spec is not None
+    assert spec.category == "flexi cap"
+    assert spec.suggestion == "rated"
+
+
+def test_name_one_flexi_cap_uses_rupeestop_category_ratings():
+    q = "tell me name of a flexi cap fund"
+    spec = parse_rating_screen(q)
+    assert spec is not None
+    assert spec.category == "flexi cap"
+    assert spec.locked is True
+    assert spec.label == "Best in category"
+    assert spec.suggestion == "rated"
+    assert spec.random_sample is False
+
+    plan = ExecutionPlan(
+        routed_by="planner",
+        tool_calls=[
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"top_n": 1, "random_sample": True, "focus_question": q},
+                wave=1,
+            ),
+        ],
+    )
+    ensure_rating_screen(q, plan)
+    call = plan.tool_calls[0]
+    assert call.arguments.get("rating_screen") is True
+    assert call.arguments.get("random_sample") is False
+    assert call.arguments.get("top_n") == 1
+    assert "RupeeStop" in (plan.presentation_notes or "")
+
+    def fetch(fund_type: str, category: str) -> dict:
+        assert fund_type == "equity"
+        assert category == "flexi cap"
+        return _payload(_rating("INFFLEX", label="Best in category", score=82.5, trail=14, category="flexi cap"))
+
+    result = run_rating_list(q, fetch=fetch)
+    assert result["success"] is True
+    assert result["rankings"][0]["rs_label"] == "Best in category"
+    assert result["rankings"][0]["final_score"] == 82.5
 
 
 def test_locked_large_cap_does_not_request_mid_cap():
@@ -531,6 +577,34 @@ def test_a_one_month_performer_is_shown_beside_the_same_category_rating():
     assert "The rated fund did not win this period." in result["ranking_note"]
     assert rating_is_stronger(80, 60) is True
     assert rating_is_stronger(50, 70) is False
+
+
+def test_why_this_fund_positive_month_is_not_a_period_suggestion():
+    assert parse_rating_screen("why this fund is performing positive in last 1 month?") is None
+
+
+def test_explain_cause_plan_is_not_hijacked_by_rating_screen():
+    from news_rag.fund_rating_screen import ensure_rating_screen
+    from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
+
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="explain_cause",
+        answer_mode=AnswerMode.INSIGHT_FUSION,
+        funds=["Taurus Large Cap Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["snapshot", "attribution"], "windows": ["1M"]},
+                wave=1,
+            ),
+            ToolCall(tool="get_portfolio_data", arguments={"sections": ["holdings", "sectors"]}, wave=1),
+            ToolCall(tool="search_financial_news", arguments={"scope": "all", "window_days": 30}, wave=1),
+        ],
+    )
+    ensure_rating_screen("why this fund is performing positive in last 1 month?", plan)
+    assert plan.answer_mode == AnswerMode.INSIGHT_FUSION
+    assert not any(call.tool == "screen_funds_by_exposure" for call in plan.tool_calls)
 
 
 def test_a_positive_one_month_return_is_paired_with_best_in_category():

@@ -33,8 +33,11 @@ def slice_slot(tool: str, args: dict[str, Any] | None) -> str:
         return (
             f"screen|{question or args.get('sector') or ''}|"
             f"w={args.get('return_window')}|n={args.get('top_n')}|"
-            f"rating={bool(args.get('rating_screen'))}|random={bool(args.get('random_sample'))}"
+            f"rating={bool(args.get('rating_screen'))}|random={bool(args.get('random_sample'))}|"
+            f"compare_pair={bool(args.get('compare_pair'))}|alternate={bool(args.get('pick_alternate'))}"
         )
+    if tool == "compare_funds":
+        return f"compare|mode={str(args.get('mode') or 'both').lower()}"
     return tool
 
 

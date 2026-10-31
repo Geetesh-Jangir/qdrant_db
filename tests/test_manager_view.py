@@ -1,8 +1,14 @@
 from news_rag.insight.manager_view import (
+    asks_manager_roster,
     build_roster_note,
     enrich_manager_payload,
     infer_manager_roster_focus,
 )
+
+
+def test_asks_manager_roster_not_pillar_score():
+    q = "tell me a random fund and tell me the name of the fund manager"
+    assert asks_manager_roster(q) is True
 
 
 def test_infer_roster_focus_current_vs_past():

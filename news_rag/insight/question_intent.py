@@ -265,7 +265,7 @@ def prefers_planner_over_slot(question: str) -> bool:
 
 
 def planner_supplement_for_question(question: str) -> str:
-    """Optional non-binding context for the planner (catalog resolution only)."""
+    """Optional catalog hints for the planner (typos / ambiguous names). Does not choose tools."""
     q = (question or "").strip()
     if not q:
         return ""
@@ -286,11 +286,9 @@ def planner_supplement_for_question(question: str) -> str:
             lines.append(f"Ambiguous scheme phrases in catalog: {', '.join(close[:4])}")
     except Exception:
         pass
-    from news_rag.tools import screen_hints_from_question
-
-    hints = screen_hints_from_question(q)
-    if any(hints.values()):
-        lines.append(f"Parsed screen hints (non-binding): {hints}")
     if not lines:
         return ""
-    return "REFERENCE (does not override your tool choice):\n" + "\n".join(lines)
+    return (
+        "REFERENCE for spelling and scheme names only. You still decide intent, data_need, and tool_calls:\n"
+        + "\n".join(lines)
+    )

@@ -108,6 +108,14 @@ class ExecutionPlan(BaseModel):
     # Planner's own reading of the question (count + portfolio slice). Not regex.
     planner_count: int = 0
     planner_portfolio_slice: str = ""
+    planner_reading: str = ""
+    fund_pick: str = "none"
+    scheme_category: str = ""
+    scheme_categories: list[str] = Field(default_factory=list)
+    # Planner-normalized intent (authoritative when routed_by=planner).
+    data_need: str = "none"
+    subject_ref: str = "none"
+    rs_label: str = ""
 
     # Conversation pointers the planner names. Python resolves them. They are not regex.
     turn_relation: str = ""
@@ -211,6 +219,11 @@ class EvidencePack(BaseModel):
         if performance:
             out["PERFORMANCE"] = performance
         if self.display_tables:
+            from news_rag.insight.fund_display import summarize_tables_for_composer
+
+            summaries = summarize_tables_for_composer(self.data_pack, self.display_tables)
+            if summaries.get("asset_mix") or summaries.get("top_holdings") or summaries.get("top_sectors"):
+                out["TABLE_SUMMARIES"] = summaries
             out["DISPLAY"] = self.display_tables
         if data_pack:
             out["DATA"] = data_pack

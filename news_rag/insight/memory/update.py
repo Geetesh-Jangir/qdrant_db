@@ -66,10 +66,11 @@ def _subject_from_row(row: dict[str, Any]) -> dict[str, Any]:
     data = row.get("data") if isinstance(row.get("data"), dict) else {}
     name = str(row.get("fund") or data.get("fund_name") or "").strip()
     isin = ""
-    for block in data.values():
-        if isinstance(block, dict) and block.get("isin"):
-            isin = str(block.get("isin") or "").strip()
-            break
+    if name:
+        from news_rag.fund_search import get_fund_index
+
+        detail, _amb, _close = get_fund_index().lookup_extracted_fund(name=name)
+        isin = str((detail or {}).get("isin") or "").strip()
     return {"id": isin, "name": name, "plan": "", "role": "primary"}
 
 
@@ -208,23 +209,78 @@ def commit_turn(
     if topic and any(row.get("tool") == "search_financial_news" for row in ok_rows):
         frame["news_topic"] = topic
 
+    listed: list[dict[str, str]] = []
+    seen_list_names: set[str] = set()
+    screen_args: dict[str, Any] = {}
     for row in ok_rows:
         if row.get("tool") != "screen_funds_by_exposure":
             continue
         data = row.get("data") if isinstance(row.get("data"), dict) else {}
-        listed = []
         for item in (data.get("rankings") or data.get("funds") or [])[:20]:
             if not isinstance(item, dict):
                 continue
             name = str(item.get("fund_name") or item.get("name") or "").strip()
-            if name:
-                listed.append({"name": name, "id": str(item.get("isin") or "")})
-        screen_args = {}
-        for call in calls:
-            if call.tool == "screen_funds_by_exposure":
-                screen_args = dict(call.arguments or {})
-        if listed:
-            state["list_cursor"] = {"rows": listed, "filters": screen_args, "turn": turn}
+            if not name or name in seen_list_names:
+                continue
+            seen_list_names.add(name)
+            listed.append({"name": name, "id": str(item.get("isin") or "")})
+    for call in calls:
+        if call.tool == "screen_funds_by_exposure" and not screen_args:
+            screen_args = dict(call.arguments or {})
+    if listed:
+        state["list_cursor"] = {
+            "rows": [{"n": index + 1, **item} for index, item in enumerate(listed)],
+            "filters": screen_args,
+            "turn": turn,
+        }
+
+    if (
+        not subjects
+        and listed
+        and str(getattr(plan, "intent", "") or "") == "compare"
+    ):
+        for item in listed:
+            subjects.append(
+                {
+                    "id": str(item.get("id") or ""),
+                    "name": str(item.get("name") or ""),
+                    "plan": "",
+                    "role": "primary",
+                }
+            )
+        frame["subjects"] = subjects
+        frame["subject_kind"] = "comparison" if len(subjects) > 1 else "single_fund"
+        for subject in subjects:
+            push_fund(state, subject, period=period, facts=facts, turn=turn)
+
+    compare_row = next(
+        (row for row in ok_rows if row.get("tool") == "compare_funds" and row.get("ok")),
+        None,
+    )
+    planned_compare = [
+        str(name).strip() for name in (getattr(plan, "funds", None) or []) if str(name).strip()
+    ]
+    if compare_row and len(planned_compare) >= 2:
+        from news_rag.insight.memory.fund_context import (
+            compare_payload_matches_funds,
+            subjects_from_fund_names,
+        )
+
+        data = compare_row.get("data") if isinstance(compare_row.get("data"), dict) else {}
+        if not compare_payload_matches_funds(planned_compare[:2], data):
+            data = {}
+        compare_subjects = subjects_from_fund_names(planned_compare[:2])
+        if compare_subjects:
+            subjects = compare_subjects
+            frame["subjects"] = subjects
+            frame["subject_kind"] = "comparison"
+            for subject in subjects:
+                push_fund(state, subject, period=period, facts=facts, turn=turn)
+            state["list_cursor"] = {
+                "rows": [{"n": index + 1, "name": row["name"], "id": row.get("id") or ""} for index, row in enumerate(subjects)],
+                "filters": {"compare_pair": True},
+                "turn": turn,
+            }
 
     named = subjects or [row for row in (frame.get("subjects") or []) if isinstance(row, dict) and row.get("name")]
     names = ", ".join(str(row.get("name") or "") for row in named) or "no fund"

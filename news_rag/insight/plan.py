@@ -73,6 +73,31 @@ PLAN_SCHEMA: dict[str, Any] = {
                         "data when they want numbers, a fund list, or one named scheme."
                     ),
                 },
+                "data_need": {
+                    "type": "string",
+                    "enum": [
+                        "none",
+                        "fund_holdings_breakdown",
+                        "category_composition",
+                        "category_performance",
+                        "rating_for_screened_list",
+                    ],
+                    "description": (
+                        "What data to fetch beyond a generic lookup. "
+                        "fund_holdings_breakdown: asset mix, cap mix, sectors, top holdings for one scheme. "
+                        "category_composition: what a SEBI category may hold plus one example fund's measured mix. "
+                        "category_performance: fund in memory vs its category averages. "
+                        "rating_for_screened_list: RupeeStop ratings for funds on the list cursor."
+                    ),
+                },
+                "subject_ref": {
+                    "type": "string",
+                    "enum": ["none", "user_named", "memory_primary", "memory_stack", "list_cursor"],
+                    "description": (
+                        "Who or what the question is about. memory_primary when they say it/this fund and "
+                        "Conversation memory has the scheme. list_cursor when they mean the on-screen list."
+                    ),
+                },
             },
             "required": ["goal", "intent", "answer_mode"],
         },
@@ -88,6 +113,11 @@ PLAN_SCHEMA: dict[str, Any] = {
                     },
                 },
                 "sectors": {"type": "array", "items": {"type": "string"}},
+                "scheme_categories": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Two or more category slugs when comparing categories.",
+                },
                 "stocks": {"type": "array", "items": {"type": "string"}},
                 "drivers": {
                     "type": "array",
@@ -123,6 +153,31 @@ PLAN_SCHEMA: dict[str, Any] = {
                     "enum": ["holdings", "sectors", "both", "none"],
                 },
                 "reading": {"type": "string"},
+                "fund_pick": {
+                    "type": "string",
+                    "enum": [
+                        "none",
+                        "best_in_category",
+                        "alternate_in_category",
+                        "random_in_category",
+                        "compare_categories",
+                    ],
+                    "description": (
+                        "alternate_in_category when the user wants a different fund in a category "
+                        "already discussed (another/other/different), not a repeat of the top-rated name."
+                    ),
+                },
+                "scheme_category": {
+                    "type": "string",
+                    "description": "Single SEBI scheme category slug when the ask is category-scoped.",
+                },
+                "rs_label": {
+                    "type": "string",
+                    "description": (
+                        "RupeeStop RS label when the user wants a tier: Best in category, Recommended, "
+                        "Good Choice, Average, Underperformer. Use with scheme_category on screens."
+                    ),
+                },
             },
             "required": ["count", "portfolio_slice", "reading"],
         },
@@ -331,6 +386,17 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
 
     request = data.get("request") if isinstance(data.get("request"), dict) else {}
     planner_count, planner_slice = _apply_planner_request(tool_calls, request)
+    planner_reading = str(request.get("reading") or "").strip()
+    fund_pick = str(request.get("fund_pick") or "none").strip().lower()
+    from news_rag.insight.plan_intent import FUND_PICK_VALUES
+
+    if fund_pick not in FUND_PICK_VALUES:
+        fund_pick = "none"
+    scheme_category = str(request.get("scheme_category") or "").strip()
+    scheme_categories = _str_list(ents.get("scheme_categories"))
+    from news_rag.fund_rating_labels import normalize_rs_label
+
+    rs_label = normalize_rs_label(str(request.get("rs_label") or ""))
     memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
     relation = str(memory.get("turn_relation") or "").strip()
     if relation not in ("continue", "partial_keep", "reset"):
@@ -412,12 +478,23 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
         confidence=0.9,
         planner_count=planner_count,
         planner_portfolio_slice=planner_slice,
+        planner_reading=planner_reading,
+        fund_pick=fund_pick,
+        scheme_category=scheme_category,
+        scheme_categories=scheme_categories,
+        rs_label=rs_label,
+        data_need=str(under.get("data_need") or "none").strip().lower() or "none",
+        subject_ref=str(under.get("subject_ref") or "none").strip().lower() or "none",
         turn_relation=relation,
         stack_refs=stack_refs,
         list_ordinals=list_ordinals,
         answer_depth=depth,
         refers_to_turn=refers_to_turn,
     )
+    from news_rag.insight.plan_intent import normalize_fund_pick_from_planner
+
+    normalize_fund_pick_from_planner(plan)
+
     canned = bool((plan.direct_reply or "").strip() and not plan.tool_calls)
     plan.requires_compose = not canned
     if str(under.get("task") or "").strip().lower() == "explain":
@@ -570,11 +647,16 @@ Read the user's question and emit ONE structured JSON ExecutionPlan using ONLY t
 ### FIELDS THE PARSER ACCEPTS
 Optional fields may be omitted. Do not invent field names.
 - `understanding.intent`: lookup, overview, explain_cause, compare, rank, outlook. A definition or a SIP/FIRE calculation uses lookup.
+- `understanding.data_need`: none, fund_holdings_breakdown, category_composition, category_performance, rating_for_screened_list. Set the one that matches what numbers to fetch. The server will not second-guess this when you set it.
+- `understanding.subject_ref`: none, user_named, memory_primary, memory_stack, list_cursor. Use memory_primary when they mean the fund already in Conversation memory (it, this fund, that scheme) even if misspelled.
 - `understanding.task`: explain or data. explain means the user wants to understand a word, a fund type, or which categories exist, including a misspelled question such as "what are multi cap fund" or "sub category of the equity funds". data means they want a number, a list of schemes, a rating, or one named fund. A screen hint that names a category does not make an explanation into a fund list.
 - `understanding.answer_mode`: DATA_ONLY, NEWS_ONLY, INSIGHT_FUSION. DATA_ONLY means do not fetch news. The composer still writes the answer.
 - `entities.funds`, `entities.sectors`, `entities.stocks`: string arrays, as the user wrote them. Correct an obvious misspelling of a name they did give. Do not invent a fund they did not name.
 - `entities.drivers`: objects {{"id", "direction"}}. id is one of: {', '.join(DRIVER_IDS)}. direction is up, down, tighten, ease, weaken, or strengthen. Do not use macro_drivers.
-- `request`: count (integer), portfolio_slice (holdings, sectors, both, none), reading (one sentence). Required when the question is about what is inside one fund. Otherwise set portfolio_slice to none and count to 0.
+- `request`: count (integer), portfolio_slice (holdings, sectors, both, none), reading (one sentence), fund_pick (none, best_in_category, alternate_in_category, random_in_category, compare_categories), scheme_category (single category slug when category-scoped). Required when the question is about what is inside one fund. Otherwise set portfolio_slice to none and count to 0.
+- `entities.scheme_categories`: when comparing two category types (conservative hybrid vs aggressive hybrid), list each slug here and set request.fund_pick to compare_categories. Do **not** set data_need to category_composition for that ask — use two screen_funds_by_exposure calls (one per category) or leave tool_calls empty and let the server expand; intent compare, not a holdings essay.
+- **Another / other / different fund in the same category** (follow-up after you already named schemes): request.fund_pick alternate_in_category, request.scheme_category the slug (e.g. aggressive hybrid), memory.turn_relation continue. screen_funds_by_exposure with rating_screen true, pick_alternate true, focus_question only the category slug (not the full user sentence), top_n 1. Do not repeat a fund already in Conversation memory for that category.
+- **RS label filters**: set request.rs_label and/or screen_funds_by_exposure rs_label when the user names a tier (Recommended, Good Choice, best in category, etc.). Always set scheme_category when the ask is category-scoped. If they want another fund at the same tier and none remain, the server walks to lower tiers in that category.
 - `tool_calls[].wave`: 1 or 2. An integer is preferred. The strings "1" and "2" are also accepted.
 - `wave_2_policy.trigger`: none, negative_return, material_sector, always. There is no high_weight_holding trigger.
 - `scope.direct_reply`: set only when the whole answer is one glossary sentence. Omit it for calculations. An empty string is the same as omitting it.
@@ -591,7 +673,8 @@ Optional fields may be omitted. Do not invent field names.
 | NAV, returns, or managers of one fund | get_fund_data | screen_funds_by_exposure |
 
 ### PLANNER AUTHORITY
-You are the sole routing authority. Read the question as a person would. A misspelling still means the intended word.
+You are the sole routing authority. Every tool call, module, and wave comes from your JSON. Downstream code only fills gaps you leave; it does not re-route when you set data_need and tool_calls correctly.
+Read the question as a person would: typos, missing words, and Hinglish still have one clear intent. Put your corrected reading in request.reading. Put canonical fund names in entities.funds when you recognize them (fix obvious spelling: "hdfc larg cap" → HDFC Large Cap Fund). Do not copy typos into entities if the catalog name is clear.
 When the message includes Conversation memory, that block is the only earlier context. It has the current fund, a numbered fund stack (ref 1 is the newest), the list on screen, a news topic, and the last two one-line gists. It does not contain figures or article text.
 Set memory.turn_relation to continue, partial_keep, or reset. continue keeps the same fund and period. partial_keep changes the period or the section and keeps the fund. reset starts a new subject and names that fund in entities.funds.
 "I didn't understand" and "tell me more" are continue with memory.depth set to more. Repeat the same tools. Do not switch to a new overview.
@@ -670,7 +753,22 @@ Fund news:
 {{"request": {{"count": 5, "portfolio_slice": "both", "reading": "News relevant to HDFC Large Cap via holdings and sectors"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "News relevant to the fund", "intent": "overview", "answer_mode": "INSIGHT_FUSION", "query_class": "standard"}}, "entities": {{"funds": ["HDFC Large Cap Fund"]}}, "time": {{"window_days": 30}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["snapshot", "return_series", "attribution"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}, {{"tool": "get_market_snapshot", "arguments": {{"modules": ["index_return"], "index": "nifty50"}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "all", "top_n": 8, "window_days": 30}}, "wave": 2}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 420}}}}
 
 Compare two funds:
-{{"request": {{"count": 0, "portfolio_slice": "none", "reading": "Compare HDFC Top 100 and Axis Bluechip"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Compare two named funds", "intent": "compare", "answer_mode": "DATA_ONLY", "query_class": "standard"}}, "entities": {{"funds": ["HDFC Top 100 Fund", "Axis Bluechip Fund"]}}, "tool_calls": [{{"tool": "compare_funds", "arguments": {{"mode": "both"}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "table", "max_words": 150}}}}
+{{"request": {{"count": 0, "portfolio_slice": "none", "reading": "Compare HDFC Top 100 and Axis Bluechip"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Compare two named funds", "intent": "compare", "answer_mode": "DATA_ONLY", "query_class": "standard", "data_need": "none"}}, "entities": {{"funds": ["HDFC Top 100 Fund", "Axis Bluechip Fund"]}}, "tool_calls": [{{"tool": "compare_funds", "arguments": {{"mode": "both"}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "table", "max_words": 150}}}}
+
+Compare two funds in one category when the user did not name schemes (server screens a pair, then compare_funds):
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Compare two large cap funds", "intent": "compare", "answer_mode": "DATA_ONLY", "query_class": "simple", "data_need": "none"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Compare two large cap funds side by side", "scheme_category": "large cap"}}, "tool_calls": [{{"tool": "screen_funds_by_exposure", "arguments": {{"rating_screen": true, "focus_question": "large cap", "top_n": 2, "compare_pair": true}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "table", "max_words": 220}}}}
+
+Compare two random equity funds in the same scheme category (no fund names in entities; server picks category from large/mid/small/flexi/multi/large & mid cap):
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Compare two random equity funds in one category", "intent": "compare", "answer_mode": "DATA_ONLY", "query_class": "simple", "data_need": "none", "subject_ref": "none"}}, "request": {{"count": 2, "portfolio_slice": "none", "reading": "Compare two random equity funds in the same equity category", "fund_pick": "random_in_category"}}, "entities": {{"funds": []}}, "tool_calls": [{{"tool": "screen_funds_by_exposure", "arguments": {{"rating_screen": true, "top_n": 2, "compare_pair": true, "focus_question": "equity"}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "table", "max_words": 220}}}}
+
+Compare both funds in one category already in Conversation memory (use category_funds_in_chat; not frame.subjects from an old conservative vs aggressive compare):
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Compare both aggressive hybrid funds from this chat", "intent": "compare", "answer_mode": "DATA_ONLY", "query_class": "simple", "data_need": "none", "subject_ref": "memory_stack"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Compare ICICI Prudential Aggressive Hybrid and SBI Aggressive Hybrid", "scheme_category": "aggressive hybrid"}}, "memory": {{"turn_relation": "continue"}}, "tool_calls": [{{"tool": "compare_funds", "arguments": {{"mode": "both"}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "table", "max_words": 200}}}}
+
+Another fund in a category already discussed:
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Name a different aggressive hybrid fund not already mentioned", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "data_need": "none", "subject_ref": "memory_primary"}}, "request": {{"count": 1, "portfolio_slice": "none", "reading": "Another aggressive hybrid fund, not one already named in this chat", "fund_pick": "alternate_in_category", "scheme_category": "aggressive hybrid"}}, "memory": {{"turn_relation": "continue"}}, "tool_calls": [{{"tool": "screen_funds_by_exposure", "arguments": {{"rating_screen": true, "pick_alternate": true, "focus_question": "aggressive hybrid", "top_n": 1}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 120}}}}
+
+What this fund holds (follow-up, typo ok):
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Holdings and allocation for the fund in memory", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "standard", "data_need": "fund_holdings_breakdown", "subject_ref": "memory_primary"}}, "request": {{"count": 5, "portfolio_slice": "both", "reading": "What the fund in context holds (user wrote holdengs)"}}, "memory": {{"turn_relation": "continue"}}, "tool_calls": [{{"tool": "get_fund_data", "arguments": {{"modules": ["risk", "snapshot"]}}, "wave": 1}}, {{"tool": "get_portfolio_data", "arguments": {{"sections": ["holdings", "sectors"], "top_n": 5}}, "wave": 1}}], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 320}}}}
 
 Crude oil up, no fund named:
 {{"request": {{"count": 5, "portfolio_slice": "none", "reading": "Sectors and funds if crude oil rises"}}, "scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Which sectors and funds benefit if crude rises", "intent": "explain_cause", "answer_mode": "NEWS_ONLY", "query_class": "standard"}}, "entities": {{"drivers": [{{"id": "crude_oil", "direction": "up"}}]}}, "tool_calls": [{{"tool": "get_market_snapshot", "arguments": {{"modules": ["macro_series", "sector_ranking"], "series": ["crude"]}}, "wave": 1}}, {{"tool": "screen_funds_by_exposure", "arguments": {{"driver": "crude_oil", "direction": "positive", "top_n": 5}}, "wave": 1}}, {{"tool": "search_financial_news", "arguments": {{"scope": "macro", "top_n": 8, "window_days": 7}}, "wave": 2}}], "wave_2_policy": {{"trigger": "always", "max_calls": 1}}, "presentation": {{"response_shape": "sections", "max_words": 250}}}}
@@ -774,6 +872,8 @@ def make_plan(
         query_log.write(
             f"PLANNER authoritative tools={plan.tool_names} answer_mode={plan.answer_mode.value} "
             f"request_count={plan.planner_count} request_slice={plan.planner_portfolio_slice or 'none'} "
+            f"data_need={getattr(plan, 'data_need', 'none')} subject_ref={getattr(plan, 'subject_ref', 'none')} "
+            f"fund_pick={getattr(plan, 'fund_pick', 'none')} reading={getattr(plan, 'planner_reading', '')[:120]!r} "
             f"window_days={plan.window_days} window_label={plan.window_label}"
         )
     return plan

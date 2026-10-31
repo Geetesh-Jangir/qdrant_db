@@ -41,7 +41,7 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
             "name": row.get("name"),
             "plan": row.get("plan") or "",
             "period": row.get("period") or "",
-            "facts": list(row.get("fact_names") or []),
+            "facts": list(row.get("fact_names") or row.get("facts") or []),
         })
     cursor = state.get("list_cursor") if isinstance(state.get("list_cursor"), dict) else None
     listed = None
@@ -62,7 +62,36 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
             "window_days": news.get("window_days"),
             "tied_to_fund": bool(news.get("tied_to_fund")),
         }
-    return {
+    from news_rag.insight.memory.fund_context import memory_funds_for_category
+
+    category_funds: list[dict[str, Any]] = []
+    seen_cats: set[str] = set()
+    for row in subjects + [{"name": r.get("name")} for r in stack]:
+        name = str((row or {}).get("name") or "").strip()
+        if not name:
+            continue
+        from news_rag.fund_rating_categories import match_scheme_category
+
+        match = match_scheme_category(name)
+        cat = str(match.category or "").strip().lower() if match else ""
+        if not cat or cat in seen_cats:
+            continue
+        seen_cats.add(cat)
+        funds = memory_funds_for_category(state, cat)
+        if funds:
+            category_funds.append({"category": cat, "fund_names": funds})
+
+    cursor_filters = (listed or {}).get("filters") if isinstance(listed, dict) else {}
+    list_note = ""
+    if isinstance(cursor_filters, dict) and cursor_filters.get("pick_alternate"):
+        focus = str(cursor_filters.get("focus_question") or "").strip()
+        if focus and listed and listed.get("rows"):
+            list_note = (
+                f"Latest screen in '{focus}' (alternate pick): "
+                + ", ".join(str(r.get("name") or "") for r in listed["rows"])
+            )
+
+    out: dict[str, Any] = {
         "turn": state.get("turn_count"),
         "frame": {
             "subject_kind": frame.get("subject_kind") or "none",
@@ -78,3 +107,15 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
         "list_cursor": listed,
         "recent": [row.get("gist") for row in (state.get("gists") or []) if isinstance(row, dict)],
     }
+    if category_funds:
+        out["category_funds_in_chat"] = category_funds
+        out["memory_hint"] = (
+            "frame.subjects may be from an older cross-category compare. "
+            "For 'both funds in [category]', use category_funds_in_chat for that slug "
+            "(includes list_cursor). Do not pair conservative hybrid with aggressive hybrid. "
+            "For 'compare these/those equity funds', use the latest pure-equity category pair "
+            "in category_funds_in_chat (e.g. large cap), not hybrid funds or a single alternate pick."
+        )
+    if list_note:
+        out["list_cursor_note"] = list_note
+    return out

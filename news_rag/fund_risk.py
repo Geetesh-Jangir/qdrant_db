@@ -25,7 +25,10 @@ _PILLAR_SENTENCE = (
 _RATING_CONCEPT = (
     "The RS rating is RupeeStop's score for a mutual fund, out of 100. "
     + _PILLAR_SENTENCE
-    + " Pillar scores, weights, and the formula are not shown. "
+    + " Each pillar is scored out of a maximum that depends on the fund type (equity, debt, and others); "
+    "do not quote fixed caps like 40/25/25/10 for every scheme unless those exact max marks are in the data for that fund. "
+    "For a named fund, use the max beside each pillar score from the rating. "
+    "Pillar sub-scores, weights, and the formula are not shown. "
     "The label comes with the rating: 80 to 100 Best in category, 70 to 79 Recommended, "
     "60 to 69 Good Choice, 50 to 59 Average, and 0 to 49 Underperformer. "
     "The SEBI riskometer is a separate official risk label, such as Very High. "
@@ -80,7 +83,8 @@ _PILLARS = (
     ("fundManager", "Fund manager", 10),
 )
 _PILLAR_SCORE_RE = re.compile(
-    r"\b(?:portfolio[\s_]*quality\s+score|(?:risk|performance|fund manager)\s+pillar|pillar\s+scores?|sharpe|sortino)\b",
+    r"\b(?:portfolio[\s_]*quality\s+score|(?:risk|performance|fund manager)\s+pillar|pillar\s+scores?|"
+    r"fund\s+quality|sharpe|sortino)\b",
     re.I,
 )
 _SUITABILITY_Q_RE = re.compile(
@@ -115,9 +119,30 @@ _BAND_EXPLANATION = (
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
+def asks_pillar_structure(question: str) -> bool:
+    """General question about the four pillars and their maximum scores."""
+    text = question or ""
+    if _SCHEME_RE.search(text) and re.search(r"\b(?:of|for)\s+(?:the\s+)?[\w&]+\s+fund\b", text, re.I):
+        return False
+    if _PILLAR_SCORE_RE.search(text) and pillar_focus(text):
+        return False
+    return bool(
+        re.search(
+            r"\b(?:four|4)\s+pillars?\b|"
+            r"\bpillars?\s+(?:and|&)\s+(?:their\s+)?(?:max|maximum)\b|"
+            r"\b(?:max|maximum)\s+(?:score\s+)?(?:for\s+)?(?:each\s+)?pillars?\b|"
+            r"\bwhat\s+(?:are\s+)?(?:the\s+)?(?:rupeestop\s+)?pillars?\b",
+            text,
+            re.I,
+        )
+    )
+
+
 def asks_rating_concept(question: str) -> bool:
     """A question about the rating itself, not one named scheme."""
     text = question or ""
+    if asks_pillar_structure(text):
+        return True
     if _SCHEME_RE.search(text) or _PILLAR_SCORE_RE.search(text):
         return False
     if asks_about_score_bands(text):
@@ -170,6 +195,51 @@ def asks_score_only(question: str) -> bool:
     return True
 
 
+def asks_sebi_riskometer(question: str) -> bool:
+    """The official SEBI risk label — not the RupeeStop risk pillar or final score."""
+    text = question or ""
+    if asks_hidden_rating(question):
+        return False
+    if not re.search(r"\bsebi\b|\briskometer\b", text, re.I):
+        return False
+    if re.search(r"\b(?:rupeestop|final score|good choice|pillar)\b", text, re.I):
+        return False
+    return True
+
+
+def asks_risk_trend_comparison(question: str) -> bool:
+    """Whether the fund became more or less risky than an earlier point."""
+    text = question or ""
+    return bool(
+        re.search(
+            r"\b(?:less|more|lower|higher)\s+(?:risky|risk(?:ier)?)\b|"
+            r"\brisk(?:ier|iness)?\s+(?:now|today|than|compared)\b|"
+            r"\b(?:less|more)\s+risk(?:ier)?\b",
+            text,
+            re.I,
+        )
+    )
+
+
+def _ensure_risk_trend_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
+    """No historical riskometer in the API — one sentence for the comparison, then current risk facts."""
+    plan.requires_compose = True
+    plan.max_words = max(int(plan.max_words or 0), 280)
+    note = (
+        "The user asked if risk is lower or higher than before. "
+        "When EVIDENCE has no earlier SEBI riskometer or risk-pillar history, "
+        "answer that comparison in exactly one sentence: We can't get that data right now. "
+        "Then state the current SEBI riskometer, risk pillar score, asset mix, and drawdown episodes "
+        "(heading ### Maximum drawdown across periods) from EVIDENCE. "
+        "Do not say snapshot, earlier reading, cannot show trend, supports reading current position, "
+        "or that the data cannot show whether risk changed."
+    )
+    existing = (plan.presentation_notes or "").strip()
+    if note not in existing:
+        plan.presentation_notes = f"{existing} {note}".strip()
+    return plan
+
+
 def include_drawdown_with_risk(question: str) -> bool:
     """Drawdown rides along only when the question is about the fall or the risk label."""
     if asks_score_only(question) or asks_hidden_rating(question):
@@ -210,6 +280,18 @@ def normalize_rating(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     return summary
 
 
+def _pillar_maximum(block: dict[str, Any], default_max: int) -> int:
+    """API uses maxScore on debt and other types; older rows may use max."""
+    for key in ("maxScore", "max", "maximum", "maxPossibleScore"):
+        if block.get(key) is None:
+            continue
+        try:
+            return int(float(block[key]))
+        except (TypeError, ValueError):
+            continue
+    return default_max
+
+
 def _public_pillars(raw: Any) -> dict[str, dict[str, Any]]:
     """Score and max mark only. Inputs used to calculate a pillar are dropped."""
     if not isinstance(raw, dict):
@@ -223,20 +305,25 @@ def _public_pillars(raw: Any) -> dict[str, dict[str, Any]]:
             score = round(float(block["score"]), 2)
         except (TypeError, ValueError):
             continue
-        try:
-            maximum = int(float(block.get("max") or default_max))
-        except (TypeError, ValueError):
-            maximum = default_max
+        maximum = _pillar_maximum(block, default_max)
         out[key] = {"label": label, "score": score, "max": maximum}
     return out
 
 
 def pillar_focus(question: str) -> str:
     """The one pillar a question is about. Empty when the whole rating should lead."""
+    from news_rag.insight.manager_view import asks_manager_roster
+
     text = question or ""
-    if re.search(r"\bfund\s+managers?\b|\bwho\s+manages\b|\bmanaged\s+by\b", text, re.I):
+    if asks_manager_roster(text):
+        return ""
+    if re.search(r"\bfund\s+manager\s+pillar\b", text, re.I):
         return "fundManager"
-    if re.search(r"portfolio[\s_]*quality", text, re.I):
+    if re.search(r"\bfund\s+managers?\b", text, re.I) and re.search(
+        r"\bpillar\b|\bscore\b|\bout\s+of\b|/\s*10\b", text, re.I
+    ):
+        return "fundManager"
+    if re.search(r"portfolio[\s_]*quality|\bfund\s+quality\b", text, re.I):
         return "portfolioQuality"
     if re.search(r"\bperformance\b", text, re.I):
         return "performance"
@@ -245,9 +332,55 @@ def pillar_focus(question: str) -> str:
     return ""
 
 
+def asks_pillar_mark(question: str) -> bool:
+    """One fund's pillar score. Not the generic RS rating explainer."""
+    text = question or ""
+    if _PILLAR_SCORE_RE.search(text):
+        return True
+    return bool(re.search(r"\bpillar\b", text, re.I) and pillar_focus(text))
+
+
+def _ensure_pillar_rating_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
+    """Pillar scores come from rs-rating. Override a wrong planner module list."""
+    focus = pillar_focus(question)
+    focus_label = {
+        "risk": "risk pillar",
+        "performance": "performance pillar",
+        "portfolioQuality": "portfolio quality pillar",
+        "fundManager": "fund manager pillar",
+    }.get(focus, "pillar mark")
+
+    kept = [call for call in plan.tool_calls if call.tool != "get_fund_data"]
+    call = ToolCall(tool="get_fund_data", arguments={"modules": ["rating"]}, wave=1)
+    plan.tool_calls = [call, *kept]
+
+    asked = set(plan.asked_facts or [])
+    asked.add("rating")
+    plan.asked_facts = sorted(asked)
+    plan.sub_queries = []
+    plan.response_shape = "short_answer"
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    plan.requires_compose = True
+    plan.wave_2_policy = Wave2Policy(trigger="none")
+    plan.max_words = max(int(plan.max_words or 0), 220)
+    note = (
+        f"The user asked about the {focus_label}. Lead with that pillar score from the rating rows "
+        "(score out of max). The risk pillar is a score, not a statement that the fund is more or less risky. "
+        "Include the SEBI riskometer when it is in the rows. Do not say pillar data is missing when the score is present."
+    )
+    existing = (plan.presentation_notes or "").strip()
+    if note not in existing:
+        plan.presentation_notes = f"{existing} {note}".strip()
+    return plan
+
+
 def rating_lead(summary: dict[str, Any] | None, question: str = "") -> str:
     """The opening lines. One pillar when that is the question, otherwise the score and four marks."""
+    from news_rag.insight.manager_view import asks_manager_roster
+
     if not isinstance(summary, dict):
+        return ""
+    if asks_manager_roster(question):
         return ""
     pillars = summary.get("pillars") if isinstance(summary.get("pillars"), dict) else {}
     focus = pillar_focus(question)
@@ -434,6 +567,10 @@ def ensure_risk_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
         plan.wave_2_policy = Wave2Policy(trigger="none")
         plan.asked_facts = []
         return plan
+    if asks_pillar_mark(question):
+        return _ensure_pillar_rating_plan(question, plan)
+    if asks_risk_trend_comparison(question):
+        plan = _ensure_risk_trend_plan(question, plan)
     if planner_owns(plan):
         return plan
     if asks_rating_concept(question):

@@ -144,6 +144,40 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             },
             "random_sample": {"type": "bool", "default": False},
             "require_positive_1y": {"type": "bool", "default": False},
+            "rating_screen": {
+                "type": "bool",
+                "default": False,
+                "description": "Use RupeeStop rs-rating/by-category for the scheme category in the question.",
+            },
+            "pick_alternate": {
+                "type": "bool",
+                "default": False,
+                "description": (
+                    "With rating_screen: user wants a different fund in that category, not the top-rated repeat. "
+                    "Pair with request.fund_pick alternate_in_category and focus_question set to the category slug only."
+                ),
+            },
+            "compare_pair": {
+                "type": "bool",
+                "default": False,
+                "description": (
+                    "With rating_screen: pick two distinct funds in the same category (walk RS label tiers) "
+                    "for an unnamed compare-two-funds question."
+                ),
+            },
+            "rating_fetch_n": {
+                "type": "int",
+                "min": 1,
+                "max": 25,
+                "description": "How many rated rows to consider before label filtering.",
+            },
+            "rs_label": {
+                "type": "str",
+                "description": (
+                    "RupeeStop label filter: Best in category, Recommended, Good Choice, Average, or Underperformer. "
+                    "When no other fund exists at this label, the server may show the next lower label in the same category."
+                ),
+            },
         },
         "per_fund": False,
     },
@@ -304,6 +338,25 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         focus = str(src.get("focus_question") or "").strip()
         if focus:
             out["focus_question"] = focus[:180]
+        if src.get("rating_screen"):
+            out["rating_screen"] = True
+        if src.get("pick_alternate"):
+            out["pick_alternate"] = True
+        if src.get("compare_pair"):
+            out["compare_pair"] = True
+        rs_label = str(src.get("rs_label") or "").strip()
+        if rs_label:
+            from news_rag.fund_rating_labels import normalize_rs_label
+
+            out["rs_label"] = normalize_rs_label(rs_label)[:40]
+        ex_isins = [str(x).strip().upper() for x in (src.get("exclude_isins") or []) if str(x).strip()]
+        if ex_isins:
+            out["exclude_isins"] = ex_isins[:20]
+        ex_names = [str(x).strip()[:120] for x in (src.get("exclude_names") or []) if str(x).strip()]
+        if ex_names:
+            out["exclude_names"] = ex_names[:20]
+        if src.get("rating_fetch_n") is not None:
+            out["rating_fetch_n"] = _clamp(src.get("rating_fetch_n"), 1, 25, 15)
         return out
 
     if tool == "get_market_snapshot":

@@ -58,6 +58,21 @@ def test_table_source_keeps_pillar_marks_and_the_fetched_return():
     assert "expense_ratio=2.2" in text
 
 
+def test_table_source_includes_sebi_riskometer_from_risk_module():
+    from news_rag.insight.evidence_pack import table_source
+
+    text = table_source(
+        {
+            "fund:absl": {
+                "fund_name": "Aditya Birla Sun Life Banking & PSU Debt Fund - Growth",
+                "rs_rating": {"label": "Good Choice", "final_score": 63.0},
+                "risk": {"riskometer": "Moderate", "lines": "SEBI riskometer: Moderate."},
+            }
+        }
+    )
+    assert "riskometer=Moderate" in text
+
+
 def test_fund_insights_category_average_reaches_the_composer_row():
     from news_rag.insight.evidence_pack import table_source
 

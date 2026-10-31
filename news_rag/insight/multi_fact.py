@@ -48,6 +48,8 @@ def requested_fund_facts(question: str) -> set[str]:
         facts.add("sectors")
     if re.search(r"\bholdings?\b", q, re.I):
         facts.add("holdings")
+    if re.search(r"\bcompare\b|\bcomparison\b|\bversus\b|\bvs\.?\b", q, re.I):
+        facts.update({"returns", "expense", "risk", "category"})
     return facts
 
 

@@ -21,6 +21,7 @@ TABLE_FUND_FACTS = "fund_facts_table"
 TABLE_CATEGORY = "category_average_table"
 TABLE_PORTFOLIO = "portfolio_holdings_table"
 TABLE_SECTORS = "portfolio_sectors_table"
+TABLE_COMPOSITION = "composition_table"
 TABLE_RETURNS = "fund_returns_table"
 
 _ALL_KEYS = frozenset({
@@ -32,6 +33,7 @@ _ALL_KEYS = frozenset({
     TABLE_CATEGORY,
     TABLE_PORTFOLIO,
     TABLE_SECTORS,
+    TABLE_COMPOSITION,
     TABLE_RETURNS,
 })
 
@@ -52,7 +54,8 @@ _PERF_RE = re.compile(
     re.I,
 )
 _HOLDINGS_RE = re.compile(
-    r"\b(?:holdings?|portfolio|composition|sectors?\s+allocation|what\s+does\s+it\s+hold|top\s+stocks?)\b",
+    r"\b(?:hold(?:s|ing)?|holdings?|portfolio|composition|sectors?\s+allocation|"
+    r"what\s+(?:does|this|that|it)\b.{0,40}\bhold(?:s|ing)?|top\s+stocks?)\b",
     re.I,
 )
 _NAV_SNAPSHOT_RE = re.compile(
@@ -133,12 +136,16 @@ def resolve_display_table_policy(
         if asks_fund_category_average(q):
             inc.update({TABLE_CATEGORY, TABLE_LONG})
         elif _PERF_RE.search(q) or intent in ("lookup", "compare"):
-            inc.add(TABLE_RETURNS)
-            if wants_short:
-                inc.add(TABLE_SHORT)
-            if wants_long:
-                inc.add(TABLE_LONG)
+            holdings_only = _HOLDINGS_RE.search(q) and not _PERF_RE.search(q)
+            if not holdings_only:
+                inc.add(TABLE_RETURNS)
+                if wants_short:
+                    inc.add(TABLE_SHORT)
+                if wants_long:
+                    inc.add(TABLE_LONG)
         if _HOLDINGS_RE.search(q):
+            inc.update({TABLE_PORTFOLIO, TABLE_SECTORS, TABLE_COMPOSITION})
+        if _WHY_RE.search(q):
             inc.add(TABLE_HOLDINGS)
         if _NAV_SNAPSHOT_RE.search(q) or not inc:
             inc.add(TABLE_SNAPSHOT)
@@ -180,9 +187,9 @@ def resolve_display_table_policy(
         if re.search(r"\b(?:returns?|performance|performing)\b", q, re.I):
             inc.update({TABLE_RETURNS, TABLE_SHORT, TABLE_LONG})
         if re.search(r"\bholdings?\b|\btop\s+stocks?\b|\bwhat\s+(?:does|do)\s+it\s+hold\b", q, re.I):
-            inc.update({TABLE_HOLDINGS, TABLE_PORTFOLIO})
+            inc.update({TABLE_HOLDINGS, TABLE_PORTFOLIO, TABLE_COMPOSITION})
         if re.search(r"\bsectors?\b|\bsector\s+allocation\b", q, re.I):
-            inc.add(TABLE_SECTORS)
+            inc.update({TABLE_SECTORS, TABLE_COMPOSITION})
         return DisplayTablePolicy(
             include=frozenset(inc),
             rationale="Named-fund overview — a short fund table, plus returns, holdings, or sectors only when asked.",
@@ -197,7 +204,9 @@ def resolve_display_table_policy(
                 inc.add(TABLE_SHORT)
             if wants_long:
                 inc.add(TABLE_LONG)
-    if _HOLDINGS_RE.search(q) or _WHY_RE.search(q):
+    if _HOLDINGS_RE.search(q):
+        inc.update({TABLE_PORTFOLIO, TABLE_SECTORS, TABLE_COMPOSITION})
+    if _WHY_RE.search(q):
         inc.add(TABLE_HOLDINGS)
     if _NAV_SNAPSHOT_RE.search(q):
         inc.add(TABLE_SNAPSHOT)

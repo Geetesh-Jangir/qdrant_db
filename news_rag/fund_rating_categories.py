@@ -57,6 +57,16 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Subset used when the user asks for random equity compares (same-category pair).
+RANDOM_EQUITY_COMPARE_CATEGORIES: tuple[str, ...] = (
+    "large cap",
+    "mid cap",
+    "small cap",
+    "flexi cap",
+    "multi cap",
+    "large & mid cap",
+)
+
 _TYPE_LABELS = {
     "equity": "Equity",
     "debt": "Debt",
@@ -162,6 +172,29 @@ def match_scheme_category(question: str) -> CategoryMatch | None:
         if re.search(rf"\b{re.escape(phrase)}\b", low):
             return CategoryMatch(fund_type, "", False)
     return None
+
+
+def match_all_scheme_categories(question: str) -> list[str]:
+    """Every distinct named scheme category mentioned (order of appearance)."""
+    text = _spaced_category_words(question or "")
+    low = text.lower()
+    hits: list[tuple[int, str, int]] = []
+    for phrase, _fund_type, category in _CATEGORY_ALIASES:
+        if not category or not _phrase_in(phrase, low):
+            continue
+        pos = low.find(phrase)
+        if pos < 0 and " & " in phrase:
+            pos = low.find(phrase.replace(" & ", " and "))
+        hits.append((max(pos, 0), category, len(phrase)))
+    hits.sort(key=lambda item: (item[0], -item[2]))
+    out: list[str] = []
+    seen: set[str] = set()
+    for _pos, category, _length in hits:
+        if category in seen:
+            continue
+        seen.add(category)
+        out.append(category)
+    return out
 
 
 def categories_for(fund_type: str) -> tuple[str, ...]:

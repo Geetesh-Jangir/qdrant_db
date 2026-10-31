@@ -27,7 +27,11 @@ _CAVEAT_RE = re.compile(
     r"does not show how much|only context|was not included|"
     r"not a top-five|not a top five|top-five holding|cannot be measured|"
     r"does not show a .{0,40}weight|"
-    r"no return figures|cannot be broken down",
+    r"no return figures|cannot be broken down|"
+    r"only (?:have|has) one snapshot|earlier reading to compare|"
+    r"less than before|cannot show whether|can't show whether|"
+    r"supports reading the current risk|but not a trend|"
+    r"the data here cannot show",
     re.I,
 )
 _LEAK_RE = re.compile(
@@ -145,6 +149,263 @@ def _fmt_pp(val: Any) -> str:
     return f"{x:.2f} pp"
 
 
+def _weight_pct(row: dict[str, Any]) -> float | None:
+    for key in ("weight_pct", "percentage", "weight"):
+        val = row.get(key)
+        if val is None or val == "":
+            continue
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _labeled_mix_rows(rows: Any) -> list[tuple[str, float]]:
+    if not isinstance(rows, list):
+        return []
+    out: list[tuple[str, float]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        label = str(row.get("label") or row.get("sector") or row.get("name") or "").strip()
+        pct = _weight_pct(row)
+        if label and pct is not None:
+            out.append((label, pct))
+    return out
+
+
+def _composition_table_markdown(
+    risk: dict[str, Any],
+    portfolio: dict[str, Any],
+    *,
+    fund_name: str = "Fund",
+    top_n: int = 5,
+) -> str:
+    """Asset mix, market-cap mix, and top-holdings weight sum — deterministic for compose/DISPLAY."""
+    assets = _labeled_mix_rows(risk.get("assets"))
+    caps = _labeled_mix_rows(risk.get("market_cap"))
+    holdings = [h for h in (portfolio.get("holdings") or []) if isinstance(h, dict)]
+    if not assets and not caps and not holdings:
+        return ""
+
+    lines: list[str] = []
+    ncol = 2
+    if assets:
+        lines.append("**Asset mix**")
+        lines.append(_table_row(["Asset", "Weight"], ncol))
+        lines.append(_table_row(["---", "---"], ncol))
+        for label, pct in assets:
+            lines.append(_table_row([_cell(label), _cell(_fmt_weight(pct))], ncol))
+        lines.append("")
+
+    if caps:
+        lines.append("**Market cap mix**")
+        lines.append(_table_row(["Cap bucket", "Weight"], ncol))
+        lines.append(_table_row(["---", "---"], ncol))
+        for label, pct in caps:
+            lines.append(_table_row([_cell(label), _cell(_fmt_weight(pct))], ncol))
+        lines.append("")
+
+    if holdings:
+        shown = holdings[: max(1, top_n)]
+        weights = [w for w in (_weight_pct(h) for h in shown) if w is not None]
+        if weights:
+            total = round(sum(weights), 2)
+            as_on = str(portfolio.get("as_on") or "").strip()
+            suffix = f" (portfolio as on {as_on})" if as_on else ""
+            lines.append(
+                f"The **top {len(weights)} holdings** together make up **{total:.2f}%** of the fund{suffix}."
+            )
+    return "\n".join(line for line in lines if line is not None).strip()
+
+
+def _table_body_row_count(body: str) -> int:
+    """Data rows in a markdown table (exclude header and separator)."""
+    rows = 0
+    for line in (body or "").splitlines():
+        if not _TABLE_LINE_RE.match(line):
+            continue
+        if _TABLE_SEP_RE.match(line):
+            continue
+        rows += 1
+    return max(0, rows - 1)
+
+
+def _assess_table_quality(key: str, body: str) -> str:
+    body = (body or "").strip()
+    if not body:
+        return "empty"
+    data_rows = _table_body_row_count(body)
+    if key == "composition_table":
+        if data_rows >= 4 and ("Equity" in body or "equity" in body.lower()):
+            return "complete"
+        if data_rows >= 1:
+            return "partial"
+        return "empty"
+    if key in ("portfolio_holdings_table", "portfolio_sectors_table"):
+        if data_rows >= 3:
+            return "complete"
+        if data_rows >= 1:
+            return "partial"
+        return "empty"
+    if key == "fund_returns_table":
+        return "complete" if data_rows >= 2 else ("partial" if data_rows else "empty")
+    return "complete" if data_rows else "partial"
+
+
+def summarize_tables_for_composer(
+    data_pack: dict[str, Any],
+    display_tables: dict[str, str],
+) -> dict[str, Any]:
+    """Structured portfolio facts for composer prose (numbers users should see first)."""
+    fund = _fund_block(data_pack) or {}
+    risk = fund.get("risk") if isinstance(fund.get("risk"), dict) else {}
+    portfolios = _portfolio_blocks(data_pack)
+    port = portfolios[0] if portfolios else {}
+
+    asset_mix = [
+        {"label": label, "weight_pct": round(pct, 2)}
+        for label, pct in _labeled_mix_rows(risk.get("assets"))
+    ]
+    cap_mix = [
+        {"label": label, "weight_pct": round(pct, 2)}
+        for label, pct in _labeled_mix_rows(risk.get("market_cap"))
+    ]
+
+    top_holdings: list[dict[str, Any]] = []
+    for row in (port.get("holdings") or [])[:5]:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("company_name") or row.get("name") or "").strip()
+        weight = _weight_pct(row)
+        if name and weight is not None:
+            top_holdings.append({"name": name, "weight_pct": round(weight, 2)})
+
+    top_sectors: list[dict[str, Any]] = []
+    for row in (port.get("sectors") or [])[:5]:
+        if not isinstance(row, dict):
+            continue
+        label = _sector_label(row)
+        weight = _weight_pct(row)
+        if label and weight is not None:
+            top_sectors.append({"sector": label, "weight_pct": round(weight, 2)})
+
+    top_sum: float | None = None
+    if top_holdings:
+        top_sum = round(sum(float(h["weight_pct"]) for h in top_holdings), 2)
+
+    table_quality: dict[str, str] = {}
+    for key, body in (display_tables or {}).items():
+        if key.startswith("_"):
+            continue
+        table_quality[key] = _assess_table_quality(key, body)
+
+    name = str(
+        fund.get("fund_name")
+        or port.get("fund_name")
+        or display_tables.get("_title")
+        or ""
+    ).strip()
+
+    if not (asset_mix or cap_mix or top_holdings or top_sectors):
+        return {"fund_name": name, "table_quality": table_quality}
+
+    out: dict[str, Any] = {
+        "fund_name": name,
+        "portfolio_as_on": str(port.get("as_on") or "").strip(),
+        "asset_mix": asset_mix,
+        "market_cap_mix": cap_mix,
+        "top_holdings": top_holdings,
+        "top_sectors": top_sectors,
+        "table_quality": table_quality,
+    }
+    mid_small = _as_float(risk.get("smaller_companies_pct"))
+    if mid_small is not None:
+        out["mid_small_cap_combined_pct"] = round(mid_small, 2)
+    if top_sum is not None:
+        out["top_holdings_weight_sum_pct"] = top_sum
+        out["top_holdings_count"] = len(top_holdings)
+    return out
+
+
+def _sector_label(row: dict[str, Any]) -> str:
+    return str(row.get("sector") or row.get("sector_label") or row.get("name") or "").strip()
+
+
+TABLES_APPEND_RE = re.compile(r"<!--\s*TABLES_APPEND:\s*([^>]+?)\s*-->", re.I)
+
+
+def parse_tables_append_directive(text: str) -> tuple[str, frozenset[str] | None]:
+    """Extract composer table plan. None = keep policy default tables."""
+    match = TABLES_APPEND_RE.search(text or "")
+    if not match:
+        return (text or "").strip(), None
+    raw = match.group(1).strip().lower()
+    cleaned = TABLES_APPEND_RE.sub("", text or "").strip()
+    if raw in ("default", "policy", "all", "*"):
+        return cleaned, None
+    if raw in ("none", "skip", "-", "no"):
+        return cleaned, frozenset()
+    keys = frozenset(part.strip() for part in raw.split(",") if part.strip())
+    return cleaned, keys
+
+
+def filter_display_tables_by_decision(
+    tables: dict[str, str],
+    decision: frozenset[str] | None,
+) -> dict[str, str]:
+    if decision is None:
+        return tables
+    if not decision:
+        return {_k: tables[_k] for _k in ("_title",) if _k in tables}
+    out: dict[str, str] = {}
+    if tables.get("_title"):
+        out["_title"] = tables["_title"]
+    for key in decision:
+        body = tables.get(key)
+        if not body:
+            continue
+        out[key] = body
+        heading = tables.get(f"_heading_{key}")
+        if heading:
+            out[f"_heading_{key}"] = heading
+    return out
+
+
+def strip_empty_bold_sections(prose: str) -> str:
+    """Remove **Asset mix**-style labels with no following content."""
+    if not prose:
+        return prose
+    lines = prose.replace("\r\n", "\n").split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        bold = re.match(r"^\s*\*\*(.+?)\*\*\s*$", line.strip())
+        if bold:
+            j = i + 1
+            has_content = False
+            while j < len(lines):
+                nxt = lines[j].strip()
+                if not nxt:
+                    j += 1
+                    continue
+                if re.match(r"^\*\*.+\*\*\s*$", nxt) or re.match(r"^#{1,3}\s+", nxt):
+                    break
+                if _TABLE_LINE_RE.match(nxt):
+                    j += 1
+                    continue
+                has_content = True
+                break
+            if not has_content:
+                i += 1
+                continue
+        out.append(line)
+        i += 1
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
 def _fmt_inr(val: Any) -> str:
     if val is None or val == "":
         return _MISSING
@@ -225,11 +486,15 @@ def build_fund_display_tables(
         return {}
 
     tables: dict[str, str] = {}
+    portfolio_name = ""
+    if portfolios:
+        portfolio_name = str(portfolios[0].get("fund_name") or "").strip()
     name = (
         snap.get("fund_name")
         or snap.get("fund_short_name")
         or insights.get("fund_name")
         or digest.get("fund_name")
+        or portfolio_name
         or "Fund"
     )
     category = insights.get("category") or snap.get("category") or digest.get("category") or ""
@@ -462,6 +727,17 @@ def build_fund_display_tables(
             hlines.append(_table_row(_holding_row_cells(r), hold_ncol))
         tables["holdings_move_table"] = "\n".join(hlines)
 
+    risk = (block or {}).get("risk") if isinstance(block, dict) else {}
+    portfolio_block = portfolios[0] if portfolios else {}
+    composition = _composition_table_markdown(
+        risk if isinstance(risk, dict) else {},
+        portfolio_block if isinstance(portfolio_block, dict) else {},
+        fund_name=str(name),
+    )
+    if composition:
+        tables["composition_table"] = composition
+        tables["_heading_composition_table"] = f"### What {name} is made of"
+
     for block in portfolios:
         holdings = [h for h in (block.get("holdings") or []) if isinstance(h, dict)]
         if holdings and "portfolio_holdings_table" not in tables:
@@ -490,6 +766,7 @@ def build_fund_display_tables(
 
 
 _DISPLAY_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("composition_table", "### What the fund is made of"),
     ("fund_returns_table", "### Returns"),
     ("short_horizon_vs_category_table", "### Recent returns vs category"),
     ("vs_benchmark_table", "### Returns vs benchmark and category"),
@@ -568,7 +845,10 @@ def strip_composer_display_sections(prose: str) -> str:
         m = re.match(r"^#{2,3}\s+(.+?)\s*$", line.strip())
         if m:
             title = m.group(1).strip()
-            if any(title.lower().startswith(h.lower()) for h in _COMPOSER_SECTION_HEADINGS):
+            title_l = title.lower()
+            duplicate = any(title_l.startswith(h.lower()) for h in _COMPOSER_SECTION_HEADINGS)
+            duplicate = duplicate or "is made of" in title_l
+            if duplicate:
                 i += 1
                 while i < len(lines) and not re.match(r"^#{2,3}\s+", lines[i].strip()):
                     i += 1
@@ -636,7 +916,9 @@ def stitch_display_tables_into_answer(prose: str, tables: dict[str, str], *, que
     """Append server-built tables once; composer writes narrative only."""
     block = format_display_tables_markdown(tables, question=question)
     cleaned = strip_empty_table_pointers(
-        strip_missing_data_caveats(strip_composer_display_sections(prose or "")),
+        strip_missing_data_caveats(
+            strip_empty_bold_sections(strip_composer_display_sections(prose or ""))
+        ),
         tables,
     )
     return strip_context_disclaimer(_insert_before_disclaimer(cleaned, block))
@@ -870,6 +1152,19 @@ def _insert_before_disclaimer(prose: str, block: str) -> str:
     return f"{text.rstrip()}\n\n{block}\n"
 
 
+def ensure_markdown_table_spacing(text: str) -> str:
+    """Many renderers need a blank line immediately before a | table block."""
+    if not text:
+        return text
+    lines = text.replace("\r\n", "\n").split("\n")
+    out: list[str] = []
+    for line in lines:
+        if _TABLE_LINE_RE.match(line) and out and out[-1].strip() and not _TABLE_LINE_RE.match(out[-1]):
+            out.append("")
+        out.append(line)
+    return "\n".join(out)
+
+
 def normalize_user_facing_text(text: str) -> str:
     """Use '-' for missing values; soften common LLM table mistakes."""
     if not text:
@@ -878,4 +1173,4 @@ def normalize_user_facing_text(text: str) -> str:
     out = re.sub(r"\bN/A\b", "-", out, flags=re.I)
     out = re.sub(r"\bn/a\b", "-", out)
     out = re.sub(r"—", "-", out)
-    return out
+    return ensure_markdown_table_spacing(out)

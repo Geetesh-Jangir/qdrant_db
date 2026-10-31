@@ -170,9 +170,58 @@ def _label_in(question: str) -> str:
     return ""
 
 
+_ASKS_NAME_FUND_RE = re.compile(
+    r"\b(?:"
+    r"name\s+(?:of\s+)?(?:a|an|one|any)|"
+    r"tell\s+me\s+(?:the\s+)?name\s+of|"
+    r"(?:give|tell)\s+me\s+(?:a|an|one|any)"
+    r")\b",
+    re.I,
+)
+
+
+def _category_fund_name_spec(question: str) -> RatingScreenSpec | None:
+    """Name one fund in a named category via the RS-rating category API (not NAV random screen)."""
+    q = question or ""
+    if _BUY_RE.search(q):
+        return None
+    if not _ASKS_NAME_FUND_RE.search(q):
+        return None
+    if _label_in(q) or _SCORE_RE.search(q):
+        return None
+    if _RETURN_RE.search(q) and _return_window(q) and (_PERFORM_RE.search(q) or _POOR_RE.search(q)):
+        return None
+    from news_rag.insight.concept_asks import asks_concept_with_catalog_example
+
+    if asks_concept_with_catalog_example(q):
+        return None
+    match = match_scheme_category(q)
+    if not (match and match.locked and match.category):
+        return None
+    count = explicit_fund_count(q) or 1
+    return RatingScreenSpec(
+        count=count,
+        fund_type=match.fund_type or "equity",
+        category=match.category,
+        locked=True,
+        label="Best in category",
+        min_score=None,
+        highest_score=False,
+        return_window="",
+        return_direction="",
+        compare_category=False,
+        random_sample=False,
+        amc="",
+        suggestion="rated",
+        label_fallback="Recommended",
+    )
+
+
 def _suggestion_spec(question: str) -> RatingScreenSpec | None:
     """A good, recommended, or random fund, or a fund that did well or poorly over a period."""
     q = question or ""
+    if re.search(r"\bwhy\b", q, re.I):
+        return None
     if _BUY_RE.search(q) or not _LIST_RE.search(q):
         return None
     window = _return_window(q)
@@ -212,7 +261,8 @@ def _suggestion_spec(question: str) -> RatingScreenSpec | None:
     named_label = _label_in(q)
     count = explicit_fund_count(q) or 1
     locked = bool(match and match.locked and match.category)
-    return RatingScreenSpec(
+    random_sample = bool(re.search(r"\brandom\b", q, re.I))
+    spec = RatingScreenSpec(
         count=count,
         fund_type=(match.fund_type if match and match.fund_type else "equity"),
         category=match.category if locked else "",
@@ -223,11 +273,14 @@ def _suggestion_spec(question: str) -> RatingScreenSpec | None:
         return_window="",
         return_direction="",
         compare_category=False,
-        random_sample=bool(re.search(r"\brandom\b", q, re.I)),
+        random_sample=random_sample,
         amc="",
         suggestion="rated",
         label_fallback="" if named_label else "Recommended",
     )
+    if random_sample and not named_label:
+        spec = replace(spec, label="", label_fallback="")
+    return spec
 
 
 def parse_rating_screen(question: str) -> RatingScreenSpec | None:
@@ -238,6 +291,9 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
     suggested = _suggestion_spec(q)
     if suggested is not None:
         return suggested
+    named_in_category = _category_fund_name_spec(q)
+    if named_in_category is not None:
+        return named_in_category
     if not _looks_like_fund_list(q):
         return None
     from news_rag.tools import asks_funds_with_sector_exposure
@@ -389,16 +445,37 @@ def _rows_from_payload(payload: dict[str, Any], *, fund_type: str, category: str
     return rows
 
 
-def _keep(row: dict[str, Any], spec: RatingScreenSpec) -> bool:
+def _keep(row: dict[str, Any], spec: RatingScreenSpec, *, skip_label: bool = False) -> bool:
     if spec.amc and not _amc_matches(str(row.get("isin") or ""), spec.amc):
         return False
-    if spec.label and str(row.get("rs_label") or "") != spec.label:
+    if not skip_label and spec.label and str(row.get("rs_label") or "") != spec.label:
         return False
     if spec.min_score is not None:
         score = row.get("final_score")
         if score is None or float(score) < spec.min_score:
             return False
     return True
+
+
+def _uses_label_cascade(spec: RatingScreenSpec) -> bool:
+    if spec.return_window or spec.return_direction:
+        return False
+    if spec.min_score is not None or spec.highest_score:
+        return False
+    if spec.random_sample:
+        return True
+    if spec.count > 1 and (not spec.label or spec.label == "Best in category"):
+        return True
+    return False
+
+
+def _cascade_labels_for_spec(spec: RatingScreenSpec) -> tuple[str, str]:
+    from news_rag.fund_rating_labels import PREFERRED_PICK_MAX_TIER, normalize_rs_label
+
+    explicit = normalize_rs_label(spec.label) if spec.label else ""
+    if explicit and explicit != "Best in category":
+        return explicit, explicit
+    return "Best in category", PREFERRED_PICK_MAX_TIER
 
 
 def _strip(row: dict[str, Any]) -> dict[str, Any]:
@@ -437,9 +514,17 @@ def _shortlist(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[dict[
 
 def _order(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[dict[str, Any]]:
     pool = list(rows)
-    if spec.random_sample:
-        random.shuffle(pool)
-        return pool
+    if _uses_label_cascade(spec):
+        start, max_tier = _cascade_labels_for_spec(spec)
+        picked, _ = pick_funds_by_label_cascade(
+            pool,
+            spec.count,
+            start_label=start,
+            max_tier=max_tier,
+            random_within_tier=spec.random_sample,
+        )
+        if picked:
+            return picked
     if spec.return_window and spec.return_direction:
         pool.sort(key=lambda row: float(row.get("_return") or -10**9), reverse=spec.return_direction != "lowest")
         return pool
@@ -447,13 +532,296 @@ def _order(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[dict[str,
     return pool
 
 
+def rating_spec_for_forced_screen(question: str, *, top_n: int = 1) -> RatingScreenSpec | None:
+    """When rating_screen is set but the question is not a rating-list phrase (e.g. holdings ask)."""
+    spec = parse_rating_screen(question)
+    if spec is not None:
+        return spec
+    match = match_scheme_category(question or "")
+    if not (match and match.locked and match.category):
+        return None
+    return RatingScreenSpec(
+        count=max(1, min(int(top_n or 1), 20)),
+        fund_type=match.fund_type or "equity",
+        category=match.category,
+        locked=True,
+        label="Best in category",
+        min_score=None,
+        highest_score=False,
+        return_window="",
+        return_direction="",
+        compare_category=False,
+        random_sample=False,
+        amc="",
+        suggestion="rated",
+        label_fallback="Recommended",
+    )
+
+
+def _alternate_row_excluded(
+    row: dict[str, Any],
+    exclude_isins: set[str],
+    exclude_names: set[str],
+) -> bool:
+    isin = str(row.get("isin") or "").strip().upper()
+    if isin and isin in exclude_isins:
+        return True
+    name = str(row.get("fund_name") or "").strip().lower()
+    if not name or not exclude_names:
+        return False
+    for ex in exclude_names:
+        if ex == name or name.startswith(ex) or ex.startswith(name):
+            return True
+    return False
+
+
+def infer_anchor_label_from_excludes(exclude_isins: list[str] | None) -> str:
+    from news_rag.fund_rating_labels import normalize_rs_label
+    from news_rag.fund_risk import fetch_public_rating
+
+    for raw in exclude_isins or []:
+        isin = str(raw or "").strip().upper()
+        if not isin:
+            continue
+        rating = fetch_public_rating(isin)
+        if not isinstance(rating, dict):
+            continue
+        label = normalize_rs_label(str(rating.get("label") or rating.get("rs_label") or ""))
+        if label:
+            return label
+    return ""
+
+
+def pick_alternate_funds_in_category(
+    *,
+    fund_type: str,
+    category: str,
+    exclude_isins: list[str] | None = None,
+    exclude_names: list[str] | None = None,
+    rs_label: str = "",
+    top_n: int = 1,
+    question: str = "",
+    fetch: Callable[[str, str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Another fund in the same scheme category, walking down RS label tiers if needed."""
+    from news_rag.fund_rating_labels import is_lower_tier_than, label_tiers_from, normalize_rs_label
+
+    loader = fetch or fetch_category_ratings
+    exclude_isins_set = {str(x).strip().upper() for x in (exclude_isins or []) if str(x).strip()}
+    exclude_names_set = {str(x).strip().lower() for x in (exclude_names or []) if str(x).strip()}
+    anchor = normalize_rs_label(rs_label) or infer_anchor_label_from_excludes(list(exclude_isins_set))
+    payload = loader(fund_type, category)
+    rows = [
+        row
+        for row in _rows_from_payload(payload, fund_type=fund_type, category=category)
+        if not _alternate_row_excluded(row, exclude_isins_set, exclude_names_set)
+    ]
+    tiers = label_tiers_from(anchor or None)
+    picked: list[dict[str, Any]] = []
+    used_tier = ""
+    for tier in tiers:
+        tier_rows = [row for row in rows if str(row.get("rs_label") or "") == tier]
+        tier_rows.sort(key=lambda row: float(row.get("final_score") or -1), reverse=True)
+        if tier_rows:
+            picked = tier_rows[: max(1, int(top_n or 1))]
+            used_tier = tier
+            break
+
+    if not picked:
+        return {"success": False, "rankings": [], "ranking_note": "", "screen_type": "rs_rating"}
+
+    public = [_strip(row) for row in picked]
+    try:
+        from news_rag.tools import _attach_screen_facts
+
+        _attach_screen_facts(public, question)
+    except Exception:
+        logger.info("alternate rating screen facts skipped", exc_info=True)
+
+    note_parts: list[str] = []
+    if anchor and used_tier and is_lower_tier_than(used_tier, anchor):
+        note_parts.append(
+            f"No other {anchor} fund in {category} after excluding the one already shown. "
+            f"This pick is from the {used_tier} tier in the same category."
+        )
+    elif used_tier:
+        note_parts.append(f"Another {used_tier} fund in {category}.")
+    return {
+        "success": True,
+        "screen_type": "rs_rating",
+        "rankings": public,
+        "ranking_note": " ".join(note_parts).strip(),
+        "categories_called": [category],
+        "priced_isins": [],
+        "count": len(public),
+        "return_window": "",
+        "anchor_rs_label": anchor,
+        "picked_rs_label": used_tier,
+    }
+
+
+def pick_funds_by_label_cascade(
+    rows: list[dict[str, Any]],
+    top_n: int,
+    *,
+    start_label: str = "Best in category",
+    max_tier: str = "Good Choice",
+    exclude_isins: list[str] | None = None,
+    exclude_names: list[str] | None = None,
+    random_within_tier: bool = False,
+) -> tuple[list[dict[str, Any]], str]:
+    """Fill top_n across RS tiers: Best → Recommended → Good Choice (by default)."""
+    from news_rag.fund_rating_labels import is_lower_tier_than, label_tiers_up_to, normalize_rs_label
+
+    exclude_isins_set = {str(x).strip().upper() for x in (exclude_isins or []) if str(x).strip()}
+    exclude_names_set = {str(x).strip().lower() for x in (exclude_names or []) if str(x).strip()}
+    usable = [
+        row
+        for row in rows
+        if isinstance(row, dict) and not _alternate_row_excluded(row, exclude_isins_set, exclude_names_set)
+    ]
+    start = normalize_rs_label(start_label) or "Best in category"
+    cap = normalize_rs_label(max_tier) or "Good Choice"
+    tiers = label_tiers_up_to(cap, start=start)
+    picked: list[dict[str, Any]] = []
+    seen_isins: set[str] = set()
+    tier_notes: list[str] = []
+    for tier in tiers:
+        tier_rows = [row for row in usable if str(row.get("rs_label") or "") == tier]
+        if random_within_tier and len(tier_rows) > 1:
+            random.shuffle(tier_rows)
+        else:
+            tier_rows.sort(key=lambda row: float(row.get("final_score") or -1), reverse=True)
+        before = len(picked)
+        for row in tier_rows:
+            isin = str(row.get("isin") or "").strip().upper()
+            if isin and isin in seen_isins:
+                continue
+            picked.append(row)
+            if isin:
+                seen_isins.add(isin)
+            if len(picked) >= top_n:
+                break
+        if len(picked) >= top_n:
+            break
+        if tier_rows and len(picked) > before and len(picked) < top_n:
+            tier_notes.append(f"Added a {tier} fund; only one higher-tier name was available.")
+    note = " ".join(tier_notes).strip()
+    if start and picked and is_lower_tier_than(str(picked[0].get("rs_label") or ""), start):
+        downgrade = (
+            f"No {start} fund was available in this filter; showing a {picked[0].get('rs_label')} fund instead."
+        )
+        note = " ".join(part for part in (downgrade, note) if part).strip()
+    return picked[: max(0, int(top_n or 1))], note
+
+
+def pick_compare_pair_in_category(
+    *,
+    fund_type: str,
+    category: str,
+    question: str = "",
+    fetch: Callable[[str, str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Two distinct funds in one category for compare — Best, then Recommended, then Good Choice."""
+    loader = fetch or fetch_category_ratings
+    payload = loader(fund_type, category)
+    rows = _rows_from_payload(payload, fund_type=fund_type, category=category)
+    if not rows:
+        return {"success": False, "rankings": [], "ranking_note": "", "screen_type": "rs_rating"}
+
+    picked, tier_note = pick_funds_by_label_cascade(rows, 2, max_tier="Good Choice")
+
+    if len(picked) < 2:
+        return {
+            "success": False,
+            "rankings": [_strip(row) for row in picked],
+            "ranking_note": f"Only {len(picked)} rated fund(s) found in {category}.",
+            "screen_type": "rs_rating",
+            "categories_called": [category],
+            "count": len(picked),
+        }
+
+    public = [_strip(row) for row in picked[:2]]
+    try:
+        from news_rag.tools import _attach_screen_facts
+
+        _attach_screen_facts(public, question)
+    except Exception:
+        logger.info("compare pair rating screen facts skipped", exc_info=True)
+
+    labels = [str(row.get("rs_label") or "") for row in public]
+    note = (
+        f"Compare pair in {category}: {public[0].get('fund_name', '')} ({labels[0]}) "
+        f"and {public[1].get('fund_name', '')} ({labels[1]})."
+    )
+    if tier_note:
+        note = f"{note} {tier_note}"
+    return {
+        "success": True,
+        "screen_type": "rs_rating",
+        "rankings": public,
+        "ranking_note": note.strip(),
+        "categories_called": [category],
+        "priced_isins": [],
+        "count": 2,
+        "return_window": "",
+        "compare_pair": True,
+    }
+
+
+def pick_rows_by_label_cascade(
+    rows: list[dict[str, Any]],
+    *,
+    rs_label: str = "",
+    exclude_isins: list[str] | None = None,
+    exclude_names: list[str] | None = None,
+    top_n: int = 1,
+) -> tuple[list[dict[str, Any]], str]:
+    """Catalog/NAV rows with rs_label attached — pick by tier walk."""
+    from news_rag.fund_rating_labels import is_lower_tier_than, label_tiers_from, normalize_rs_label
+
+    exclude_isins_set = {str(x).strip().upper() for x in (exclude_isins or []) if str(x).strip()}
+    exclude_names_set = {str(x).strip().lower() for x in (exclude_names or []) if str(x).strip()}
+    anchor = normalize_rs_label(rs_label) or infer_anchor_label_from_excludes(list(exclude_isins_set))
+    usable = [
+        row
+        for row in rows
+        if isinstance(row, dict) and not _alternate_row_excluded(row, exclude_isins_set, exclude_names_set)
+    ]
+    if int(top_n or 1) > 1:
+        return pick_funds_by_label_cascade(
+            usable,
+            top_n,
+            start_label=anchor or "Best in category",
+            max_tier="Good Choice",
+            exclude_isins=list(exclude_isins_set),
+            exclude_names=list(exclude_names_set),
+        )
+    tiers = label_tiers_from(anchor or None)
+    for tier in tiers:
+        tier_rows = [row for row in usable if str(row.get("rs_label") or "") == tier]
+        tier_rows.sort(key=lambda row: float(row.get("final_score") or -1), reverse=True)
+        if tier_rows:
+            picked = tier_rows[:1]
+            note = ""
+            if anchor and is_lower_tier_than(tier, anchor):
+                note = (
+                    f"No other {anchor} fund available; showing a {tier} fund "
+                    f"(Good Choice and lower tiers are used when higher tiers are exhausted)."
+                )
+            return picked, note
+    return [], ""
+
+
 def run_rating_list(
     question: str,
     *,
     fetch: Callable[[str, str], dict[str, Any]] | None = None,
     price: Callable[[list[dict[str, Any]], str], list[dict[str, Any]]] | None = None,
+    spec: RatingScreenSpec | None = None,
 ) -> dict[str, Any]:
-    spec = parse_rating_screen(question)
+    if spec is None:
+        spec = parse_rating_screen(question)
     if spec is None:
         return {"success": False, "rankings": [], "ranking_note": ""}
     loader = fetch or fetch_category_ratings
@@ -463,10 +831,22 @@ def run_rating_list(
     result = _execute_rating_list(spec, question, loader, pricer)
     if result["rankings"] or not spec.label_fallback:
         return result
-    fallback = replace(spec, label=spec.label_fallback, label_fallback="")
-    result = _execute_rating_list(fallback, question, loader, pricer)
-    note = "No Best in category fund was available, so this is a Recommended fund."
-    result["ranking_note"] = f"{result['ranking_note']} {note}".strip()
+    from news_rag.fund_rating_labels import label_tiers_from, normalize_rs_label
+
+    start = normalize_rs_label(spec.label) or normalize_rs_label(spec.label_fallback)
+    tiers = label_tiers_from(start)[1:] if start else label_tiers_from("Best in category")[1:]
+    prior_note = str(result.get("ranking_note") or "").strip()
+    for tier in tiers:
+        attempt = replace(spec, label=tier, label_fallback="")
+        result = _execute_rating_list(attempt, question, loader, pricer)
+        if result.get("rankings"):
+            downgrade = (
+                f"No {spec.label} fund was available in this filter; showing a {tier} fund instead."
+                if spec.label and tier != spec.label
+                else f"Showing a {tier} fund."
+            )
+            result["ranking_note"] = " ".join(part for part in (prior_note, downgrade) if part).strip()
+            return result
     return result
 
 
@@ -490,7 +870,12 @@ def _execute_rating_list(
     for category in names:
         payload = loader(spec.fund_type, category)
         called.append(category)
-        rows = [row for row in _rows_from_payload(payload, fund_type=spec.fund_type, category=category) if _keep(row, spec)]
+        skip_label = _uses_label_cascade(spec)
+        rows = [
+            row
+            for row in _rows_from_payload(payload, fund_type=spec.fund_type, category=category)
+            if _keep(row, spec, skip_label=skip_label)
+        ]
         if spec.return_window and spec.return_direction:
             if spec.return_direction in {"highest", "lowest"} and len(picked) >= spec.count:
                 trail_key = f"_trail_{spec.return_window}"
@@ -901,6 +1286,18 @@ def _apply_category_difference(question: str, plan) -> None:
 
 def ensure_rating_screen(question: str, plan) -> None:
     """A rating list uses the category API. Later facts about that fund stay on the plan."""
+    from news_rag.insight.contracts import AnswerMode
+    from news_rag.insight.plan_intent import plan_wants_alternate_in_category
+    from news_rag.insight.planner_policy import planner_owns
+
+    if planner_owns(plan):
+        return
+    if plan_wants_alternate_in_category(plan):
+        return
+    if getattr(plan, "intent", "") == "explain_cause":
+        return
+    if getattr(plan, "answer_mode", None) == AnswerMode.INSIGHT_FUSION:
+        return
     spec = parse_rating_screen(question)
     if spec is not None and spec.suggestion:
         _install_suggestion_screen(plan, spec, question)
@@ -962,6 +1359,7 @@ def _install_suggestion_screen(plan, spec: RatingScreenSpec, question: str = "")
     args["return_window"] = spec.return_window
     args["rating_screen"] = True
     args["top_n"] = spec.count
+    args["random_sample"] = bool(spec.random_sample)
     screen.arguments = args
     plan.direct_reply = ""
     plan.requires_compose = True
@@ -974,7 +1372,9 @@ def _install_suggestion_screen(plan, spec: RatingScreenSpec, question: str = "")
         )
     else:
         note = (
-            "Name the RupeeStop label and the score. "
+            "Lead with the fund we surface from RupeeStop ratings (Best in category, else Recommended). "
+            "State the RupeeStop score out of 100 and the label. "
+            "You may add one recent return from the data if present, but the rating is the reason we named this fund. "
             "Do not say you cannot recommend a fund. Do not tell the reader to buy."
         )
     if note not in (plan.presentation_notes or ""):

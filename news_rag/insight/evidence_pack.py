@@ -186,6 +186,68 @@ def sector_focus_from_market(market: dict[str, Any], question: str) -> dict[str,
     }
 
 
+def _wants_fund_ratings(question: str, plan: ExecutionPlan) -> bool:
+    import re
+
+    q = (question or "").lower()
+    if re.search(r"\b(?:rupeestop\s+)?ratings?\b|\brs\s+rating\b|\b(?:our|your)\s+score\b", q):
+        return True
+    if "rating" in (plan.asked_facts or []):
+        return True
+    for call in plan.tool_calls or []:
+        if call.tool == "get_fund_data" and "rating" in (call.arguments.get("modules") or []):
+            return True
+    return False
+
+
+def _attach_rs_ratings_to_screen(
+    screen: dict[str, Any] | None,
+    question: str,
+    plan: ExecutionPlan,
+) -> None:
+    if not isinstance(screen, dict) or not _wants_fund_ratings(question, plan):
+        return
+    from news_rag.fund_risk import fetch_public_rating
+
+    for key in ("rankings", "funds"):
+        for row in list(screen.get(key) or []):
+            if not isinstance(row, dict):
+                continue
+            isin = str(row.get("isin") or "").strip().upper()
+            if not isin:
+                continue
+            rating = fetch_public_rating(isin)
+            if not rating:
+                continue
+            row["rs_score"] = rating.get("final_score")
+            row["rs_label"] = rating.get("label")
+            row["pillars"] = rating.get("pillars")
+
+
+def _refresh_fund_blocks_ratings(data_pack: dict[str, Any]) -> None:
+    from news_rag.fund_risk import fetch_public_rating
+    from news_rag.fund_search import get_fund_index
+
+    for key, block in list(data_pack.items()):
+        if not str(key).startswith("fund:") or not isinstance(block, dict):
+            continue
+        fund_name = str(block.get("fund_name") or key.removeprefix("fund:")).strip()
+        detail, _amb, _close = get_fund_index().lookup_extracted_fund(name=fund_name)
+        isin = str((detail or {}).get("isin") or "").strip().upper()
+        if not isin:
+            continue
+        insights = block.get("fund_insights") if isinstance(block.get("fund_insights"), dict) else {}
+        got_isin = str(insights.get("isin") or "").strip().upper()
+        rating = block.get("rs_rating") if isinstance(block.get("rs_rating"), dict) else {}
+        if got_isin == isin and rating:
+            continue
+        fresh = fetch_public_rating(isin)
+        if fresh:
+            block["rs_rating"] = fresh
+        if got_isin and got_isin != isin:
+            block.pop("fund_insights", None)
+
+
 def build_evidence_pack(
     plan: ExecutionPlan,
     wave1_results: list[dict[str, Any]],
@@ -216,6 +278,12 @@ def build_evidence_pack(
             if error:
                 limitations.append(f"Tool {tool} failed: {error}")
             continue
+
+        if r.get("partial"):
+            limitations.append(
+                f"Tool {tool} returned incomplete data for {r.get('fund') or 'the fund'}; "
+                "figures may be missing."
+            )
 
         if tool == "get_fund_data":
             # Extract snapshot, return series, attribution
@@ -280,6 +348,36 @@ def build_evidence_pack(
             ))
 
         elif tool == "screen_funds_by_exposure":
+            existing = data_pack.get("screen")
+            new_rankings = [
+                row for row in (data.get("rankings") or data.get("funds") or []) if isinstance(row, dict)
+            ]
+            if isinstance(existing, dict) and (
+                existing.get("rankings") or existing.get("funds") or existing.get("multi_category_compare")
+            ):
+                old_rankings = [
+                    row
+                    for row in (existing.get("rankings") or existing.get("funds") or [])
+                    if isinstance(row, dict)
+                ]
+                merged: list[dict[str, Any]] = []
+                seen: set[str] = set()
+                for row in old_rankings + new_rankings:
+                    key = str(row.get("isin") or row.get("fund_name") or "").strip().lower()
+                    if not key or key in seen:
+                        continue
+                    seen.add(key)
+                    merged.append(row)
+                data = {
+                    **existing,
+                    **data,
+                    "rankings": merged,
+                    "funds": merged,
+                    "multi_category_compare": True,
+                    "ranking_note": (
+                        "One RupeeStop-rated example per category for side-by-side comparison."
+                    ),
+                }
             data_pack["screen"] = data
             rows.append(EvidenceRow(
                 entity_id="screen",
@@ -355,6 +453,9 @@ def build_evidence_pack(
         "missing_required": missing,
         "has_news": bool(news_grouped),
     }
+
+    _attach_rs_ratings_to_screen(data_pack.get("screen"), question, plan)
+    _refresh_fund_blocks_ratings(data_pack)
 
     perf = _fund_performance_digest(data_pack)
     from news_rag.insight.fund_display import build_fund_display_tables
@@ -706,6 +807,7 @@ def table_source(data_pack: dict[str, Any]) -> str:
         snap = block.get("snapshot") if isinstance(block.get("snapshot"), dict) else {}
         insights = block.get("fund_insights") if isinstance(block.get("fund_insights"), dict) else {}
         rating = block.get("rs_rating") if isinstance(block.get("rs_rating"), dict) else {}
+        risk = block.get("risk") if isinstance(block.get("risk"), dict) else {}
         returns = snap.get("returns") if isinstance(snap.get("returns"), dict) else {}
         flat: dict[str, Any] = {
             "fund": snap.get("fund_name") or insights.get("fund_name") or block.get("fund_name") or "",
@@ -713,11 +815,15 @@ def table_source(data_pack: dict[str, Any]) -> str:
             "expense_ratio": (snap.get("expense_ratio") or {}).get("regular") if isinstance(snap.get("expense_ratio"), dict) else None,
             "aum": snap.get("aum"),
             "benchmark": snap.get("benchmark") or insights.get("benchmark_name") or insights.get("scheme_benchmark_name"),
-            "category": insights.get("category"),
+            "category": insights.get("category") or snap.get("category"),
             "label": rating.get("label"),
             "final_score": rating.get("final_score"),
             "pillars": rating.get("pillars"),
-            "riskometer": insights.get("riskometer") or insights.get("sebi_riskometer"),
+            "riskometer": (
+                risk.get("riskometer")
+                or insights.get("riskometer")
+                or insights.get("sebi_riskometer")
+            ),
         }
         for code, value in returns.items():
             if value is not None:
@@ -999,6 +1105,13 @@ def _portfolio_markdown(p_data: dict[str, Any], plan: ExecutionPlan) -> str:
                 f"| {_holding_label(h)} | {h.get('sector') or h.get('industry') or '—'} | "
                 f"{_holding_weight_pct(h):.2f}% |"
             )
+        top_sum = round(sum(_holding_weight_pct(h) for h in holding_rows[:cap]), 2)
+        as_on = str(p_data.get("as_on") or "").strip()
+        suffix = f" (as on {as_on})" if as_on else ""
+        lines.append(
+            f"\nTogether, the top {min(cap, len(holding_rows))} holdings make up **{top_sum:.2f}%** "
+            f"of the fund{suffix}."
+        )
     return "\n".join(lines)
 
 
@@ -1157,6 +1270,10 @@ def _render_screen_markdown(screen: Any) -> str | None:
 def _screen_lead(rankings: list[dict[str, Any]]) -> str:
     count = len(rankings)
     word = "fund" if count == 1 else "funds"
+    categories = sorted({str(row.get("category") or "").strip() for row in rankings})
+    categories = [item for item in categories if item]
+    if len(categories) >= 2:
+        return f"{count} {word} across " + " and ".join(categories) + "."
     category = _shared_value(rankings, "category")
     label = _shared_value(rankings, "rs_label")
     sentence = f"{count} {word}"

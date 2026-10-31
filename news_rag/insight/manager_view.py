@@ -36,6 +36,32 @@ _BOTH_ROSTER = re.compile(
 )
 
 
+_MANAGER_ROSTER_ASK = re.compile(
+    r"\b(?:"
+    r"name\s+of\s+(?:the\s+)?fund\s+managers?|fund\s+manager\s+names?|"
+    r"fund\s+manager\s+details?|about\s+(?:the\s+)?fund\s+managers?|"
+    r"(?:tell|give)\s+me\s+(?:the\s+)?(?:a\s+)?(?:name\s+of\s+(?:the\s+)?)?fund\s+managers?"
+    r")\b",
+    re.I,
+)
+
+
+def asks_manager_roster(question: str) -> bool:
+    """Human AMC manager names — not the RupeeStop fundManager pillar score."""
+    q = (question or "").strip()
+    if not q:
+        return False
+    if _MANAGER_ROSTER_ASK.search(q):
+        return True
+    if _BOTH_ROSTER.search(q) or _PAST_ROSTER.search(q) or _CURRENT_ROSTER.search(q):
+        return True
+    if re.search(r"\bfund\s+managers?\b", q, re.I) and re.search(
+        r"\b(?:name|names|who|list|detail)\b", q, re.I
+    ):
+        return True
+    return False
+
+
 def infer_manager_roster_focus(question: str) -> str:
     """Current managers unless the question asks for former ones."""
     q = (question or "").strip()

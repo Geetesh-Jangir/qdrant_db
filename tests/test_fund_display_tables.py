@@ -264,3 +264,9 @@ def test_caveats_about_missing_comparison_are_removed():
     assert "cannot be stated" not in out.lower()
     assert "Returns (horizon labelled)" not in out
     assert "DSP Nifty Smallcap is down" in out
+
+
+def test_normalize_inserts_blank_line_before_markdown_table():
+    raw = "Here are five funds:\n| Fund | Score |\n|---|---|\n| A | 1 |"
+    out = normalize_user_facing_text(raw)
+    assert ":\n\n|" in out
