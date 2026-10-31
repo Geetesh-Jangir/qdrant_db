@@ -9,6 +9,7 @@ from news_rag.insight.memory.state import add_gist, empty_frame, push_fund
 from news_rag.insight.memory.store import get_or_create, save_state
 
 _FUND_TOOLS = {"get_fund_data", "get_portfolio_data", "compare_funds"}
+_INVESTOR_TOOL = "get_investor_portfolio"
 
 
 def apply_planner_refs(memory: dict[str, Any] | None, plan: Any) -> None:
@@ -252,6 +253,44 @@ def commit_turn(
         frame["subject_kind"] = "comparison" if len(subjects) > 1 else "single_fund"
         for subject in subjects:
             push_fund(state, subject, period=period, facts=facts, turn=turn)
+
+    investor_row = next(
+        (row for row in ok_rows if row.get("tool") == _INVESTOR_TOOL and row.get("ok")),
+        None,
+    )
+    if investor_row:
+        inv_data = investor_row.get("data") if isinstance(investor_row.get("data"), dict) else {}
+        holdings = inv_data.get("holdings") if isinstance(inv_data.get("holdings"), list) else []
+        names_in_chat: list[str] = list(state.get("holdings_in_chat") or [])
+        investor_subjects: list[dict[str, str]] = list(frame.get("investor_subjects") or [])
+        for row in holdings:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("scheme_name") or "").strip()
+            if not name:
+                continue
+            if name not in names_in_chat:
+                names_in_chat.append(name)
+            if name not in [s.get("name") for s in investor_subjects]:
+                investor_subjects.append({
+                    "name": name,
+                    "isin": str(row.get("isin") or ""),
+                    "folio": str(row.get("folio_scheme") or row.get("folio_number") or ""),
+                    "role": "primary",
+                })
+        if names_in_chat:
+            state["holdings_in_chat"] = names_in_chat[-12:]
+        if investor_subjects:
+            frame["investor_subjects"] = investor_subjects[-8:]
+            frame["subject_kind"] = "investor_holding" if len(investor_subjects) == 1 else "investor_portfolio"
+            if len(investor_subjects) == 1:
+                push_fund(
+                    state,
+                    {"id": investor_subjects[0].get("isin") or "", "name": investor_subjects[0]["name"], "plan": "", "role": "primary"},
+                    period=period,
+                    facts=facts,
+                    turn=turn,
+                )
 
     compare_row = next(
         (row for row in ok_rows if row.get("tool") == "compare_funds" and row.get("ok")),

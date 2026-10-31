@@ -73,6 +73,16 @@ PLAN_SCHEMA: dict[str, Any] = {
                         "data when they want numbers, a fund list, or one named scheme."
                     ),
                 },
+                "portfolio_scope": {
+                    "type": "string",
+                    "enum": ["none", "investor", "catalog", "both"],
+                    "description": (
+                        "none: catalog/markets only — no get_investor_portfolio. "
+                        "investor: user's own book (my AUM, my SIP, my holdings). "
+                        "catalog: scheme composition via get_portfolio_data. "
+                        "both: investor book plus catalog fund metrics."
+                    ),
+                },
                 "data_need": {
                     "type": "string",
                     "enum": [
@@ -81,6 +91,12 @@ PLAN_SCHEMA: dict[str, Any] = {
                         "category_composition",
                         "category_performance",
                         "rating_for_screened_list",
+                        "investor_summary",
+                        "investor_holding",
+                        "investor_sip",
+                        "investor_pnl",
+                        "investor_xirr",
+                        "investor_hybrid",
                     ],
                     "description": (
                         "What data to fetch beyond a generic lookup. "
@@ -484,6 +500,7 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
         scheme_categories=scheme_categories,
         rs_label=rs_label,
         data_need=str(under.get("data_need") or "none").strip().lower() or "none",
+        portfolio_scope=str(under.get("portfolio_scope") or "none").strip().lower() or "none",
         subject_ref=str(under.get("subject_ref") or "none").strip().lower() or "none",
         turn_relation=relation,
         stack_refs=stack_refs,
@@ -624,30 +641,50 @@ def plan_to_brief(plan: ExecutionPlan, *, sector_keys: list[str], funds: list[st
 # Planner System Prompt with Slot Rules
 # ---------------------------------------------------------------------------
 
-_SYSTEM_CACHE: str | None = None
+_SYSTEM_CACHE: dict[bool, str] = {}
 
 
 def _invalidate_plan_system_cache() -> None:
     global _SYSTEM_CACHE
-    _SYSTEM_CACHE = None
+    _SYSTEM_CACHE = {}
 
 
-def plan_system_prompt() -> str:
+def plan_system_prompt(*, portfolio_enabled: bool | None = None) -> str:
     global _SYSTEM_CACHE
-    if _SYSTEM_CACHE is not None:
-        return _SYSTEM_CACHE
+    if portfolio_enabled is None:
+        from news_rag.config import get_settings
 
-    catalog = capability_catalog_text()
+        portfolio_enabled = get_settings().portfolio_enabled
+    cached = _SYSTEM_CACHE.get(bool(portfolio_enabled))
+    if cached is not None:
+        return cached
+
+    catalog = capability_catalog_text(portfolio_enabled=portfolio_enabled)
+    tool_count = "seven" if portfolio_enabled else "six"
+    portfolio_block = ""
+    if portfolio_enabled:
+        portfolio_block = """
+### INVESTOR BOOK (server-bound CRN)
+- Set `understanding.portfolio_scope` on every plan.
+- **none**: pure catalog/market questions — NAV of a named fund, compare funds, news, glossary. **Never** call get_investor_portfolio.
+- **investor**: my/I/me/mine + AUM, invested amount, gain, holdings list, SIP/STP, XIRR, allocation, or follow-up on holdings_in_chat. Use get_investor_portfolio with **minimal modules** only.
+- **catalog**: top holdings/sectors **of a named mutual fund scheme** without possessive "my" → get_portfolio_data only (portfolio_scope catalog).
+- **both**: e.g. how is **my** Bandhan fund doing vs peers → get_investor_portfolio (holdings/summary) + get_fund_data modules you need.
+- get_portfolio_data = stocks/sectors **inside a fund**. get_investor_portfolio = **user's own folios**. Never confuse them.
+- get_investor_portfolio **requires** arguments.modules (list). Pick the smallest set: summary, allocation, holdings, sip, stp, pnl_summary, pnl_scheme, xirr, profile_risk, meta.
+- For one scheme in the user's book, set scheme_filter and use holdings_fields minimal unless they ask for folio/NAV detail.
+"""
     prompt = f"""You are the planner for an Indian mutual fund, stock, and market analytics assistant.
-Read the user's question and emit ONE structured JSON ExecutionPlan using ONLY the six capabilities below.
+Read the user's question and emit ONE structured JSON ExecutionPlan using ONLY the capabilities below ({tool_count} when investor book is enabled).
 
 ### CAPABILITY TOOLS
 {catalog}
-
+{portfolio_block}
 ### FIELDS THE PARSER ACCEPTS
 Optional fields may be omitted. Do not invent field names.
 - `understanding.intent`: lookup, overview, explain_cause, compare, rank, outlook. A definition or a SIP/FIRE calculation uses lookup.
-- `understanding.data_need`: none, fund_holdings_breakdown, category_composition, category_performance, rating_for_screened_list. Set the one that matches what numbers to fetch. The server will not second-guess this when you set it.
+- `understanding.portfolio_scope`: none, investor, catalog, both. Required when investor book tools exist.
+- `understanding.data_need`: none, fund_holdings_breakdown, category_composition, category_performance, rating_for_screened_list, investor_summary, investor_holding, investor_sip, investor_pnl, investor_xirr, investor_hybrid. Set the one that matches what numbers to fetch. The server will not second-guess this when you set it.
 - `understanding.subject_ref`: none, user_named, memory_primary, memory_stack, list_cursor. Use memory_primary when they mean the fund already in Conversation memory (it, this fund, that scheme) even if misspelled.
 - `understanding.task`: explain or data. explain means the user wants to understand a word, a fund type, or which categories exist, including a misspelled question such as "what are multi cap fund" or "sub category of the equity funds". data means they want a number, a list of schemes, a rating, or one named fund. A screen hint that names a category does not make an explanation into a fund list.
 - `understanding.answer_mode`: DATA_ONLY, NEWS_ONLY, INSIGHT_FUSION. DATA_ONLY means do not fetch news. The composer still writes the answer.
@@ -783,16 +820,40 @@ Stepped-up SIP illustration:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Illustrate a stepped-up SIP that reaches 2 crore in 20 years", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "SIP plan for a 2 crore goal in 20 years with a 10 percent annual step-up"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 420}}}}
 
 Out of scope:
-{{"scope": {{"kind": "out_of_scope"}}, "understanding": {{"goal": "Not about funds, stocks, or markets", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Outside markets"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 30}}}}
+{{"scope": {{"kind": "out_of_scope"}}, "understanding": {{"goal": "Not about funds, stocks, or markets", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "portfolio_scope": "none"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "Outside markets"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 30}}}}
 """
-    _SYSTEM_CACHE = prompt.strip()
-    return _SYSTEM_CACHE
+    if portfolio_enabled:
+        prompt += """
+
+My portfolio AUM (investor book):
+{"scope": {"kind": "in_scope"}, "understanding": {"goal": "Current portfolio value and gain", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "portfolio_scope": "investor", "data_need": "investor_summary"}, "request": {"count": 0, "portfolio_slice": "none", "reading": "User's own AUM and overall gain/loss"}, "tool_calls": [{"tool": "get_investor_portfolio", "arguments": {"modules": ["summary"]}, "wave": 1}], "wave_2_policy": {"trigger": "none"}, "presentation": {"response_shape": "short_answer", "max_words": 80}}
+
+My SIPs:
+{"scope": {"kind": "in_scope"}, "understanding": {"goal": "List live SIPs and total monthly amount", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "portfolio_scope": "investor", "data_need": "investor_sip"}, "request": {"count": 0, "portfolio_slice": "none", "reading": "User's SIP plans"}, "tool_calls": [{"tool": "get_investor_portfolio", "arguments": {"modules": ["sip"]}, "wave": 1}], "wave_2_policy": {"trigger": "none"}, "presentation": {"response_shape": "table", "max_words": 200}}
+
+Which funds do I hold:
+{"scope": {"kind": "in_scope"}, "understanding": {"goal": "List holdings in the user's book", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "portfolio_scope": "investor", "data_need": "investor_holding"}, "request": {"count": 0, "portfolio_slice": "none", "reading": "All schemes in the user's portfolio"}, "tool_calls": [{"tool": "get_investor_portfolio", "arguments": {"modules": ["holdings"], "holdings_fields": "standard", "top_n": 20}, "wave": 1}], "wave_2_policy": {"trigger": "none"}, "presentation": {"response_shape": "table", "max_words": 220}}
+
+NAV of HDFC Large Cap (catalog — not investor book):
+{"scope": {"kind": "in_scope"}, "understanding": {"goal": "NAV of a named catalog fund", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "portfolio_scope": "none", "data_need": "none"}, "request": {"count": 0, "portfolio_slice": "none", "reading": "NAV of HDFC Large Cap Fund"}, "entities": {"funds": ["HDFC Large Cap Fund"]}, "tool_calls": [{"tool": "get_fund_data", "arguments": {"modules": ["snapshot"]}, "wave": 1}], "wave_2_policy": {"trigger": "none"}, "presentation": {"response_shape": "short_answer", "max_words": 50}}
+
+XIRR of the small cap fund I hold (memory follow-up):
+{"scope": {"kind": "in_scope"}, "understanding": {"goal": "XIRR for one holding from chat context", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "portfolio_scope": "investor", "data_need": "investor_xirr", "subject_ref": "memory_primary"}, "memory": {"turn_relation": "continue"}, "request": {"count": 0, "portfolio_slice": "none", "reading": "XIRR on the small cap scheme the user already discussed"}, "tool_calls": [{"tool": "get_investor_portfolio", "arguments": {"modules": ["xirr", "holdings"], "scheme_filter": "small cap", "holdings_fields": "minimal"}, "wave": 1}], "wave_2_policy": {"trigger": "none"}, "presentation": {"response_shape": "short_answer", "max_words": 100}}
+"""
+    text = prompt.strip()
+    _SYSTEM_CACHE[bool(portfolio_enabled)] = text
+    return text
 
 
 def _slot_fallback(question: str) -> ExecutionPlan | None:
     """Used only when the planner cannot return a plan."""
+    from news_rag.config import get_settings
     from news_rag.insight.portfolio_plan import normalize_portfolio_plan_from_question
     from news_rag.insight.slot_router import slot_route
+
+    settings = get_settings()
+    if settings.portfolio_enabled and getattr(settings, "rag_use_planner_when_portfolio", True):
+        return None
 
     det_plan = slot_route(question, confidence_threshold=0.88)
     if det_plan is None:
@@ -822,13 +883,20 @@ def make_plan(
         user += f"\n\n{supplement}"
     if isinstance(prior_context, dict) and prior_context.get("memory"):
         user += "\n\nConversation memory: " + json.dumps(prior_context["memory"], ensure_ascii=False)
+    if settings.portfolio_enabled:
+        user += (
+            "\n\nServer note: CLIENT_REF_NO is configured for this session. "
+            "When understanding.portfolio_scope is investor or both, or data_need is investor_*, "
+            "you MUST include get_investor_portfolio in tool_calls with the minimal modules list. "
+            "Do not leave tool_calls empty for the user's own portfolio."
+        )
 
     try:
         from news_rag.llm_client import planner_model, planner_provider
         from news_rag.prompts import shared_system_prefix
 
         res = call_json_llm(
-            system_prompt=plan_system_prompt(),
+            system_prompt=plan_system_prompt(portfolio_enabled=settings.portfolio_enabled),
             user_content=user,
             model_override=planner_model(settings),
             provider_override=planner_provider(settings),

@@ -206,7 +206,51 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     },
 }
 
+INVESTOR_PORTFOLIO_CAPABILITY: dict[str, Any] = {
+    "description": (
+        "The logged-in investor's own mutual fund book (AUM, holdings, SIP/STP, P&L, XIRR, allocation). "
+        "Requires modules — request only what the question needs. "
+        "NOT for stocks/sectors inside a catalog scheme (that is get_portfolio_data)."
+    ),
+    "when_to_use": (
+        "portfolio_scope is investor or both: my/I/me/mine + AUM, holdings, SIP, XIRR, allocation, "
+        "or a follow-up on holdings_in_chat."
+    ),
+    "do_not_use": (
+        "When portfolio_scope is none or catalog-only. "
+        "Do not use for generic fund NAV, compare two unnamed funds, or scheme composition without 'my'."
+    ),
+    "modules": [
+        "meta", "summary", "allocation", "holdings", "pnl_summary", "pnl_scheme",
+        "sip", "stp", "xirr", "profile_risk",
+    ],
+    "args_schema": {
+        "modules": {
+            "type": "list",
+            "items": [
+                "meta", "summary", "allocation", "holdings", "pnl_summary", "pnl_scheme",
+                "sip", "stp", "xirr", "profile_risk",
+            ],
+        },
+        "scheme_filter": {"type": "str", "max_len": 120},
+        "top_n": {"type": "int", "min": 1, "max": 50, "default": 10},
+        "sort_by": {"type": "str", "enum": ["aum", "gain_loss", "xirr"], "default": "aum"},
+        "holdings_fields": {"type": "str", "enum": ["minimal", "standard", "full"], "default": "minimal"},
+        "transaction_limit": {"type": "int", "min": 1, "max": 15, "default": 5},
+        "live_only": {"type": "bool", "default": True},
+        "include_meta": {"type": "bool", "default": True},
+    },
+    "per_fund": False,
+}
+
 # Short JSON schemas for the stable planner system prompt
+def _capabilities_for_planner(*, portfolio_enabled: bool) -> dict[str, dict[str, Any]]:
+    caps = dict(CAPABILITIES)
+    if portfolio_enabled:
+        caps["get_investor_portfolio"] = INVESTOR_PORTFOLIO_CAPABILITY
+    return caps
+
+
 CAPABILITY_SCHEMAS: dict[str, dict[str, Any]] = {
     name: {
         "description": cap["description"],
@@ -216,10 +260,14 @@ CAPABILITY_SCHEMAS: dict[str, dict[str, Any]] = {
 }
 
 
-def capability_catalog_text() -> str:
-    """Compact text for the planner system prompt — six tools only."""
+def capability_catalog_text(*, portfolio_enabled: bool | None = None) -> str:
+    """Compact text for the planner system prompt."""
+    if portfolio_enabled is None:
+        from news_rag.config import get_settings
+
+        portfolio_enabled = get_settings().portfolio_enabled
     lines: list[str] = []
-    for name, cap in CAPABILITIES.items():
+    for name, cap in _capabilities_for_planner(portfolio_enabled=portfolio_enabled).items():
         args = ", ".join(
             f"{k}: {v.get('type', 'str')}" for k, v in cap["args_schema"].items()
         )
@@ -250,6 +298,8 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
     """Validate and clamp capability arguments. Unknown keys are dropped."""
     src = dict(args or {})
     cap = CAPABILITIES.get(tool)
+    if cap is None and tool == "get_investor_portfolio":
+        cap = INVESTOR_PORTFOLIO_CAPABILITY
     if cap is None:
         return {}
 
@@ -376,6 +426,27 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         stock = str(src.get("stock") or "").strip()
         if stock:
             out["stock"] = stock[:80]
+        return out
+
+    if tool == "get_investor_portfolio":
+        allowed = set(INVESTOR_PORTFOLIO_CAPABILITY["modules"])
+        modules = [m for m in (src.get("modules") or []) if m in allowed]
+        out = {
+            "modules": modules,
+            "top_n": _clamp(src.get("top_n"), 1, 50, 10),
+            "sort_by": str(src.get("sort_by") or "aum").lower(),
+            "holdings_fields": str(src.get("holdings_fields") or "minimal").lower(),
+            "transaction_limit": _clamp(src.get("transaction_limit"), 1, 15, 5),
+            "live_only": bool(src.get("live_only", True)),
+            "include_meta": bool(src.get("include_meta", True)),
+        }
+        if out["sort_by"] not in ("aum", "gain_loss", "xirr"):
+            out["sort_by"] = "aum"
+        if out["holdings_fields"] not in ("minimal", "standard", "full"):
+            out["holdings_fields"] = "minimal"
+        scheme_filter = str(src.get("scheme_filter") or "").strip()
+        if scheme_filter:
+            out["scheme_filter"] = scheme_filter[:120]
         return out
 
     return {}

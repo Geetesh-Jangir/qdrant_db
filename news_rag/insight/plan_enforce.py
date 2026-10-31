@@ -319,6 +319,9 @@ def apply_planner_post_hooks(
     )
 
     reconcile_planner_intent(plan, question)
+    from news_rag.insight.portfolio_scope import enforce_portfolio_scope
+
+    plan = enforce_portfolio_scope(plan)
     ensure_unnamed_category_pair_compare_plan(question, plan, memory)
     ensure_random_same_category_pair_compare_plan(question, plan, memory)
     resolve_planner_subject_refs(plan, memory, question)

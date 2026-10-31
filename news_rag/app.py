@@ -353,6 +353,9 @@ def fund_brief(
 def health() -> dict:
     settings = get_settings()
     holdings_map = holdings_archive_available()
+    from news_rag.portfolio.health import portfolio_health_snapshot
+
+    portfolio = portfolio_health_snapshot()
     return {
         "ok": True,
         "collection": settings.qdrant_collection,
@@ -362,6 +365,7 @@ def health() -> dict:
         "holdings_archive": holdings_map,
         "embeddings_ready": embeddings_ready(),
         "llm_key_configured": llm_api_key_configured(settings),
+        **portfolio,
     }
 
 

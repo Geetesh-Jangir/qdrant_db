@@ -522,8 +522,12 @@ def node_wave1(state: GraphState) -> str | None:
         c.tool in ("compare_funds", "get_fund_data", "get_portfolio_data") for c in after_screen
     )
 
+    from news_rag.config import get_settings as _wave_settings
+
+    _pe = _wave_settings().portfolio_enabled
     context = _attach_conversation(state, {
         "question": state.question,
+        "portfolio_enabled": _pe,
         "fund_names": state.resolved_funds,
         "sector_name": state.sector_keys[0] if state.sector_keys else (plan.sectors[0] if plan.sectors else ""),
         "sector_keys": state.sector_keys,
@@ -683,8 +687,11 @@ def node_wave2(state: GraphState) -> str | None:
         state.route_reason = "no Wave 2 calls"
         return "evidence_gate"
 
+    from news_rag.config import get_settings as _w2_settings
+
     context = _attach_conversation(state, {
         "question": state.question,
+        "portfolio_enabled": _w2_settings().portfolio_enabled,
         "fund_names": state.resolved_funds,
         "sector_name": state.sector_keys[0] if state.sector_keys else "",
         "sector_keys": state.sector_keys,

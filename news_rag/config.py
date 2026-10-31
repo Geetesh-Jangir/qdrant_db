@@ -130,6 +130,39 @@ class Settings(BaseSettings):
     # Investor portfolio file is NOT used by /api/ask (hypothetical "my portfolio" in questions only).
     # Optional legacy hook for fund-brief; leave empty unless you explicitly opt in via PORTFOLIO_JSON.
     portfolio_json: str = ""
+    # ── Investor book workspace (admin dashboard API) ──
+    client_ref_no: str = Field(
+        default="",
+        validation_alias=AliasChoices("CLIENT_REF_NO", "client_ref_no"),
+    )
+    rupeestop_backend_base: str = Field(
+        default="https://backend.rupeestop.com",
+        validation_alias=AliasChoices("RUPEESTOP_BACKEND_BASE", "rupeestop_backend_base"),
+    )
+    rupeestop_admin_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("RUPEESTOP_ADMIN_TOKEN", "rupeestop_admin_token"),
+    )
+    portfolio_ttl_sec: int = Field(
+        default=180,
+        validation_alias=AliasChoices("PORTFOLIO_TTL_SEC", "portfolio_ttl_sec"),
+    )
+    portfolio_http_timeout_sec: float = Field(
+        default=15.0,
+        validation_alias=AliasChoices("PORTFOLIO_HTTP_TIMEOUT_SEC", "portfolio_http_timeout_sec"),
+    )
+    portfolio_http_retries: int = Field(
+        default=1,
+        validation_alias=AliasChoices("PORTFOLIO_HTTP_RETRIES", "portfolio_http_retries"),
+    )
+    portfolio_fixture_path: str = Field(
+        default="",
+        validation_alias=AliasChoices("PORTFOLIO_FIXTURE_PATH", "portfolio_fixture_path"),
+    )
+    rag_use_planner_when_portfolio: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("RAG_USE_PLANNER_WHEN_PORTFOLIO", "rag_use_planner_when_portfolio"),
+    )
     funds_by_amc_md: str = "data/fund_holdings_aggregate/regular-growth-by-amc.md"
     allisin_sectors_holdings_json: str = "data/fund_holdings_aggregate/allisin_sectors_with_holdings.json"
     portfolio_allisin_holdings_json: str = "data/fund_holdings_aggregate/portfolio_allisin_holdings.json"
@@ -332,6 +365,10 @@ class Settings(BaseSettings):
         path = _ROOT / self.rag_query_log_dir
         path.mkdir(parents=True, exist_ok=True)
         return path
+
+    @property
+    def portfolio_enabled(self) -> bool:
+        return bool(str(self.client_ref_no or "").strip())
 
 
 def get_settings() -> Settings:

@@ -1085,6 +1085,45 @@ def _run_get_market_snapshot(args: dict[str, Any], ctx: dict[str, Any]) -> dict[
     return {"ok": bool(combined), "data": combined}
 
 
+def _run_get_investor_portfolio(args: dict[str, Any], ctx: dict[str, Any] | None) -> dict[str, Any]:
+    from news_rag.config import get_settings
+    from news_rag.portfolio.cache import get_normalized_portfolio
+    from news_rag.portfolio.errors import PortfolioError
+    from news_rag.portfolio.project import project_modules
+
+    settings = get_settings()
+    if not settings.portfolio_enabled:
+        return {"ok": False, "error": "portfolio_not_configured", "data": {}}
+    modules = list(args.get("modules") or [])
+    if not modules:
+        return {"ok": False, "error": "modules_required", "data": {}}
+
+    crn = str(settings.client_ref_no or "").strip()
+    try:
+        doc, stats = get_normalized_portfolio(crn)
+    except PortfolioError as exc:
+        return {"ok": False, "error": exc.code, "data": {}, "message": str(exc)[:200]}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": "portfolio_fetch_failed", "data": {}, "message": str(exc)[:200]}
+
+    projected = project_modules(doc, args)
+    if not projected.get("ok"):
+        return {"ok": False, "error": str(projected.get("error") or "project_failed"), "data": {}}
+
+    data = projected.get("data") if isinstance(projected.get("data"), dict) else {}
+    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+    if ctx is not None:
+        ctx["portfolio_fetch_ms"] = stats.get("fetch_ms")
+        ctx["portfolio_from_cache"] = stats.get("from_cache")
+        ctx["portfolio_modules"] = modules
+    return {
+        "ok": True,
+        "data": data,
+        "as_of": str(meta.get("as_of_date") or ""),
+        "partial": bool(stats.get("stale")),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Main executor
 # ---------------------------------------------------------------------------
@@ -1092,6 +1131,7 @@ def _run_get_market_snapshot(args: dict[str, Any], ctx: dict[str, Any]) -> dict[
 _RUNNERS = {
     "get_fund_data": _run_get_fund_data,
     "get_portfolio_data": _run_get_portfolio_data,
+    "get_investor_portfolio": _run_get_investor_portfolio,
     "compare_funds": _run_compare_funds,
     "search_financial_news": _run_search_financial_news,
     "get_macro_news": _run_get_macro_news,
@@ -1211,9 +1251,26 @@ def execute_capability(
     """
     from news_rag.insight.capabilities.catalog import CAPABILITIES
 
+    from news_rag.insight.capabilities.catalog import CAPABILITIES, INVESTOR_PORTFOLIO_CAPABILITY
+
     cap = CAPABILITIES.get(call.tool)
+    if call.tool == "get_investor_portfolio":
+        cap = INVESTOR_PORTFOLIO_CAPABILITY
     if cap is None:
         return [{"ok": False, "tool": call.tool, "fund": "", "error": f"unknown_capability:{call.tool}", "data": {}, "elapsed_ms": 0}]
+
+    if call.tool == "get_investor_portfolio":
+        from news_rag.config import get_settings
+
+        if not get_settings().portfolio_enabled:
+            return [{
+                "ok": False,
+                "tool": call.tool,
+                "fund": "",
+                "error": "portfolio_not_configured",
+                "data": {},
+                "elapsed_ms": 0,
+            }]
 
     args = validate_capability_args(call.tool, call.arguments)
     if call.tool == "get_portfolio_data":

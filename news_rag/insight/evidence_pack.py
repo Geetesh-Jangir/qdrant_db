@@ -324,6 +324,16 @@ def build_evidence_pack(
                     evidence_ids=[f"portfolio:{fund_name}"],
                 ))
 
+        elif tool == "get_investor_portfolio":
+            data_pack["investor_portfolio"] = data
+            rows.append(EvidenceRow(
+                entity_id="investor",
+                entity_type="investor_book",
+                entity_name="Your portfolio",
+                metrics=data,
+                evidence_ids=["get_investor_portfolio"],
+            ))
+
         elif tool == "compare_funds":
             data_pack["compare"] = data
             rows.append(EvidenceRow(
@@ -1292,6 +1302,73 @@ def _shared_value(rankings: list[dict[str, Any]], key: str) -> str:
     return ""
 
 
+def _fmt_inr(value: Any) -> str:
+    try:
+        return f"₹{float(value):,.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _render_investor_portfolio_markdown(data: dict[str, Any], plan: ExecutionPlan) -> str | None:
+    """Deterministic DATA_ONLY answers for investor book slices."""
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    as_of = str(meta.get("as_of_date") or "").strip()
+    prefix = f"As of {as_of}. " if as_of else ""
+
+    summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
+    if summary and not data.get("holdings") and not data.get("sip"):
+        lines = [
+            prefix + "Portfolio summary:",
+            f"- Current value: {_fmt_inr(summary.get('aum_inr'))}",
+            f"- Invested: {_fmt_inr(summary.get('invested_inr'))}",
+            f"- Gain/loss: {_fmt_inr(summary.get('gain_loss_inr'))}",
+        ]
+        if summary.get("absolute_return_pct") is not None:
+            lines.append(f"- Absolute return: {summary.get('absolute_return_pct')}%")
+        if summary.get("portfolio_xirr_pct") is not None:
+            lines.append(f"- Portfolio XIRR: {summary.get('portfolio_xirr_pct')}%")
+        return "\n".join(lines)
+
+    holdings = data.get("holdings") if isinstance(data.get("holdings"), list) else []
+    if holdings and plan.response_shape == "table":
+        header = "| Scheme | Value (₹) | Gain (₹) | XIRR % |\n| --- | ---: | ---: | ---: |"
+        body_rows = []
+        for row in holdings:
+            if not isinstance(row, dict):
+                continue
+            body_rows.append(
+                "| {name} | {aum} | {gl} | {xirr} |".format(
+                    name=str(row.get("scheme_name") or "")[:60],
+                    aum=_fmt_inr(row.get("aum_inr")).replace("₹", ""),
+                    gl=_fmt_inr(row.get("gain_loss_inr")).replace("₹", ""),
+                    xirr=row.get("xirr_pct") if row.get("xirr_pct") is not None else "—",
+                )
+            )
+        if body_rows:
+            return prefix + "Your holdings:\n\n" + header + "\n" + "\n".join(body_rows)
+
+    sip = data.get("sip") if isinstance(data.get("sip"), dict) else {}
+    plans = sip.get("plans") if isinstance(sip.get("plans"), list) else []
+    if plans:
+        header = "| Scheme | Amount | Frequency | Next due |\n| --- | ---: | --- | --- |"
+        body_rows = []
+        for row in plans:
+            if not isinstance(row, dict):
+                continue
+            body_rows.append(
+                "| {name} | {amt} | {freq} | {due} |".format(
+                    name=str(row.get("scheme_name") or "")[:50],
+                    amt=_fmt_inr(row.get("amount")).replace("₹", ""),
+                    freq=str(row.get("frequency") or "—"),
+                    due=str(row.get("next_due_date") or "—"),
+                )
+            )
+        if body_rows:
+            return prefix + "Your SIPs:\n\n" + header + "\n" + "\n".join(body_rows)
+
+    return None
+
+
 def render_data_only_template(
     pack: EvidencePack,
     plan: ExecutionPlan,
@@ -1307,6 +1384,12 @@ def render_data_only_template(
     data = pack.data_pack
     if not data:
         return None
+
+    investor = data.get("investor_portfolio") if isinstance(data.get("investor_portfolio"), dict) else None
+    if investor and not any(str(k).startswith("fund:") for k in data):
+        rendered = _render_investor_portfolio_markdown(investor, plan)
+        if rendered:
+            return rendered
 
     compare = data.get("compare") if isinstance(data.get("compare"), dict) else None
     if compare and isinstance(compare.get("holding_overlap"), dict):

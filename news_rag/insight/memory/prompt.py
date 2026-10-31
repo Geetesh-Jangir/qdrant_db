@@ -118,4 +118,19 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
         )
     if list_note:
         out["list_cursor_note"] = list_note
+
+    holdings_chat = state.get("holdings_in_chat") if isinstance(state.get("holdings_in_chat"), list) else []
+    if holdings_chat:
+        out["holdings_in_chat"] = holdings_chat
+        frame_inv = frame.get("investor_subjects") if isinstance(frame.get("investor_subjects"), list) else []
+        if frame_inv:
+            out["frame"]["investor_subjects"] = frame_inv
+        hint = out.get("memory_hint") or ""
+        inv_hint = (
+            "For the user's own book: use holdings_in_chat and frame.investor_subjects for "
+            "'that fund', 'my second fund', or follow-ups. portfolio_scope investor + get_investor_portfolio. "
+            "Do not use category_funds_in_chat for 'my fund' unless they mean a catalog compare."
+        )
+        out["memory_hint"] = f"{hint} {inv_hint}".strip()
+
     return out

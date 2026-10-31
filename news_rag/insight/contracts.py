@@ -114,6 +114,7 @@ class ExecutionPlan(BaseModel):
     scheme_categories: list[str] = Field(default_factory=list)
     # Planner-normalized intent (authoritative when routed_by=planner).
     data_need: str = "none"
+    portfolio_scope: str = "none"
     subject_ref: str = "none"
     rs_label: str = ""
 

@@ -28,6 +28,11 @@ def validate_plan_tools(
 
     plan = ensure_fund_holdings_followup_plan(question, plan, memory)
 
+    if str(getattr(plan, "portfolio_scope", "") or "").lower() in ("investor", "both"):
+        return plan
+    if any(c.tool == "get_investor_portfolio" for c in plan.tool_calls):
+        return plan
+
     if not _holdings_breakdown_question(question):
         return plan
 
