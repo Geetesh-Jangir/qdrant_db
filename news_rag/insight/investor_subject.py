@@ -94,6 +94,37 @@ def holdings_rows_from_investor_tool_results(
     return rows
 
 
+def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | None = None) -> bool:
+    """Book-level ask (value, allocation, all schemes) — not 'my contra fund'."""
+    if _category_slug_from_question(question):
+        return False
+    q = (question or "").strip().lower()
+    if plan is not None:
+        need = str(plan.data_need or "").lower().strip()
+        if need == "investor_summary":
+            return True
+        intent = str(plan.intent or "").lower().strip()
+        scope = str(plan.portfolio_scope or "").lower().strip()
+        if intent == "overview" and scope in ("investor", "both") and not (plan.funds or []):
+            return True
+    book_phrases = (
+        "my portfolio",
+        "whole portfolio",
+        "entire portfolio",
+        "all my funds",
+        "all my holdings",
+        "my holdings",
+        "my mutual funds",
+        "my mutual fund portfolio",
+    )
+    if any(p in q for p in book_phrases):
+        return True
+    if "portfolio" in q and not question_refers_deictic_fund(question):
+        if question_refers_to_investor_holding(question) or "about" in q or "tell me" in q:
+            return True
+    return False
+
+
 def resolve_investor_holding_from_holdings_rows(
     question: str,
     holdings: list[dict[str, Any]] | None,
@@ -134,6 +165,111 @@ def apply_investor_category_fund_to_plan(
     return plan
 
 
+def question_asks_holding_metric_and_glossary(question: str) -> bool:
+    q = (question or "").lower()
+    glossary = ("full form", "stands for", "stand for", "meaning of", "what does", "define", "definition", "abbreviation")
+    metrics = ("nav", "xirr", "aum", "return", "units", "gain", "loss")
+    return any(g in q for g in glossary) and any(m in q for m in metrics)
+
+
+def question_needs_category_holdings_fetch(question: str) -> bool:
+    """User asks for a figure on my {category} fund — needs holdings rows, not portfolio summary alone."""
+    if not question_refers_to_investor_holding(question):
+        return False
+    return bool(_category_slug_from_question(question))
+
+
+def ensure_my_category_fund_investor_plan(
+    plan: ExecutionPlan,
+    question: str,
+    memory: dict[str, Any] | None = None,
+) -> ExecutionPlan:
+    """NAV/XIRR on 'my contra fund' → holdings module + category filter; not investor_summary."""
+    cat = _category_slug_from_question(question)
+    if not question_needs_category_holdings_fetch(question) or not cat:
+        return plan
+
+    name = resolve_investor_holding_fund_name(question, memory)
+    if name:
+        plan.funds = [name]
+    plan.portfolio_scope = "investor"
+    need = str(plan.data_need or "none").lower().strip()
+    if need in ("investor_summary", "none", ""):
+        plan.data_need = "investor_holding"
+
+    holdings_args: dict[str, Any] = {
+        "modules": ["holdings"],
+        "include_meta": True,
+        "holdings_fields": "standard",
+        "top_n": 20,
+        "sort_by": "aum",
+        "scheme_filter": cat,
+    }
+
+    investor_calls = [c for c in plan.tool_calls or [] if c.tool == "get_investor_portfolio"]
+    if investor_calls:
+        for call in investor_calls:
+            args = dict(call.arguments or {})
+            modules = [str(m).lower() for m in (args.get("modules") or [])]
+            if "holdings" not in modules:
+                args["modules"] = ["holdings"]
+            else:
+                args["modules"] = modules
+            args.update(holdings_args)
+            args["modules"] = list(dict.fromkeys(args["modules"]))
+            call.arguments = args
+    else:
+        plan.tool_calls = [
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments=holdings_args,
+                wave=1,
+                why=f"Holdings for user's {cat} scheme (NAV/metrics)",
+            ),
+            *(plan.tool_calls or []),
+        ]
+
+    plan.requires_compose = True
+    if question_asks_holding_metric_and_glossary(question):
+        plan.response_shape = "short_answer"
+        plan.max_words = max(int(plan.max_words or 0), 120)
+    return plan
+
+
+def refetch_category_holdings_if_missing(
+    question: str,
+    plan: ExecutionPlan,
+    wave1_results: list[dict[str, Any]],
+    ctx: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Planner sometimes keeps summary-only; refetch holdings before compose."""
+    if not question_needs_category_holdings_fetch(question):
+        return wave1_results
+    if holdings_rows_from_investor_tool_results(wave1_results):
+        return wave1_results
+    cat = _category_slug_from_question(question)
+    if not cat:
+        return wave1_results
+    from news_rag.insight.capabilities.executor import execute_capability
+
+    call = ToolCall(
+        tool="get_investor_portfolio",
+        arguments={
+            "modules": ["holdings"],
+            "include_meta": True,
+            "holdings_fields": "standard",
+            "top_n": 20,
+            "sort_by": "aum",
+            "scheme_filter": cat,
+        },
+        wave=1,
+    )
+    extra = execute_capability(call, fund_names=[], ctx=ctx, telemetry=None)
+    if extra:
+        return [*wave1_results, *extra]
+    return wave1_results
+
+
 def resolve_answer_subject(
     question: str,
     plan: ExecutionPlan,
@@ -159,6 +295,8 @@ def resolve_answer_subject(
     if subject:
         return subject
     if question_refers_to_investor_holding(question) and _category_slug_from_question(question):
+        return ""
+    if question_asks_whole_investor_portfolio(question, plan):
         return ""
     for row in holdings:
         if isinstance(row, dict) and row.get("scheme_name"):

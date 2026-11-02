@@ -3,6 +3,8 @@ from news_rag.insight.investor_subject import (
     apply_investor_category_fund_to_plan,
     enforce_investor_holding_subject,
     ensure_catalog_tools_for_fund_news,
+    ensure_my_category_fund_investor_plan,
+    question_asks_whole_investor_portfolio,
     resolve_answer_subject,
     resolve_investor_holding_fund_name,
     resolve_investor_holding_from_holdings_rows,
@@ -120,6 +122,30 @@ def test_contra_nav_resolves_subject_from_wave1_holdings_not_first_row():
     )
 
 
+def test_my_contra_nav_plan_uses_holdings_not_summary():
+    plan = ExecutionPlan(
+        data_need="investor_summary",
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["summary"], "include_meta": True},
+                wave=1,
+            ),
+        ],
+    )
+    ensure_my_category_fund_investor_plan(
+        plan,
+        "what is the nav of my contra fund and whats the full form of the nav",
+        {},
+    )
+    assert plan.data_need == "investor_holding"
+    assert plan.requires_compose is True
+    inv = next(c for c in plan.tool_calls if c.tool == "get_investor_portfolio")
+    assert "holdings" in (inv.arguments or {}).get("modules", [])
+    assert (inv.arguments or {}).get("scheme_filter") == "contra"
+    assert (inv.arguments or {}).get("holdings_fields") == "standard"
+
+
 def test_deictic_uses_recent_fund_focus_not_planner_hallucination():
     from news_rag.insight.investor_subject import (
         enforce_deictic_and_memory_primary_fund,
@@ -167,3 +193,28 @@ def test_memory_primary_rejects_fund_not_in_session():
     )
     resolve_planner_subject_refs(plan, memory, "do its risk analysis")
     assert plan.funds == ["Kotak Contra Fund - Regular Plan - Growth"]
+
+
+def test_whole_portfolio_question_has_no_answer_subject():
+    holdings = [
+        {
+            "scheme_name": "Invesco India Large & Mid Cap Fund - Regular Plan - Growth",
+            "scheme_category": "large & mid cap",
+            "aum_inr": 26511.498,
+        },
+        {
+            "scheme_name": "Kotak Contra Fund - Regular Plan - Growth",
+            "scheme_category": "contra",
+            "aum_inr": 12220.5373,
+        },
+    ]
+    plan = ExecutionPlan(
+        funds=[],
+        intent="overview",
+        portfolio_scope="investor",
+        data_need="investor_summary",
+    )
+    wave1 = [{"tool": "get_investor_portfolio", "ok": True, "data": {"holdings": holdings}}]
+    question = "can you tell me about my portfolio"
+    assert question_asks_whole_investor_portfolio(question, plan)
+    assert resolve_answer_subject(question, plan, {}, investor_holdings=holdings, wave1_results=wave1) == ""

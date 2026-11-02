@@ -223,8 +223,14 @@ def enforce_portfolio_scope(
     plan.tool_calls = cleaned
 
     if investor_uses_holdings_table(plan) and _has_investor_tool(plan):
-        if plan.answer_mode == AnswerMode.DATA_ONLY:
+        from news_rag.insight.investor_subject import question_asks_holding_metric_and_glossary
+
+        if plan.answer_mode == AnswerMode.DATA_ONLY and not question_asks_holding_metric_and_glossary(question):
             plan.requires_compose = False
             plan.response_shape = "table"
+
+    from news_rag.insight.portfolio_news_impact import ensure_portfolio_news_impact_plan
+
+    plan = ensure_portfolio_news_impact_plan(plan, question)
 
     return plan

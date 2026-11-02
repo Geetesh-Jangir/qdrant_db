@@ -1453,6 +1453,51 @@ def _render_investor_holdings_table(data: dict[str, Any], plan: ExecutionPlan, p
     return "\n\n".join(parts).strip()
 
 
+def _render_investor_category_allocation_table(data: dict[str, Any]) -> str | None:
+    allocation = data.get("allocation") if isinstance(data.get("allocation"), dict) else {}
+    rows = [r for r in (allocation.get("categoryShare") or []) if isinstance(r, dict)]
+    if len(rows) < 2:
+        return None
+    header = "| Category | Current value (₹) | Share |\n| --- | ---: | ---: |"
+    body_rows: list[str] = []
+    for row in rows:
+        try:
+            pct = float(row.get("aum_pct") or 0)
+        except (TypeError, ValueError):
+            pct = 0.0
+        body_rows.append(
+            "| {cat} | {val} | {pct} |".format(
+                cat=_pretty_category(str(row.get("name") or "")),
+                val=_fmt_table_inr(row.get("aum_inr")).replace("₹", ""),
+                pct=f"{pct:.2f}%",
+            )
+        )
+    if not body_rows:
+        return None
+    return "\n\n".join(["### Allocation by category", "", header, *body_rows]).strip()
+
+
+def append_investor_portfolio_overview_tables(
+    prose: str,
+    data: dict[str, Any],
+    plan: ExecutionPlan,
+) -> str:
+    """Append canonical scheme + category tables when the composer skipped them."""
+    text = (prose or "").strip()
+    blocks: list[str] = []
+    if "### Your holdings" not in text and "### Returns by scheme" not in text:
+        holdings_table = _render_investor_holdings_table(data, plan, "")
+        if holdings_table:
+            blocks.append(holdings_table)
+    if "### Allocation by category" not in text:
+        alloc = _render_investor_category_allocation_table(data)
+        if alloc:
+            blocks.append(alloc)
+    if not blocks:
+        return text
+    return f"{text}\n\n" + "\n\n".join(blocks).strip()
+
+
 def _render_investor_portfolio_markdown(data: dict[str, Any], plan: ExecutionPlan) -> str | None:
     """Deterministic DATA_ONLY answers for investor book slices."""
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}

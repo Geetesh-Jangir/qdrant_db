@@ -24,7 +24,18 @@ class PortfolioStore:
     ) -> list[dict[str, Any]]:
         rows = list(self._doc.get("holdings") or [])
         if scheme_filter:
-            rows = [r for r in rows if match_scheme_filter(str(r.get("scheme_name") or ""), scheme_filter)]
+            from news_rag.insight.category_plan import _categories_equivalent
+
+            needle = str(scheme_filter).strip().lower()
+            filtered: list[dict[str, Any]] = []
+            for r in rows:
+                name = str(r.get("scheme_name") or "")
+                cat = str(r.get("scheme_category") or "").strip().lower()
+                if match_scheme_filter(name, scheme_filter):
+                    filtered.append(r)
+                elif needle and _categories_equivalent(cat, needle):
+                    filtered.append(r)
+            rows = filtered
         key = sort_by if sort_by in ("aum", "gain_loss", "xirr") else "aum"
         field = {"aum": "aum_inr", "gain_loss": "gain_loss_inr", "xirr": "xirr_pct"}[key]
 

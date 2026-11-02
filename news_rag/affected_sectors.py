@@ -191,6 +191,7 @@ def pick_affected_sectors(
     sector_names: list[str] | None = None,
     extra_sectors: list[str] | None = None,
     query_log: Any = None,
+    stage: str = "affected_sectors",
 ) -> list[dict[str, str]]:
     from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
 
@@ -220,7 +221,7 @@ def pick_affected_sectors(
         temperature=0.0,
         query_log=query_log,
         response_schema=PICKER_RESPONSE_SCHEMA,
-        stage="affected_sectors",
+        stage=stage or "affected_sectors",
     )
     parsed = result.parsed if isinstance(result.parsed, dict) else {}
     raw = parsed.get("sectors") or []

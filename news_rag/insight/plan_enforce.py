@@ -329,15 +329,21 @@ def apply_planner_post_hooks(
     )
 
     reconcile_planner_intent(plan, question)
+    from news_rag.fund_risk import reroute_single_fund_risk_plan
+
+    reroute_single_fund_risk_plan(question, plan, memory)
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
 
     plan = enforce_portfolio_scope(plan, memory, question)
     from news_rag.insight.investor_subject import (
+        ensure_my_category_fund_investor_plan,
         enforce_deictic_and_memory_primary_fund,
         enforce_investor_holding_subject,
         ensure_catalog_tools_for_fund_news,
         reconcile_deictic_planner_fund,
     )
+
+    ensure_my_category_fund_investor_plan(plan, question, memory)
 
     ensure_unnamed_category_pair_compare_plan(question, plan, memory)
     ensure_random_same_category_pair_compare_plan(question, plan, memory)

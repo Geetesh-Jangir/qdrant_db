@@ -634,6 +634,78 @@ def _use_rating_concept(plan: ExecutionPlan) -> ExecutionPlan:
     return plan
 
 
+def plan_wants_single_scheme_risk(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None = None,
+) -> bool:
+    """Fund-level risk on one scheme (its risk analysis), not whole-book investor_risk."""
+    if not asks_fund_risk(question):
+        return False
+    if len(plan.funds or []) == 1:
+        return True
+    from news_rag.insight.investor_subject import question_refers_deictic_fund, resolve_deictic_fund_name
+    from news_rag.insight.memory.fund_context import primary_fund_name
+
+    if question_refers_deictic_fund(question) and resolve_deictic_fund_name(question, memory):
+        return True
+    if str(getattr(plan, "subject_ref", "") or "").lower() == "memory_primary":
+        return bool(primary_fund_name(memory))
+    return False
+
+
+def reroute_single_fund_risk_plan(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None = None,
+) -> ExecutionPlan:
+    """Planner often sets investor_risk + get_investor_portfolio; fund risk needs get_fund_data."""
+    if not plan_wants_single_scheme_risk(question, plan, memory):
+        return plan
+
+    from news_rag.insight.investor_subject import resolve_deictic_fund_name
+    from news_rag.insight.memory.fund_context import primary_fund_name
+
+    if not plan.funds:
+        name = resolve_deictic_fund_name(question, memory) or primary_fund_name(memory)
+        if name:
+            plan.funds = [name]
+    if not plan.funds:
+        return plan
+
+    plan.data_need = "none"
+    plan.portfolio_scope = "catalog"
+    plan.tool_calls = [c for c in plan.tool_calls if c.tool != "get_investor_portfolio"]
+
+    call = next((item for item in plan.tool_calls if item.tool == "get_fund_data"), None)
+    if call is None:
+        call = ToolCall(tool="get_fund_data", arguments={"modules": []}, wave=1)
+        plan.tool_calls = [call, *plan.tool_calls]
+    modules = [str(m) for m in (call.arguments.get("modules") or [])]
+    for mod in ("risk", "drawdown", "rating", "snapshot"):
+        if mod not in modules:
+            modules.append(mod)
+    call.arguments["modules"] = modules
+    if "drawdown" in modules and not call.arguments.get("periods"):
+        call.arguments["periods"] = ["1y", "3y", "5y"]
+
+    asked = set(plan.asked_facts or [])
+    asked.update({"risk", "drawdown", "rating"})
+    plan.asked_facts = sorted(asked)
+    plan.requires_compose = True
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    plan.max_words = max(int(plan.max_words or 0), 320)
+    note = (
+        "Answer is **risk analysis for the one named fund** only — use get_fund_data risk, drawdown, "
+        "rating, and SEBI riskometer from EVIDENCE. Do not treat investor_portfolio concentration as "
+        "this fund's portfolio holdings; do not paste book-level top holdings/sectors tables."
+    )
+    existing = (plan.presentation_notes or "").strip()
+    if note not in existing:
+        plan.presentation_notes = f"{existing} {note}".strip()
+    return plan
+
+
 def ensure_risk_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     from news_rag.insight.planner_policy import planner_owns
 

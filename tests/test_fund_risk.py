@@ -500,3 +500,36 @@ def test_return_slice_requires_pillars_when_requested():
         }
     }
     assert _return_slice_covers("get_fund_data", args, with_pillars) is True
+
+
+def test_reroute_investor_risk_to_fund_data_for_deictic_risk():
+    from news_rag.fund_risk import reroute_single_fund_risk_plan
+
+    memory = {
+        "frame": {"last_fund_focus": "Kotak Contra Fund - Regular Plan - Growth"},
+        "entity_stack": [{"name": "Kotak Contra Fund - Regular Plan - Growth"}],
+        "holdings_in_chat": [{"name": "Kotak Contra Fund - Regular Plan - Growth", "category": "contra"}],
+    }
+    plan = ExecutionPlan(
+        data_need="investor_risk",
+        portfolio_scope="investor",
+        subject_ref="memory_primary",
+        funds=["Kotak Contra Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["risk"]}, wave=1),
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["profile_risk", "concentration"]},
+                wave=1,
+            ),
+        ],
+    )
+    reroute_single_fund_risk_plan("do its risk analysis", plan, memory)
+    assert plan.data_need == "none"
+    assert plan.portfolio_scope == "catalog"
+    tools = [c.tool for c in plan.tool_calls]
+    assert "get_investor_portfolio" not in tools
+    assert "get_fund_data" in tools
+    fund_call = next(c for c in plan.tool_calls if c.tool == "get_fund_data")
+    mods = {str(m).lower() for m in (fund_call.arguments or {}).get("modules") or []}
+    assert "risk" in mods and "drawdown" in mods

@@ -798,7 +798,21 @@ def node_evidence_gate(state: GraphState) -> str | None:
         }),
     )
 
-    from news_rag.insight.investor_subject import apply_investor_category_fund_to_plan
+    from news_rag.insight.investor_subject import (
+        apply_investor_category_fund_to_plan,
+        refetch_category_holdings_if_missing,
+    )
+
+    ctx = _attach_conversation(state, {
+        "question": state.question or "",
+        "fund_names": state.resolved_funds,
+    })
+    state.wave1_results = refetch_category_holdings_if_missing(
+        state.question or "",
+        plan,
+        state.wave1_results,
+        ctx,
+    )
 
     apply_investor_category_fund_to_plan(
         plan,
@@ -816,6 +830,21 @@ def node_evidence_gate(state: GraphState) -> str | None:
         token_budget=10000,
         question=state.question or "",
     )
+    from news_rag.insight.portfolio_news_impact import (
+        build_portfolio_news_impact_dossier,
+        question_is_portfolio_news_impact,
+    )
+
+    if question_is_portfolio_news_impact(state.question or "", plan):
+        dossier = build_portfolio_news_impact_dossier(
+            question=state.question or "",
+            plan=plan,
+            data_pack=pack.data_pack,
+            news_grouped=pack.news_grouped,
+            query_log=state.query_log,
+        )
+        if dossier:
+            pack.data_pack["portfolio_news_impact"] = dossier
     state.evidence_pack = pack
     state.route_reason = (
         f"pack: {len(pack.rows)} entity rows, news={bool(pack.news_grouped)}, "
@@ -842,6 +871,8 @@ You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words),
 
 CORE RULES:
 0. **Subject line.** When WHAT THE USER WANTS includes `answer_subject`, the **first line** must be `## {answer_subject}` (exact scheme name from EVIDENCE). Then answer the question about **that** scheme only. Do not lead with a different fund from an old chat compare or screen.
+0a. **Whole investor book.** When `investor_portfolio_overview` is true, open with `## Your portfolio` (never a single scheme name as the title). Summarize total value, invested, gain, and portfolio XIRR first. For two or more schemes in EVIDENCE, use one markdown table for scheme-level figures (scheme, category, current value, invested, gain, absolute return, XIRR, RS label) and, when allocation.categoryShare is present, a second table for category weights. Put a **blank line** before each table and keep section headings as `### Your holdings` and `### Allocation by category`. Do not list the same scheme figures again as bullets if they are in a table. The server may append underlying concentration tables; do not duplicate those blocks.
+0c. **Portfolio news impact.** When EVIDENCE includes `portfolio_news_impact`, answer how the news affects **the user's book**, not generic markets only. Use `## Your portfolio` or `## How this affects your portfolio` as the title. Structure: (1) `### What the news says` — 2–4 sentences from NEWS tied to the driver; (2) `### Sectors affected` — from `sector_impact_analysis` (sector, direction, reason); (3) `### Your exposure` — table with Sector | Portfolio weight | Linkage (direct if portfolio_weight_pct > 0, else indirect) | Why — use exact `portfolio_weight_pct` from EVIDENCE; (4) `### Funds in your book with sector exposure` — table from `fund_sector_exposure` (Scheme | Sector | Sector weight in fund | Your weight in portfolio | Expected direction); (5) `### Summary` — which holdings matter most and why. Do not say sector mix is unknown when `portfolio_sectors` or `fund_sector_exposure` is present. Direct = the sector appears in the user's portfolio sector list with a positive weight; indirect = affected by the news but zero or negligible weight in their book.
 0b. **Concept + data:** When WHAT THE USER WANTS includes `concept_brief`, explain that concept first (1–3 sentences), then use EVIDENCE for the example fund/scheme. Do not skip the concept or invent fund names.
 1. **Match the question.** Read the whole question. You write the answer. A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay. Do not dump the whole snapshot. One named figure and nothing else asked is one sentence: the fund name and that figure only. If the question has more than one part, answer every part: the figure from EVIDENCE, then the meaning, then whether a low or high value is generally better, if they asked. A misspelled or awkward wording still means the intended ask.
 2. **Returns in prose:** Compare a fund with its benchmark only when a benchmark return is present, and with the category average only when that average is present. If neither is present, do not write a comparison and do not say that the comparison is missing or cannot be stated. If only one side is present, compare only that side. Cite the exact gap in percentage points. Do not say "about" when the gap is computable. Do not fill a missing side with a hyphen or a guess. Do not write a returns bullet list. When several funds are compared, put the returns in the table you build. Do not say how much of the move is unexplained, or that named holdings fail to explain the fund's return. When the user asked for several of expense ratio, exit load, and AUM, state each one they asked for. Do not add the ones they did not ask for. Do not mention a direct-plan expense ratio unless that is the field in the snapshot. Do not say these figures are unavailable when they are present. When NEWS is present and the user did not ask for a returns list, do not walk 1-month, 3-month, 1-year, 3-year, and 5-year one after another. Use a return only inside a point that also uses the news.
@@ -1104,7 +1135,11 @@ def node_compose(state: GraphState) -> str | None:
         wants["max_words"] = max(int(wants.get("max_words") or 0), 220)
     if (plan.presentation_notes or "").strip():
         wants["presentation_notes"] = plan.presentation_notes.strip()
-    from news_rag.insight.investor_subject import resolve_answer_subject, question_refers_deictic_fund
+    from news_rag.insight.investor_subject import (
+        question_asks_whole_investor_portfolio,
+        question_refers_deictic_fund,
+        resolve_answer_subject,
+    )
 
     inv_holdings: list[dict[str, Any]] = []
     if pack:
@@ -1118,8 +1153,28 @@ def node_compose(state: GraphState) -> str | None:
         investor_holdings=inv_holdings,
         wave1_results=state.wave1_results,
     )
-    if subject:
+    if question_asks_whole_investor_portfolio(state.question or "", plan):
+        wants["investor_portfolio_overview"] = True
+        overview_notes = (
+            "Whole-book overview: use `## Your portfolio` as the title. "
+            "Prefer markdown tables for schemes and category allocation; blank line before each table."
+        )
+        wants["presentation_notes"] = " ".join(
+            filter(None, [str(wants.get("presentation_notes") or "").strip(), overview_notes])
+        ).strip()
+    elif subject:
         wants["answer_subject"] = subject
+    if pack and isinstance(pack.data_pack.get("portfolio_news_impact"), dict):
+        wants["portfolio_news_impact_answer"] = True
+        wants["max_words"] = max(int(wants.get("max_words") or 0), 480)
+        impact_notes = (
+            "Use EVIDENCE.portfolio_news_impact for sector and fund exposure tables. "
+            "Sector-impact reasons come from sector_impact_analysis; do not invent weights."
+        )
+        wants["presentation_notes"] = " ".join(
+            filter(None, [str(wants.get("presentation_notes") or "").strip(), impact_notes])
+        ).strip()
+        wants.pop("investor_portfolio_overview", None)
     if question_refers_deictic_fund(state.question or "") and subject:
         reading = str(getattr(plan, "planner_reading", "") or "").strip()
         if reading and subject.lower() not in reading.lower():
@@ -1319,10 +1374,25 @@ def node_compose(state: GraphState) -> str | None:
     investor = {}
     if pack and isinstance(pack.data_pack, dict):
         investor = pack.data_pack.get("investor_portfolio") if isinstance(pack.data_pack.get("investor_portfolio"), dict) else {}
-    from news_rag.insight.evidence_pack import _concentration_markdown
+    from news_rag.insight.evidence_pack import (
+        _concentration_markdown,
+        append_investor_portfolio_overview_tables,
+    )
+    from news_rag.fund_risk import asks_fund_risk
+
+    if question_asks_whole_investor_portfolio(state.question or "", plan) and investor:
+        if not (pack and isinstance(pack.data_pack.get("portfolio_news_impact"), dict)):
+            polished_text = append_investor_portfolio_overview_tables(polished_text, investor, plan)
 
     concentration_block = _concentration_markdown((investor or {}).get("concentration"))
-    if concentration_block and "### Portfolio concentration" not in polished_text and "### Top holdings" not in polished_text:
+    append_concentration = bool(concentration_block)
+    if append_concentration and asks_fund_risk(state.question or "") and len(plan.funds or []) == 1:
+        append_concentration = False
+    if (
+        append_concentration
+        and "### Portfolio concentration" not in polished_text
+        and "### Top holdings" not in polished_text
+    ):
         polished_text = f"{polished_text}\n\n{concentration_block}".strip()
     if concentration_block:
         polished_text = _drop_scheme_is_the_whole_book(polished_text)
