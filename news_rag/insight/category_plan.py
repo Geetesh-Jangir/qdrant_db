@@ -104,12 +104,18 @@ def ensure_fund_holdings_followup_plan(
     if not fund:
         return plan
 
+    news_calls = [c for c in (plan.tool_calls or []) if c.tool == "search_financial_news"]
+    keep_fusion = plan.answer_mode == AnswerMode.INSIGHT_FUSION or bool(news_calls)
+
+    fund_modules = ["risk", "rating", "snapshot"] if keep_fusion else ["risk", "snapshot"]
+
     plan.funds = [fund]
-    plan.intent = "lookup"
+    if not keep_fusion:
+        plan.intent = "lookup"
     plan.tool_calls = [
         ToolCall(
             tool="get_fund_data",
-            arguments={"modules": ["risk", "snapshot"]},
+            arguments={"modules": fund_modules},
             wave=1,
         ),
         ToolCall(
@@ -118,7 +124,11 @@ def ensure_fund_holdings_followup_plan(
             wave=1,
         ),
     ]
-    plan.answer_mode = AnswerMode.DATA_ONLY
+    if news_calls:
+        plan.tool_calls.extend(news_calls)
+    plan.answer_mode = (
+        AnswerMode.INSIGHT_FUSION if keep_fusion else AnswerMode.DATA_ONLY
+    )
     plan.requires_compose = True
     plan.wave_2_policy = Wave2Policy(trigger="none")
     plan.max_words = max(int(plan.max_words or 0), 320)
@@ -348,6 +358,15 @@ def _category_for_alternate_plan(
     plan: ExecutionPlan,
     memory: dict[str, Any] | None,
 ) -> tuple[str, str]:
+    fund_type, category = resolve_rs_rating_category(
+        scheme_category=str(plan.scheme_category or ""),
+        question=str(plan.planner_reading or plan.goal or ""),
+        memory=memory,
+        plan_funds=list(plan.funds or []),
+        focus_question=_screen_focus_from_plan(plan),
+    )
+    if category:
+        return category, fund_type
     cat = str(plan.scheme_category or "").strip()
     if cat:
         match = match_scheme_category(cat)
@@ -366,6 +385,70 @@ def _category_for_alternate_plan(
         if match and match.category:
             return match.category, str(match.fund_type or "equity")
     return _category_from_memory_cursor(memory)
+
+
+def _screen_focus_from_plan(plan: ExecutionPlan) -> str:
+    for call in plan.tool_calls or []:
+        if call.tool != "screen_funds_by_exposure":
+            continue
+        focus = str((call.arguments or {}).get("focus_question") or "").strip()
+        if focus:
+            return focus
+    return ""
+
+
+def resolve_rs_rating_category(
+    *,
+    question: str = "",
+    scheme_category: str = "",
+    focus_question: str = "",
+    memory: dict[str, Any] | None = None,
+    plan_funds: list[str] | None = None,
+) -> tuple[str, str]:
+    """Map investor slugs (e.g. contra) to RS-rating API fund_type + category."""
+    for raw in (scheme_category, focus_question, question):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        low = text.lower()
+        if low in ("contra", "value contra", "value / contra") or (
+            "contra" in low and "large" not in low and "mid" not in low
+        ):
+            return "equity", "value"
+        match = match_scheme_category(text)
+        if match and match.category:
+            return str(match.fund_type or "equity"), match.category
+
+    if isinstance(memory, dict):
+        for row in memory.get("holdings_in_chat") or []:
+            if not isinstance(row, dict):
+                continue
+            cat = str(row.get("category") or "").strip().lower()
+            if cat == "contra":
+                return "equity", "value"
+            match = match_scheme_category(cat)
+            if match and match.category:
+                return str(match.fund_type or "equity"), match.category
+
+    for name in plan_funds or []:
+        sc = _fund_scheme_category(str(name))
+        if sc == "contra":
+            return "equity", "value"
+        match = match_scheme_category(sc or str(name))
+        if match and match.category:
+            return str(match.fund_type or "equity"), match.category
+    return "", ""
+
+
+def _categories_equivalent(left: str, right: str) -> bool:
+    a = str(left or "").strip().lower()
+    b = str(right or "").strip().lower()
+    if not a or not b:
+        return False
+    if a == b or a in b or b in a:
+        return True
+    contra_value = {"contra", "value", "value / contra", "value contra"}
+    return a in contra_value and b in contra_value
 
 
 def _fund_scheme_category(fund_name: str) -> str:
@@ -446,7 +529,136 @@ def _exclude_funds_for_category(
                 if fund_name and _in_category(fund_name):
                     _add(fund_name, str(row.get("isin") or row.get("id") or ""))
 
+    if isinstance(memory, dict):
+        for row in memory.get("holdings_in_chat") or []:
+            if not isinstance(row, dict):
+                continue
+            row_cat = str(row.get("category") or "").strip().lower()
+            if not row_cat or not _categories_equivalent(row_cat, cat):
+                continue
+            fund_name = str(row.get("name") or "").strip()
+            if fund_name:
+                _add(fund_name, str(row.get("isin") or ""))
+
     return names, isins
+
+
+def _anchor_rating_for_category(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+    category: str,
+) -> tuple[str, float | None, list[str], list[str]]:
+    """Current holding in category (exclude list + anchor label/score for rating picks)."""
+    from news_rag.fund_rating_labels import normalize_rs_label
+
+    exclude_names, exclude_isins = _exclude_funds_for_category(memory, category)
+    cat = category.lower().strip()
+    anchor_label = ""
+    anchor_score: float | None = None
+
+    for name in plan.funds or []:
+        n = str(name or "").strip()
+        if n and n not in exclude_names:
+            exclude_names.append(n)
+
+    if isinstance(memory, dict):
+        for row in memory.get("holdings_in_chat") or []:
+            if not isinstance(row, dict):
+                continue
+            row_cat = str(row.get("category") or "").strip().lower()
+            if not _categories_equivalent(row_cat, cat):
+                continue
+            anchor_label = normalize_rs_label(str(row.get("rs_label") or ""))
+            raw_score = row.get("rs_score")
+            if raw_score is not None:
+                try:
+                    anchor_score = float(raw_score)
+                except (TypeError, ValueError):
+                    anchor_score = None
+            break
+
+    return anchor_label, anchor_score, exclude_names, exclude_isins
+
+
+def ensure_better_rated_category_fund_plan(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None = None,
+) -> ExecutionPlan:
+    """Better fund in a category — rank by RupeeStop score, not NAV returns."""
+    from news_rag.insight.plan_intent import plan_wants_better_rated_in_category
+
+    if not plan_wants_better_rated_in_category(plan, question):
+        return plan
+
+    category, _fund_type = _category_for_alternate_plan(plan, memory)
+    if not category:
+        _fund_type, category = resolve_rs_rating_category(
+            question=question,
+            memory=memory,
+            plan_funds=list(plan.funds or []),
+            focus_question=_screen_focus_from_plan(plan),
+        )
+    if not category:
+        return plan
+
+    anchor_label, anchor_score, exclude_names, exclude_isins = _anchor_rating_for_category(
+        plan, memory, category
+    )
+    plan.scheme_category = category
+    screen_patch: dict[str, Any] = {
+        "rating_screen": True,
+        "pick_rating_better": True,
+        "pick_alternate": True,
+        "focus_question": category,
+        "top_n": max(int(getattr(plan, "planner_count", 0) or 0), 1),
+        "rating_fetch_n": 20,
+        "exclude_names": exclude_names,
+        "exclude_isins": exclude_isins,
+    }
+    if anchor_label:
+        screen_patch["anchor_rs_label"] = anchor_label
+    if anchor_score is not None:
+        screen_patch["anchor_rs_score"] = anchor_score
+    screen_patch.pop("rs_label", None)
+
+    patched = False
+    for call in plan.tool_calls or []:
+        if call.tool != "screen_funds_by_exposure":
+            continue
+        args = dict(call.arguments or {})
+        args.update(screen_patch)
+        args.pop("rs_label", None)
+        call.arguments = args
+        patched = True
+
+    if not patched:
+        plan.tool_calls = [
+            *([c for c in plan.tool_calls if c.tool != "screen_funds_by_exposure"]),
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={
+                    "sector": "",
+                    "driver": "",
+                    "direction": "any",
+                    **screen_patch,
+                },
+                wave=1,
+                why=f"Better RupeeStop-rated fund in {category}, excluding the user's current holding.",
+            ),
+        ]
+
+    note = (
+        f"Recommend a **better** fund in **{category}** using RupeeStop **rs_label and final_score**, "
+        "not recent NAV return rank. Exclude the user's current holding. "
+        "If no higher-rated name exists, name the **next best by score** and say it may be a lower label tier. "
+        "The server loads **compare_funds** for your holding and the picked fund — use aligned returns for both in any table."
+    )
+    existing = (plan.presentation_notes or "").strip()
+    if note not in existing:
+        plan.presentation_notes = f"{existing} {note}".strip()
+    plan.requires_compose = True
+    return plan
 
 
 def ensure_alternate_category_fund_plan(

@@ -12,7 +12,7 @@ from news_rag.insight.category_plan import (
     ensure_rating_list_funds,
 )
 from news_rag.insight.plan_validate import validate_plan_tools
-from news_rag.insight.contracts import ExecutionPlan, ToolCall
+from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
 
 
 def test_asks_category_performance_on_follow_up():
@@ -132,6 +132,38 @@ def test_what_it_holds_uses_risk_and_full_portfolio():
     assert "sectors" in plan2.tool_calls[-1].arguments["sections"]
 
 
+def test_holdings_breakdown_keeps_planner_news():
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="overview",
+        answer_mode=AnswerMode.INSIGHT_FUSION,
+        data_need="fund_holdings_breakdown",
+        funds=["HDFC Large Cap Fund - Growth"],
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["risk", "snapshot"]},
+                wave=1,
+            ),
+            ToolCall(
+                tool="get_portfolio_data",
+                arguments={"sections": ["holdings", "sectors"], "top_n": 5},
+                wave=1,
+            ),
+            ToolCall(
+                tool="search_financial_news",
+                arguments={"scope": "all", "top_n": 8, "window_days": 30},
+                wave=1,
+            ),
+        ],
+    )
+    ensure_fund_holdings_followup_plan("tell me about hdfc large cap fund", plan, None)
+    tools = [c.tool for c in plan.tool_calls]
+    assert "search_financial_news" in tools
+    assert plan.answer_mode == AnswerMode.INSIGHT_FUSION
+    assert "rating" in plan.tool_calls[0].arguments["modules"]
+
+
 def test_category_composition_uses_memory_fund_for_this_holds():
     memory = {
         "list_cursor": {
@@ -224,6 +256,56 @@ def test_alternate_aggressive_hybrid_excludes_memory_funds():
     assert any("ICICI" in n for n in ex_names)
     assert not any("Sundaram Conservative" in n for n in ex_names)
     assert "another" in (plan.presentation_notes or "").lower()
+
+
+def test_better_contra_fund_uses_rating_pick(monkeypatch):
+    from news_rag.insight.category_plan import ensure_better_rated_category_fund_plan
+    from news_rag.insight.contracts import ExecutionPlan, ToolCall
+
+    monkeypatch.setenv("CLIENT_REF_NO", "CRN-test")
+    memory = {
+        "holdings_in_chat": [
+            {
+                "name": "Kotak Contra Fund - Regular Plan - Growth",
+                "isin": "INF174K01245",
+                "category": "contra",
+                "rs_label": "Recommended",
+                "rs_score": 75.1,
+            },
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        goal="Suggest a better contra fund",
+        planner_reading="Suggest a better contra fund than my Kotak Contra Fund holding",
+        fund_pick="best_in_category",
+        funds=["Kotak Contra Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["holdings"]},
+                wave=1,
+            ),
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={
+                    "top_n": 1,
+                    "focus_question": "contra",
+                    "rating_screen": True,
+                    "rs_label": "Recommended",
+                },
+                wave=1,
+            ),
+        ],
+    )
+    ensure_better_rated_category_fund_plan("can you tell me a better contra fund", plan, memory)
+    screen = next(c for c in plan.tool_calls if c.tool == "screen_funds_by_exposure")
+    args = screen.arguments
+    assert args.get("pick_rating_better") is True
+    assert "rs_label" not in args or not args.get("rs_label")
+    assert args.get("anchor_rs_score") == 75.1
+    ex_names = args.get("exclude_names") or []
+    assert any("Kotak" in n for n in ex_names)
 
 
 def test_rating_list_uses_list_cursor_not_memory_subjects():

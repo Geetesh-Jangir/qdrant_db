@@ -68,3 +68,20 @@ def test_tell_me_about_fund_uses_a_short_fund_table():
     assert TABLE_PORTFOLIO in asked.include
     assert TABLE_SECTORS in asked.include
     assert TABLE_RETURNS in asked.include
+
+
+def test_benchmark_performance_data_only_uses_vs_table():
+    from news_rag.insight.contracts import ToolCall
+    from news_rag.insight.display_table_policy import TABLE_RETURNS
+
+    plan = ExecutionPlan(
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        funds=["HDFC Large Cap Fund - Growth"],
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["vs_benchmark"]}, wave=1),
+        ],
+    )
+    pol = resolve_display_table_policy("whats the benchmark performance", plan)
+    assert TABLE_LONG in pol.include
+    assert TABLE_RETURNS not in pol.include

@@ -575,6 +575,96 @@ def _alternate_row_excluded(
     return False
 
 
+def _rating_quality_sort_key(row: dict[str, Any]) -> tuple[int, float]:
+    from news_rag.fund_rating_labels import tier_rank
+
+    label = str(row.get("rs_label") or "")
+    score = float(row.get("final_score") or -1)
+    return (tier_rank(label), -score)
+
+
+def pick_better_rated_fund_in_category(
+    *,
+    fund_type: str,
+    category: str,
+    exclude_isins: list[str] | None = None,
+    exclude_names: list[str] | None = None,
+    anchor_rs_label: str = "",
+    anchor_rs_score: float | None = None,
+    top_n: int = 1,
+    question: str = "",
+    fetch: Callable[[str, str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Recommend by RupeeStop rating: upgrade first, else next-best by score in the category."""
+    from news_rag.fund_rating_labels import is_higher_rated_than, normalize_rs_label
+
+    loader = fetch or fetch_category_ratings
+    exclude_isins_set = {str(x).strip().upper() for x in (exclude_isins or []) if str(x).strip()}
+    exclude_names_set = {str(x).strip().lower() for x in (exclude_names or []) if str(x).strip()}
+    anchor_label = normalize_rs_label(anchor_rs_label) or infer_anchor_label_from_excludes(list(exclude_isins_set))
+    payload = loader(fund_type, category)
+    rows = [
+        row
+        for row in _rows_from_payload(payload, fund_type=fund_type, category=category)
+        if not _alternate_row_excluded(row, exclude_isins_set, exclude_names_set)
+    ]
+    if not rows:
+        return {"success": False, "rankings": [], "ranking_note": "", "screen_type": "rs_rating"}
+
+    upgrades = [
+        row
+        for row in rows
+        if is_higher_rated_than(
+            str(row.get("rs_label") or ""),
+            row.get("final_score"),
+            anchor_label,
+            anchor_rs_score,
+        )
+    ]
+    upgrades.sort(key=_rating_quality_sort_key)
+    if upgrades:
+        picked = upgrades[: max(1, int(top_n or 1))]
+        note = (
+            f"Higher RupeeStop rating than your current {category} holding"
+            f" ({anchor_label or 'rated'} fund"
+            + (f", score {float(anchor_rs_score):.1f}" if anchor_rs_score is not None else "")
+            + ")."
+        )
+    else:
+        rows.sort(key=_rating_quality_sort_key)
+        picked = rows[: max(1, int(top_n or 1))]
+        top = picked[0] if picked else {}
+        note = (
+            f"Your holding is already among the top-rated {category} names on our list; "
+            f"showing the next best by RupeeStop score — "
+            f"{top.get('rs_label') or 'rated'}"
+            + (f" (score {float(top.get('final_score')):.1f})" if top.get("final_score") is not None else "")
+            + ", which may be a lower label tier than what you hold."
+        )
+
+    public = [_strip(row) for row in picked]
+    try:
+        from news_rag.tools import _attach_screen_facts
+
+        _attach_screen_facts(public, question)
+    except Exception:
+        logger.info("better-rated screen facts skipped", exc_info=True)
+
+    return {
+        "success": True,
+        "screen_type": "rs_rating",
+        "rankings": public,
+        "ranking_note": note.strip(),
+        "categories_called": [category],
+        "priced_isins": [],
+        "count": len(public),
+        "return_window": "",
+        "anchor_rs_label": anchor_label,
+        "picked_rs_label": str((picked[0] if picked else {}).get("rs_label") or ""),
+        "rating_pick_mode": "upgrade" if upgrades else "next_by_score",
+    }
+
+
 def infer_anchor_label_from_excludes(exclude_isins: list[str] | None) -> str:
     from news_rag.fund_rating_labels import normalize_rs_label
     from news_rag.fund_risk import fetch_public_rating
@@ -610,6 +700,32 @@ def pick_alternate_funds_in_category(
     exclude_isins_set = {str(x).strip().upper() for x in (exclude_isins or []) if str(x).strip()}
     exclude_names_set = {str(x).strip().lower() for x in (exclude_names or []) if str(x).strip()}
     anchor = normalize_rs_label(rs_label) or infer_anchor_label_from_excludes(list(exclude_isins_set))
+    anchor_score = None
+    if exclude_isins_set:
+        payload_probe = loader(fund_type, category)
+        all_rows = _rows_from_payload(payload_probe, fund_type=fund_type, category=category)
+        for row in all_rows:
+            isin = str(row.get("isin") or "").strip().upper()
+            if isin and isin in exclude_isins_set:
+                anchor_score = row.get("final_score")
+                if not anchor:
+                    anchor = normalize_rs_label(str(row.get("rs_label") or ""))
+                break
+
+    better = pick_better_rated_fund_in_category(
+        fund_type=fund_type,
+        category=category,
+        exclude_isins=list(exclude_isins_set),
+        exclude_names=list(exclude_names_set),
+        anchor_rs_label=anchor,
+        anchor_rs_score=float(anchor_score) if anchor_score is not None else None,
+        top_n=top_n,
+        question=question,
+        fetch=loader,
+    )
+    if better.get("rankings"):
+        return better
+
     payload = loader(fund_type, category)
     rows = [
         row

@@ -2,18 +2,33 @@
 
 from __future__ import annotations
 
-from news_rag.insight.contracts import ExecutionPlan, ToolCall
+from typing import Any
+
+from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
 
 _INVESTOR_TOOL = "get_investor_portfolio"
+
+_HOLDINGS_TABLE_NEEDS = frozenset({
+    "investor_holding",
+    "investor_pnl",
+    "investor_xirr",
+    "investor_hybrid",
+})
 
 _MODULES_BY_DATA_NEED: dict[str, list[str]] = {
     "investor_summary": ["summary"],
     "investor_holding": ["holdings"],
     "investor_sip": ["sip"],
-    "investor_pnl": ["pnl_summary"],
-    "investor_xirr": ["xirr"],
+    "investor_pnl": ["summary", "holdings"],
+    # Holdings rows already carry xirr_pct and absolute_return_pct; summary has portfolio XIRR.
+    "investor_xirr": ["summary", "holdings"],
     "investor_hybrid": ["summary", "holdings"],
+    "investor_risk": ["profile_risk", "allocation", "holdings", "concentration"],
 }
+
+
+def investor_uses_holdings_table(plan: ExecutionPlan) -> bool:
+    return str(plan.data_need or "").lower().strip() in _HOLDINGS_TABLE_NEEDS
 
 
 def _data_need_is_investor(plan: ExecutionPlan) -> bool:
@@ -34,19 +49,59 @@ def _plan_wants_investor_book(plan: ExecutionPlan) -> bool:
     return _data_need_is_investor(plan)
 
 
-def _modules_for_investor_plan(plan: ExecutionPlan) -> list[str]:
+def _planner_text(plan: ExecutionPlan) -> str:
+    return " ".join(
+        str(part or "")
+        for part in (plan.planner_reading, plan.goal)
+    ).lower()
+
+
+def _wants_concentration(plan: ExecutionPlan) -> bool:
+    """The planner already named concentration or diversification. Not a user-question matcher."""
+    text = _planner_text(plan)
+    return "concentration" in text or "diversif" in text
+
+
+def plan_wants_concentration(plan: ExecutionPlan, question: str = "") -> bool:
+    from news_rag.insight.investor_drawback import plan_wants_pure_concentration
+
+    return plan_wants_pure_concentration(plan, question)
+
+
+def _modules_for_investor_plan(plan: ExecutionPlan, question: str = "") -> list[str]:
+    from news_rag.insight.investor_drawback import plan_wants_portfolio_drawback
+
     need = str(plan.data_need or "").lower().strip()
     intent = str(plan.intent or "").lower().strip()
+    if plan_wants_portfolio_drawback(plan, question):
+        return ["summary", "holdings", "allocation", "concentration"]
+    if plan_wants_concentration(plan, question) or _wants_concentration(plan):
+        modules = ["summary", "allocation", "concentration"]
+        text = _planner_text(plan)
+        if any(token in text for token in ("drawback", "weakness", "underperform", "return", "loss")):
+            modules.append("holdings")
+        return modules
     if intent == "overview" and _data_need_is_investor(plan):
-        return ["summary", "allocation", "holdings", "xirr"]
+        return ["summary", "allocation", "holdings", "xirr", "concentration"]
     modules = list(_MODULES_BY_DATA_NEED.get(need) or [])
+    if str(plan.intent or "").lower() == "explain_cause" and _data_need_is_investor(plan):
+        for extra in ("summary", "holdings", "allocation"):
+            if extra not in modules:
+                modules.append(extra)
+    text = _planner_text(plan)
+    if _data_need_is_investor(plan) and any(
+        token in text for token in ("drawback", "weakness", "allocation", "diversif", "concentration", "volatil")
+    ):
+        for extra in ("summary", "holdings", "allocation"):
+            if extra not in modules:
+                modules.append(extra)
     if not modules and _data_need_is_investor(plan):
         modules = ["summary"]
     return modules
 
 
-def _investor_tool_args(plan: ExecutionPlan) -> dict:
-    modules = _modules_for_investor_plan(plan)
+def _investor_tool_args(plan: ExecutionPlan, question: str = "") -> dict:
+    modules = _modules_for_investor_plan(plan, question)
     args: dict = {"modules": modules, "include_meta": True}
     if "holdings" in modules:
         args["holdings_fields"] = "standard"
@@ -61,9 +116,36 @@ def _has_investor_tool(plan: ExecutionPlan) -> bool:
     return any(c.tool == _INVESTOR_TOOL for c in plan.tool_calls)
 
 
-def ensure_investor_portfolio_tool(plan: ExecutionPlan) -> ExecutionPlan:
+_CATALOG_BOOK_TOOLS = frozenset({"get_fund_data", "get_portfolio_data", "compare_funds"})
+
+
+def strip_spurious_catalog_for_investor_book(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None = None,
+) -> ExecutionPlan:
+    """Drop hallucinated catalog funds/tools when the plan already fetches the user's book."""
+    if not _has_investor_tool(plan) or not _plan_wants_investor_book(plan):
+        return plan
+    scope = _scope(plan)
+    if scope == "both":
+        from news_rag.insight.memory.fund_context import primary_fund_name
+
+        if primary_fund_name(memory):
+            return plan
+    if not _data_need_is_investor(plan) and scope not in ("investor", ""):
+        return plan
+
+    plan.funds = []
+    plan.tool_calls = [c for c in plan.tool_calls if c.tool not in _CATALOG_BOOK_TOOLS]
+    if scope in ("none", ""):
+        plan.portfolio_scope = "investor"
+    return plan
+
+
+def ensure_investor_portfolio_tool(plan: ExecutionPlan, question: str = "") -> ExecutionPlan:
     """If the planner marked investor intent but omitted tool_calls, add get_investor_portfolio."""
     from news_rag.config import get_settings
+    from news_rag.insight.investor_drawback import plan_wants_portfolio_drawback
 
     if not get_settings().portfolio_enabled:
         plan.portfolio_scope = "none"
@@ -80,13 +162,28 @@ def ensure_investor_portfolio_tool(plan: ExecutionPlan) -> ExecutionPlan:
     if _scope(plan) in ("none", ""):
         plan.portfolio_scope = "investor"
 
+    if plan_wants_portfolio_drawback(plan, question):
+        plan.portfolio_scope = "investor"
+        plan.intent = "explain_cause"
+
+    needed = _modules_for_investor_plan(plan, question)
     if _has_investor_tool(plan):
+        for call in plan.tool_calls:
+            if call.tool != _INVESTOR_TOOL:
+                continue
+            args = dict(call.arguments or {})
+            modules = list(args.get("modules") or [])
+            for name in needed:
+                if name not in modules:
+                    modules.append(name)
+            args["modules"] = modules
+            call.arguments = args
         return plan
 
     plan.tool_calls = [
         ToolCall(
             tool=_INVESTOR_TOOL,
-            arguments=_investor_tool_args(plan),
+            arguments=_investor_tool_args(plan, question),
             wave=1,
             why="Planner investor data_need or portfolio_scope without tool_calls",
         ),
@@ -96,8 +193,21 @@ def ensure_investor_portfolio_tool(plan: ExecutionPlan) -> ExecutionPlan:
     return plan
 
 
-def enforce_portfolio_scope(plan: ExecutionPlan) -> ExecutionPlan:
-    plan = ensure_investor_portfolio_tool(plan)
+def enforce_portfolio_scope(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None = None,
+    question: str = "",
+) -> ExecutionPlan:
+    from news_rag.insight.investor_drawback import plan_wants_portfolio_drawback, question_signals_investor_book
+
+    if question_signals_investor_book(question):
+        if str(plan.portfolio_scope or "").lower().strip() in ("none", "", "catalog"):
+            plan.portfolio_scope = "investor"
+        if _data_need_is_investor(plan) or plan_wants_portfolio_drawback(plan, question):
+            plan = strip_spurious_catalog_for_investor_book(plan, memory)
+
+    plan = ensure_investor_portfolio_tool(plan, question)
+    plan = strip_spurious_catalog_for_investor_book(plan, memory)
 
     if not _plan_wants_investor_book(plan):
         plan.tool_calls = [c for c in plan.tool_calls if c.tool != _INVESTOR_TOOL]
@@ -111,4 +221,10 @@ def enforce_portfolio_scope(plan: ExecutionPlan) -> ExecutionPlan:
         if modules:
             cleaned.append(call)
     plan.tool_calls = cleaned
+
+    if investor_uses_holdings_table(plan) and _has_investor_tool(plan):
+        if plan.answer_mode == AnswerMode.DATA_ONLY:
+            plan.requires_compose = False
+            plan.response_shape = "table"
+
     return plan

@@ -680,16 +680,14 @@ def _enrich_compare_brief(detail: dict[str, Any], windows: list[str]) -> dict[st
     except Exception:
         pass
     try:
-        from news_rag.fund_risk import fetch_public_rating
+        from news_rag.fund_risk import headline_rating
 
-        rating = fetch_public_rating(isin) if isin else None
+        rating = headline_rating(detail)
     except Exception:
         rating = None
     if isinstance(rating, dict):
         brief["rs_label"] = rating.get("label") or ""
         brief["rs_score"] = rating.get("final_score")
-        if rating.get("pillars"):
-            brief["pillars"] = rating["pillars"]
     riskometer = str(detail.get("sebi_riskometer") or "").strip()
     if riskometer:
         brief["riskometer"] = riskometer

@@ -9,6 +9,8 @@ IDLE_SEC = 30 * 60
 MAX_STACK = 5
 MAX_GISTS = 2
 MAX_TURNS = 12
+# Catalog entities (screens, compares, list cursor) drop out of planner memory after this many newer turns.
+ENTITY_TTL_TURNS = 4
 
 
 def _subject(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -82,3 +84,41 @@ def add_gist(state: dict[str, Any], text: str, turn: int) -> None:
     gists = list(state.get("gists") or [])
     gists.append({"turn": turn, "gist": cleaned})
     state["gists"] = gists[-MAX_GISTS:]
+
+
+def expire_stale_entities(state: dict[str, Any], current_turn: int) -> None:
+    """Drop catalog fund entities older than ENTITY_TTL_TURNS so chat memory stays bounded."""
+    turn = int(current_turn or 0)
+    if turn <= 0:
+        return
+    floor = turn - ENTITY_TTL_TURNS
+
+    stack = [
+        row
+        for row in (state.get("entity_stack") or [])
+        if isinstance(row, dict) and int(row.get("turn") or 0) > floor
+    ]
+    state["entity_stack"] = stack[:MAX_STACK]
+
+    cursor = state.get("list_cursor")
+    if isinstance(cursor, dict) and int(cursor.get("turn") or 0) <= floor:
+        state["list_cursor"] = None
+
+    frame = state.get("frame")
+    if not isinstance(frame, dict):
+        return
+
+    sub_turn = int(frame.get("subjects_turn") or 0)
+    kind = str(frame.get("subject_kind") or "")
+    if sub_turn and sub_turn <= floor and kind not in ("investor_portfolio", "investor_holding"):
+        frame["subjects"] = []
+        frame["subject_kind"] = "none"
+        frame["shown_facts"] = []
+        frame["last_call"] = None
+        frame.pop("subjects_turn", None)
+
+    news_turn = int(frame.get("news_turn") or 0)
+    if news_turn and news_turn <= floor:
+        frame["news_topic"] = None
+        frame.pop("news_turn", None)
+

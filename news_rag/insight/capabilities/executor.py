@@ -105,6 +105,11 @@ def _capability_cache_key(
         key = f"{key}|dd={periods}|cat={bool(args.get('include_category'))}"
     if "risk" in (args.get("modules") or []):
         key = f"{key}|risk=1"
+    if args.get("pillars") or "rating" in (args.get("modules") or []):
+        from news_rag.fund_risk import rating_needs_pillars
+
+        if rating_needs_pillars(args):
+            key = f"{key}|pillars=1"
     return key
 
 
@@ -135,7 +140,7 @@ def _repair_incomplete_fund_data(
                 **ctx,
                 "fund_name": fund_name,
                 "fund_names": [fund_name],
-                "windows": args.get("windows") or ["1M"],
+                "windows": args.get("windows") or ["1Y", "3Y", "5Y"],
             }
             snap_out = run_fund_snapshot(snap_ctx)
             if snap_out.get("ok"):
@@ -143,14 +148,15 @@ def _repair_incomplete_fund_data(
 
     if isin:
         from news_rag.fund_rupeestop_metrics import fetch_vs_benchmark, merge_fund_insight_metrics
-        from news_rag.fund_risk import fetch_public_rating
 
         if "vs_benchmark" in modules and not isinstance(results.get("vs_benchmark"), dict):
             vs = fetch_vs_benchmark(isin)
             if vs:
                 results["vs_benchmark"] = vs
         if "rating" in modules and not isinstance(results.get("rs_rating"), dict):
-            rating = fetch_public_rating(isin)
+            from news_rag.fund_risk import rating_for_request
+
+            rating = rating_for_request(detail, args)
             if rating:
                 results["rs_rating"] = rating
         if detail:
@@ -243,7 +249,7 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
             **ctx,
             "fund_name": fund_name,
             "fund_names": [fund_name],
-            "windows": args.get("windows") or ["1M"],
+            "windows": args.get("windows") or ["1Y", "3Y", "5Y"],
         }
         snap = run_fund_snapshot(snap_ctx)
         if snap.get("ok"):
@@ -283,12 +289,25 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
                 insights = merge_fund_insight_metrics(detail, vs_benchmark=vs)
                 if insights:
                     results["fund_insights"] = insights
-            if "rating" in modules:
-                from news_rag.fund_risk import fetch_public_rating
+        if "rating" in modules:
+            from news_rag.fund_risk import rating_for_request
 
-                rating = fetch_public_rating(isin)
-                if rating:
-                    results["rs_rating"] = rating
+            rating = rating_for_request(detail, args)
+            if rating:
+                results["rs_rating"] = rating
+
+    if "limits" in modules or "composition" in modules:
+        book = _detail_for_fund_tool(fund_name, ctx) or {}
+        if "limits" in modules:
+            results["investment_limits"] = book.get("investment_limits") or {}
+        if "composition" in modules:
+            results["composition"] = {
+                "asset_allocation": book.get("asset_allocation") or [],
+                "market_cap": book.get("market_cap") or [],
+                "holding_count": book.get("holding_count"),
+                "top_5_pct": book.get("top_5_pct"),
+                "top_10_pct": book.get("top_10_pct"),
+            }
 
     if "drawdown" in modules:
         from news_rag.fund_drawdown import load_fund_drawdown
@@ -304,10 +323,14 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
             logger.warning("drawdown load failed for %s: %s", fund_name, exc)
 
     if "risk" in modules:
-        from news_rag.fund_risk import load_fund_risk
+        from news_rag.fund_risk import load_fund_risk, rating_needs_pillars
 
         try:
-            results["risk"] = load_fund_risk(fund_name, str(ctx.get("question") or ""))
+            results["risk"] = load_fund_risk(
+                fund_name,
+                str(ctx.get("question") or ""),
+                include_pillars=rating_needs_pillars(args),
+            )
         except Exception as exc:
             logger.warning("risk load failed for %s: %s", fund_name, exc)
 
@@ -329,9 +352,10 @@ def _run_get_fund_data(fund_name: str, args: dict[str, Any], ctx: dict[str, Any]
         isin = _isin_for_fund_name(fund_name)
         modules = [str(item).lower() for item in (args.get("modules") or [])]
         if isin and "rating" in modules:
-            from news_rag.fund_risk import fetch_public_rating
+            from news_rag.fund_risk import rating_for_request
 
-            rating = fetch_public_rating(isin)
+            detail = _detail_for_fund_tool(fund_name, ctx)
+            rating = rating_for_request(detail, args)
             if rating:
                 results["rs_rating"] = rating
         results.pop("fund_insights", None)
@@ -798,9 +822,11 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
 
         from news_rag.fund_rating_labels import normalize_rs_label
         from news_rag.fund_rating_categories import match_scheme_category
+        from news_rag.insight.category_plan import resolve_rs_rating_category
         from news_rag.fund_rating_screen import (
             fetch_category_ratings,
             pick_alternate_funds_in_category,
+            pick_better_rated_fund_in_category,
             pick_funds_by_label_cascade,
             pick_rows_by_label_cascade,
             rating_spec_for_forced_screen,
@@ -834,11 +860,37 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
                     result = _finalize_screen_payload(pair, ctx)
                     return {"ok": True, "data": result}
 
-        if args.get("pick_alternate"):
+        if args.get("pick_alternate") or args.get("pick_rating_better"):
             match = match_scheme_category(spec_question)
             category = str(match.category if match else focus or spec_question).strip()
             fund_type = str(match.fund_type if match else "equity").strip() or "equity"
+            if not category or category.lower() == "contra":
+                ft, cat = resolve_rs_rating_category(
+                    focus_question=focus or spec_question,
+                    question=question,
+                )
+                if cat:
+                    category, fund_type = cat, ft or fund_type
             if category:
+                anchor_score = args.get("anchor_rs_score")
+                try:
+                    anchor_score_f = float(anchor_score) if anchor_score is not None else None
+                except (TypeError, ValueError):
+                    anchor_score_f = None
+                if args.get("pick_rating_better"):
+                    better = pick_better_rated_fund_in_category(
+                        fund_type=fund_type,
+                        category=category,
+                        exclude_isins=args.get("exclude_isins") or [],
+                        exclude_names=args.get("exclude_names") or [],
+                        anchor_rs_label=str(args.get("anchor_rs_label") or rs_label or ""),
+                        anchor_rs_score=anchor_score_f,
+                        top_n=want,
+                        question=question,
+                    )
+                    if better.get("rankings"):
+                        result = _finalize_screen_payload(better, ctx)
+                        return {"ok": True, "data": result}
                 alt = pick_alternate_funds_in_category(
                     fund_type=fund_type,
                     category=category,
@@ -895,6 +947,19 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
                         }
         result = {**result, "rankings": rankings}
         if args.get("rating_screen") and not rankings:
+            if args.get("pick_rating_better") or args.get("pick_alternate"):
+                result = _finalize_screen_payload(
+                    {
+                        "success": False,
+                        "rankings": [],
+                        "ranking_note": (
+                            "No other rated fund in this category after excluding your holding."
+                        ),
+                        "screen_type": "rs_rating",
+                    },
+                    ctx,
+                )
+                return {"ok": False, "data": result}
             nav = _run_catalog_screen_fallback(args, ctx, spec_question)
             if nav.get("ok") and isinstance(nav.get("data"), dict):
                 nav_data = nav["data"]
@@ -1200,12 +1265,45 @@ def _return_slice_covers(tool: str, args: dict[str, Any], data: Any) -> bool:
             if not isinstance(rows, list) or not rows:
                 return False
         return True
+    if tool == "get_investor_portfolio":
+        modules = [str(item).lower() for item in (args.get("modules") or [])]
+        module_keys = {
+            "meta": ("meta",),
+            "summary": ("summary",),
+            "allocation": ("allocation",),
+            "holdings": ("holdings",),
+            "pnl_summary": ("pnl_summary",),
+            "pnl_scheme": ("pnl_scheme",),
+            "sip": ("sip",),
+            "stp": ("stp",),
+            "xirr": ("xirr",),
+            "profile_risk": ("profile_risk",),
+            "concentration": ("concentration",),
+        }
+
+        def _block_ok(key: str) -> bool:
+            block = data.get(key)
+            if key == "holdings":
+                return isinstance(block, list) and bool(block)
+            if key in ("sip", "stp", "xirr"):
+                return isinstance(block, dict) and bool(block)
+            return isinstance(block, dict) and bool(block)
+
+        for module in modules:
+            keys = module_keys.get(module)
+            if not keys:
+                continue
+            if not all(_block_ok(key) for key in keys):
+                return False
+        return True
     if tool != "get_fund_data":
         return True
     modules = [str(item).lower() for item in (args.get("modules") or [])]
     module_keys = {
         "snapshot": ("snapshot",),
         "rating": ("rs_rating", "rating"),
+        "limits": ("investment_limits",),
+        "composition": ("composition",),
         "risk": ("risk",),
         "drawdown": ("drawdown",),
         "managers": ("managers",),
@@ -1217,6 +1315,14 @@ def _return_slice_covers(tool: str, args: dict[str, Any], data: Any) -> bool:
         keys = module_keys.get(module)
         if keys and not any(isinstance(data.get(key), (dict, list)) and data.get(key) for key in keys):
             return False
+    if "rating" in modules:
+        from news_rag.fund_risk import rating_needs_pillars
+
+        if rating_needs_pillars(args):
+            rating = data.get("rs_rating") if isinstance(data.get("rs_rating"), dict) else {}
+            pillars = rating.get("pillars") if isinstance(rating.get("pillars"), dict) else {}
+            if not pillars:
+                return False
     windows = [str(item).upper() for item in (args.get("windows") or []) if str(item).strip()]
     if not windows:
         return True
@@ -1352,6 +1458,7 @@ def execute_capability(
             args.get("exclude_isins")
             or args.get("exclude_names")
             or args.get("pick_alternate")
+            or args.get("pick_rating_better")
             or args.get("compare_pair")
         )
         remembered = None if skip_cache else _take_conversation_slice(base_ctx, label, call.tool, args)

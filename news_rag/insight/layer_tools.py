@@ -45,7 +45,7 @@ PLANNER_TOOLS = (
 )
 
 ARG_HELP: dict[str, str] = {
-    "fund_snapshot": "windows: list from 1D 1W 1M 3M 6M 1Y 3Y 5Y (default 1M). Returns NAV, day change, benchmark, category, 52-week range and those returns.",
+    "fund_snapshot": "windows: 1Y 3Y 5Y when no period is named. A named period such as 1W or 1M is that code only. NAV, day change, and published returns come from the fund payload. NAV history is only for a window the payload does not publish.",
     "fund_portfolio": "top_n_holdings 1-50 (default 3), top_n_sectors 1-20 (default 3). Use a higher count only when the user asks for a number, such as top 15. find: a company name to look up its weight. include_count: true to also return how many stocks the fund holds.",
     "fund_return_series": "window_days 7-365 (default 180). Monthly NAV path.",
     "fund_attribution": "window_days 7-365 (default 30), top_n 3-12 (default 3). Holding contribution = weight x stock return, computed in code. Include this for any 'how is the fund doing' or 'why did it move' question.",
@@ -84,16 +84,49 @@ def run_fund_snapshot(ctx: dict[str, Any]) -> dict[str, Any]:
     if not out.get("ok"):
         return out
     data = dict(out.get("data") or {})
-    windows = list(ctx.get("windows") or ["1M"])
-    isin = str(data.get("isin") or "")
-    from news_rag.insight.return_windows import returns_for_windows
-
-    measured, limits = returns_for_windows(
-        isin,
-        [str(item) for item in windows],
-        inception_date=str(data.get("inception_date") or ""),
+    from news_rag.insight.return_windows import (
+        DEFAULT_RETURN_WINDOWS,
+        normalize_window_code,
+        published_return,
+        returns_for_windows,
     )
-    data["returns"] = measured
+
+    windows: list[str] = []
+    for raw in ctx.get("windows") or DEFAULT_RETURN_WINDOWS:
+        code = normalize_window_code(str(raw))
+        if code and code not in windows:
+            windows.append(code)
+    if not windows:
+        windows = list(DEFAULT_RETURN_WINDOWS)
+    published = data.get("returns") if isinstance(data.get("returns"), dict) else {}
+    found: dict[str, float] = {}
+    missing: list[str] = []
+    for code in windows:
+        if code == "1D":
+            day = data.get("day_change_pct")
+            if day is not None:
+                try:
+                    found["1D"] = float(day)
+                except (TypeError, ValueError):
+                    missing.append(code)
+            else:
+                missing.append(code)
+            continue
+        value = published_return(published, code)
+        if value is None:
+            missing.append(code)
+        else:
+            found[code] = value
+    isin = str(data.get("isin") or "")
+    limits: list[dict[str, str]] = []
+    if missing and isin:
+        measured, limits = returns_for_windows(
+            isin,
+            missing,
+            inception_date=str(data.get("inception_date") or ""),
+        )
+        found.update(measured)
+    data["returns"] = found
     if limits:
         data["unavailable_returns"] = limits
     data.pop("isin", None)
@@ -160,7 +193,8 @@ def run_fund_portfolio(ctx: dict[str, Any]) -> dict[str, Any]:
         "holdings_fallback": holdings_fallback,
     }
     if ctx.get("include_count") or find:
-        data["holding_count"] = len(extract_top_holdings(detail, limit=500))
+        count = detail.get("holding_count")
+        data["holding_count"] = count if count is not None else len(extract_top_holdings(detail, limit=500))
     if find:
         data["find"] = ctx.get("find")
         data["matches"] = matched[:5]

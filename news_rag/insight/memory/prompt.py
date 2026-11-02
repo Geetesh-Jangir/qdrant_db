@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from news_rag.insight.memory.state import ENTITY_TTL_TURNS
+
 
 def memory_json_tokens(payload: dict[str, Any] | None) -> int:
     """Estimated tokens for the memory JSON only. Empty memory is zero.
@@ -93,6 +95,7 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
 
     out: dict[str, Any] = {
         "turn": state.get("turn_count"),
+        "entity_ttl_turns": ENTITY_TTL_TURNS,
         "frame": {
             "subject_kind": frame.get("subject_kind") or "none",
             "subjects": subjects,
@@ -102,6 +105,12 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
             "depth": frame.get("depth") or "short",
             "open_part": frame.get("open_part") or {"answered": [], "pending": []},
             "news_topic": news_view,
+            "last_fund_focus": str(frame.get("last_fund_focus") or "").strip(),
+            "recent_fund_focus": [
+                str(x).strip()
+                for x in (frame.get("recent_fund_focus") or [])
+                if str(x).strip()
+            ][:4],
         },
         "entity_stack": stack,
         "list_cursor": listed,
@@ -111,6 +120,7 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
         out["category_funds_in_chat"] = category_funds
         out["memory_hint"] = (
             "frame.subjects may be from an older cross-category compare. "
+            f"Catalog entities in entity_stack and list_cursor older than {ENTITY_TTL_TURNS} turns are dropped automatically. "
             "For 'both funds in [category]', use category_funds_in_chat for that slug "
             "(includes list_cursor). Do not pair conservative hybrid with aggressive hybrid. "
             "For 'compare these/those equity funds', use the latest pure-equity category pair "
@@ -128,7 +138,9 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
         hint = out.get("memory_hint") or ""
         inv_hint = (
             "For the user's own book: use holdings_in_chat and frame.investor_subjects for "
-            "'that fund', 'my second fund', or follow-ups. portfolio_scope investor + get_investor_portfolio. "
+            "'that fund', 'my second fund', 'my contra fund', 'my small cap fund', or similar — "
+            "match the category word to holdings_in_chat, not list_cursor or category_funds_in_chat. "
+            "portfolio_scope investor + get_investor_portfolio. "
             "Do not use category_funds_in_chat for 'my fund' unless they mean a catalog compare."
         )
         out["memory_hint"] = f"{hint} {inv_hint}".strip()

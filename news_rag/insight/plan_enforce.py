@@ -156,6 +156,15 @@ def resolve_planner_subject_refs(
             name = primary_fund_name(memory)
             if name:
                 plan.funds = [name]
+        else:
+            from news_rag.insight.memory.fund_context import memory_known_fund_names
+
+            known = {n.lower() for n in memory_known_fund_names(memory)}
+            cur = str((plan.funds or [""])[0] or "").strip()
+            if known and cur and cur.lower() not in known:
+                name = primary_fund_name(memory)
+                if name:
+                    plan.funds = [name]
     elif ref == "memory_stack" and memory:
         from news_rag.insight.memory.fund_context import (
             asks_these_equity_funds,
@@ -310,6 +319,7 @@ def apply_planner_post_hooks(
         ensure_rating_list_funds,
         ensure_random_same_category_pair_compare_plan,
         ensure_unnamed_category_pair_compare_plan,
+        ensure_better_rated_category_fund_plan,
     )
     from news_rag.insight.plan_intent import (
         plan_wants_alternate_in_category,
@@ -321,10 +331,21 @@ def apply_planner_post_hooks(
     reconcile_planner_intent(plan, question)
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
 
-    plan = enforce_portfolio_scope(plan)
+    plan = enforce_portfolio_scope(plan, memory, question)
+    from news_rag.insight.investor_subject import (
+        enforce_deictic_and_memory_primary_fund,
+        enforce_investor_holding_subject,
+        ensure_catalog_tools_for_fund_news,
+        reconcile_deictic_planner_fund,
+    )
+
     ensure_unnamed_category_pair_compare_plan(question, plan, memory)
     ensure_random_same_category_pair_compare_plan(question, plan, memory)
     resolve_planner_subject_refs(plan, memory, question)
+    reconcile_deictic_planner_fund(plan, memory, question)
+    enforce_investor_holding_subject(plan, memory, question)
+    enforce_deictic_and_memory_primary_fund(plan, memory, question)
+    ensure_catalog_tools_for_fund_news(plan)
     ensure_compare_fund_pair(plan, memory, question)
     apply_category_scoped_compare_funds(question, plan, memory)
     apply_deictic_equity_compare_funds(question, plan, memory)
@@ -346,6 +367,7 @@ def apply_planner_post_hooks(
         return plan
 
     ensure_alternate_category_fund_plan(question, plan, memory)
+    ensure_better_rated_category_fund_plan(question, plan, memory)
     if plan_wants_alternate_in_category(plan):
         plan.requires_compose = True
         return plan
@@ -362,6 +384,9 @@ def apply_planner_post_hooks(
             ensure_fund_holdings_followup_plan(question, plan, memory)
         elif need == "rating_for_screened_list":
             ensure_rating_list_funds(question, plan, memory)
+        from news_rag.fund_risk import ensure_risk_tools
+
+        ensure_risk_tools(question, plan)
         return plan
 
     ensure_category_performance_plan(question, plan, memory)

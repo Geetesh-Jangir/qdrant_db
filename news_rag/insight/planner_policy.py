@@ -120,6 +120,30 @@ def finalize_planner_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     return apply_now_window(question, plan)
 
 
+def align_planned_news_execution(plan: ExecutionPlan) -> ExecutionPlan:
+    """Planned wave-2 news with trigger=none never runs; move it to wave 1 for fusion."""
+    if plan.answer_mode == AnswerMode.DATA_ONLY:
+        return plan
+    trigger = (plan.wave_2_policy.trigger or "none").lower()
+    if trigger == "none":
+        for call in plan.tool_calls:
+            if call.tool == "search_financial_news" and call.wave == 2:
+                call.wave = 1
+    for call in plan.tool_calls:
+        if call.tool != "search_financial_news":
+            continue
+        args = dict(call.arguments or {})
+        scope = str(args.get("scope") or "").lower()
+        if scope in ("fund", "market") and (plan.funds or str(plan.intent or "") == "overview"):
+            args["scope"] = "all"
+        wd = int(args.get("window_days") or 0)
+        if wd <= 0 or wd > 90:
+            args["window_days"] = min(int(plan.window_days or 30), 30)
+        args["top_n"] = max(int(args.get("top_n") or 0), 8)
+        call.arguments = args
+    return plan
+
+
 def _ensure_sector_overview(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     """A sector question is the sector move plus the news, not a fund sample."""
     from news_rag.sector_fund_ranking import primary_sector_for_question

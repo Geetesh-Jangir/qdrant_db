@@ -59,11 +59,114 @@ def split_attribution_for_composer(attr: dict[str, Any]) -> tuple[dict[str, Any]
     return display, internal
 
 
+def _num(value: Any) -> float | None:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _rollup_investor_summary(inv: dict[str, Any]) -> dict[str, Any]:
+    """Portfolio totals for composer + grounding (from summary, pnl, or holdings)."""
+    summary = inv.get("summary") if isinstance(inv.get("summary"), dict) else {}
+    if _num(summary.get("aum_inr")) is not None and _num(summary.get("invested_inr")) is not None:
+        return summary
+
+    pnl = inv.get("pnl_summary") if isinstance(inv.get("pnl_summary"), dict) else {}
+    if _num(pnl.get("currentValue")) is not None:
+        return {
+            "invested_inr": _num(pnl.get("netInvestment")),
+            "aum_inr": _num(pnl.get("currentValue")),
+            "gain_loss_inr": _num(pnl.get("gainLoss")) or _num(pnl.get("gainLossRounded")),
+            "absolute_return_pct": _num(pnl.get("absoluteReturnPercent")),
+            "portfolio_xirr_pct": _num(pnl.get("portfolioXirrPercent")) or _num(pnl.get("xirrPercent")),
+        }
+
+    holdings = [row for row in (inv.get("holdings") or []) if isinstance(row, dict)]
+    if not holdings:
+        return summary
+
+    invested = aum = gain = 0.0
+    have_inv = have_aum = have_gain = False
+    for row in holdings:
+        inv_amt = _num(row.get("invested_inr"))
+        if inv_amt is not None:
+            invested += inv_amt
+            have_inv = True
+        aum_amt = _num(row.get("aum_inr"))
+        if aum_amt is not None:
+            aum += aum_amt
+            have_aum = True
+        gl = _num(row.get("gain_loss_inr"))
+        if gl is not None:
+            gain += gl
+            have_gain = True
+    rolled: dict[str, Any] = dict(summary)
+    if have_inv:
+        rolled["invested_inr"] = round(invested, 2)
+    if have_aum:
+        rolled["aum_inr"] = round(aum, 2)
+    if have_gain:
+        rolled["gain_loss_inr"] = round(gain, 2)
+    if have_inv and have_gain and invested:
+        rolled["absolute_return_pct"] = round(100.0 * gain / invested, 2)
+    return rolled
+
+
+def _enrich_investor_computed_fields(inv: dict[str, Any]) -> None:
+    """Pre-compute category weights and per-scheme facts for composer + grounding."""
+    summary = inv.get("summary") if isinstance(inv.get("summary"), dict) else {}
+    total = _num(summary.get("aum_inr")) or 0.0
+    holdings = [row for row in (inv.get("holdings") or []) if isinstance(row, dict)]
+    if not holdings or total <= 0:
+        return
+
+    by_category: dict[str, float] = {}
+    scheme_rows: list[dict[str, Any]] = []
+    for row in holdings:
+        aum = _num(row.get("aum_inr"))
+        if aum is None:
+            continue
+        weight = round(100.0 * aum / total, 2)
+        cat = str(row.get("scheme_category") or "other").strip()
+        by_category[cat] = by_category.get(cat, 0.0) + weight
+        scheme_rows.append(
+            {
+                "scheme_name": row.get("scheme_name"),
+                "category": cat,
+                "weight_pct": weight,
+                "value_inr": round(aum, 2),
+                "invested_inr": _num(row.get("invested_inr")),
+                "gain_loss_inr": _num(row.get("gain_loss_inr")),
+                "xirr_pct": _num(row.get("xirr_pct")),
+                "absolute_return_pct": _num(row.get("absolute_return_pct")),
+            }
+        )
+
+    allocation = [
+        {"category": name, "weight_pct": round(pct, 2)}
+        for name, pct in sorted(by_category.items(), key=lambda item: item[1], reverse=True)
+    ]
+    inv["computed"] = {
+        "total_value_inr": round(total, 2),
+        "allocation_by_category": allocation,
+        "holdings": scheme_rows,
+    }
+
+
 def sanitize_data_pack_for_composer(data_pack: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return (sanitized pack, holding_contribution_pp_internal aggregated across funds)."""
     if not data_pack:
         return {}, {}
     out = copy.deepcopy(data_pack)
+    investor = out.get("investor_portfolio")
+    if isinstance(investor, dict):
+        rolled = _rollup_investor_summary(investor)
+        if rolled:
+            investor["summary"] = rolled
+        _enrich_investor_computed_fields(investor)
     merged_internal: dict[str, Any] = {"funds": []}
     for key, block in out.items():
         if not str(key).startswith("fund:") or not isinstance(block, dict):

@@ -10,6 +10,7 @@ entirely for instant lookup answers (<500ms).
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from news_rag.insight.contracts import (
@@ -239,7 +240,14 @@ def _refresh_fund_blocks_ratings(data_pack: dict[str, Any]) -> None:
         insights = block.get("fund_insights") if isinstance(block.get("fund_insights"), dict) else {}
         got_isin = str(insights.get("isin") or "").strip().upper()
         rating = block.get("rs_rating") if isinstance(block.get("rs_rating"), dict) else {}
-        if got_isin == isin and rating:
+        if rating:
+            rating.pop("computed_at", None)
+            block["rs_rating"] = rating
+            if not got_isin or got_isin == isin:
+                continue
+            if not rating.get("pillars"):
+                continue
+        if not rating.get("pillars"):
             continue
         fresh = fetch_public_rating(isin)
         if fresh:
@@ -468,6 +476,9 @@ def build_evidence_pack(
     _refresh_fund_blocks_ratings(data_pack)
 
     perf = _fund_performance_digest(data_pack)
+    from news_rag.insight.investor_drawback import attach_drawback_digest
+
+    attach_drawback_digest(data_pack, perf, plan, question)
     from news_rag.insight.fund_display import build_fund_display_tables
 
     from news_rag.insight.display_table_policy import (
@@ -1309,11 +1320,152 @@ def _fmt_inr(value: Any) -> str:
         return "—"
 
 
+def _fmt_table_inr(value: Any) -> str:
+    try:
+        n = float(value)
+        if abs(n - round(n)) < 0.005:
+            return f"₹{int(round(n)):,}"
+        return f"₹{n:,.2f}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _fmt_pct(value: Any) -> str:
+    try:
+        return f"{float(value):.2f}%"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _pretty_category(name: str) -> str:
+    text = str(name or "").strip()
+    if not text:
+        return "—"
+    return text[0].upper() + text[1:]
+
+
+def _short_label(text: str, *, limit: int = 34) -> str:
+    cleaned = " ".join(str(text or "").split())
+    if len(cleaned) <= limit:
+        return cleaned
+    return cleaned[: limit - 1].rstrip() + "…"
+
+
+def _short_holding_name(name: str) -> str:
+    text = " ".join(str(name or "").split())
+    upper = text.upper()
+    for suffix in (" LIMITED", " LTD.", " LTD", " CO.", " INC."):
+        if upper.endswith(suffix):
+            text = text[: -len(suffix)].strip()
+            break
+    return _short_label(text, limit=32)
+
+
+def _category_rows_from_investor(investor: dict[str, Any]) -> list[tuple[str, float, float]]:
+    allocation = investor.get("allocation") if isinstance(investor.get("allocation"), dict) else {}
+    share = allocation.get("categoryShare")
+    if isinstance(share, list) and share:
+        rows: list[tuple[str, float, float]] = []
+        for item in share:
+            if not isinstance(item, dict):
+                continue
+            try:
+                amt = float(item.get("aum_inr") or 0)
+                pct = float(item.get("aum_pct") or 0)
+            except (TypeError, ValueError):
+                continue
+            if amt <= 0:
+                continue
+            rows.append((_pretty_category(str(item.get("name") or "")), amt, round(pct, 2)))
+        rows.sort(key=lambda row: row[2], reverse=True)
+        if rows:
+            return rows
+    conc = investor.get("concentration") if isinstance(investor.get("concentration"), dict) else {}
+    mapping = conc.get("aum_by_category") if isinstance(conc.get("aum_by_category"), dict) else {}
+    return [(_pretty_category(name), amt, pct) for name, amt, pct in _sorted_inr_weights(mapping)]
+
+
+def _render_investor_holdings_table(data: dict[str, Any], plan: ExecutionPlan, prefix: str) -> str | None:
+    """Deterministic holdings / returns table (no composer — avoids grounding stripping totals)."""
+    holdings = [row for row in (data.get("holdings") or []) if isinstance(row, dict)]
+    if not holdings:
+        return None
+
+    from news_rag.insight.pack_sanitize import _rollup_investor_summary
+
+    rolled = _rollup_investor_summary(data)
+    need = str(plan.data_need or "").lower().strip()
+    returns_focus = need in ("investor_pnl", "investor_xirr")
+
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    xirr_win = meta.get("xirr_window") if isinstance(meta.get("xirr_window"), dict) else {}
+    win_from = str(xirr_win.get("from") or "").strip()
+    win_to = str(xirr_win.get("to") or str(meta.get("as_of_date") or "")).strip()
+
+    parts: list[str] = []
+    if prefix.strip():
+        parts.append(prefix.strip())
+
+    count = len(holdings)
+    if rolled.get("aum_inr") is not None and rolled.get("invested_inr") is not None:
+        lead = (
+            f"You hold **{count}** mutual fund scheme{'s' if count != 1 else ''}, "
+            f"with current value {_fmt_inr(rolled.get('aum_inr'))} on "
+            f"{_fmt_inr(rolled.get('invested_inr'))} invested"
+        )
+        if rolled.get("gain_loss_inr") is not None:
+            lead += f" and total gain {_fmt_inr(rolled.get('gain_loss_inr'))}"
+        if rolled.get("absolute_return_pct") is not None:
+            lead += f" (**{float(rolled.get('absolute_return_pct')):.2f}%** overall absolute return)"
+        if rolled.get("portfolio_xirr_pct") is not None:
+            lead += f". Portfolio XIRR is **{_fmt_pct(rolled.get('portfolio_xirr_pct'))}**"
+            if win_from and win_to:
+                lead += f" for {win_from} to {win_to}"
+        lead += "."
+        parts.append(lead)
+
+    heading = "### Returns by scheme\n" if returns_focus else "### Your holdings\n"
+    header = (
+        "| Scheme | Category | Current value (₹) | Invested (₹) | Gain (₹) | "
+        "Absolute return | XIRR | RS label |\n"
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |"
+    )
+    body_rows: list[str] = []
+    for row in sorted(holdings, key=lambda item: float(item.get("aum_inr") or 0), reverse=True):
+        rs = str(row.get("rs_label") or "—")
+        if row.get("rs_score") is not None:
+            rs = f"{rs} ({row.get('rs_score')})"
+        body_rows.append(
+            "| {name} | {cat} | {val} | {inv} | {gl} | {abs_ret} | {xirr} | {rs} |".format(
+                name=str(row.get("scheme_name") or "")[:72],
+                cat=_pretty_category(str(row.get("scheme_category") or "")),
+                val=_fmt_table_inr(row.get("aum_inr")).replace("₹", ""),
+                inv=_fmt_table_inr(row.get("invested_inr")).replace("₹", ""),
+                gl=_fmt_table_inr(row.get("gain_loss_inr")).replace("₹", ""),
+                abs_ret=_fmt_pct(row.get("absolute_return_pct")),
+                xirr=_fmt_pct(row.get("xirr_pct")),
+                rs=rs,
+            )
+        )
+    if not body_rows:
+        return None
+    parts.extend([heading, header, *body_rows])
+    return "\n\n".join(parts).strip()
+
+
 def _render_investor_portfolio_markdown(data: dict[str, Any], plan: ExecutionPlan) -> str | None:
     """Deterministic DATA_ONLY answers for investor book slices."""
     meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     as_of = str(meta.get("as_of_date") or "").strip()
     prefix = f"As of {as_of}. " if as_of else ""
+
+    from news_rag.insight.portfolio_scope import plan_wants_concentration
+
+    conc = data.get("concentration")
+    if isinstance(conc, dict) and plan_wants_concentration(plan):
+        report = _portfolio_concentration_report(data)
+        if report:
+            return report
 
     summary = data.get("summary") if isinstance(data.get("summary"), dict) else {}
     if summary and not data.get("holdings") and not data.get("sip"):
@@ -1329,23 +1481,13 @@ def _render_investor_portfolio_markdown(data: dict[str, Any], plan: ExecutionPla
             lines.append(f"- Portfolio XIRR: {summary.get('portfolio_xirr_pct')}%")
         return "\n".join(lines)
 
+    from news_rag.insight.portfolio_scope import investor_uses_holdings_table
+
     holdings = data.get("holdings") if isinstance(data.get("holdings"), list) else []
-    if holdings and plan.response_shape == "table":
-        header = "| Scheme | Value (₹) | Gain (₹) | XIRR % |\n| --- | ---: | ---: | ---: |"
-        body_rows = []
-        for row in holdings:
-            if not isinstance(row, dict):
-                continue
-            body_rows.append(
-                "| {name} | {aum} | {gl} | {xirr} |".format(
-                    name=str(row.get("scheme_name") or "")[:60],
-                    aum=_fmt_inr(row.get("aum_inr")).replace("₹", ""),
-                    gl=_fmt_inr(row.get("gain_loss_inr")).replace("₹", ""),
-                    xirr=row.get("xirr_pct") if row.get("xirr_pct") is not None else "—",
-                )
-            )
-        if body_rows:
-            return prefix + "Your holdings:\n\n" + header + "\n" + "\n".join(body_rows)
+    if holdings and (plan.response_shape == "table" or investor_uses_holdings_table(plan)):
+        table = _render_investor_holdings_table(data, plan, prefix)
+        if table:
+            return table
 
     sip = data.get("sip") if isinstance(data.get("sip"), dict) else {}
     plans = sip.get("plans") if isinstance(sip.get("plans"), list) else []
@@ -1366,7 +1508,287 @@ def _render_investor_portfolio_markdown(data: dict[str, Any], plan: ExecutionPla
         if body_rows:
             return prefix + "Your SIPs:\n\n" + header + "\n" + "\n".join(body_rows)
 
+    concentration = _concentration_markdown(data.get("concentration"))
+    if concentration and not holdings and not summary:
+        return prefix + concentration
+
     return None
+
+
+def render_investor_concentration_answer(
+    pack: EvidencePack,
+    plan: ExecutionPlan,
+    question: str = "",
+) -> str | None:
+    from news_rag.insight.portfolio_scope import plan_wants_concentration
+
+    if not plan_wants_concentration(plan, question):
+        return None
+    data = pack.data_pack if pack else {}
+    if not isinstance(data, dict):
+        return None
+    investor = data.get("investor_portfolio")
+    if not isinstance(investor, dict):
+        return None
+    report = _portfolio_concentration_report(investor)
+    return report
+
+
+def repair_investor_insight_prose(text: str, investor: dict[str, Any]) -> str:
+    """Replace hollow allocation / holding lines with facts from the book payload."""
+    if not text or not isinstance(investor, dict):
+        return text
+    computed = investor.get("computed") if isinstance(investor.get("computed"), dict) else {}
+    allocation = computed.get("allocation_by_category") if isinstance(computed.get("allocation_by_category"), list) else []
+    summary = investor.get("summary") if isinstance(investor.get("summary"), dict) else {}
+    total = computed.get("total_value_inr") or summary.get("aum_inr")
+    lines_out: list[str] = []
+    for line in text.splitlines():
+        low = line.lower()
+        if allocation and "spread across" in low and re.search(r"about\s*\)|about\s*,|\(\s*\)", line):
+            parts = []
+            for row in allocation:
+                if not isinstance(row, dict):
+                    continue
+                cat = _pretty_category(str(row.get("category") or ""))
+                pct = row.get("weight_pct")
+                if pct is None:
+                    continue
+                parts.append(f"**{cat} (about {int(round(float(pct)))}%)**")
+            if parts and total is not None:
+                lines_out.append(
+                    f"- Your portfolio weight is spread across {', '.join(parts)}, "
+                    f"based on each fund's share of ₹{float(total):,.0f} total value."
+                )
+                continue
+        if re.search(r"invested and now worth about|loss of about\s*\.?\s*$", line, re.I):
+            holdings = [
+                row for row in (investor.get("holdings") or []) if isinstance(row, dict) and row.get("xirr_pct") is not None
+            ]
+            if holdings:
+                worst = min(holdings, key=lambda row: float(row.get("xirr_pct") or 0))
+                name = str(worst.get("scheme_name") or "").strip()
+                cat = _pretty_category(str(worst.get("scheme_category") or ""))
+                inv_amt = worst.get("invested_inr")
+                val = worst.get("aum_inr")
+                gl = worst.get("gain_loss_inr")
+                if name and inv_amt is not None and val is not None and gl is not None:
+                    lines_out.append(
+                        f"- **{name}** ({cat}): invested {_fmt_inr(inv_amt)} and now worth "
+                        f"{_fmt_inr(val)}, a {'gain' if float(gl) >= 0 else 'loss'} of {_fmt_inr(abs(float(gl)))}."
+                    )
+                    continue
+        lines_out.append(line)
+    return "\n".join(lines_out).strip()
+
+
+def _pct_of_total(part_inr: float, total_inr: float) -> float:
+    if total_inr <= 0:
+        return 0.0
+    return round(part_inr / total_inr * 100, 2)
+
+
+def _sorted_inr_weights(mapping: dict[str, Any]) -> list[tuple[str, float, float]]:
+    rows: list[tuple[str, float, float]] = []
+    for key, raw in (mapping or {}).items():
+        try:
+            amt = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if amt <= 0:
+            continue
+        rows.append((str(key).strip(), amt, 0.0))
+    total = sum(item[1] for item in rows)
+    out: list[tuple[str, float, float]] = []
+    for name, amt, _ in rows:
+        out.append((name, amt, _pct_of_total(amt, total)))
+    out.sort(key=lambda item: item[2], reverse=True)
+    return out
+
+
+def _portfolio_concentration_report(investor: dict[str, Any]) -> str | None:
+    conc = investor.get("concentration")
+    if not isinstance(conc, dict):
+        return None
+    holdings = [row for row in (conc.get("top_holdings") or []) if isinstance(row, dict)]
+    sectors = [row for row in (conc.get("sectors") or []) if isinstance(row, dict)]
+    if not holdings and not sectors:
+        return None
+
+    weight_sum = conc.get("top_holdings_weight_pct")
+    count = int(conc.get("top_holdings_count") or len(holdings))
+
+    summary = investor.get("summary") if isinstance(investor.get("summary"), dict) else {}
+    meta = investor.get("meta") if isinstance(investor.get("meta"), dict) else {}
+    as_of = str(meta.get("as_of_date") or conc.get("as_of_date") or "").strip()
+    try:
+        scheme_count = int(summary.get("scheme_count") or 0)
+    except (TypeError, ValueError):
+        scheme_count = 0
+    try:
+        total_inr = float(conc.get("total_current_value") or summary.get("aum_inr") or 0)
+    except (TypeError, ValueError):
+        total_inr = 0.0
+
+    scheme_types = _sorted_inr_weights(
+        conc.get("aum_by_scheme_type") if isinstance(conc.get("aum_by_scheme_type"), dict) else {}
+    )
+    asset_note = ""
+    if len(scheme_types) == 1:
+        only_name, _, only_pct = scheme_types[0]
+        asset_note = f" All in {_pretty_category(only_name)} ({_fmt_pct(only_pct)})."
+    elif scheme_types:
+        asset_note = " Mix: " + ", ".join(f"{_pretty_category(n)} {_fmt_pct(p)}" for n, _, p in scheme_types[:3]) + "."
+
+    lines: list[str] = ["### Portfolio concentration", ""]
+    lead_bits: list[str] = []
+    if total_inr > 0:
+        lead_bits.append(_fmt_table_inr(total_inr))
+    if scheme_count > 0:
+        word = "scheme" if scheme_count == 1 else "schemes"
+        lead_bits.append(f"{scheme_count} {word}")
+    if as_of:
+        lead_bits.append(f"as of {as_of}")
+    if lead_bits:
+        lines.append(" · ".join(lead_bits) + "." + asset_note)
+        lines.append("")
+    lines.append(
+        "Concentration is how much of your portfolio sits in each **fund category**, "
+        "**underlying stock or cash line**, and **sector**."
+    )
+    lines.append("")
+
+    categories = _category_rows_from_investor(investor)
+    top_cat_pct = categories[0][2] if categories else 0.0
+    top3_cat_pct = round(sum(item[2] for item in categories[:3]), 2) if categories else 0.0
+
+    if categories:
+        lines.extend(["### Fund categories", "", "| Category | Weight | Value |", "| --- | ---: | ---: |"])
+        for name, amt, pct in categories:
+            lines.append(f"| {_short_label(name, limit=28)} | {_fmt_pct(pct)} | {_fmt_table_inr(amt)} |")
+        lines.extend(
+            [
+                "",
+                f"{categories[0][0]} is the largest slice at {_fmt_pct(top_cat_pct)} "
+                f"({_fmt_table_inr(categories[0][1])}). "
+                f"The top three categories together are {_fmt_pct(top3_cat_pct)} of the book.",
+                "",
+            ]
+        )
+
+    if holdings:
+        intro = f"The top {count} underlying names total {_fmt_pct(weight_sum)} of the portfolio."
+        lines.extend(["### Top holdings", "", intro, ""])
+        lines.extend(["| Holding | Weight | Value |", "| --- | ---: | ---: |"])
+        for row in holdings:
+            try:
+                w = float(row.get("weight_pct") or 0)
+            except (TypeError, ValueError):
+                w = 0.0
+            est = _fmt_table_inr(total_inr * w / 100) if total_inr > 0 else "—"
+            lines.append(
+                f"| {_short_holding_name(str(row.get('name') or ''))} | {_fmt_pct(row.get('weight_pct'))} | {est} |"
+            )
+        lines.append("")
+
+    if sectors:
+        top5 = sectors[:5]
+        top5_sum = round(sum(float(r.get("weight_pct") or 0) for r in top5), 2)
+        lines.extend(
+            [
+                "### Top sectors",
+                "",
+                f"These five sectors add up to {_fmt_pct(top5_sum)} of the portfolio.",
+                "",
+                "| Sector | Weight | Value |",
+                "| --- | ---: | ---: |",
+            ]
+        )
+        for row in top5:
+            try:
+                w = float(row.get("weight_pct") or 0)
+            except (TypeError, ValueError):
+                w = 0.0
+            est = _fmt_table_inr(total_inr * w / 100) if total_inr > 0 else "—"
+            lines.append(
+                f"| {_short_label(str(row.get('sector') or ''), limit=30)} | {_fmt_pct(row.get('weight_pct'))} | {est} |"
+            )
+        lines.append("")
+
+    read_parts: list[str] = []
+    if categories:
+        if top_cat_pct >= 50:
+            scheme_read = "concentrated in one fund category"
+        elif top_cat_pct >= 35:
+            scheme_read = "moderately concentrated in one fund category"
+        else:
+            scheme_read = "spread across fund categories"
+        read_parts.append(
+            f"At the **scheme** level the book is {scheme_read} "
+            f"(largest {_fmt_pct(top_cat_pct)}, top three {_fmt_pct(top3_cat_pct)})."
+        )
+    if holdings and weight_sum is not None:
+        if float(weight_sum) <= 25:
+            stock_read = "Individual **stocks** are relatively spread: the top names are a small share of the total."
+        elif float(weight_sum) >= 35:
+            stock_read = "Individual **stocks** are somewhat concentrated in the top names listed above."
+        else:
+            stock_read = "Individual **stocks** show moderate concentration in the top names listed above."
+        read_parts.append(f"{stock_read} Top {count} names: {_fmt_pct(weight_sum)}.")
+    if sectors:
+        try:
+            top_sector_w = float(sectors[0].get("weight_pct") or 0)
+        except (TypeError, ValueError):
+            top_sector_w = 0.0
+        sector_name = str(sectors[0].get("sector") or "—")
+        if top_sector_w >= 15:
+            sector_read = f"**Sectors** tilt toward {sector_name} ({_fmt_pct(top_sector_w)})."
+        else:
+            sector_read = f"**Sectors** are fairly balanced; largest is {sector_name} at {_fmt_pct(top_sector_w)}."
+        read_parts.append(sector_read)
+
+    if read_parts:
+        lines.extend(["### How to read this", ""] + read_parts)
+
+    return "\n".join(lines).strip()
+
+
+def _concentration_markdown(concentration: Any) -> str:
+    if not isinstance(concentration, dict):
+        return ""
+    holdings = [row for row in (concentration.get("top_holdings") or []) if isinstance(row, dict)]
+    sectors = [row for row in (concentration.get("sectors") or []) if isinstance(row, dict)]
+    if not holdings and not sectors:
+        return ""
+    parts: list[str] = []
+    if holdings:
+        count = int(concentration.get("top_holdings_count") or len(holdings))
+        weight = concentration.get("top_holdings_weight_pct")
+        parts.append("### Top holdings")
+        parts.append("")
+        parts.append("| Holding | Weight | Funds holding it | Sector |")
+        parts.append("| --- | ---: | ---: | --- |")
+        for row in holdings:
+            parts.append(
+                "| {name} | {weight}% | {funds} | {sector} |".format(
+                    name=str(row.get("name") or "")[:48],
+                    weight=row.get("weight_pct"),
+                    funds=row.get("fund_count") if row.get("fund_count") is not None else "—",
+                    sector=str(row.get("industry") or "—")[:40],
+                )
+            )
+        if weight is not None:
+            parts.append("")
+            parts.append(f"These {count} holdings are **{weight}%** of the portfolio.")
+    if sectors:
+        parts.append("")
+        parts.append("### Top sectors")
+        parts.append("")
+        parts.append("| Sector | Weight |")
+        parts.append("| --- | ---: |")
+        for row in sectors:
+            parts.append(f"| {row.get('sector')} | {row.get('weight_pct')}% |")
+    return "\n".join(parts).strip()
 
 
 def render_data_only_template(

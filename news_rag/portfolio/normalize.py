@@ -87,10 +87,63 @@ def _holding_from_scheme(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _prefer_xirr(*values: Any) -> float | None:
+    """Prefer a non-zero XIRR. portfolioXirrPercent is often 0 while liveXirrPercent is set."""
+    parsed: list[float] = []
+    for value in values:
+        number = _num(value)
+        if number is None:
+            continue
+        parsed.append(number)
+    for number in parsed:
+        if number != 0:
+            return number
+    return parsed[0] if parsed else None
+
+
+def _resolve_isin(scheme_name: str) -> str:
+    name = _str(scheme_name)
+    if not name:
+        return ""
+    try:
+        from news_rag.fund_search import get_fund_index
+
+        detail, _amb, _close = get_fund_index().lookup_extracted_fund(name=name)
+        return _str((detail or {}).get("isin")).upper()
+    except Exception:
+        return ""
+
+
+def _apply_holding_values(holdings: list[dict[str, Any]], xirr_rows: list[dict[str, Any]]) -> None:
+    by_folio = {str(row.get("folio_scheme") or ""): row for row in xirr_rows if row.get("folio_scheme")}
+    for holding in holdings:
+        matched = by_folio.get(str(holding.get("folio_scheme") or ""))
+        if matched:
+            if holding.get("aum_inr") is None and matched.get("market_value_at_to") is not None:
+                holding["aum_inr"] = matched["market_value_at_to"]
+            if holding.get("xirr_pct") is None and matched.get("xirr_pct") is not None:
+                holding["xirr_pct"] = matched["xirr_pct"]
+        if holding.get("aum_inr") is None and holding.get("units") and holding.get("current_nav"):
+            holding["aum_inr"] = round(float(holding["units"]) * float(holding["current_nav"]), 2)
+        invested = holding.get("invested_inr")
+        aum = holding.get("aum_inr")
+        if aum is not None and invested is not None and holding.get("gain_loss_inr") is None:
+            holding["gain_loss_inr"] = round(float(aum) - float(invested), 2)
+        gain = holding.get("gain_loss_inr")
+        if holding.get("absolute_return_pct") is None and gain is not None and invested:
+            holding["absolute_return_pct"] = round(100.0 * float(gain) / float(invested), 2)
+        if not holding.get("isin"):
+            holding["isin"] = _resolve_isin(str(holding.get("scheme_name") or ""))
+
+
 def _allocation_block(raw: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
     out: dict[str, Any] = {}
+    for key in ("investedByCategory", "aumByCategory", "investedBySchemeType", "aumBySchemeType"):
+        block = raw.get(key)
+        if isinstance(block, dict):
+            out[key] = {str(name): _num(value) for name, value in block.items()}
     for key in ("schemeTypeShare", "categoryShare"):
         rows = raw.get(key)
         if not isinstance(rows, list):
@@ -203,10 +256,12 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
             live_summary.get("gainLossPercentage"),
             ps.get("absoluteReturnPercent"),
         )),
-        "portfolio_xirr_pct": _num(_first(
-            live_summary.get("portfolioXirrPercent"),
+        "portfolio_xirr_pct": _prefer_xirr(
+            live_summary.get("liveXirrPercent"),
+            live_summary.get("xirrPercent"),
             book_total.get("portfolioXirrPercent"),
-        )),
+            live_summary.get("portfolioXirrPercent"),
+        ),
         "scheme_count": int(_first(book_total.get("schemeCount"), len(holdings)) or 0),
     }
 
@@ -233,8 +288,20 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
                     "nature": _str(t.get("nature")),
                     "current_value": _num(t.get("currentValue")),
                     "days": t.get("days"),
+                    "gain_loss": (
+                        round(float(t["currentValue"]) - float(t["amount"]), 2)
+                        if _num(t.get("currentValue")) is not None and _num(t.get("amount")) is not None
+                        else None
+                    ),
+                    "term": (
+                        "long_term"
+                        if isinstance(t.get("days"), (int, float)) and float(t["days"]) >= 365
+                        else "short_term"
+                        if isinstance(t.get("days"), (int, float))
+                        else ""
+                    ),
                 }
-                for t in (row.get("transactions") or [])[:20]
+                for t in (row.get("transactions") or [])[:40]
                 if isinstance(t, dict)
             ],
         })
@@ -247,8 +314,14 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
         xirr_rows.append({
             "scheme_name": _str(row.get("schemeName")),
             "folio_scheme": _str(row.get("folioScheme")),
-            "xirr_pct": _num(_first(row.get("xirrPercent"), row.get("xirr"))),
+            "xirr_pct": _prefer_xirr(row.get("xirr"), row.get("xirrPercent")),
+            "market_value_at_to": _num(row.get("marketValueAtTo")),
+            "invested_at_to": _num(row.get("investedAmountAtTo")),
+            "gain_loss": _num(row.get("gainLoss")),
+            "absolute_return": _num(row.get("absoluteReturn")),
         })
+
+    _apply_holding_values(holdings, xirr_rows)
 
     meta = {
         "as_of_date": _str(_first(meta_in.get("asOfDate"), live.get("asOfDate"), ps.get("asOfDate"))),

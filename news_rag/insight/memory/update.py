@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from news_rag.insight.memory.evidence import drop_old_turns
-from news_rag.insight.memory.state import add_gist, empty_frame, push_fund
+from news_rag.insight.memory.state import add_gist, empty_frame, push_fund, expire_stale_entities
 from news_rag.insight.memory.store import get_or_create, save_state
 
 _FUND_TOOLS = {"get_fund_data", "get_portfolio_data", "compare_funds"}
@@ -123,6 +123,7 @@ def commit_turn(
     *,
     query_id: str = "",
     sources: list[dict[str, Any]] | None = None,
+    question: str = "",
 ) -> dict[str, Any]:
     del query_id, sources  # Articles are stored by the graph, not inside the frame.
     state = get_or_create(conversation_id)
@@ -140,6 +141,7 @@ def commit_turn(
         frame["last_call"] = None
         state["frame"] = frame
         add_gist(state, "The last lookup did not return data.", turn)
+        expire_stale_entities(state, turn)
         save_state(state)
         drop_old_turns(conversation_id, turn)
         return state
@@ -188,6 +190,7 @@ def commit_turn(
     if subjects:
         frame["subjects"] = subjects
         frame["subject_kind"] = "comparison" if len(subjects) > 1 else "single_fund"
+        frame["subjects_turn"] = turn
         for subject in subjects:
             push_fund(state, subject, period=period, facts=facts, turn=turn)
     elif relation == "reset":
@@ -209,6 +212,7 @@ def commit_turn(
     topic = _news_topic(plan, tied_to_fund=bool(frame.get("subjects")))
     if topic and any(row.get("tool") == "search_financial_news" for row in ok_rows):
         frame["news_topic"] = topic
+        frame["news_turn"] = turn
 
     listed: list[dict[str, str]] = []
     seen_list_names: set[str] = set()
@@ -251,6 +255,7 @@ def commit_turn(
             )
         frame["subjects"] = subjects
         frame["subject_kind"] = "comparison" if len(subjects) > 1 else "single_fund"
+        frame["subjects_turn"] = turn
         for subject in subjects:
             push_fund(state, subject, period=period, facts=facts, turn=turn)
 
@@ -269,15 +274,41 @@ def commit_turn(
             name = str(row.get("scheme_name") or "").strip()
             if not name:
                 continue
-            if name not in names_in_chat:
-                names_in_chat.append(name)
-            if name not in [s.get("name") for s in investor_subjects]:
+            compact = {
+                "name": name,
+                "isin": str(row.get("isin") or ""),
+                "category": str(row.get("scheme_category") or ""),
+                "aum_inr": row.get("aum_inr"),
+                "xirr_pct": row.get("xirr_pct"),
+                "rs_label": str(row.get("rs_label") or ""),
+            }
+            existing_names = [item.get("name") if isinstance(item, dict) else item for item in names_in_chat]
+            if name not in existing_names:
+                names_in_chat.append(compact)
+            else:
+                for index, item in enumerate(list(names_in_chat)):
+                    item_name = item.get("name") if isinstance(item, dict) else item
+                    if item_name != name:
+                        continue
+                    if isinstance(item, dict):
+                        if not item.get("isin") and compact["isin"]:
+                            names_in_chat[index] = {**item, **{k: v for k, v in compact.items() if v not in ("", None)}}
+                    else:
+                        names_in_chat[index] = compact
+            known = next((s for s in investor_subjects if s.get("name") == name), None)
+            if known is None:
                 investor_subjects.append({
                     "name": name,
-                    "isin": str(row.get("isin") or ""),
+                    "isin": compact["isin"],
                     "folio": str(row.get("folio_scheme") or row.get("folio_number") or ""),
+                    "category": compact["category"],
+                    "rs_label": compact["rs_label"],
                     "role": "primary",
                 })
+            elif not known.get("isin") and compact["isin"]:
+                known["isin"] = compact["isin"]
+                known["category"] = compact["category"] or known.get("category")
+                known["rs_label"] = compact["rs_label"] or known.get("rs_label")
         if names_in_chat:
             state["holdings_in_chat"] = names_in_chat[-12:]
         if investor_subjects:
@@ -313,6 +344,7 @@ def commit_turn(
             subjects = compare_subjects
             frame["subjects"] = subjects
             frame["subject_kind"] = "comparison"
+            frame["subjects_turn"] = turn
             for subject in subjects:
                 push_fund(state, subject, period=period, facts=facts, turn=turn)
             state["list_cursor"] = {
@@ -321,11 +353,26 @@ def commit_turn(
                 "turn": turn,
             }
 
+    from news_rag.insight.memory.fund_context import fund_name_mentioned_in_memory, push_recent_fund_focus
+
+    focus = str(frame.get("last_fund_focus") or "").strip()
+    if question:
+        mentioned = fund_name_mentioned_in_memory(question, state)
+        if mentioned:
+            focus = mentioned
+    if len(subjects) == 1 and subjects[0].get("name"):
+        focus = str(subjects[0]["name"]).strip()
+    elif fund_tool_ok and len(getattr(plan, "funds", None) or []) == 1:
+        focus = str(plan.funds[0]).strip()
+    if focus:
+        push_recent_fund_focus(frame, focus)
+
     named = subjects or [row for row in (frame.get("subjects") or []) if isinstance(row, dict) and row.get("name")]
     names = ", ".join(str(row.get("name") or "") for row in named) or "no fund"
     fact_text = ", ".join(frame.get("shown_facts") or []) or "a general answer"
     add_gist(state, f"{names}; {frame.get('period') or 'no period'}; {fact_text}", turn)
     state["frame"] = frame
+    expire_stale_entities(state, turn)
     save_state(state)
     drop_old_turns(conversation_id, turn)
     return state

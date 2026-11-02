@@ -72,6 +72,21 @@ _OVERVIEW_RE = re.compile(
 )
 
 
+_BENCHMARK_RE = re.compile(r"\bbenchmark\b", re.I)
+
+
+def _plan_fetches_vs_benchmark(plan: ExecutionPlan | None) -> bool:
+    if not plan:
+        return False
+    for call in plan.tool_calls or []:
+        if call.tool != "get_fund_data":
+            continue
+        modules = {str(m).lower() for m in (call.arguments or {}).get("modules") or []}
+        if "vs_benchmark" in modules:
+            return True
+    return False
+
+
 @dataclass(frozen=True)
 class DisplayTablePolicy:
     """Which pre-rendered markdown tables to append after compose."""
@@ -135,6 +150,8 @@ def resolve_display_table_policy(
         inc: set[str] = set()
         if asks_fund_category_average(q):
             inc.update({TABLE_CATEGORY, TABLE_LONG})
+        elif _plan_fetches_vs_benchmark(plan) or _BENCHMARK_RE.search(q):
+            inc.add(TABLE_LONG)
         elif _PERF_RE.search(q) or intent in ("lookup", "compare"):
             holdings_only = _HOLDINGS_RE.search(q) and not _PERF_RE.search(q)
             if not holdings_only:

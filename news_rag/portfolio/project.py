@@ -18,6 +18,7 @@ ALLOWED_MODULES = frozenset({
     "stp",
     "xirr",
     "profile_risk",
+    "concentration",
 })
 
 HOLDINGS_FIELDS = {
@@ -29,8 +30,13 @@ HOLDINGS_FIELDS = {
         "invested_inr",
         "gain_loss_inr",
         "xirr_pct",
+        "absolute_return_pct",
         "current_nav",
+        "nav_date",
         "units",
+        "isin",
+        "rs_label",
+        "rs_score",
     ),
     "full": (
         "scheme_name",
@@ -50,6 +56,9 @@ HOLDINGS_FIELDS = {
         "nav_date",
         "units",
         "avg_nav",
+        "rs_label",
+        "rs_score",
+        "rs_max_score",
     ),
 }
 
@@ -86,6 +95,8 @@ def project_modules(doc: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]
             top_n=int(args.get("top_n") or 10),
             sort_by=str(args.get("sort_by") or "aum"),
         )
+        if args.get("include_ratings", True):
+            _attach_ratings(rows)
         out["holdings"] = [_pick_row(r, fields) for r in rows]
 
     if "pnl_summary" in modules:
@@ -133,7 +144,37 @@ def project_modules(doc: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]
     if "profile_risk" in modules:
         out["profile_risk"] = copy.deepcopy(doc.get("profile_risk") or {})
 
+    if "concentration" in modules:
+        from news_rag.config import get_settings
+        from news_rag.portfolio.concentration import fetch_top_holdings, project_concentration
+
+        raw = doc.get("concentration_raw") if isinstance(doc.get("concentration_raw"), dict) else {}
+        if not raw:
+            raw = fetch_top_holdings(get_settings().client_ref_no)
+        projected = project_concentration(raw, top_n=int(args.get("concentration_top_n") or 6))
+        allocation = doc.get("allocation") if isinstance(doc.get("allocation"), dict) else {}
+        projected["aum_by_scheme_type"] = allocation.get("aumBySchemeType") or {}
+        projected["aum_by_category"] = allocation.get("aumByCategory") or {}
+        out["concentration"] = projected
+
     return {"ok": True, "data": out}
+
+
+def _attach_ratings(rows: list[dict[str, Any]]) -> None:
+    try:
+        from news_rag.fund_risk import fetch_public_rating
+    except Exception:
+        return
+    for row in rows:
+        isin = str(row.get("isin") or "").strip()
+        if not isin:
+            continue
+        rating = fetch_public_rating(isin)
+        if not rating:
+            continue
+        row["rs_label"] = rating.get("label") or ""
+        row["rs_score"] = rating.get("final_score")
+        row["rs_max_score"] = rating.get("max_score")
 
 
 def _scheme_match(name: str, scheme_filter: str) -> bool:

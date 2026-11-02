@@ -25,6 +25,28 @@ _ALTERNATE_READING_SIGNALS = (
 )
 
 
+def plan_wants_better_rated_in_category(plan: ExecutionPlan, question: str = "") -> bool:
+    """User wants a better fund in a category — should use RS rating rank, not return screen."""
+    pick = str(getattr(plan, "fund_pick", "") or "").strip().lower()
+    if pick == "alternate_in_category":
+        return False
+    blob = f"{question or ''} {plan.goal or ''} {getattr(plan, 'planner_reading', '') or ''}".lower()
+    if "better" not in blob and "upgrade" not in blob and "higher rating" not in blob:
+        if pick != "best_in_category":
+            return False
+        if not (plan.funds or []):
+            return False
+    from news_rag.fund_rating_categories import match_scheme_category
+
+    if match_scheme_category(question or "") or match_scheme_category(plan.planner_reading or ""):
+        return True
+    if str(plan.scheme_category or "").strip():
+        return True
+    if pick == "best_in_category" and plan.funds:
+        return True
+    return False
+
+
 def plan_wants_alternate_in_category(plan: ExecutionPlan) -> bool:
     pick = str(getattr(plan, "fund_pick", "") or "").strip().lower()
     if pick == "alternate_in_category":
@@ -125,3 +147,8 @@ def reconcile_planner_intent(plan: ExecutionPlan, question: str) -> None:
     if plan_wants_alternate_in_category(plan):
         if str(plan.data_need or "").lower() in ("category_composition", "category_performance"):
             plan.data_need = "none"
+
+    from news_rag.insight.investor_subject import question_refers_deictic_fund
+
+    if question_refers_deictic_fund(question):
+        plan.subject_ref = "memory_primary"

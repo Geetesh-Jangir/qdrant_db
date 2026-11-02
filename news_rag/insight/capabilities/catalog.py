@@ -17,11 +17,13 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     "get_fund_data": {
         "description": (
             "One named mutual fund scheme: NAV, day change, benchmark, category, 52-week range, "
-            "regular expense ratio, exit load, AUM, return windows, maximum drawdown, "
-            "the SEBI riskometer and RupeeStop score, optional return series / "
-            "attribution, optional fund managers, vs_benchmark, or rating. "
+            "regular expense ratio, exit load, AUM, return windows, minimum investment, asset mix, "
+            "market-cap mix, holding count, top-5 and top-10 weights, maximum drawdown, "
+            "the SEBI riskometer, and the RupeeStop score. "
             "Request only the modules the question needs. "
-            "Direct expense ratio is included only when the user asks for the direct plan."
+            "Direct expense ratio is included only when the user asks for the direct plan. "
+            "When no return period is named, windows are 1Y, 3Y, and 5Y. "
+            "When the user names a period, windows is only that period."
         ),
         "when_to_use": (
             "User names a specific scheme (e.g. HDFC Large Cap Fund) and asks NAV, returns, "
@@ -31,13 +33,14 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "Do not use for 'which funds hold banking' or 'top 5 funds in IT sector' — use "
             "screen_funds_by_exposure. Do not use for holdings inside a fund — use get_portfolio_data."
         ),
-        "modules": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating"],
+        "modules": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating", "limits", "composition"],
         "args_schema": {
-            "modules": {"type": "list", "items": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating"]},
+            "modules": {"type": "list", "items": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating", "limits", "composition"]},
             "include_category": {"type": "bool", "default": False},
+            "pillars": {"type": "bool", "default": False},
             "windows": {
                 "type": "list",
-                "items": "A period code: 1D, 1W, 2W, 1M, 2M, 6M, 8M, 1Y, 3Y, or YTD. List every period the user named.",
+                "items": "A period code: 1D, 1W, 2W, 1M, 2M, 6M, 8M, 1Y, 3Y, or YTD. Default 1Y, 3Y, 5Y when the user names no period. List only the periods the user named.",
             },
             "periods": {"type": "list", "items": ["1y", "3y", "5y", "10y", "inception"]},
             "window_days": {"type": "int", "min": 7, "max": 365, "default": 30},
@@ -222,14 +225,14 @@ INVESTOR_PORTFOLIO_CAPABILITY: dict[str, Any] = {
     ),
     "modules": [
         "meta", "summary", "allocation", "holdings", "pnl_summary", "pnl_scheme",
-        "sip", "stp", "xirr", "profile_risk",
+        "sip", "stp", "xirr", "profile_risk", "concentration",
     ],
     "args_schema": {
         "modules": {
             "type": "list",
             "items": [
                 "meta", "summary", "allocation", "holdings", "pnl_summary", "pnl_scheme",
-                "sip", "stp", "xirr", "profile_risk",
+                "sip", "stp", "xirr", "profile_risk", "concentration",
             ],
         },
         "scheme_filter": {"type": "str", "max_len": 120},
@@ -304,7 +307,7 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         return {}
 
     if tool == "get_fund_data":
-        allowed = ("snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating")
+        allowed = ("snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating", "limits", "composition")
         modules = [m for m in (src.get("modules") or ["snapshot"]) if m in allowed]
         if not modules:
             modules = ["snapshot"]
@@ -318,15 +321,18 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
             out["periods"] = periods
         if src.get("include_category"):
             out["include_category"] = True
-        if any(name in modules for name in ("snapshot", "vs_benchmark", "return_series")):
-            from news_rag.insight.return_windows import normalize_window_code
+        if src.get("pillars"):
+            out["pillars"] = True
+        if "snapshot" in modules:
+            from news_rag.insight.return_windows import DEFAULT_RETURN_WINDOWS, normalize_window_code
 
             windows = []
-            for raw in src.get("windows") or ["1M"]:
+            for raw in src.get("windows") or DEFAULT_RETURN_WINDOWS:
                 code = normalize_window_code(str(raw))
                 if code and code not in windows:
                     windows.append(code)
-            out["windows"] = windows or ["1M"]
+            if windows:
+                out["windows"] = windows
         return out
 
     if tool == "get_portfolio_data":

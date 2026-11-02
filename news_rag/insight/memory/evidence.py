@@ -21,7 +21,10 @@ def slice_slot(tool: str, args: dict[str, Any] | None) -> str:
         modules = ",".join(str(item) for item in (args.get("modules") or []))
         windows = ",".join(str(item) for item in (args.get("windows") or []))
         periods = ",".join(str(item) for item in (args.get("periods") or []))
-        return f"fund|{modules}|w={windows}|p={periods}"
+        from news_rag.fund_risk import rating_needs_pillars
+
+        pillars = "1" if rating_needs_pillars(args) else "0"
+        return f"fund|{modules}|w={windows}|p={periods}|pillars={pillars}"
     if tool == "get_portfolio_data":
         sections = ",".join(str(item) for item in (args.get("sections") or []))
         return f"portfolio|{sections}|n={args.get('top_n')}"
@@ -38,6 +41,11 @@ def slice_slot(tool: str, args: dict[str, Any] | None) -> str:
         )
     if tool == "compare_funds":
         return f"compare|mode={str(args.get('mode') or 'both').lower()}"
+    if tool == "get_investor_portfolio":
+        modules = ",".join(str(item) for item in (args.get("modules") or []))
+        scheme = str(args.get("scheme_filter") or "").strip().lower()[:80]
+        fields = str(args.get("holdings_fields") or "minimal").lower()
+        return f"investor|{modules}|scheme={scheme}|hf={fields}"
     return tool
 
 

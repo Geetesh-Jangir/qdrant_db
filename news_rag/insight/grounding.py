@@ -134,6 +134,68 @@ def derived_cores(allowed: set[str]) -> set[str]:
     return extra
 
 
+def cores_for_float(value: float) -> set[str]:
+    """Numeric forms grounding may use in prose (₹ amounts, returns, weights)."""
+    cores: set[str] = set()
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return cores
+    cores.add(numeric_core(f"{num}"))
+    cores.add(numeric_core(f"{num:.2f}"))
+    cores.add(numeric_core(f"{num:.1f}"))
+    if abs(num) >= 1:
+        cores.add(str(int(round(num))))
+    if abs(num) < 1000 and abs(num) > 0:
+        cores.add(numeric_core(f"{num:.0f}"))
+    cores.discard("")
+    return cores
+
+
+def investor_book_cores(investor: dict[str, Any]) -> set[str]:
+    """Allow rounded allocation % and common prose forms for the user's book."""
+    if not isinstance(investor, dict):
+        return set()
+    cores: set[str] = set()
+    summary = investor.get("summary") if isinstance(investor.get("summary"), dict) else {}
+    for key in ("invested_inr", "aum_inr", "gain_loss_inr", "absolute_return_pct", "portfolio_xirr_pct"):
+        val = summary.get(key)
+        if val is not None:
+            cores |= cores_for_float(float(val))
+
+    computed = investor.get("computed") if isinstance(investor.get("computed"), dict) else {}
+    total = computed.get("total_value_inr")
+    if total is not None:
+        cores |= cores_for_float(float(total))
+
+    for row in computed.get("allocation_by_category") or []:
+        if not isinstance(row, dict):
+            continue
+        pct = row.get("weight_pct")
+        if pct is None:
+            continue
+        cores |= cores_for_float(float(pct))
+        cores.add(str(int(round(float(pct)))))
+
+    for row in computed.get("holdings") or []:
+        if not isinstance(row, dict):
+            continue
+        for key in ("value_inr", "invested_inr", "gain_loss_inr", "xirr_pct", "absolute_return_pct", "weight_pct"):
+            val = row.get(key)
+            if val is not None:
+                cores |= cores_for_float(float(val))
+
+    for row in investor.get("holdings") or []:
+        if not isinstance(row, dict):
+            continue
+        for key in ("aum_inr", "invested_inr", "gain_loss_inr", "xirr_pct", "absolute_return_pct"):
+            val = row.get(key)
+            if val is not None:
+                cores |= cores_for_float(float(val))
+
+    return cores
+
+
 def cores_in_text(blob: str) -> set[str]:
     cores: set[str] = set()
     for match in _ANY_NUMBER_RE.finditer(blob or ""):
@@ -169,6 +231,14 @@ def tidy_prose(text: str) -> str:
     text = re.sub(r"\broughly\s+\*\*\s*\*\*", "", text)
     text = re.sub(r"\bworth\s+roughly\s+\*\*\s*pp\*\*", "", text, flags=re.I)
     text = re.sub(r"\(\s*approx\.?\s*\)", "", text, flags=re.I)
+    text = re.sub(r"\(about\s*\)", "", text, flags=re.I)
+    text = re.sub(r"\*\*\s*\*\*", "", text)
+    text = re.sub(r"\*\*\(\s*\)\*\*", "", text)
+    text = re.sub(r"\babout\s*,", "", text, flags=re.I)
+    text = re.sub(r"\bworth about\s*,", "", text, flags=re.I)
+    text = re.sub(r"\binvested and now worth about\s*,", "", text, flags=re.I)
+    text = re.sub(r"\ba loss of about\s*\.?", "", text, flags=re.I)
+    text = re.sub(r"\(\s*about\s+\)", "", text, flags=re.I)
     text = re.sub(r"\bapprox\.?\s*pp\b", "", text, flags=re.I)
     text = re.sub(r"\s+pp\b(?!\w)", "", text, flags=re.I)
     text = re.sub(r"\bbetween\s+and\b", "", text, flags=re.I)

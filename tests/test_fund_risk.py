@@ -450,3 +450,53 @@ def test_mixed_question_adds_risk_lines_to_the_note():
     assert "Very High" in text
     assert "98.40%" in text
     assert "sharpe" not in text.lower()
+
+
+def test_pillars_in_rating_with_fund_adds_rating_tool():
+    from news_rag.fund_risk import asks_pillar_mark, ensure_risk_tools
+
+    q = "what are the pillars in rating"
+    assert asks_pillar_mark(q)
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        funds=["HDFC Large Cap Fund - Growth"],
+        tool_calls=[],
+    )
+    ensure_risk_tools(q, plan)
+    call = next(c for c in plan.tool_calls if c.tool == "get_fund_data")
+    assert call.arguments.get("pillars") is True
+
+
+def test_pillars_data_question_matches_pillar_mark():
+    from news_rag.fund_risk import asks_pillar_mark, render_pillar_marks_table
+
+    assert asks_pillar_mark("whats the pillars data")
+    table = render_pillar_marks_table(
+        {
+            "final_score": 64.55,
+            "label": "Good Choice",
+            "pillars": {
+                "performance": {"label": "Performance", "score": 32.05, "max": 40},
+                "risk": {"label": "Risk", "score": 10.5, "max": 25},
+            },
+        }
+    )
+    assert "32.05" in table
+    assert "Performance" in table
+
+
+def test_return_slice_requires_pillars_when_requested():
+    from news_rag.insight.capabilities.executor import _return_slice_covers
+
+    args = {"modules": ["rating"], "pillars": True}
+    headline_only = {"rs_rating": {"final_score": 64, "label": "Good Choice"}}
+    assert _return_slice_covers("get_fund_data", args, headline_only) is False
+    with_pillars = {
+        "rs_rating": {
+            "final_score": 64,
+            "pillars": {"performance": {"score": 1, "max": 40}},
+        }
+    }
+    assert _return_slice_covers("get_fund_data", args, with_pillars) is True

@@ -822,6 +822,90 @@ def _named_weights(rows: Any) -> list[dict[str, Any]]:
     return cleaned
 
 
+def _optional_number(value: Any) -> int | float | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number == int(number):
+        return int(number)
+    return number
+
+
+def parse_investment_limits(raw: Any) -> dict[str, Any]:
+    block = raw.get("investment_limits") if isinstance(raw, dict) else None
+    if not isinstance(block, dict):
+        return {}
+    modes: list[str] = []
+    for row in block.get("transaction_modes") or []:
+        if isinstance(row, dict):
+            mode = str(row.get("scheme_transaction_mode_demat_physical_allowed") or row.get("mode") or "").strip()
+        else:
+            mode = str(row or "").strip()
+        if mode and mode not in modes:
+            modes.append(mode)
+    frequencies: dict[str, dict[str, Any]] = {}
+    freq = block.get("sip_frequencies") if isinstance(block.get("sip_frequencies"), dict) else {}
+    for name, row in freq.items():
+        if not isinstance(row, dict):
+            continue
+        frequencies[str(name)] = {
+            "allowed": bool(row.get("allowed")),
+            "min_invest": _optional_number(row.get("min_invest")),
+            "additional": _optional_number(row.get("additional")),
+        }
+    return {
+        "min_sip": _optional_number(block.get("min_sip")),
+        "min_lumpsum": _optional_number(block.get("min_lumpsum")),
+        "min_additional": _optional_number(block.get("min_additional")),
+        "systematic": bool(block.get("systematic")),
+        "transaction_modes": modes,
+        "redemption_settlement": str(block.get("redemption_settlement") or "").strip(),
+        "sip_frequencies": frequencies,
+    }
+
+
+def parse_rupeestop_rating(raw: Any) -> dict[str, Any]:
+    block = raw.get("rupeestop_rating") if isinstance(raw, dict) else None
+    if not isinstance(block, dict):
+        return {}
+    score = _optional_number(block.get("score") if block.get("score") is not None else block.get("final_score"))
+    label = str(block.get("label") or "").strip()
+    if score is None and not label:
+        return {}
+    out: dict[str, Any] = {"label": label}
+    if score is not None:
+        out["score"] = float(score) if not isinstance(score, int) else score
+    computed = str(block.get("computed_at") or "").strip()
+    if computed:
+        out["computed_at"] = computed
+    return out
+
+
+def parse_holding_summary(raw: Any, portfolio: Any = None) -> dict[str, Any]:
+    sources: list[dict[str, Any]] = []
+    if isinstance(portfolio, dict):
+        sources.append(portfolio)
+    if isinstance(raw, dict):
+        sources.append(raw)
+        alloc = raw.get("allocations")
+        if isinstance(alloc, dict):
+            sources.append(alloc)
+    out: dict[str, Any] = {}
+    for key in ("holding_count", "top_5_pct", "top_10_pct"):
+        for source in sources:
+            if source.get(key) is None:
+                continue
+            number = _optional_number(source.get(key))
+            if number is None:
+                continue
+            out[key] = int(number) if key == "holding_count" else float(number)
+            break
+    return out
+
+
 class FundIndex:
     def __init__(self) -> None:
         self._loaded: bool = False
@@ -1254,6 +1338,9 @@ class FundIndex:
             "managers": parse_fund_managers_from_api_payload(raw),
             "sectors": sectors,
             "holdings": holdings,
+            "rupeestop_rating": parse_rupeestop_rating(raw),
+            "investment_limits": parse_investment_limits(raw),
+            **parse_holding_summary(raw, port),
         }
 
         with self._lock:

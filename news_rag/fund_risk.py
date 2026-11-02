@@ -280,6 +280,51 @@ def normalize_rating(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     return summary
 
 
+def headline_rating(detail: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Score and label from the fund payload. No computed date."""
+    block = detail.get("rupeestop_rating") if isinstance(detail, dict) else None
+    if not isinstance(block, dict):
+        return None
+    label = str(block.get("label") or "").strip()
+    score = block.get("score")
+    if score is None and not label:
+        return None
+    out: dict[str, Any] = {"label": label, "max_score": 100}
+    if score is not None:
+        try:
+            out["final_score"] = round(float(score), 2)
+        except (TypeError, ValueError):
+            if not label:
+                return None
+    return out
+
+
+def rating_needs_pillars(args: dict[str, Any] | None) -> bool:
+    """Admin pillar payload only for a full rating, not a headline score."""
+    src = args or {}
+    if src.get("pillars"):
+        return True
+    modules = {str(name).lower() for name in (src.get("modules") or [])}
+    return "rating" in modules and bool(modules & {"risk", "drawdown"})
+
+
+def rating_for_request(detail: dict[str, Any] | None, args: dict[str, Any] | None) -> dict[str, Any] | None:
+    headline = headline_rating(detail)
+    if not rating_needs_pillars(args):
+        return headline
+    isin = str((detail or {}).get("isin") or "").strip()
+    full = fetch_public_rating(isin) if isin else None
+    if not full:
+        return headline
+    full.pop("computed_at", None)
+    if headline:
+        if full.get("final_score") is None and headline.get("final_score") is not None:
+            full["final_score"] = headline["final_score"]
+        if not str(full.get("label") or "").strip():
+            full["label"] = headline.get("label") or ""
+    return full
+
+
 def _pillar_maximum(block: dict[str, Any], default_max: int) -> int:
     """API uses maxScore on debt and other types; older rows may use max."""
     for key in ("maxScore", "max", "maximum", "maxPossibleScore"):
@@ -337,7 +382,39 @@ def asks_pillar_mark(question: str) -> bool:
     text = question or ""
     if _PILLAR_SCORE_RE.search(text):
         return True
-    return bool(re.search(r"\bpillar\b", text, re.I) and pillar_focus(text))
+    if asks_pillar_structure(text) and not re.search(
+        r"\b(?:in|of|for)\s+(?:the\s+)?(?:(?:rupeestop|rs)\s+)?rating\b",
+        text,
+        re.I,
+    ) and not _SCHEME_RE.search(text):
+        return False
+    if re.search(r"\bpillar\b", text, re.I) and pillar_focus(text):
+        return True
+    if re.search(r"\bpillars?\b", text, re.I) and re.search(
+        r"\b(?:data|score|mark|number|breakdown|detail)\b|"
+        r"\b(?:in|of|for)\s+(?:the\s+)?(?:(?:rupeestop|rs)\s+)?rating\b",
+        text,
+        re.I,
+    ):
+        return True
+    return False
+
+
+def render_pillar_marks_table(rating: dict[str, Any] | None) -> str:
+    """Markdown table of pillar score out of max for the composer bypass path."""
+    if not isinstance(rating, dict):
+        return ""
+    pillars = rating.get("pillars") if isinstance(rating.get("pillars"), dict) else {}
+    if not pillars:
+        return ""
+    rows: list[str] = ["| Pillar | Score | Max |", "| --- | --- | --- |"]
+    for key, _label, _default in _PILLARS:
+        block = pillars.get(key)
+        if not isinstance(block, dict) or block.get("score") is None:
+            continue
+        name = str(block.get("label") or _label)
+        rows.append(f"| {name} | {block['score']} | {block.get('max', '')} |")
+    return "\n".join(rows) if len(rows) > 2 else ""
 
 
 def _ensure_pillar_rating_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
@@ -351,7 +428,7 @@ def _ensure_pillar_rating_plan(question: str, plan: ExecutionPlan) -> ExecutionP
     }.get(focus, "pillar mark")
 
     kept = [call for call in plan.tool_calls if call.tool != "get_fund_data"]
-    call = ToolCall(tool="get_fund_data", arguments={"modules": ["rating"]}, wave=1)
+    call = ToolCall(tool="get_fund_data", arguments={"modules": ["rating"], "pillars": True}, wave=1)
     plan.tool_calls = [call, *kept]
 
     asked = set(plan.asked_facts or [])
@@ -380,6 +457,7 @@ def rating_lead(summary: dict[str, Any] | None, question: str = "") -> str:
 
     if not isinstance(summary, dict):
         return ""
+    summary = {key: value for key, value in summary.items() if key != "computed_at"}
     if asks_manager_roster(question):
         return ""
     pillars = summary.get("pillars") if isinstance(summary.get("pillars"), dict) else {}
@@ -484,15 +562,15 @@ def fetch_public_rating(isin: str, *, timeout: float = 12.0) -> dict[str, Any] |
     return None
 
 
-def load_fund_risk(fund_name: str, question: str = "") -> dict[str, Any]:
+def load_fund_risk(fund_name: str, question: str = "", *, include_pillars: bool = False) -> dict[str, Any]:
     from news_rag.fund_search import resolve_fund_for_query
 
     detail, _amb, _close = resolve_fund_for_query(fund_name)
-    isin = str((detail or {}).get("isin") or "").strip()
-    rating = fetch_public_rating(isin) if isin else None
     summary: dict[str, Any] = {}
-    if rating:
-        summary.update(rating)
+    if include_pillars:
+        rating = rating_for_request(detail, {"modules": ["rating", "risk"], "pillars": True})
+        if rating:
+            summary.update(rating)
     summary.update(exposure_from_detail(detail))
     if detail and detail.get("fund_name"):
         summary["fund_name"] = detail.get("fund_name")
@@ -568,6 +646,8 @@ def ensure_risk_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
         plan.asked_facts = []
         return plan
     if asks_pillar_mark(question):
+        return _ensure_pillar_rating_plan(question, plan)
+    if asks_pillar_structure(question) and plan.funds:
         return _ensure_pillar_rating_plan(question, plan)
     if asks_risk_trend_comparison(question):
         plan = _ensure_risk_trend_plan(question, plan)

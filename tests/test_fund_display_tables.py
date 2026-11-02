@@ -1,4 +1,5 @@
 from news_rag.insight.fund_display import (
+    assemble_fund_overview_answer,
     build_fund_display_tables,
     format_display_tables_markdown,
     normalize_user_facing_text,
@@ -270,3 +271,23 @@ def test_normalize_inserts_blank_line_before_markdown_table():
     raw = "Here are five funds:\n| Fund | Score |\n|---|---|\n| A | 1 |"
     out = normalize_user_facing_text(raw)
     assert ":\n\n|" in out
+
+
+def test_overview_puts_rating_and_tables_before_news():
+    tables = {
+        "_title": "HDFC Large Cap Fund - Growth",
+        "fund_facts_table": "| Metric | Value |\n| --- | --- |\n| NAV | ₹1 |\n",
+        "_heading_fund_facts_table": "### The fund",
+    }
+    prose = (
+        "### What stands out\n\n**ICICI Bank · 9% · Banks**\n\n- Tariff news.\n\n"
+        "## HDFC Large Cap Fund - Growth: overview\n\n"
+        "**Asset mix:** Equity 98%.\n\n"
+        "**RupeeStop rating:** Good Choice.\n"
+    )
+    lead = "**RupeeStop rating:** 64.55 out of 100, Good Choice."
+    out = assemble_fund_overview_answer(prose, tables, rating_lead_text=lead)
+    assert out.index("## HDFC Large Cap Fund") < out.index("### What stands out")
+    assert "64.55 out of 100" in out.split("### What stands out")[0]
+    assert "Asset mix" not in out
+    assert ": overview" not in out

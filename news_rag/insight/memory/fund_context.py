@@ -51,10 +51,106 @@ def list_cursor_fund_name(memory: dict[str, Any] | None) -> str:
 
 
 def primary_fund_name(memory: dict[str, Any] | None) -> str:
+    if isinstance(memory, dict):
+        frame = memory.get("frame")
+        if isinstance(frame, dict):
+            focus = str(frame.get("last_fund_focus") or "").strip()
+            if focus:
+                return focus
     name = str(primary_fund_subject(memory).get("name") or "").strip()
     if name:
         return name
     return list_cursor_fund_name(memory)
+
+
+def memory_known_fund_names(memory: dict[str, Any] | None) -> list[str]:
+    """Fund names the session already knows (holdings, stack, subjects, cursor) — not planner inventions."""
+    if not isinstance(memory, dict):
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    frame = memory.get("frame") if isinstance(memory.get("frame"), dict) else {}
+
+    def _add(raw: str) -> None:
+        name = str(raw or "").strip()
+        key = name.lower()
+        if not name or key in seen:
+            return
+        seen.add(key)
+        out.append(name)
+
+    for row in frame.get("investor_subjects") or []:
+        if isinstance(row, dict):
+            _add(str(row.get("name") or ""))
+    for row in memory.get("holdings_in_chat") or []:
+        if isinstance(row, dict):
+            _add(str(row.get("name") or ""))
+        else:
+            _add(str(row))
+    for name in _memory_fund_name_sources(memory):
+        _add(name)
+    focus = str(frame.get("last_fund_focus") or "").strip()
+    if focus:
+        _add(focus)
+    return out
+
+
+def fund_name_mentioned_in_memory(question: str, memory: dict[str, Any] | None) -> str:
+    """Longest known fund name appearing in the user text (holdings / chat memory)."""
+    q = (question or "").lower()
+    if not q:
+        return ""
+    best = ""
+    for name in memory_known_fund_names(memory):
+        if name.lower() in q and len(name) > len(best):
+            best = name
+    return best
+
+
+def last_fund_name_from_gists(memory: dict[str, Any] | None) -> str:
+    for row in reversed(memory.get("gists") or [] if isinstance(memory, dict) else []):
+        if not isinstance(row, dict):
+            continue
+        gist = str(row.get("gist") or "").lower()
+        if not gist or gist.startswith("no fund"):
+            continue
+        for name in memory_known_fund_names(memory):
+            if name.lower() in gist:
+                return name
+    return ""
+
+
+def recent_fund_focus_names(memory: dict[str, Any] | None) -> list[str]:
+    if not isinstance(memory, dict):
+        return []
+    frame = memory.get("frame")
+    if not isinstance(frame, dict):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in frame.get("recent_fund_focus") or []:
+        name = str(raw or "").strip()
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            out.append(name)
+    focus = str(frame.get("last_fund_focus") or "").strip()
+    if focus and focus.lower() not in seen:
+        out.insert(0, focus)
+    return out
+
+
+def push_recent_fund_focus(frame: dict[str, Any], fund_name: str) -> None:
+    name = str(fund_name or "").strip()
+    if not name:
+        return
+    recent = [name] + [
+        str(x).strip()
+        for x in (frame.get("recent_fund_focus") or [])
+        if str(x).strip() and str(x).strip().lower() != name.lower()
+    ]
+    frame["recent_fund_focus"] = recent[:4]
+    frame["last_fund_focus"] = name
 
 
 def fund_name_matches_category(fund_name: str, category: str) -> bool:

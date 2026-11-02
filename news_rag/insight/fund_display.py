@@ -705,6 +705,12 @@ def build_fund_display_tables(
         if len(fact_lines) > 2:
             tables["fund_facts_table"] = "\n".join(fact_lines)
 
+    risk = (block or {}).get("risk") if isinstance(block, dict) else {}
+    if isinstance(risk, dict) and str(risk.get("riskometer") or "").strip() and tables.get("fund_facts_table"):
+        ro = str(risk["riskometer"]).strip()
+        if "SEBI riskometer" not in tables["fund_facts_table"]:
+            tables["fund_facts_table"] += "\n" + _table_row(["SEBI riskometer", _cell(ro)], 2)
+
     attr = (block or {}).get("attribution") if block else None
     rows = []
     if isinstance(attr, dict):
@@ -727,7 +733,6 @@ def build_fund_display_tables(
             hlines.append(_table_row(_holding_row_cells(r), hold_ncol))
         tables["holdings_move_table"] = "\n".join(hlines)
 
-    risk = (block or {}).get("risk") if isinstance(block, dict) else {}
     portfolio_block = portfolios[0] if portfolios else {}
     composition = _composition_table_markdown(
         risk if isinstance(risk, dict) else {},
@@ -778,6 +783,95 @@ _DISPLAY_SECTIONS: tuple[tuple[str, str], ...] = (
     ("category_average_table", "### Category average"),
     ("drawdown_table", "### Drawdown"),
 )
+
+_OVERVIEW_TOP_TABLE_KEYS = frozenset(
+    {
+        "fund_facts_table",
+        "vs_benchmark_table",
+        "composition_table",
+        "portfolio_holdings_table",
+        "portfolio_sectors_table",
+    }
+)
+
+_OVERVIEW_INLINE_DUP = re.compile(
+    r"^\s*\*\*(?:Asset mix|Market cap mix|Top sectors|Top holdings|"
+    r"The fund's NAV|RupeeStop rating|SEBI riskometer).*\*\*",
+    re.I,
+)
+
+
+def _strip_overview_prose_block(text: str) -> str:
+    """Drop the composer's ': overview' section and trailing duplicate ## fund title."""
+    lines = (text or "").replace("\r\n", "\n").split("\n")
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if re.match(r"^## .+\boverview\s*$", stripped, re.I):
+            i += 1
+            while i < len(lines) and not re.match(r"^#{2,3}\s+", lines[i].strip()):
+                i += 1
+            continue
+        if re.match(r"^## [^#]", stripped) and ": overview" not in stripped.lower():
+            title = stripped[2:].strip()
+            if out and any(title.lower() == p.strip().lower() for p in out if p.startswith("## ")):
+                i += 1
+                while i < len(lines) and not re.match(r"^#{2,3}\s+", lines[i].strip()):
+                    i += 1
+                continue
+        out.append(line)
+        i += 1
+    cleaned = "\n".join(out)
+    kept: list[str] = []
+    for line in cleaned.split("\n"):
+        if _OVERVIEW_INLINE_DUP.match(line):
+            continue
+        kept.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
+def assemble_fund_overview_answer(
+    prose: str,
+    tables: dict[str, str],
+    *,
+    rating_lead_text: str = "",
+    question: str = "",
+) -> str:
+    """Fund name, RS rating, and tables first; news and narrative follow."""
+    if not tables:
+        return prose
+    subset = {k: v for k, v in tables.items() if k in _OVERVIEW_TOP_TABLE_KEYS or k.startswith("_heading_")}
+    if tables.get("_title"):
+        subset["_title"] = tables["_title"]
+    table_block = format_display_tables_markdown(subset, question=question, only_keys=_OVERVIEW_TOP_TABLE_KEYS)
+    name = str(tables.get("_title") or "").strip()
+    header_parts: list[str] = []
+    if name:
+        header_parts.append(f"## {name}")
+    if rating_lead_text.strip():
+        header_parts.append(rating_lead_text.strip())
+    if table_block:
+        body = table_block
+        if name and body.startswith(f"## {name}"):
+            body = body.split("\n", 1)[1].strip() if "\n" in body else ""
+        if body:
+            header_parts.append(body)
+    header = "\n\n".join(header_parts).strip()
+    if not header:
+        return prose
+
+    cleaned = strip_empty_table_pointers(
+        strip_missing_data_caveats(
+            strip_empty_bold_sections(strip_composer_display_sections(prose or ""))
+        ),
+        subset,
+    )
+    cleaned = _strip_overview_prose_block(cleaned)
+    if not cleaned:
+        return header
+    return f"{header}\n\n{cleaned}".strip()
 
 
 def format_display_tables_markdown(
@@ -856,6 +950,27 @@ def strip_composer_display_sections(prose: str) -> str:
         out.append(line)
         i += 1
     return re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+
+
+def strip_grounding_holes(prose: str) -> str:
+    """Drop bullets left meaningless after grounding removed ungrounded figures."""
+    kept: list[str] = []
+    for line in (prose or "").splitlines():
+        stripped = line.strip()
+        if not stripped:
+            kept.append(line)
+            continue
+        if stripped.startswith(("-", "*")):
+            digit_count = len(re.findall(r"\d", stripped))
+            hollow = re.search(
+                r"about\s*[,.]|worth about|invested and now worth|loss of about|\(\s*\)|\*\*\s*\*\*",
+                stripped,
+                re.I,
+            )
+            if hollow and digit_count < 2:
+                continue
+        kept.append(line)
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
 
 
 def strip_missing_data_caveats(prose: str) -> str:

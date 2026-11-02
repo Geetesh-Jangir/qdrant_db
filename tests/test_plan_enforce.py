@@ -1,4 +1,4 @@
-from news_rag.insight.contracts import ExecutionPlan, ToolCall
+from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
 from news_rag.insight.plan_enforce import (
     apply_planner_post_hooks,
     repair_data_need_tools,
@@ -200,3 +200,21 @@ def test_repair_holdings_breakdown_adds_risk():
     assert tools[0] == "get_fund_data"
     assert "risk" in plan.tool_calls[0].arguments["modules"]
     assert "sectors" in plan.tool_calls[-1].arguments["sections"]
+
+
+def test_planner_pillars_in_rating_fetches_full_rating():
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        subject_ref="memory_primary",
+        funds=["HDFC Large Cap Fund - Growth"],
+        tool_calls=[],
+    )
+    memory = {
+        "frame": {"subjects": [{"name": "HDFC Large Cap Fund - Growth", "role": "primary"}]},
+    }
+    out = apply_planner_post_hooks("what are the pillars in rating", plan, memory)
+    assert any(c.tool == "get_fund_data" for c in out.tool_calls)
+    call = next(c for c in out.tool_calls if c.tool == "get_fund_data")
+    assert call.arguments.get("pillars") is True

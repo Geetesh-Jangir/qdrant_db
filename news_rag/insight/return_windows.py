@@ -20,15 +20,48 @@ _FIXED_DAYS = {
     "10Y": 3650,
 }
 _UNIT_DAYS = {"D": 1, "W": 7, "M": 30, "Y": 365}
+DEFAULT_RETURN_WINDOWS = ["1Y", "3Y", "5Y"]
+_PUBLISHED_RETURN_KEYS = {
+    "1W": "1w",
+    "1M": "1m",
+    "3M": "3m",
+    "6M": "6m",
+    "9M": "9m",
+    "YTD": "ytd",
+    "1Y": "1y",
+    "2Y": "2y",
+    "3Y": "3y",
+    "4Y": "4y",
+    "5Y": "5y",
+    "INCEPTION": "inception",
+}
 
 
 def normalize_window_code(raw: str) -> str:
     text = re.sub(r"[^A-Z0-9]", "", str(raw or "").upper())
     if text in ("YTD", "YEARTILLDATE", "YEARTONOW"):
         return "YTD"
+    if text in ("INCEPTION", "SINCEINCEPTION"):
+        return "INCEPTION"
     if text in _FIXED_DAYS or _CODE.match(text):
         return text
     return ""
+
+
+def published_return(returns: dict[str, Any], code: str) -> float | None:
+    """Return already published on the fund payload. None when this window is not there."""
+    key = _PUBLISHED_RETURN_KEYS.get(normalize_window_code(code))
+    if not key or not isinstance(returns, dict):
+        return None
+    raw = returns.get(key)
+    if raw is None:
+        raw = returns.get(key.upper())
+    if isinstance(raw, dict):
+        raw = raw.get("value")
+    try:
+        return float(raw) if raw is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def window_to_days(code: str) -> int | None:

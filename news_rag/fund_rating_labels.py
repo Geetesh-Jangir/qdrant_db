@@ -65,3 +65,18 @@ def is_lower_tier_than(picked: str, anchor: str) -> bool:
     if not anchor:
         return False
     return tier_rank(picked) > tier_rank(anchor)
+
+
+def is_higher_rated_than(picked: str, picked_score: float | None, anchor_label: str, anchor_score: float | None) -> bool:
+    """True when picked is a strictly better RS label tier, or same tier with higher score."""
+    anchor = normalize_rs_label(anchor_label or "")
+    pick_label = normalize_rs_label(picked or "")
+    if anchor and pick_label:
+        pr, ar = tier_rank(pick_label), tier_rank(anchor)
+        if pr < ar:
+            return True
+        if pr > ar:
+            return False
+    if anchor_score is not None and picked_score is not None:
+        return float(picked_score) > float(anchor_score)
+    return False
