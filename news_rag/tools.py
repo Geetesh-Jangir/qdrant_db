@@ -268,6 +268,8 @@ def explicit_return_window(question: str) -> str:
         return "3Y"
     if re.search(r"\b2\s*years?\b|\btwo\s+years?\b|\b24\s*months?\b", text):
         return "2Y"
+    if re.search(r"\b(?:one|1)\s*days?\b|\bone\s+day\b|\bdaily\s+return\b", text):
+        return "1D"
     if re.search(r"\b(last|past|this)\s+week\b|\b1\s*weeks?\b|\bone\s+weeks?\b|\b7\s*days?\b", text):
         return "1W"
     if re.search(r"\b6\s*months?\b|\bsix\s+months?\b|\bhalf\s*year\b|\b180\s*days?\b", text):

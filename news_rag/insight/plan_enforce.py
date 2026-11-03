@@ -153,7 +153,15 @@ def resolve_planner_subject_refs(
                 if len(pair) >= 2:
                     plan.funds = pair[:2]
         elif not plan.funds:
-            name = primary_fund_name(memory)
+            from news_rag.insight.investor_subject import (
+                question_refers_deictic_fund,
+                resolve_deictic_fund_name,
+            )
+
+            if question_refers_deictic_fund(question):
+                name = resolve_deictic_fund_name(question, memory)
+            else:
+                name = primary_fund_name(memory)
             if name:
                 plan.funds = [name]
         else:
@@ -352,7 +360,14 @@ def apply_planner_post_hooks(
     reconcile_deictic_planner_fund(plan, memory, question)
     enforce_investor_holding_subject(plan, memory, question)
     enforce_deictic_and_memory_primary_fund(plan, memory, question)
+    from news_rag.insight.plan_catalog_bind import ensure_whole_book_catalog_scope
+
+    ensure_whole_book_catalog_scope(plan, memory, question)
     plan = ensure_deictic_fund_period_return_plan(plan, memory, question)
+    from news_rag.insight.fact_slots import merge_planner_asked_facts, tag_answer_parts
+
+    merge_planner_asked_facts(plan)
+    plan = tag_answer_parts(plan)
     ensure_catalog_tools_for_fund_news(plan)
     ensure_compare_fund_pair(plan, memory, question)
     apply_category_scoped_compare_funds(question, plan, memory)
@@ -381,6 +396,10 @@ def apply_planner_post_hooks(
         return plan
 
     repair_data_need_tools(plan)
+
+    from news_rag.insight.plan_catalog_bind import enforce_planner_catalog_plan
+
+    plan = enforce_planner_catalog_plan(plan, memory)
 
     if planner_owns(plan):
         need = str(plan.data_need or "none").lower()

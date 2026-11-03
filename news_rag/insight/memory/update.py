@@ -80,7 +80,10 @@ def _facts_from_plan(plan: Any) -> list[str]:
     for call in plan.tool_calls or []:
         args = call.arguments or {}
         if call.tool == "get_fund_data":
-            facts.extend(str(item) for item in (args.get("modules") or []))
+            modules = [str(item) for item in (args.get("modules") or [])] or ["snapshot"]
+            windows = ",".join(str(item) for item in (args.get("windows") or [])) or "-"
+            facts.extend(f"get_fund_data:{mod}:{windows}" for mod in modules)
+            facts.extend(modules)
             facts.extend(str(item) for item in (args.get("windows") or []))
         elif call.tool == "get_portfolio_data":
             facts.extend(str(item) for item in (args.get("sections") or []))
@@ -362,7 +365,7 @@ def commit_turn(
             focus = mentioned
     if len(subjects) == 1 and subjects[0].get("name"):
         focus = str(subjects[0]["name"]).strip()
-    elif fund_tool_ok and len(getattr(plan, "funds", None) or []) == 1:
+    elif len(getattr(plan, "funds", None) or []) == 1:
         focus = str(plan.funds[0]).strip()
     if focus:
         push_recent_fund_focus(frame, focus)

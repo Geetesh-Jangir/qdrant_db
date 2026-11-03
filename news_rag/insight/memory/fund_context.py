@@ -50,6 +50,48 @@ def list_cursor_fund_name(memory: dict[str, Any] | None) -> str:
     return str(first.get("name") or "").strip()
 
 
+def owned_holding_rows(memory: dict[str, Any] | None) -> list[dict[str, str]]:
+    """User book from memory: name + ISIN for catalog tool resolution."""
+    if not isinstance(memory, dict):
+        return []
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    frame = memory.get("frame") if isinstance(memory.get("frame"), dict) else {}
+
+    def _add(name: str, isin: str) -> None:
+        cleaned = str(name or "").strip()
+        key = cleaned.lower()
+        if not cleaned or key in seen:
+            return
+        seen.add(key)
+        out.append({"name": cleaned, "isin": str(isin or "").strip().upper()})
+
+    for row in memory.get("holdings_in_chat") or []:
+        if isinstance(row, dict):
+            _add(str(row.get("name") or ""), str(row.get("isin") or ""))
+    for row in frame.get("investor_subjects") or []:
+        if isinstance(row, dict):
+            _add(str(row.get("name") or ""), str(row.get("isin") or row.get("id") or ""))
+    return out
+
+
+def owned_holding_names(memory: dict[str, Any] | None) -> list[str]:
+    return [row["name"] for row in owned_holding_rows(memory)]
+
+
+def isin_for_owned_holding(memory: dict[str, Any] | None, fund_name: str) -> str:
+    target = str(fund_name or "").strip().lower()
+    if not target:
+        return ""
+    for row in owned_holding_rows(memory):
+        name = row["name"].lower()
+        if name == target or target in name or name in target:
+            isin = row.get("isin") or ""
+            if isin.startswith("INF"):
+                return isin
+    return ""
+
+
 def primary_fund_name(memory: dict[str, Any] | None) -> str:
     if isinstance(memory, dict):
         frame = memory.get("frame")

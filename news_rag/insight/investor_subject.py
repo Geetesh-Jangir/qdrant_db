@@ -113,6 +113,10 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
         "whole portfolio",
         "entire portfolio",
         "all my funds",
+        "my all funds",
+        "all of my funds",
+        "each of my funds",
+        "every fund i own",
         "all my holdings",
         "my holdings",
         "my mutual funds",
@@ -343,13 +347,16 @@ def resolve_deictic_fund_name(
         return mentioned
     for name in recent_fund_focus_names(memory):
         return name
-    name = primary_fund_name(memory)
-    if name:
-        return name
     gist_name = last_fund_name_from_gists(memory)
     if gist_name:
         return gist_name
-    known = {n.lower() for n in memory_known_fund_names(memory)}
+    known_list = memory_known_fund_names(memory)
+    known = {n.lower() for n in known_list}
+    if len(known_list) == 1:
+        return known_list[0]
+    focused = primary_fund_name(memory)
+    if focused and len(known_list) <= 1:
+        return focused
     if isinstance(memory, dict):
         stack = memory.get("entity_stack") or []
         for row in stack:
@@ -388,16 +395,11 @@ def question_asks_fund_measured_return(question: str) -> bool:
     return False
 
 
-def plan_targets_single_fund_measured_return(plan: ExecutionPlan, question: str) -> bool:
-    if not question_asks_fund_measured_return(question):
+def plan_targets_single_fund_measured_return(plan: ExecutionPlan, question: str = "") -> bool:
+    del question
+    if len(plan.funds or []) != 1:
         return False
-    fund = str((plan.funds or [""])[0] or "").strip()
-    if not fund:
-        return False
-    ref = str(plan.subject_ref or "none").strip().lower()
-    if question_refers_deictic_fund(question) or ref == "memory_primary":
-        return True
-    return len(plan.funds or []) == 1
+    return any(call.tool == "get_fund_data" for call in plan.tool_calls or [])
 
 
 def ensure_deictic_fund_period_return_plan(
@@ -405,7 +407,9 @@ def ensure_deictic_fund_period_return_plan(
     memory: dict[str, Any] | None,
     question: str = "",
 ) -> ExecutionPlan:
-    """Deictic / memory_primary + '1 month change in this fund' → get_fund_data snapshot, not investor_pnl."""
+    """Deictic / memory_primary + measured return → get_fund_data snapshot, not investor_pnl only."""
+    if str(plan.holding_scope or "").strip().lower() == "all_holdings":
+        return plan
     if question_asks_whole_investor_portfolio(question, plan):
         return plan
     if not question_asks_fund_measured_return(question):
@@ -424,13 +428,25 @@ def ensure_deictic_fund_period_return_plan(
     if not fund:
         return plan
 
-    from news_rag.insight.return_windows import window_to_days
-    from news_rag.tools import explicit_return_window, infer_return_window
+    from news_rag.insight.plan_catalog_bind import _window_codes_from_plan
 
-    window = explicit_return_window(question or "") or infer_return_window(question or "")
-    window_days = window_to_days(window) or int(plan.window_days or 30) or 30
+    windows = _window_codes_from_plan(plan)
+    if not windows:
+        from news_rag.insight.return_windows import window_to_days
+
+        days = int(plan.window_days or 0)
+        from news_rag.insight.plan_catalog_bind import _DAYS_TO_WINDOW
+
+        code = _DAYS_TO_WINDOW.get(days)
+        windows = [code] if code else []
+    window = windows[0] if windows else "1M"
+    window_days = int(plan.window_days or 0) or 30
+    from news_rag.insight.return_windows import window_to_days
+
+    window_days = window_to_days(window) or window_days
 
     plan.funds = [fund]
+    plan.holding_scope = "single"
     plan.subject_ref = "memory_primary"
     plan.data_need = "none"
     plan.portfolio_scope = "catalog"
@@ -531,7 +547,9 @@ def enforce_deictic_and_memory_primary_fund(
         elif deictic and any(c.tool == "get_fund_data" for c in plan.tool_calls or []):
             plan.funds = []
     elif ref == "memory_primary" and not plan.funds:
-        name = resolve_deictic_fund_name(question, memory) or primary_fund_name(memory)
+        name = resolve_deictic_fund_name(question, memory)
+        if not name and not deictic:
+            name = primary_fund_name(memory)
         if name:
             plan.funds = [name]
     return plan

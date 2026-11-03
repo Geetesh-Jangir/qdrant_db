@@ -254,12 +254,13 @@ def test_deictic_one_month_uses_get_fund_data_not_investor_pnl():
 def test_deictic_return_without_memory_focus_does_not_title_largest_holding():
     holdings = [
         {"name": "Invesco India Large & Mid Cap Fund - Regular Plan - Growth", "category": "large & mid cap"},
+        {"name": "Quant Small Cap Fund - Growth", "category": "small cap"},
     ]
     plan = ExecutionPlan(funds=[], subject_ref="memory_primary")
     subject = resolve_answer_subject(
         "whats the last one month changes in this fund",
         plan,
         {"frame": {"last_fund_focus": ""}, "holdings_in_chat": holdings},
-        investor_holdings=[{"scheme_name": holdings[0]["name"]}],
+        investor_holdings=[{"scheme_name": row["name"]} for row in holdings],
     )
     assert subject == ""

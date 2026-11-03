@@ -36,7 +36,7 @@ Plan = ExecutionPlan
 SCOPE_KINDS = ("in_scope", "out_of_scope", "needs_clarification")
 INTENTS = ("lookup", "explain_cause", "compare", "overview", "rank", "outlook")
 ANSWER_MODES = ("DATA_ONLY", "NEWS_ONLY", "INSIGHT_FUSION")
-QUERY_CLASSES = ("simple", "standard", "complex")
+QUERY_CLASSES = ("simple", "standard", "complex", "general", "portfolio", "fund", "mixed")
 RESPONSE_SHAPES = ("short_answer", "bullets", "paragraph", "table", "sections")
 DEPTHS = ("quick", "standard", "deep")
 
@@ -195,6 +195,15 @@ PLAN_SCHEMA: dict[str, Any] = {
                         "Good Choice, Average, Underperformer. Use with scheme_category on screens."
                     ),
                 },
+                "holding_scope": {
+                    "type": "string",
+                    "enum": ["none", "single", "all_holdings"],
+                    "description": (
+                        "single: one scheme (name it in entities.funds). "
+                        "all_holdings: every scheme in holdings_in_chat (each fund's 1D return, which fund has more banks, etc.). "
+                        "Use portfolio_scope both and list every holding name in entities.funds or set all_holdings."
+                    ),
+                },
             },
             "required": ["count", "portfolio_slice", "reading"],
         },
@@ -253,6 +262,7 @@ PLAN_SCHEMA: dict[str, Any] = {
                         "type": "object",
                         "properties": {
                             "text": {"type": "string"},
+                            "source": {"type": "string", "enum": ["tool", "llm", "memory"]},
                         },
                         "required": ["text"],
                     },
@@ -414,6 +424,9 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
     from news_rag.fund_rating_labels import normalize_rs_label
 
     rs_label = normalize_rs_label(str(request.get("rs_label") or ""))
+    holding_scope = str(request.get("holding_scope") or "none").strip().lower()
+    if holding_scope not in ("none", "single", "all_holdings"):
+        holding_scope = "none"
     memory = data.get("memory") if isinstance(data.get("memory"), dict) else {}
     relation = str(memory.get("turn_relation") or "").strip()
     if relation not in ("continue", "partial_keep", "reset"):
@@ -460,7 +473,11 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
     sub_queries: list[dict[str, Any]] = []
     for sq in pres.get("sub_queries") or []:
         if isinstance(sq, dict) and str(sq.get("text") or "").strip():
-            sub_queries.append({"text": str(sq["text"]).strip()})
+            item = {"text": str(sq["text"]).strip()}
+            source = str(sq.get("source") or "").strip().lower()
+            if source in ("tool", "llm", "memory"):
+                item["source"] = source
+            sub_queries.append(item)
         elif isinstance(sq, str) and sq.strip():
             sub_queries.append({"text": sq.strip()})
 
@@ -500,6 +517,7 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
         scheme_category=scheme_category,
         scheme_categories=scheme_categories,
         rs_label=rs_label,
+        holding_scope=holding_scope,
         data_need=str(under.get("data_need") or "none").strip().lower() or "none",
         portfolio_scope=str(under.get("portfolio_scope") or "none").strip().lower() or "none",
         subject_ref=str(under.get("subject_ref") or "none").strip().lower() or "none",
@@ -733,6 +751,10 @@ A specific question lists only the modules that answer it. query_class is simple
 - A named-fund overview that also fetches news: add get_portfolio_data sections ["holdings", "sectors"] on wave 1. The news has to be tied to a weight. A later question that asks for a different section, period, or module is a new tool call. Do not reuse the previous call's arguments. Snapshot windows are ["1Y", "3Y", "5Y"] unless a period was named.
 - Versus the benchmark only: get_fund_data modules ["vs_benchmark"] only. Do not add snapshot, return_series, or attribution.
 - The fund manager's name: get_fund_data modules ["managers"] only.
+- **All holdings in the user's book** (each fund's return, which of my funds has more banks): set request.holding_scope to all_holdings, portfolio_scope both, list every scheme from holdings_in_chat in entities.funds (with ISIN if known), and add get_fund_data and/or get_portfolio_data on wave 1. Do not rely on get_investor_portfolio alone for catalog return windows or sector weights inside schemes.
+- **Banking (or any sector) in every fund I own**: holding_scope all_holdings, entities.funds = all holdings, entities.sectors includes the sector (e.g. banks), get_portfolio_data sections ["sectors"] with find set when the tool supports it, portfolio_scope both.
+- shown_facts lists the exact modules and windows already fetched, such as get_fund_data:snapshot:1M. A different window (1Y after 1M) is missing. Call get_fund_data again with that window. Do not answer from the older window.
+- A definition or full form (what is NAV, full form of SIP) is source llm and needs no tool. A figure for the user's fund is source tool. A question with both keeps tools only for the figure. Set presentation.sub_queries source to tool, llm, or memory. query_class is general when the whole question needs no tool, portfolio for the user's book, fund for one scheme, mixed when both a definition and a figure are asked.
 A question with more than one part is still one plan. List each part in presentation.sub_queries and put every tool those parts need on wave 1. A figure plus what it means, or whether a low or high value is good, is several parts: fetch the figure, and leave the meaning and the judgement to the composer. No extra tool is required for a definition. A misspelling still means the intended word. Do not drop a part.
 "Returns of this fund for 1 month, and why did they change?" is two parts: get_fund_data modules ["snapshot", "attribution"] with windows ["1M"], plus search_financial_news on wave 1. Do not load 1W, 3M, 6M, 1Y, or return_series.
 

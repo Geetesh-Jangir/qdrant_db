@@ -514,6 +514,10 @@ class QueryLogger:
                 {
                     "intent": getattr(plan, "intent", ""),
                     "answer_mode": mode,
+                    "query_class": getattr(getattr(plan, "query_class", None), "value", "") or getattr(plan, "query_class", ""),
+                    "data_need": getattr(plan, "data_need", ""),
+                    "subject_ref": getattr(plan, "subject_ref", ""),
+                    "asked_facts": getattr(plan, "asked_facts", None) or [],
                     "window_days": getattr(plan, "window_days", None),
                     "window_label": getattr(plan, "window_label", ""),
                     "funds": getattr(plan, "funds", None) or [],
@@ -526,6 +530,7 @@ class QueryLogger:
             self.write(
                 f"PLAN_TOOL wave={getattr(call, 'wave', '')} "
                 f"tool={getattr(call, 'tool', '')} "
+                f"why={getattr(call, 'why', '')} "
                 f"args={json.dumps(args, ensure_ascii=False, default=str)}"
             )
 
@@ -557,6 +562,64 @@ class QueryLogger:
                 text = text[:12000] + "\n...truncated"
             for line in text.splitlines():
                 self.write("  " + line)
+
+    def log_memory_used(self, memory: dict[str, Any] | None) -> None:
+        frame = memory.get("frame") if isinstance(memory, dict) and isinstance(memory.get("frame"), dict) else {}
+        self.write(
+            "MEMORY_USED "
+            + _kv(
+                {
+                    "last_fund_focus": frame.get("last_fund_focus") or "",
+                    "subject_kind": frame.get("subject_kind") or "",
+                    "shown_facts": frame.get("shown_facts") or [],
+                    "period": frame.get("period") or "",
+                }
+            )
+        )
+
+    def log_slot_plan(self, question: str, plan: Any) -> None:
+        from news_rag.insight.fact_slots import slots_from_plan
+
+        slots = slots_from_plan(plan) if plan is not None else []
+        tools = [getattr(call, "tool", "") for call in (getattr(plan, "tool_calls", None) or [])]
+        self.write(
+            f"SLOT_PLAN slots={slots} holding_scope={getattr(plan, 'holding_scope', '')} tools={tools}"
+        )
+        needs_fund = any(str(s).startswith("return:") or s in ("nav", "fund_manager", "rs_rating", "four_pillars") for s in slots)
+        if needs_fund and "get_fund_data" not in tools:
+            self.write("WARN tools_expected_but_none slots=" + ",".join(str(s) for s in slots))
+
+    def log_tool_facts(self, question: str, results: list[dict[str, Any]], plan: Any = None) -> None:
+        from news_rag.insight.fact_slots import missing_slots, render_asked_facts, slots_from_plan
+
+        slots = slots_from_plan(plan) if plan is not None else []
+        if not slots:
+            return
+        block = render_asked_facts(slots, results)
+        missing = missing_slots(slots, results)
+        self.write("TOOL_FACTS " + (block.replace("\n", " | ") if block else "none"))
+        if missing:
+            self.write("MISSING slots=" + ",".join(missing))
+
+    def log_error_summary(
+        self,
+        results: list[dict[str, Any]],
+        question: str = "",
+        plan: Any = None,
+    ) -> None:
+        del question
+        errors = [
+            f"{row.get('tool')}:{row.get('error') or 'not_ok'}"
+            for row in results or []
+            if isinstance(row, dict) and not row.get("ok")
+        ]
+        from news_rag.insight.fact_slots import missing_slots, slots_from_plan
+
+        missing = missing_slots(slots_from_plan(plan), results) if plan is not None else []
+        self.write(
+            "ERROR_SUMMARY "
+            + _kv({"tool_errors": errors or "none", "missing_slots": missing or "none"})
+        )
 
     def log_insight_output(
         self,

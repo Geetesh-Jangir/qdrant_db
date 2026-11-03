@@ -35,6 +35,10 @@ class QueryClass(str, Enum):
     SIMPLE = "simple"
     STANDARD = "standard"
     COMPLEX = "complex"
+    GENERAL = "general"
+    PORTFOLIO = "portfolio"
+    FUND = "fund"
+    MIXED = "mixed"
 
 
 # ---------------------------------------------------------------------------
@@ -117,6 +121,7 @@ class ExecutionPlan(BaseModel):
     portfolio_scope: str = "none"
     subject_ref: str = "none"
     rs_label: str = ""
+    holding_scope: str = "none"
 
     # Conversation pointers the planner names. Python resolves them. They are not regex.
     turn_relation: str = ""

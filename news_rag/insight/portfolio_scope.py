@@ -125,6 +125,13 @@ def strip_spurious_catalog_for_investor_book(
     question: str = "",
 ) -> ExecutionPlan:
     """Drop hallucinated catalog funds/tools when the plan already fetches the user's book."""
+    from news_rag.insight.plan_catalog_bind import plan_targets_catalog_on_holdings, planner_requested_catalog
+
+    if plan_targets_catalog_on_holdings(plan):
+        return plan
+    if planner_requested_catalog(plan):
+        plan.portfolio_scope = "both" if _plan_wants_investor_book(plan) else "catalog"
+        return plan
     from news_rag.insight.investor_subject import plan_targets_single_fund_measured_return
 
     if plan_targets_single_fund_measured_return(plan, question):

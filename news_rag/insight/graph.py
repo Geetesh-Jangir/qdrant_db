@@ -210,6 +210,9 @@ def node_route(state: GraphState) -> str | None:
     from news_rag.insight.plan_enforce import apply_planner_post_hooks
 
     plan = apply_planner_post_hooks(state.question, plan, state.memory)
+    from news_rag.insight.plan_catalog_bind import enforce_planner_catalog_plan
+
+    plan = enforce_planner_catalog_plan(plan, state.memory)
     from news_rag.insight.planner_policy import align_planned_news_execution
 
     plan = align_planned_news_execution(plan)
@@ -305,6 +308,17 @@ def _resolve_funds(
 
     for name in names_to_resolve:
         detail = None
+        mem_isin = ""
+        if memory:
+            from news_rag.insight.memory.fund_context import isin_for_owned_holding
+
+            mem_isin = isin_for_owned_holding(memory, name)
+        if mem_isin:
+            detail, _ambiguous, _close = idx.lookup_extracted_fund(isin=mem_isin, name="")
+            if detail and not detail_has_live_facts(detail):
+                live = idx.get_fund_detail(mem_isin)
+                if live:
+                    detail = live
         if single_fund and mem_isin and mem_name and (
             mem_name.lower() in name.lower() or name.lower() in mem_name.lower()
         ):
@@ -359,6 +373,20 @@ def _resolve_funds(
                     unresolved.append(name)
         resolved = list(dict.fromkeys(resolved))
 
+    if str(getattr(plan, "holding_scope", "") or "").lower() == "all_holdings":
+        from news_rag.insight.memory.fund_context import owned_holding_names
+
+        owned = owned_holding_names(memory)
+        if owned:
+            plan.funds = owned
+            return owned, []
+        if any(c.tool == "get_investor_portfolio" for c in (plan.tool_calls or [])):
+            plan.funds = []
+            return [], []
+        if plan.funds:
+            return list(dict.fromkeys(plan.funds)), []
+        return [], []
+
     return list(dict.fromkeys(resolved)), unresolved
 
 
@@ -367,6 +395,8 @@ def node_resolve(state: GraphState) -> str | None:
     assert plan is not None
     if state.query_log is not None:
         state.query_log.log_execution_plan(plan)
+        state.query_log.log_memory_used(state.memory)
+        state.query_log.log_slot_plan(state.question or "", plan)
 
     funds, unresolved = _resolve_funds(plan, state.memory, question=state.question or "")
     state.resolved_funds = funds
@@ -594,14 +624,48 @@ def node_wave1(state: GraphState) -> str | None:
         )
         results = screen_results + rest
     else:
-        results = execute_wave(
-            calls,
-            context,
-            fund_names=state.resolved_funds,
-            telemetry=state.telemetry,
-            deadline_ms=deadline_ms,
-            query_log=state.query_log,
-        )
+        from news_rag.insight.investor_subject import holdings_rows_from_investor_tool_results
+        from news_rag.insight.plan_catalog_bind import plan_needs_investor_before_catalog
+
+        if plan_needs_investor_before_catalog(plan, state.memory):
+            investor_calls = [c for c in calls if c.tool == "get_investor_portfolio"]
+            catalog_calls = [c for c in calls if c.tool != "get_investor_portfolio"]
+            inv_results = execute_wave(
+                investor_calls,
+                context,
+                fund_names=state.resolved_funds,
+                telemetry=state.telemetry,
+                deadline_ms=deadline_ms,
+                query_log=state.query_log,
+            )
+            holding_names = [
+                str(row.get("scheme_name") or row.get("name") or "").strip()
+                for row in holdings_rows_from_investor_tool_results(inv_results)
+                if isinstance(row, dict)
+            ]
+            holding_names = list(dict.fromkeys(n for n in holding_names if n))
+            if holding_names:
+                plan.funds = holding_names
+                state.resolved_funds = holding_names
+                context["fund_names"] = holding_names
+            rest_results = execute_wave(
+                catalog_calls,
+                context,
+                fund_names=holding_names or state.resolved_funds,
+                telemetry=state.telemetry,
+                deadline_ms=deadline_ms,
+                query_log=state.query_log,
+            )
+            results = inv_results + rest_results
+        else:
+            results = execute_wave(
+                calls,
+                context,
+                fund_names=state.resolved_funds,
+                telemetry=state.telemetry,
+                deadline_ms=deadline_ms,
+                query_log=state.query_log,
+            )
     elapsed_ms = (time.time() - t0) * 1000.0
 
     state.wave1_results = results
@@ -786,6 +850,8 @@ def node_evidence_gate(state: GraphState) -> str | None:
         state.query_log.log_tool_results(1, state.wave1_results)
         if state.wave2_results:
             state.query_log.log_tool_results(2, state.wave2_results)
+        state.query_log.log_tool_facts(state.question or "", [*state.wave1_results, *state.wave2_results], state.plan)
+        state.query_log.log_error_summary([*state.wave1_results, *state.wave2_results], state.question or "", state.plan)
 
     from news_rag.insight.capabilities.executor import refetch_partial_fund_tools
 
@@ -875,7 +941,7 @@ CORE RULES:
 0a. **Whole investor book.** When `investor_portfolio_overview` is true, open with `## Your portfolio` (never a single scheme name as the title). Summarize total value, invested, gain, and portfolio XIRR first. For two or more schemes in EVIDENCE, use one markdown table for scheme-level figures (scheme, category, current value, invested, gain, absolute return, XIRR, RS label) and, when allocation.categoryShare is present, a second table for category weights. Put a **blank line** before each table and keep section headings as `### Your holdings` and `### Allocation by category`. Do not list the same scheme figures again as bullets if they are in a table. The server may append underlying concentration tables; do not duplicate those blocks.
 0c. **Portfolio news impact.** When EVIDENCE includes `portfolio_news_impact`, explain how the news affects **the user's book** only — not catalog screen funds. Use `## How this affects your portfolio`, then `### What the news says` and `### What stands out` from `sector_impact_analysis` / `fund_sector_exposure`. Do **not** add `### Top holdings` or `### Top sectors`; the server appends **Sectors affected by the news** and **Your funds affected** tables. Do not cite index/ETF screen picks unless they are in the user's holdings. Direct = positive `portfolio_weight_pct`; indirect = affected but ~0% in the book.
 0b. **Concept + data:** When WHAT THE USER WANTS includes `concept_brief`, explain that concept first (1–3 sentences), then use EVIDENCE for the example fund/scheme. Do not skip the concept or invent fund names.
-1. **Match the question.** Read the whole question. You write the answer. A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay. Do not dump the whole snapshot. One named figure and nothing else asked is one sentence: the fund name and that figure only. If the question has more than one part, answer every part: the figure from EVIDENCE, then the meaning, then whether a low or high value is generally better, if they asked. A misspelled or awkward wording still means the intended ask.
+1. **Match the question.** Read the whole question. You write the answer. A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay. Do not dump the whole snapshot. One named figure and nothing else asked is one sentence: the fund name and that figure only. If the question has more than one part, answer every part: the figure from EVIDENCE, then the meaning, then whether a low or high value is generally better, if they asked. A misspelled or awkward wording still means the intended ask. On a phone: one short lead sentence, then a 2-column table or at most five bullets. Paragraphs are at most two sentences. Do not use a table wider than three columns. Do not repeat a heading. Answer the asked facts first. Add at most one extra line the reader needs. A part whose source is llm (a definition or a full form) is answered from knowledge with no extra numbers.
 2. **Returns in prose:** Compare a fund with its benchmark only when a benchmark return is present, and with the category average only when that average is present. If neither is present, do not write a comparison and do not say that the comparison is missing or cannot be stated. If only one side is present, compare only that side. Cite the exact gap in percentage points. Do not say "about" when the gap is computable. Do not fill a missing side with a hyphen or a guess. Do not write a returns bullet list. When several funds are compared, put the returns in the table you build. Do not say how much of the move is unexplained, or that named holdings fail to explain the fund's return. When the user asked for several of expense ratio, exit load, and AUM, state each one they asked for. Do not add the ones they did not ask for. Do not mention a direct-plan expense ratio unless that is the field in the snapshot. Do not say these figures are unavailable when they are present. When NEWS is present and the user did not ask for a returns list, do not walk 1-month, 3-month, 1-year, 3-year, and 5-year one after another. Use a return only inside a point that also uses the news.
 3. **Tables and prose.** Server-built markdown tables may be appended after your text. Do **not** paste markdown tables yourself when DISPLAY is present — write the insight in prose first. When you write a markdown table, put a **blank line** between the intro sentence and the first `|` row so the table renders as one block. When TABLE_SUMMARIES is in EVIDENCE, the opening 2–4 sentences must state the fund name, **equity/cash (and debt if any) weights**, **large/mid/small cap split**, the **largest sector weights**, **named top holdings with weights**, and the **top holdings sum** when present — exact percentages from TABLE_SUMMARIES. Never leave empty **Asset mix** or **Market cap mix** labels. When the evidence has several funds or several figures (and no DISPLAY takeover), you may build one markdown table with columns from the question. Do not repeat the same numbers in a paragraph and a table you wrote.
 4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
@@ -1190,7 +1256,14 @@ def node_compose(state: GraphState) -> str | None:
                 )
             ).strip()
     if plan.sub_queries:
-        wants["parts"] = [str(part.get("text") or "").strip() for part in plan.sub_queries if str(part.get("text") or "").strip()]
+        wants["parts"] = [
+            {
+                "text": str(part.get("text") or "").strip(),
+                **({"source": part.get("source")} if part.get("source") else {}),
+            }
+            for part in plan.sub_queries
+            if str(part.get("text") or "").strip()
+        ]
     if (plan.concept_brief or "").strip():
         wants["concept_brief"] = plan.concept_brief.strip()
     from news_rag.insight.computed_answers import asks_computed_illustration
@@ -1418,6 +1491,24 @@ def node_compose(state: GraphState) -> str | None:
             polished_text = f"{polished_text}\n\n{impact_block}".strip()
     if concentration_block:
         polished_text = _drop_scheme_is_the_whole_book(polished_text)
+    from news_rag.insight.fact_slots import render_asked_facts, slots_from_plan
+    from news_rag.insight.sector_exposure_tables import (
+        render_all_holdings_return_table,
+        render_all_holdings_sector_table,
+    )
+
+    slots = slots_from_plan(state.plan) if state.plan else []
+    wave_results = [*state.wave1_results, *state.wave2_results]
+    fact_table = render_asked_facts(slots, wave_results)
+    if state.plan and str(state.plan.holding_scope or "") == "all_holdings":
+        ret_table = render_all_holdings_return_table(state.plan, wave_results, state.memory)
+        if ret_table:
+            fact_table = ret_table
+        sector_table = render_all_holdings_sector_table(state.plan, wave_results, state.memory)
+        if sector_table:
+            fact_table = f"{fact_table}\n\n{sector_table}".strip() if fact_table else sector_table
+    if fact_table and fact_table not in polished_text:
+        polished_text = f"{polished_text}\n\n{fact_table}".strip()
     polished_text = strip_news_roundup(polished_text)
     state.answer = _clean_answer(polished_text)
 
