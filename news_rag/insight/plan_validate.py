@@ -5,7 +5,68 @@ from __future__ import annotations
 import re
 
 from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
-from news_rag.insight.memory.fund_context import primary_fund_name
+from news_rag.insight.memory.fund_context import owned_holding_names, primary_fund_name
+
+_METRIC_TO_MODULE: dict[str, str] = {
+    "rs_rating": "rating",
+    "nav": "snapshot",
+    "aum": "snapshot",
+    "expense": "snapshot",
+    "exit_load": "snapshot",
+    "returns": "snapshot",
+    "benchmark": "snapshot",
+    "inception": "snapshot",
+    "managers": "managers",
+    "fund_manager": "managers",
+}
+
+
+def _ensure_metric_modules(plan: ExecutionPlan) -> None:
+    asked = {str(x).lower() for x in (plan.asked_facts or [])}
+    if not asked or not any(c.tool == "get_fund_data" for c in plan.tool_calls or []):
+        return
+    for call in plan.tool_calls or []:
+        if call.tool != "get_fund_data":
+            continue
+        args = dict(call.arguments or {})
+        modules = [str(m).lower() for m in (args.get("modules") or [])]
+        changed = False
+        for fact, module in _METRIC_TO_MODULE.items():
+            if fact in asked and module not in modules:
+                modules.append(module)
+                changed = True
+        if changed:
+            call.arguments = {**args, "modules": modules}
+
+
+def _ensure_all_holdings_tool_order(plan: ExecutionPlan, memory: dict | None) -> None:
+    if str(plan.holding_scope or "") != "all_holdings":
+        return
+    calls = list(plan.tool_calls or [])
+    if not any(c.tool == "get_investor_portfolio" for c in calls) and any(
+        c.tool in ("get_fund_data", "get_portfolio_data") for c in calls
+    ):
+        plan.tool_calls = [
+            ToolCall(tool="get_investor_portfolio", arguments={}, wave=1, why="Bind all holdings"),
+            *calls,
+        ]
+    owned = owned_holding_names(memory)
+    if owned and len(plan.funds or []) < len(owned):
+        plan.funds = owned
+
+
+def _block_deictic_all_holdings_fanout(question: str, plan: ExecutionPlan) -> None:
+    from news_rag.insight.investor_subject import question_refers_deictic_fund
+
+    if str(plan.holding_scope or "") != "all_holdings":
+        return
+    if not question_refers_deictic_fund(question):
+        return
+    focus = (plan.funds or [None])[0]
+    if focus:
+        plan.funds = [str(focus)]
+        plan.holding_scope = "single"
+
 
 _HOLDINGS_BREAKDOWN_RE = re.compile(
     r"\b(?:hold(?:s|ing)?|holdings?|portfolio|allocation|composition|made\s+of|"
@@ -77,6 +138,9 @@ def validate_plan_tools(
 
     plan = ensure_silver_news_only(plan)
     plan = ensure_fund_holdings_followup_plan(question, plan, memory)
+    _ensure_metric_modules(plan)
+    _ensure_all_holdings_tool_order(plan, memory)
+    _block_deictic_all_holdings_fanout(question, plan)
 
     if str(getattr(plan, "portfolio_scope", "") or "").lower() in ("investor", "both"):
         return plan

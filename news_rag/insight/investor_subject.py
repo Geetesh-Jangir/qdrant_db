@@ -66,6 +66,46 @@ def investor_holding_for_category(
     return None
 
 
+def resolve_investor_holding_by_amc_token(
+    question: str,
+    memory: dict[str, Any] | None,
+    *,
+    holdings: list[dict[str, Any]] | None = None,
+) -> str:
+    """'My quant fund' → Quant Small Cap in holdings when category slug does not match."""
+    if not question_refers_to_investor_holding(question):
+        return ""
+    from news_rag.insight.brief import _AMC_TOKENS
+
+    q_tokens = set(re.findall(r"[a-z0-9]+", (question or "").lower()))
+    amc_hits = [t for t in q_tokens if t in _AMC_TOKENS]
+    if not amc_hits:
+        return ""
+
+    rows: list[dict[str, Any]] = list(holdings or [])
+    if not rows and isinstance(memory, dict):
+        for row in memory.get("holdings_in_chat") or []:
+            if isinstance(row, dict):
+                rows.append(row)
+        frame = memory.get("frame") if isinstance(memory.get("frame"), dict) else {}
+        for row in frame.get("investor_subjects") or []:
+            if isinstance(row, dict):
+                rows.append(row)
+
+    matches: list[str] = []
+    for row in rows:
+        name = str(row.get("scheme_name") or row.get("name") or "").strip()
+        if not name:
+            continue
+        lowered = name.lower()
+        if any(amc in lowered for amc in amc_hits):
+            matches.append(name)
+    unique = list(dict.fromkeys(matches))
+    if len(unique) == 1:
+        return unique[0]
+    return ""
+
+
 def resolve_investor_holding_fund_name(
     question: str,
     memory: dict[str, Any] | None,
@@ -73,12 +113,11 @@ def resolve_investor_holding_fund_name(
     if not question_refers_to_investor_holding(question):
         return ""
     cat = _category_slug_from_question(question)
-    if not cat:
-        return ""
-    row = investor_holding_for_category(memory, cat)
-    if not row:
-        return ""
-    return str(row.get("name") or "").strip()
+    if cat:
+        row = investor_holding_for_category(memory, cat)
+        if row:
+            return str(row.get("name") or "").strip()
+    return resolve_investor_holding_by_amc_token(question, memory)
 
 
 def holdings_rows_from_investor_tool_results(
@@ -100,14 +139,6 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
     if _category_slug_from_question(question):
         return False
     q = (question or "").strip().lower()
-    if plan is not None:
-        need = str(plan.data_need or "").lower().strip()
-        if need == "investor_summary":
-            return True
-        intent = str(plan.intent or "").lower().strip()
-        scope = str(plan.portfolio_scope or "").lower().strip()
-        if intent == "overview" and scope in ("investor", "both") and not (plan.funds or []):
-            return True
     book_phrases = (
         "my portfolio",
         "whole portfolio",
@@ -122,7 +153,42 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
         "my mutual funds",
         "my mutual fund portfolio",
     )
-    if any(p in q for p in book_phrases):
+    has_book_phrase = any(p in q for p in book_phrases)
+    if plan is not None:
+        asked = {str(x).lower() for x in (plan.asked_facts or [])}
+        per_fund_metrics = {
+            "rs_rating",
+            "nav",
+            "aum",
+            "expense",
+            "returns",
+            "managers",
+            "fund_manager",
+            "exit_load",
+            "benchmark",
+            "inception",
+            "risk",
+            "drawdown",
+        }
+        has_return_window = any(x.startswith("return:") for x in asked)
+        if has_book_phrase:
+            pass
+        elif (asked & per_fund_metrics or has_return_window) and any(
+            c.tool == "get_fund_data" for c in plan.tool_calls or []
+        ):
+            return False
+        elif str(plan.holding_scope or "") == "all_holdings" and any(
+            c.tool == "get_fund_data" for c in plan.tool_calls or []
+        ):
+            return False
+        need = str(plan.data_need or "").lower().strip()
+        if need == "investor_summary":
+            return True
+        intent = str(plan.intent or "").lower().strip()
+        scope = str(plan.portfolio_scope or "").lower().strip()
+        if intent == "overview" and scope in ("investor", "both") and not (plan.funds or []):
+            return True
+    if has_book_phrase:
         return True
     if "portfolio" in q and not question_refers_deictic_fund(question):
         if question_refers_to_investor_holding(question) or "about" in q or "tell me" in q:
@@ -138,17 +204,16 @@ def resolve_investor_holding_from_holdings_rows(
     if not question_refers_to_investor_holding(question):
         return ""
     cat = _category_slug_from_question(question)
-    if not cat:
-        return ""
-    from news_rag.insight.category_plan import _categories_equivalent
+    if cat:
+        from news_rag.insight.category_plan import _categories_equivalent
 
-    for row in holdings or []:
-        if not isinstance(row, dict):
-            continue
-        row_cat = str(row.get("scheme_category") or row.get("category") or "").strip().lower()
-        if _categories_equivalent(row_cat, cat):
-            return str(row.get("scheme_name") or row.get("name") or "").strip()
-    return ""
+        for row in holdings or []:
+            if not isinstance(row, dict):
+                continue
+            row_cat = str(row.get("scheme_category") or row.get("category") or "").strip().lower()
+            if _categories_equivalent(row_cat, cat):
+                return str(row.get("scheme_name") or row.get("name") or "").strip()
+    return resolve_investor_holding_by_amc_token(question, None, holdings=holdings)
 
 
 def apply_investor_category_fund_to_plan(
@@ -158,6 +223,8 @@ def apply_investor_category_fund_to_plan(
     wave1_results: list[dict[str, Any]] | None = None,
 ) -> ExecutionPlan:
     name = resolve_investor_holding_fund_name(question, memory)
+    if not name:
+        name = resolve_investor_holding_by_amc_token(question, memory)
     if not name:
         name = resolve_investor_holding_from_holdings_rows(
             question,
@@ -238,6 +305,77 @@ def ensure_my_category_fund_investor_plan(
     if question_asks_holding_metric_and_glossary(question):
         plan.response_shape = "short_answer"
         plan.max_words = max(int(plan.max_words or 0), 120)
+    return plan
+
+
+def ensure_my_holding_fund_scope(
+    plan: ExecutionPlan,
+    question: str,
+    memory: dict[str, Any] | None = None,
+) -> ExecutionPlan:
+    """Bind 'my quant fund' to holdings_in_chat and set portfolio_scope before catalog fan-out."""
+    if not question_refers_to_investor_holding(question):
+        return plan
+    if question_asks_whole_investor_portfolio(question, plan):
+        return plan
+    if not any(c.tool in ("get_fund_data", "get_portfolio_data") for c in plan.tool_calls or []):
+        return plan
+    name = resolve_investor_holding_fund_name(question, memory)
+    if not name and (plan.funds or []):
+        from news_rag.insight.memory.fund_context import isin_for_owned_holding
+
+        for raw in plan.funds:
+            if isin_for_owned_holding(memory, str(raw)):
+                name = str(raw).strip()
+                break
+    if name:
+        plan.funds = [name]
+    scope = str(plan.portfolio_scope or "").lower().strip()
+    if scope in ("none", "", "catalog"):
+        plan.portfolio_scope = "both"
+    plan.holding_scope = "single"
+    plan.requires_compose = True
+    return plan
+
+
+def ensure_all_holdings_metrics_plan(
+    plan: ExecutionPlan,
+    question: str,
+    memory: dict[str, Any] | None = None,
+) -> ExecutionPlan:
+    """RS rating / returns for all my funds → investor book first, then catalog per holding."""
+    if not question_asks_whole_investor_portfolio(question, plan):
+        return plan
+    if not any(c.tool in ("get_fund_data", "get_portfolio_data", "compare_funds") for c in plan.tool_calls or []):
+        return plan
+    from news_rag.config import get_settings
+    from news_rag.insight.memory.fund_context import owned_holding_names
+
+    if not get_settings().portfolio_enabled:
+        return plan
+    plan.holding_scope = "all_holdings"
+    plan.portfolio_scope = "both"
+    names = owned_holding_names(memory)
+    if names:
+        plan.funds = names
+    investor_calls = [c for c in plan.tool_calls or [] if c.tool == "get_investor_portfolio"]
+    if not investor_calls:
+        plan.tool_calls = [
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={
+                    "modules": ["holdings"],
+                    "include_meta": True,
+                    "holdings_fields": "standard",
+                    "top_n": 20,
+                    "sort_by": "aum",
+                },
+                wave=1,
+                why="Load book before catalog metrics for all holdings",
+            ),
+            *(plan.tool_calls or []),
+        ]
+    plan.requires_compose = True
     return plan
 
 
@@ -333,6 +471,7 @@ def resolve_deictic_fund_name(
     memory: dict[str, Any] | None,
 ) -> str:
     from news_rag.insight.memory.fund_context import (
+        deictic_fund_context_active,
         fund_name_mentioned_in_memory,
         last_fund_name_from_gists,
         memory_known_fund_names,
@@ -342,6 +481,14 @@ def resolve_deictic_fund_name(
 
     if not question_refers_deictic_fund(question):
         return ""
+    if not deictic_fund_context_active(memory):
+        return ""
+    if isinstance(memory, dict):
+        frame = memory.get("frame")
+        if isinstance(frame, dict):
+            focus = str(frame.get("last_fund_focus") or "").strip()
+            if focus:
+                return focus
     mentioned = fund_name_mentioned_in_memory(question, memory)
     if mentioned:
         return mentioned
@@ -359,7 +506,7 @@ def resolve_deictic_fund_name(
         return focused
     if isinstance(memory, dict):
         stack = memory.get("entity_stack") or []
-        for row in stack:
+        for row in reversed(stack):
             if isinstance(row, dict) and row.get("name"):
                 candidate = str(row["name"]).strip()
                 if candidate.lower() in known:
@@ -491,6 +638,107 @@ def ensure_deictic_fund_period_return_plan(
     return plan
 
 
+_SCHEME_NAME_MATCH_SKIP = frozenset(
+    {
+        "fund",
+        "funds",
+        "growth",
+        "regular",
+        "plan",
+        "direct",
+        "elss",
+        "tax",
+        "saver",
+        "equity",
+        "debt",
+        "hybrid",
+        "minimum",
+        "maximum",
+        "redemption",
+        "redeem",
+        "period",
+        "load",
+        "exit",
+        "settlement",
+        "systematic",
+        "option",
+        "variance",
+        "index",
+        "cap",
+        "large",
+        "small",
+        "mid",
+        "flexi",
+        "multi",
+    }
+)
+
+
+def user_explicitly_named_scheme(question: str, fund_name: str) -> bool:
+    """True only when the user text actually names this scheme — not a token like 'minimum' alone."""
+    from news_rag.insight.brief import _AMC_TOKENS
+
+    text = (question or "").lower()
+    name_lower = (fund_name or "").lower()
+    if not text or not name_lower:
+        return False
+    q_tokens = set(re.findall(r"[a-z0-9]+", text))
+    amc_in_question = [t for t in q_tokens if t in _AMC_TOKENS]
+    if amc_in_question:
+        return any(amc in name_lower for amc in amc_in_question)
+    fund_tokens = [
+        w
+        for w in re.findall(r"[a-z0-9]+", name_lower)
+        if len(w) > 3 and w not in _SCHEME_NAME_MATCH_SKIP
+    ]
+    if not fund_tokens:
+        return False
+    hits = sum(1 for t in fund_tokens if t in text)
+    return hits >= 2
+
+
+def reconcile_planner_invented_fund_name(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+    question: str = "",
+) -> ExecutionPlan:
+    """Follow-ups with no new scheme in the question — keep last_fund_focus, not planner word-match."""
+    from news_rag.insight.memory.fund_context import memory_known_fund_names, primary_fund_name
+
+    if not memory or not plan.funds:
+        return plan
+    pick = str(plan.fund_pick or "none").strip().lower()
+    if pick not in ("none", "", "single"):
+        return plan
+    if str(plan.portfolio_scope or "").lower().strip() in ("investor", "both"):
+        if question_refers_to_investor_holding(question):
+            return plan
+    ref = str(plan.subject_ref or "none").strip().lower()
+    if ref in ("memory_stack", "list_cursor"):
+        return plan
+    if len(plan.funds or []) > 1:
+        return plan
+
+    current = str((plan.funds or [""])[0] or "").strip()
+    if not current:
+        return plan
+    known = {n.lower() for n in memory_known_fund_names(memory)}
+    if current.lower() in known:
+        return plan
+    if user_explicitly_named_scheme(question, current):
+        return plan
+
+    focus = primary_fund_name(memory)
+    if not focus:
+        return plan
+    plan.funds = [focus]
+    plan.subject_ref = "memory_primary"
+    reading = str(getattr(plan, "planner_reading", "") or "").strip()
+    if reading and focus.lower() not in reading.lower():
+        plan.planner_reading = f"Follow-up on {focus} already in this chat"
+    return plan
+
+
 def reconcile_deictic_planner_fund(
     plan: ExecutionPlan,
     memory: dict[str, Any] | None,
@@ -501,6 +749,15 @@ def reconcile_deictic_planner_fund(
 
     if not question_refers_deictic_fund(question):
         return plan
+    from news_rag.insight.memory.fund_context import deictic_fund_context_active, memory_known_fund_names
+
+    if not deictic_fund_context_active(memory):
+        current = str((plan.funds or [""])[0] or "").strip()
+        if current and not user_explicitly_named_scheme(question, current):
+            plan.funds = []
+        plan.subject_ref = "memory_primary"
+        return plan
+
     plan.subject_ref = "memory_primary"
     known = {n.lower(): n for n in memory_known_fund_names(memory)}
     resolved = resolve_deictic_fund_name(question, memory)
@@ -523,13 +780,29 @@ def enforce_deictic_and_memory_primary_fund(
     question: str = "",
 ) -> ExecutionPlan:
     """Drop planner-hallucinated funds on 'its' / memory_primary when the name is not in session memory."""
-    from news_rag.insight.memory.fund_context import memory_known_fund_names, primary_fund_name
+    from news_rag.insight.memory.fund_context import (
+        deictic_fund_context_active,
+        memory_known_fund_names,
+        primary_fund_name,
+    )
 
     ref = str(plan.subject_ref or "none").strip().lower()
     deictic = question_refers_deictic_fund(question)
     binds_memory = ref in ("memory_primary", "memory_stack", "list_cursor") or deictic
     if not binds_memory or not memory:
         return plan
+
+    if deictic:
+        focus = str((memory.get("frame") or {}).get("last_fund_focus") or "").strip()
+        if focus and deictic_fund_context_active(memory):
+            plan.funds = [focus]
+            plan.subject_ref = "memory_primary"
+            return plan
+        if not deictic_fund_context_active(memory):
+            current = str((plan.funds or [""])[0] or "").strip()
+            if current and not user_explicitly_named_scheme(question, current):
+                plan.funds = []
+            return plan
 
     known = {n.lower(): n for n in memory_known_fund_names(memory)}
     current = str((plan.funds or [""])[0] or "").strip()

@@ -188,12 +188,13 @@ def test_slots_from_plan_not_question():
     from news_rag.insight.fact_slots import slots_from_plan
 
     plan = ExecutionPlan(
+        asked_facts=["returns"],
         tool_calls=[
             ToolCall(
                 tool="get_fund_data",
                 arguments={"modules": ["snapshot"], "windows": ["1D"]},
                 wave=1,
             )
-        ]
+        ],
     )
     assert "return:1D" in slots_from_plan(plan)

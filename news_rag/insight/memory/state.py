@@ -122,3 +122,9 @@ def expire_stale_entities(state: dict[str, Any], current_turn: int) -> None:
         frame["news_topic"] = None
         frame.pop("news_turn", None)
 
+    focus_turn = int(frame.get("last_fund_focus_turn") or 0)
+    if focus_turn and focus_turn <= floor:
+        frame.pop("last_fund_focus", None)
+        frame.pop("last_fund_focus_turn", None)
+        frame["recent_fund_focus"] = []
+

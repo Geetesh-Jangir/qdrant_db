@@ -14,6 +14,9 @@ _MODULE_TO_SLOT = {
 
 def slots_from_plan(plan: ExecutionPlan) -> list[str]:
     """Slots implied by planner asked_facts and wave-1 get_fund_data arguments."""
+    from news_rag.insight.investor_drawback import plan_wants_fund_concentration
+
+    concentration_focus = plan_wants_fund_concentration(plan, "")
     out: list[str] = []
     for raw in plan.asked_facts or []:
         item = str(raw or "").strip()
@@ -25,12 +28,19 @@ def slots_from_plan(plan: ExecutionPlan) -> list[str]:
         args = call.arguments or {}
         modules = [str(m).lower() for m in (args.get("modules") or [])]
         if "snapshot" in modules:
-            for code in args.get("windows") or []:
-                slot = f"return:{str(code).upper()}"
-                if slot not in out:
-                    out.append(slot)
-            if not args.get("windows"):
-                out.extend(["return:1Y", "return:3Y", "return:5Y"])
+            if concentration_focus:
+                pass
+            else:
+                performance_asked = "returns" in (plan.asked_facts or []) or any(
+                    str(s).startswith("return:") for s in (plan.asked_facts or [])
+                )
+                if performance_asked:
+                    for code in args.get("windows") or []:
+                        slot = f"return:{str(code).upper()}"
+                        if slot not in out:
+                            out.append(slot)
+                    if not args.get("windows"):
+                        out.extend(["return:1Y", "return:3Y", "return:5Y"])
         if args.get("pillars"):
             if "four_pillars" not in out:
                 out.append("four_pillars")
@@ -47,7 +57,16 @@ def asked_slots(question: str = "") -> list[str]:
 
 
 def merge_planner_asked_facts(plan: ExecutionPlan) -> None:
-    plan.asked_facts = list(dict.fromkeys([*(plan.asked_facts or []), *slots_from_plan(plan)]))
+    slots = slots_from_plan(plan)
+    merged = list(dict.fromkeys([*(plan.asked_facts or []), *slots]))
+    normalized: list[str] = []
+    for item in merged:
+        key = str(item or "").strip()
+        if key == "managers":
+            key = "fund_manager"
+        if key and key not in normalized:
+            normalized.append(key)
+    plan.asked_facts = normalized
 
 
 def tag_answer_parts(plan: ExecutionPlan) -> ExecutionPlan:
@@ -107,6 +126,7 @@ def _slot_label(slot: str) -> str:
         "four_pillars": "Four pillars",
         "aum": "AUM",
         "expense": "Expense ratio",
+        "exit_load": "Exit load",
     }.get(slot, slot)
 
 
@@ -154,4 +174,20 @@ def _slot_value(slot: str, data: dict[str, Any], snap: dict[str, Any]) -> str:
         pillars = rating.get("pillars") if isinstance(rating.get("pillars"), dict) else {}
         if pillars:
             return "; ".join(f"{key} {value}" for key, value in pillars.items())
+    if slot == "aum" and snap.get("aum") is not None:
+        text = f"Rs {float(snap['aum']):,.2f} crore"
+        if snap.get("aum_as_on_date"):
+            text = f"{text} (as on {snap['aum_as_on_date']})"
+        return text
+    if slot == "expense":
+        expense = snap.get("expense_ratio") if isinstance(snap.get("expense_ratio"), dict) else {}
+        if expense.get("regular") is not None:
+            text = f"{float(expense['regular']):.2f}%"
+            if expense.get("as_on_date"):
+                text = f"{text} (as on {expense['as_on_date']})"
+            return text
+    if slot == "exit_load":
+        summary = str(snap.get("exit_load_summary") or "").strip()
+        if summary:
+            return summary
     return ""

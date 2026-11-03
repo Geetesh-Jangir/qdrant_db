@@ -76,6 +76,10 @@ def render_all_holdings_return_table(
 ) -> str:
     if str(plan.holding_scope or "") != "all_holdings":
         return ""
+    asked = {str(x).lower() for x in (plan.asked_facts or [])}
+    has_return = "returns" in asked or any(x.startswith("return:") for x in asked)
+    if asked and not has_return:
+        return ""
     window = "1M"
     for call in plan.tool_calls or []:
         if call.tool == "get_fund_data":
@@ -99,8 +103,126 @@ def render_all_holdings_return_table(
         return ""
     lines = [f"| Fund | {window} return |", "| --- | --- |"]
     for name in names:
-        val = by_fund.get(name) or "—"
+        val = by_fund.get(name) or "not available"
         lines.append(f"| {_short_fund_name(name)} | {val} |")
+    return "\n".join(lines)
+
+
+def _fund_data_from_results(
+    results: list[dict[str, Any]] | None,
+    data_pack: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
+    by_fund: dict[str, dict[str, Any]] = {}
+    for row in results or []:
+        if not row.get("ok") or row.get("tool") != "get_fund_data":
+            continue
+        fund = str(row.get("fund") or "").strip()
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        if fund and data:
+            by_fund[fund] = data
+    if isinstance(data_pack, dict):
+        for key, val in data_pack.items():
+            if not str(key).startswith("fund:") or not isinstance(val, dict):
+                continue
+            name = str(val.get("fund_name") or val.get("fund_short_name") or key.split(":", 1)[-1]).strip()
+            if name:
+                by_fund[name] = val
+    return by_fund
+
+
+def _all_holdings_metric_spec(plan: ExecutionPlan) -> tuple[str, str]:
+    asked = [str(x) for x in (plan.asked_facts or [])]
+    for pref in ("rs_rating", "nav", "aum", "expense", "exit_load"):
+        if pref in asked:
+            return pref, ""
+    for token in asked:
+        if token.startswith("return:"):
+            return "return", token.split(":", 1)[1].upper()
+    if "returns" in asked:
+        window = "1M"
+        for call in plan.tool_calls or []:
+            if call.tool == "get_fund_data":
+                wins = (call.arguments or {}).get("windows") or []
+                if wins:
+                    window = str(wins[0]).upper()
+                    break
+        return "return", window
+    return "", ""
+
+
+def _metric_cell(data: dict[str, Any], metric: str, window: str) -> str:
+    snap = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else data
+    if metric == "rs_rating":
+        rating = data.get("rs_rating") if isinstance(data.get("rs_rating"), dict) else {}
+        label = rating.get("label") or rating.get("rs_label") or snap.get("rs_label")
+        score = rating.get("final_score")
+        if score is None:
+            score = rating.get("score") or rating.get("rs_score") or snap.get("rs_score")
+        if label or score is not None:
+            parts = [str(part) for part in (label, score) if part not in (None, "")]
+            return " ".join(parts)
+        return "not available"
+    if metric == "nav":
+        nav = snap.get("nav")
+        if nav is not None:
+            return f"₹{float(nav):,.2f}" if isinstance(nav, (int, float)) else str(nav)
+        return "not available"
+    if metric == "aum":
+        if snap.get("aum") is not None:
+            return f"Rs {float(snap['aum']):,.2f} crore"
+        return "not available"
+    if metric == "expense":
+        expense = snap.get("expense_ratio") if isinstance(snap.get("expense_ratio"), dict) else {}
+        if expense.get("regular") is not None:
+            return f"{float(expense['regular']):.2f}%"
+        return "not available"
+    if metric == "exit_load":
+        summary = str(snap.get("exit_load_summary") or "").strip()
+        return summary or "not available"
+    if metric == "return" and window:
+        rets = snap.get("returns") if isinstance(snap.get("returns"), dict) else {}
+        val = rets.get(window) or rets.get(window.lower())
+        if val is not None:
+            return f"{float(val):+.2f}%"
+        return "not available"
+    return "not available"
+
+
+def render_all_holdings_metric_table(
+    plan: ExecutionPlan,
+    results: list[dict[str, Any]] | None = None,
+    memory: dict[str, Any] | None = None,
+    *,
+    data_pack: dict[str, Any] | None = None,
+) -> str:
+    if str(plan.holding_scope or "") != "all_holdings":
+        return ""
+    metric, window = _all_holdings_metric_spec(plan)
+    if not metric:
+        return ""
+    headers = {
+        "rs_rating": "RS rating",
+        "nav": "NAV",
+        "aum": "AUM",
+        "expense": "Expense ratio",
+        "exit_load": "Exit load",
+        "return": f"{window} return" if window else "Return",
+    }
+    col = headers.get(metric, metric)
+    by_fund = _fund_data_from_results(results, data_pack)
+    names = owned_holding_names(memory) or list(plan.funds or [])
+    if not names:
+        return ""
+    lines = [f"| Fund | {col} |", "| --- | --- |"]
+    for name in names:
+        data = by_fund.get(name)
+        if not data:
+            for key, val in by_fund.items():
+                if key.lower() == name.lower() or name.lower() in key.lower() or key.lower() in name.lower():
+                    data = val
+                    break
+        cell = _metric_cell(data or {}, metric, window) if data else "not available"
+        lines.append(f"| {_short_fund_name(name)} | {cell} |")
     return "\n".join(lines)
 
 

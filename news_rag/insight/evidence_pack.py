@@ -975,6 +975,22 @@ def investor_fact_brief(data_pack: dict[str, Any], asked: list[str] | set[str]) 
         if snap.get("nav_date"):
             nav_line += f" as on {snap['nav_date']}"
         parts.append(nav_line)
+    if "aum" in wanted and snap.get("aum") is not None:
+        aum_line = f"AUM: Rs {float(snap['aum']):,.2f} crore"
+        if snap.get("aum_as_on_date"):
+            aum_line += f" as on {snap['aum_as_on_date']}"
+        parts.append(aum_line)
+    if "expense" in wanted:
+        expense = snap.get("expense_ratio") if isinstance(snap.get("expense_ratio"), dict) else {}
+        if expense.get("regular") is not None:
+            er = f"Expense ratio (regular): {float(expense['regular']):.2f}%"
+            if expense.get("as_on_date"):
+                er += f" as on {expense['as_on_date']}"
+            parts.append(er)
+    if "exit_load" in wanted:
+        summary = str(snap.get("exit_load_summary") or "").strip()
+        if summary:
+            parts.append(f"Exit load: {summary}")
     if "drawdown" in wanted:
         body = _drawdown_body(fund)
         if body:
@@ -1600,6 +1616,142 @@ def _render_investor_portfolio_markdown(data: dict[str, Any], plan: ExecutionPla
     return None
 
 
+    return "\n".join(parts).strip()
+
+
+def render_fund_concentration_answer(
+    pack: EvidencePack,
+    plan: ExecutionPlan,
+    question: str = "",
+) -> str | None:
+    """Deterministic holdings/sector concentration for one mutual fund scheme."""
+    from news_rag.insight.investor_drawback import plan_wants_fund_concentration
+
+    if not plan_wants_fund_concentration(plan, question):
+        return None
+
+    data = pack.data_pack if pack else {}
+    if not isinstance(data, dict):
+        return None
+
+    fund_entry = None
+    portfolio_entry = None
+    for key, val in data.items():
+        if not isinstance(val, dict):
+            continue
+        if key.startswith("fund:"):
+            fund_entry = val
+        elif key.startswith("portfolio:"):
+            portfolio_entry = val
+    if portfolio_entry is None:
+        return None
+
+    fund_name = str(
+        (plan.funds or [""])[0]
+        or portfolio_entry.get("fund_name")
+        or (fund_entry or {}).get("fund_name")
+        or "Fund"
+    ).strip()
+    holdings = [h for h in (portfolio_entry.get("holdings") or []) if isinstance(h, dict)]
+    sectors = [s for s in (portfolio_entry.get("sectors") or []) if isinstance(s, dict)]
+    if not holdings and not sectors:
+        return None
+
+    composition = {}
+    if isinstance(fund_entry, dict):
+        composition = fund_entry.get("composition") if isinstance(fund_entry.get("composition"), dict) else {}
+    risk = fund_entry.get("risk") if isinstance(fund_entry, dict) and isinstance(fund_entry.get("risk"), dict) else {}
+
+    cap = _portfolio_top_n(plan)
+    cap = max(cap, min(10, len(holdings) or len(sectors) or cap))
+
+    holding_rows = [
+        h for h in holdings if _holding_label(h) != "—" and _holding_weight_pct(h) > 0
+    ]
+    sector_rows = [s for s in sectors if _sector_label(s) != "—" or _sector_weight_pct(s) > 0]
+
+    top_hold_sum = round(sum(_holding_weight_pct(h) for h in holding_rows[:cap]), 2)
+    top_sector_sum = round(sum(_sector_weight_pct(s) for s in sector_rows[:cap]), 2)
+    top5_official = composition.get("top_5_pct")
+    top10_official = composition.get("top_10_pct")
+    holding_count = composition.get("holding_count")
+
+    lines: list[str] = [f"## {fund_name}", ""]
+    summary_bits: list[str] = []
+    if top_hold_sum:
+        summary_bits.append(
+            f"the top {min(cap, len(holding_rows))} holdings account for **{top_hold_sum:.2f}%** of the portfolio"
+        )
+    if top_sector_sum:
+        summary_bits.append(
+            f"the top {min(cap, len(sector_rows))} sectors account for **{top_sector_sum:.2f}%**"
+        )
+    if top5_official is not None:
+        summary_bits.append(f"the scheme reports **{float(top5_official):.2f}%** in its top 5 stocks")
+    if summary_bits:
+        lines.append(" ".join(summary_bits[:2]).capitalize() + ".")
+        if len(summary_bits) > 2:
+            lines.append(summary_bits[2].capitalize() + ".")
+    if holding_count is not None:
+        lines.append(f"The portfolio holds **{int(holding_count)}** stocks in total.")
+    lines.append("")
+
+    if sector_rows:
+        lines.append(f"### Top {min(cap, len(sector_rows))} sectors")
+        lines.append("")
+        lines.append("| Sector | Weight (%) |")
+        lines.append("| --- | ---: |")
+        for row in sector_rows[:cap]:
+            lines.append(f"| {_sector_label(row)} | {_sector_weight_pct(row):.2f}% |")
+        lines.append("")
+        lines.append(
+            f"Together, these sectors are **{top_sector_sum:.2f}%** of the fund."
+        )
+        lines.append("")
+
+    if holding_rows:
+        lines.append(f"### Top {min(cap, len(holding_rows))} holdings")
+        lines.append("")
+        lines.append("| Stock / company | Sector | Weight (%) |")
+        lines.append("| --- | --- | ---: |")
+        for row in holding_rows[:cap]:
+            lines.append(
+                f"| {_holding_label(row)} | {row.get('sector') or row.get('industry') or '—'} | "
+                f"{_holding_weight_pct(row):.2f}% |"
+            )
+        lines.append("")
+        lines.append(
+            f"Together, these holdings are **{top_hold_sum:.2f}%** of the fund."
+        )
+
+    market_cap = risk.get("market_cap") if isinstance(risk.get("market_cap"), list) else []
+    if market_cap:
+        cap_parts = []
+        for row in market_cap:
+            if not isinstance(row, dict):
+                continue
+            label = str(row.get("label") or "").strip()
+            try:
+                pct = float(row.get("percentage"))
+            except (TypeError, ValueError):
+                continue
+            if label:
+                cap_parts.append(f"{label} {pct:.2f}%")
+        if cap_parts:
+            lines.extend(["", "### Market cap mix", "", ", ".join(cap_parts) + "."])
+
+    if top10_official is not None and top5_official is not None:
+        lines.extend(
+            [
+                "",
+                f"Reported concentration: top 5 stocks **{float(top5_official):.2f}%**, "
+                f"top 10 stocks **{float(top10_official):.2f}%**.",
+            ]
+        )
+
+    return "\n".join(lines).strip()
+
+
 def render_investor_concentration_answer(
     pack: EvidencePack,
     plan: ExecutionPlan,
@@ -1891,6 +2043,17 @@ def render_data_only_template(
     data = pack.data_pack
     if not data:
         return None
+
+    if str(plan.holding_scope or "") == "all_holdings":
+        from news_rag.insight.sector_exposure_tables import render_all_holdings_metric_table
+
+        holdings_table = render_all_holdings_metric_table(
+            plan,
+            memory=None,
+            data_pack=data,
+        )
+        if holdings_table:
+            return holdings_table
 
     investor = data.get("investor_portfolio") if isinstance(data.get("investor_portfolio"), dict) else None
     if investor and not any(str(k).startswith("fund:") for k in data):

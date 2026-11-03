@@ -38,6 +38,43 @@ def test_my_contra_fund_resolves_to_holding_not_screen():
     assert name == "Kotak Contra Fund - Regular Plan - Growth"
 
 
+def test_my_quant_fund_resolves_by_amc_token():
+    memory = {
+        "holdings_in_chat": [
+            {"name": "Quant Small Cap Fund - Growth", "isin": "INF966L01AA0", "category": "small cap"},
+            {"name": "Kotak Contra Fund - Regular Plan - Growth", "category": "contra"},
+        ],
+    }
+    name = resolve_investor_holding_fund_name("whats the current nav of my quant fund", memory)
+    assert name == "Quant Small Cap Fund - Growth"
+
+
+def test_deictic_allocations_use_last_fund_focus_not_planner_pick():
+    from news_rag.insight.investor_subject import enforce_deictic_and_memory_primary_fund
+
+    memory = {
+        "frame": {
+            "last_fund_focus": "Quant Small Cap Fund - Growth",
+            "subjects": [],
+        },
+        "holdings_in_chat": [
+            {"name": "Quant Small Cap Fund - Growth", "category": "small cap"},
+            {"name": "Kotak Contra Fund - Regular Plan - Growth", "category": "contra"},
+        ],
+        "entity_stack": [{"name": "Kotak Contra Fund - Regular Plan - Growth", "turn": 5}],
+    }
+    plan = ExecutionPlan(
+        funds=["Kotak Contra Fund - Regular Plan - Growth"],
+        subject_ref="memory_primary",
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["risk"]}, wave=1),
+            ToolCall(tool="get_portfolio_data", arguments={"sections": ["sectors"]}, wave=1),
+        ],
+    )
+    enforce_deictic_and_memory_primary_fund(plan, memory, "can i see the allocations of this fund")
+    assert plan.funds == ["Quant Small Cap Fund - Growth"]
+
+
 def test_enforce_overwrites_wrong_catalog_fund():
     memory = _memory_like_log()
     plan = ExecutionPlan(
@@ -146,6 +183,56 @@ def test_my_contra_nav_plan_uses_holdings_not_summary():
     assert (inv.arguments or {}).get("holdings_fields") == "standard"
 
 
+def test_minimum_redemption_uses_hdfc_in_memory_not_planner_hallucination():
+    from news_rag.insight.plan_enforce import apply_planner_post_hooks
+
+    memory = {
+        "turn": 1,
+        "frame": {
+            "subject_kind": "single_fund",
+            "last_fund_focus": "HDFC Large Cap Fund - Growth",
+            "recent_fund_focus": ["HDFC Large Cap Fund - Growth"],
+            "subjects": [
+                {"id": "INF179K01BE2", "name": "HDFC Large Cap Fund - Growth", "role": "primary"},
+            ],
+            "shown_facts": ["get_fund_data:limits:-", "limits"],
+        },
+        "entity_stack": [
+            {
+                "ref": 1,
+                "name": "HDFC Large Cap Fund - Growth",
+                "facts": ["get_fund_data:limits:-", "limits"],
+            },
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        subject_ref="user_named",
+        funds=["ICICI Prudential Equity Minimum Variance Fund - Regular Plan - Growth"],
+        planner_reading="Minimum redemption period for ICICI Prudential Equity Minimum Variance Fund",
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["limits"]}, wave=1),
+        ],
+    )
+    out = apply_planner_post_hooks("whats the minimum redemption period", plan, memory)
+    assert out.funds == ["HDFC Large Cap Fund - Growth"]
+    assert out.subject_ref == "memory_primary"
+
+
+def test_user_explicitly_named_scheme_requires_amc_or_two_tokens():
+    from news_rag.insight.investor_subject import user_explicitly_named_scheme
+
+    assert not user_explicitly_named_scheme(
+        "whats the minimum redemption period",
+        "ICICI Prudential Equity Minimum Variance Fund - Regular Plan - Growth",
+    )
+    assert user_explicitly_named_scheme(
+        "exit load on icici prudential minimum variance",
+        "ICICI Prudential Equity Minimum Variance Fund - Regular Plan - Growth",
+    )
+
+
 def test_deictic_uses_recent_fund_focus_not_planner_hallucination():
     from news_rag.insight.investor_subject import (
         enforce_deictic_and_memory_primary_fund,
@@ -218,6 +305,22 @@ def test_whole_portfolio_question_has_no_answer_subject():
     question = "can you tell me about my portfolio"
     assert question_asks_whole_investor_portfolio(question, plan)
     assert resolve_answer_subject(question, plan, {}, investor_holdings=holdings, wave1_results=wave1) == ""
+
+
+def test_rs_rating_all_my_funds_is_not_whole_portfolio_overview():
+    plan = ExecutionPlan(
+        funds=["Fund A - Growth", "Fund B - Growth"],
+        holding_scope="all_holdings",
+        asked_facts=["rs_rating"],
+        portfolio_scope="both",
+        data_need="investor_holding",
+        tool_calls=[
+            ToolCall(tool="get_investor_portfolio", arguments={}, wave=1),
+            ToolCall(tool="get_fund_data", arguments={"modules": ["rating"]}, wave=1),
+        ],
+    )
+    question = "show me the rs rating of all my funds"
+    assert question_asks_whole_investor_portfolio(question, plan) is False
 
 
 def test_deictic_one_month_uses_get_fund_data_not_investor_pnl():

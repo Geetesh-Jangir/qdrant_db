@@ -706,6 +706,12 @@ Optional fields may be omitted. Do not invent field names.
 - `understanding.data_need`: none, fund_holdings_breakdown, category_composition, category_performance, rating_for_screened_list, investor_summary, investor_holding, investor_sip, investor_pnl, investor_xirr, investor_hybrid. Set the one that matches what numbers to fetch. The server will not second-guess this when you set it.
 - `understanding.subject_ref`: none, user_named, memory_primary, memory_stack, list_cursor. Use memory_primary when they mean the fund already in Conversation memory (it, this fund, that scheme) even if misspelled.
 - `understanding.task`: explain or data. explain means the user wants to understand a word, a fund type, or which categories exist, including a misspelled question such as "what are multi cap fund" or "sub category of the equity funds". data means they want a number, a list of schemes, a rating, or one named fund. A screen hint that names a category does not make an explanation into a fund list.
+- **GENERAL / CONCEPT (no tools):** Pure education — what is large cap, how large cap differs from mid cap, how SIP works, category definitions, "what is a good expense ratio" as general guidance. Set `understanding.task` to **explain**, `tool_calls` to **[]**, `portfolio_scope` to **none**, omit `scope.direct_reply`, `max_words` at least **180**, `requires_compose` true. Do **not** call get_fund_data, screen_funds_by_exposure, or get_investor_portfolio unless the user names **my** / a specific scheme / a numbered list to fetch (e.g. "top 5 large cap funds").
+- **MY BOOK vs CATALOG ALL FUNDS:** | Ask | portfolio_scope | holding_scope | Tools |
+| my / all my funds / each fund I own (metrics on your book) | investor or both | all_holdings when "all/each" | get_investor_portfolio first (holdings), then get_fund_data per holding from holdings_in_chat |
+| my contra / my quant fund (one holding) | investor or both | single | resolve scheme from holdings_in_chat; get_fund_data for that name only — never a generic catalog name |
+| all large cap funds / list every fund in the market (no "my") | none | none | screen_funds_by_exposure — not get_investor_portfolio |
+Never use catalog get_fund_data alone for "my …" without binding the exact holding name from memory.
 - `understanding.answer_mode`: DATA_ONLY, NEWS_ONLY, INSIGHT_FUSION. DATA_ONLY means do not fetch news. The composer still writes the answer.
 - `entities.funds`, `entities.sectors`, `entities.stocks`: string arrays, as the user wrote them. Correct an obvious misspelling of a name they did give. Do not invent a fund they did not name.
 - `entities.drivers`: objects {{"id", "direction"}}. id is one of: {', '.join(DRIVER_IDS)}. direction is up, down, tighten, ease, weaken, or strengthen. Do not use macro_drivers.
@@ -773,6 +779,8 @@ Copy count into arguments.top_n and the slice into get_portfolio_data arguments.
 "right now", "currently", "at the moment", and "market now" mean the last 7 days. Set time.window_days to 7 and set window_days to 7 on get_market_snapshot, search_financial_news, and get_fund_data. That percent is 1W. If the user also names a period, such as last month or this year, use that period instead of 7.
 
 - Glossary only, such as the full form of NAV: tool_calls [], direct_reply one sentence, max_words at most 40, DATA_ONLY, task data.
+- Greeting only (hi, hello, good morning with no fund question): scope.kind in_scope, tool_calls [], scope.direct_reply mirrors the greeting (Hello!, Hi!, Good morning!, etc.), max_words 20, DATA_ONLY.
+- Who are you / what can you do (no fund question): scope.kind in_scope, tool_calls [], scope.direct_reply opens with "I am an AI bot by SUM." and lists capabilities in 2–4 short bullets, max_words 120, DATA_ONLY.
 - What a category or fund type is, or which categories exist: task explain, tool_calls [], omit direct_reply, max_words at least 180. The composer writes the explanation. Do not call screen_funds_by_exposure. "5 multi cap funds" and "best multi cap fund" are task data and do use the screen.
 - A question with more than one part: list each part in presentation.sub_queries. Keep task explain when the parts are an explanation. If one part asks for the name of a fund, also add one screen_funds_by_exposure call with top_n 1. The composer answers every part and cites that one scheme.
 - One question can ask for a fund and then for facts about that fund. Example: the highest rating equity fund, its historical returns, and a risk analysis. screen_funds_by_exposure top_n 1, then get_fund_data modules return_series, risk, and drawdown. The risk read is that fund call. Do not add search_financial_news for it, and do not write the risk analysis in the plan.
@@ -847,6 +855,9 @@ Glossary:
 
 What a category is, or which categories exist:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Explain what a multi cap fund is", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "task": "explain"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "What a multi cap fund is"}}, "entities": {{}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "short_answer", "max_words": 180}}}}
+
+Large cap vs mid cap (concept only):
+{{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Explain large cap and mid cap and how they differ", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "simple", "task": "explain", "portfolio_scope": "none"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "What large cap is and how it differs from mid cap"}}, "entities": {{}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 220, "notes": "Plain language for you the reader. No fund names or NAV unless asked."}}}}
 
 Stepped-up SIP illustration:
 {{"scope": {{"kind": "in_scope"}}, "understanding": {{"goal": "Illustrate a stepped-up SIP that reaches 2 crore in 20 years", "intent": "lookup", "answer_mode": "DATA_ONLY", "query_class": "standard"}}, "request": {{"count": 0, "portfolio_slice": "none", "reading": "SIP plan for a 2 crore goal in 20 years with a 10 percent annual step-up"}}, "tool_calls": [], "wave_2_policy": {{"trigger": "none"}}, "presentation": {{"response_shape": "sections", "max_words": 420}}}}

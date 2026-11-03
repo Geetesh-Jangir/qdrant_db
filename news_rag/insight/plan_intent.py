@@ -88,6 +88,14 @@ def plan_wants_fund_compare(plan: ExecutionPlan) -> bool:
     return any(call.tool == "compare_funds" for call in plan.tool_calls or [])
 
 
+def named_compare_funds_in_question(question: str) -> list[str]:
+    """Catalog schemes the user named for a side-by-side compare (not category picks)."""
+    from news_rag.insight.brief import _detect_funds
+
+    names = _detect_funds(question or "")
+    return list(dict.fromkeys(n for n in names if str(n or "").strip()))
+
+
 def plan_wants_unnamed_category_pair_compare(
     question: str,
     plan: ExecutionPlan,
@@ -99,6 +107,10 @@ def plan_wants_unnamed_category_pair_compare(
     from news_rag.fund_rating_categories import match_scheme_category
 
     if str(plan.intent or "").strip().lower() != "compare":
+        return False
+    if len(plan.funds or []) >= 2:
+        return False
+    if len(named_compare_funds_in_question(question)) >= 2:
         return False
     if plan_wants_compare_categories(plan):
         return False
@@ -125,7 +137,7 @@ def plan_wants_unnamed_category_pair_compare(
         return True
     if re.search(r"\bcompare\s+two\b", q, re.I):
         return True
-    return bool(re.search(r"\bfunds?\b", q, re.I) and "compare" in q.lower())
+    return bool(re.search(r"\bcompare\b.{0,40}\bfunds\b", q, re.I))
 
 
 def reconcile_planner_intent(plan: ExecutionPlan, question: str) -> None:

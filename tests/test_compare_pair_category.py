@@ -47,6 +47,25 @@ def test_random_equity_compare_uses_same_category_screen(monkeypatch):
     assert out.scheme_category == "mid cap"
 
 
+def test_named_hdfc_invesco_compare_keeps_compare_funds():
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="compare",
+        funds=[],
+        tool_calls=[
+            ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1),
+        ],
+    )
+    q = "compare hdfc large cap fund with invesco india large cap fund"
+    out = apply_planner_post_hooks(q, plan, None)
+    assert out.intent == "compare"
+    assert len(out.tool_calls) == 1
+    assert out.tool_calls[0].tool == "compare_funds"
+    assert len(out.funds) >= 2
+    joined = " ".join(out.funds).lower()
+    assert "hdfc" in joined and "invesco" in joined
+
+
 def test_unnamed_large_cap_compare_plan():
     plan = ExecutionPlan(
         routed_by="planner",

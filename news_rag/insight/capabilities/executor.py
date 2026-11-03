@@ -20,21 +20,39 @@ from news_rag.insight.contracts import ToolCall, RequestTelemetry
 logger = logging.getLogger(__name__)
 
 
-def _isin_for_fund_name(fund_name: str) -> str:
+def _isin_for_fund_name(fund_name: str, ctx: dict[str, Any] | None = None) -> str:
     from news_rag.fund_search import get_fund_index
 
     name = str(fund_name or "").strip()
     if not name:
         return ""
-    detail, _amb, _close = get_fund_index().lookup_extracted_fund(name=name)
+    ctx = ctx or {}
+    mapping = ctx.get("fund_isins") if isinstance(ctx.get("fund_isins"), dict) else {}
+    key = name.lower()
+    if key in mapping:
+        return str(mapping[key]).strip().upper()
+    for map_name, isin in mapping.items():
+        mn = str(map_name).strip().lower()
+        if mn == key or key in mn or mn in key:
+            return str(isin).strip().upper()
+    ctx_isin = str(ctx.get("fund_isin") or "").strip().upper()
+    if ctx_isin:
+        return ctx_isin
+    detail, ambiguous, _close = get_fund_index().lookup_extracted_fund(name=name)
+    if ambiguous and not detail:
+        logger.debug("ambiguous catalog name for ISIN lookup: %s", name[:80])
     return str((detail or {}).get("isin") or "").strip().upper()
 
 
-def _fund_payload_matches_fund(fund_name: str, data: dict[str, Any]) -> bool:
+def _fund_payload_matches_fund(
+    fund_name: str,
+    data: dict[str, Any],
+    ctx: dict[str, Any] | None = None,
+) -> bool:
     """Reject conversation or TTL cache rows built for a different ISIN."""
     if not str(fund_name or "").strip() or not isinstance(data, dict):
         return False
-    expected = _isin_for_fund_name(fund_name)
+    expected = _isin_for_fund_name(fund_name, ctx)
     insights = data.get("fund_insights") if isinstance(data.get("fund_insights"), dict) else {}
     got_isin = str(insights.get("isin") or "").strip().upper()
     if expected and got_isin and got_isin != expected:
@@ -211,23 +229,19 @@ def refetch_partial_fund_tools(
 
 
 def _detail_for_fund_tool(fund_name: str, ctx: dict[str, Any] | None) -> dict[str, Any] | None:
-    """Resolve this fund by name; use ctx ISIN only when it matches the catalog row."""
+    """Resolve this fund by name; use ctx ISIN / fund_isins before catalog name lookup."""
     from news_rag.fund_search import detail_has_live_facts, get_fund_index, resolve_fund_for_query
 
     ctx = ctx or {}
-    detail, _amb, _close = resolve_fund_for_query(fund_name, name=fund_name)
-    name_isin = str((detail or {}).get("isin") or _isin_for_fund_name(fund_name) or "").strip().upper()
-    ctx_isin = str(ctx.get("fund_isin") or "").strip().upper()
-    isin = name_isin
-    if ctx_isin and name_isin and ctx_isin != name_isin:
-        isin = name_isin
-    elif ctx_isin and not name_isin:
-        isin = ctx_isin
-        detail, _amb, _close = resolve_fund_for_query(fund_name, isin=isin, name="")
+    isin = _isin_for_fund_name(fund_name, ctx)
     if isin:
         live = get_fund_index().get_fund_detail(isin)
         if live and detail_has_live_facts(live):
             return live
+        detail, _amb, _close = get_fund_index().lookup_extracted_fund(isin=isin, name="")
+        if detail and detail_has_live_facts(detail):
+            return detail
+    detail, _amb, _close = resolve_fund_for_query(fund_name, name=fund_name)
     if detail and not detail_has_live_facts(detail) and isin:
         live = get_fund_index().get_fund_detail(isin)
         if live and detail_has_live_facts(live):
@@ -1472,11 +1486,16 @@ def execute_capability(
         skip_cache = bool(base_ctx.get("skip_tool_cache"))
         for name in target_funds:
             per_ctx = dict(base_ctx)
-            per_isin = _isin_for_fund_name(name)
+            per_isin = _isin_for_fund_name(name, base_ctx)
             if per_isin:
                 per_ctx["fund_isin"] = per_isin
             else:
                 per_ctx.pop("fund_isin", None)
+                if call.tool == "get_fund_data":
+                    logger.info(
+                        "catalog bind: no ISIN for %r (ambiguous or unknown name)",
+                        name[:80],
+                    )
             remembered = None if skip_cache else _take_conversation_slice(per_ctx, name, call.tool, args)
             if remembered is not None:
                 results.append({
@@ -1488,7 +1507,7 @@ def execute_capability(
             cached = None if skip_cache else cache.get(call.tool, cache_key)
             if cached is not None and (
                 not _return_slice_covers(call.tool, args, cached)
-                or (call.tool == "get_fund_data" and not _fund_payload_matches_fund(name, cached))
+                or (call.tool == "get_fund_data" and not _fund_payload_matches_fund(name, cached, per_ctx))
             ):
                 cached = None
             if cached is not None:
@@ -1516,7 +1535,7 @@ def execute_capability(
                 "partial": bool(out.get("partial")) or (bool(out.get("ok")) and not complete),
                 "cached": False,
             }
-            if row["ok"] and complete and _fund_payload_matches_fund(name, row["data"]):
+            if row["ok"] and complete and _fund_payload_matches_fund(name, row["data"], per_ctx):
                 cache.set(call.tool, cache_key, row["data"])
                 _keep_conversation_slice(per_ctx, name, call.tool, args, row["data"], True)
             results.append(row)

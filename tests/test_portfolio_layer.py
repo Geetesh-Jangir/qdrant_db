@@ -93,6 +93,28 @@ def test_executor_with_fixture(monkeypatch):
     assert rows[0]["data"].get("summary")
 
 
+def test_executor_uses_workspace_sample_without_token(monkeypatch):
+    monkeypatch.setenv("CLIENT_REF_NO", "CRN-local-no-token")
+    monkeypatch.delenv("PORTFOLIO_FIXTURE_PATH", raising=False)
+    monkeypatch.delenv("RUPEESTOP_ADMIN_TOKEN", raising=False)
+
+    from news_rag.portfolio.cache import clear_cache_for_tests
+
+    clear_cache_for_tests()
+
+    from news_rag.insight.capabilities.executor import execute_capability
+    from news_rag.insight.contracts import ToolCall
+
+    call = ToolCall(
+        tool="get_investor_portfolio",
+        arguments={"modules": ["summary"]},
+        wave=1,
+    )
+    rows = execute_capability(call, ctx={"portfolio_enabled": True})
+    assert rows[0]["ok"]
+    assert rows[0]["data"].get("summary")
+
+
 def test_repair_empty_investor_tool_calls(monkeypatch):
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-test")
     from news_rag.insight.contracts import ExecutionPlan

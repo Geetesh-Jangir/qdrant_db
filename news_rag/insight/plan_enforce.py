@@ -29,18 +29,35 @@ def _compare_category_slug(question: str, plan: ExecutionPlan) -> str:
     return str(match.category or "").strip() if match else ""
 
 
+def seed_named_compare_funds_from_question(question: str, plan: ExecutionPlan) -> None:
+    """When the user names two schemes, bind them before category compare hooks run."""
+    from news_rag.insight.plan_intent import named_compare_funds_in_question, plan_wants_fund_compare
+
+    if not plan_wants_fund_compare(plan):
+        return
+    if len(plan.funds or []) >= 2:
+        return
+    detected = named_compare_funds_in_question(question)
+    if len(detected) >= 2:
+        plan.funds = detected[:2]
+
+
 def ensure_compare_fund_pair(
     plan: ExecutionPlan,
     memory: dict[str, Any] | None,
     question: str = "",
 ) -> None:
     """compare_funds needs two names — pull the pair from comparison memory when missing."""
-    from news_rag.insight.plan_intent import plan_wants_fund_compare
+    from news_rag.insight.plan_intent import named_compare_funds_in_question, plan_wants_fund_compare
     from news_rag.insight.memory.fund_context import comparison_fund_names
 
     if not plan_wants_fund_compare(plan):
         return
     if len(plan.funds or []) >= 2:
+        return
+    detected = named_compare_funds_in_question(question)
+    if len(detected) >= 2:
+        plan.funds = detected[:2]
         return
     category = _compare_category_slug(question, plan)
     pair = comparison_fund_names(memory, category=category)
@@ -53,6 +70,15 @@ def finalize_fund_compare_plan(question: str, plan: ExecutionPlan) -> None:
     from news_rag.insight.plan_intent import plan_wants_fund_compare
 
     if not plan_wants_fund_compare(plan):
+        return
+    if len(plan.funds or []) >= 2:
+        plan.data_need = "none"
+        plan.intent = "compare"
+        plan.requires_compose = True
+        kept = [c for c in plan.tool_calls if c.tool == "compare_funds"]
+        if not kept:
+            kept = [ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1)]
+        plan.tool_calls = kept
         return
     if any(
         call.tool == "screen_funds_by_exposure" and (call.arguments or {}).get("compare_pair")
@@ -173,6 +199,17 @@ def resolve_planner_subject_refs(
                 name = primary_fund_name(memory)
                 if name:
                     plan.funds = [name]
+    elif ref == "user_named" and memory and plan.funds:
+        from news_rag.insight.investor_subject import (
+            reconcile_planner_invented_fund_name,
+            user_explicitly_named_scheme,
+        )
+        from news_rag.insight.memory.fund_context import memory_known_fund_names
+
+        cur = str((plan.funds or [""])[0] or "").strip()
+        known = {n.lower() for n in memory_known_fund_names(memory)}
+        if cur and known and cur.lower() not in known and not user_explicitly_named_scheme(question, cur):
+            reconcile_planner_invented_fund_name(plan, memory, question)
     elif ref == "memory_stack" and memory:
         from news_rag.insight.memory.fund_context import (
             asks_these_equity_funds,
@@ -249,6 +286,17 @@ def repair_data_need_tools(plan: ExecutionPlan) -> ExecutionPlan:
 
     need = str(plan.data_need or "none").strip().lower()
     if need == "fund_holdings_breakdown":
+        for call in plan.tool_calls or []:
+            if call.tool != "get_fund_data":
+                continue
+            args = dict(call.arguments or {})
+            modules = [str(m) for m in (args.get("modules") or [])]
+            changed = False
+            if "composition" not in modules:
+                modules.append("composition")
+                changed = True
+            if changed:
+                call.arguments = {**args, "modules": modules}
         if not _has_modules(plan, "risk"):
             _prepend_tool(
                 plan,
@@ -337,6 +385,9 @@ def apply_planner_post_hooks(
     )
 
     reconcile_planner_intent(plan, question)
+    from news_rag.insight.general_concept import apply_pure_concept_plan
+
+    plan = apply_pure_concept_plan(plan, question)
     from news_rag.fund_risk import reroute_single_fund_risk_plan
 
     reroute_single_fund_risk_plan(question, plan, memory)
@@ -350,14 +401,21 @@ def apply_planner_post_hooks(
         enforce_investor_holding_subject,
         ensure_catalog_tools_for_fund_news,
         reconcile_deictic_planner_fund,
+        reconcile_planner_invented_fund_name,
     )
 
     ensure_my_category_fund_investor_plan(plan, question, memory)
+    from news_rag.insight.investor_subject import ensure_all_holdings_metrics_plan, ensure_my_holding_fund_scope
 
+    ensure_my_holding_fund_scope(plan, question, memory)
+    ensure_all_holdings_metrics_plan(plan, question, memory)
+
+    seed_named_compare_funds_from_question(question, plan)
     ensure_unnamed_category_pair_compare_plan(question, plan, memory)
     ensure_random_same_category_pair_compare_plan(question, plan, memory)
     resolve_planner_subject_refs(plan, memory, question)
     reconcile_deictic_planner_fund(plan, memory, question)
+    reconcile_planner_invented_fund_name(plan, memory, question)
     enforce_investor_holding_subject(plan, memory, question)
     enforce_deictic_and_memory_primary_fund(plan, memory, question)
     from news_rag.insight.plan_catalog_bind import ensure_whole_book_catalog_scope
@@ -368,6 +426,9 @@ def apply_planner_post_hooks(
 
     merge_planner_asked_facts(plan)
     plan = tag_answer_parts(plan)
+    from news_rag.insight.multi_fact import ensure_planner_fund_fact_modules
+
+    ensure_planner_fund_fact_modules(question, plan)
     ensure_catalog_tools_for_fund_news(plan)
     ensure_compare_fund_pair(plan, memory, question)
     apply_category_scoped_compare_funds(question, plan, memory)
@@ -397,6 +458,10 @@ def apply_planner_post_hooks(
 
     repair_data_need_tools(plan)
 
+    from news_rag.insight.fund_concentration import ensure_fund_concentration_plan
+
+    ensure_fund_concentration_plan(question, plan)
+
     from news_rag.insight.plan_catalog_bind import enforce_planner_catalog_plan
 
     plan = enforce_planner_catalog_plan(plan, memory)
@@ -414,6 +479,10 @@ def apply_planner_post_hooks(
         from news_rag.fund_risk import ensure_risk_tools
 
         ensure_risk_tools(question, plan)
+        from news_rag.insight.multi_fact import ensure_planner_fund_fact_modules
+
+        ensure_planner_fund_fact_modules(question, plan)
+        ensure_fund_concentration_plan(question, plan)
         return plan
 
     ensure_category_performance_plan(question, plan, memory)

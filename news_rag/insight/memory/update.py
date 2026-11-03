@@ -314,6 +314,16 @@ def commit_turn(
                 known["rs_label"] = compact["rs_label"] or known.get("rs_label")
         if names_in_chat:
             state["holdings_in_chat"] = names_in_chat[-12:]
+        isin_map: dict[str, str] = dict(state.get("holding_isins") or {})
+        for row in holdings:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("scheme_name") or row.get("name") or "").strip()
+            isin = str(row.get("isin") or "").strip().upper()
+            if name and isin.startswith("INF"):
+                isin_map[name] = isin
+        if isin_map:
+            state["holding_isins"] = isin_map
         if investor_subjects:
             frame["investor_subjects"] = investor_subjects[-8:]
             frame["subject_kind"] = "investor_holding" if len(investor_subjects) == 1 else "investor_portfolio"
@@ -356,22 +366,50 @@ def commit_turn(
                 "turn": turn,
             }
 
-    from news_rag.insight.memory.fund_context import fund_name_mentioned_in_memory, push_recent_fund_focus
+    from news_rag.insight.memory.fund_context import (
+        fund_name_mentioned_in_memory,
+        push_recent_fund_focus,
+        touch_fund_entity_ttl,
+    )
+    from news_rag.insight.investor_subject import (
+        holdings_rows_from_investor_tool_results,
+        resolve_investor_holding_by_amc_token,
+        resolve_investor_holding_fund_name,
+        resolve_investor_holding_from_holdings_rows,
+    )
 
     focus = str(frame.get("last_fund_focus") or "").strip()
     if question:
         mentioned = fund_name_mentioned_in_memory(question, state)
         if mentioned:
             focus = mentioned
+        if not focus:
+            focus = resolve_investor_holding_fund_name(question, state) or resolve_investor_holding_by_amc_token(
+                question, state
+            )
+        if not focus:
+            holdings = holdings_rows_from_investor_tool_results(ok_rows)
+            focus = resolve_investor_holding_from_holdings_rows(question, holdings)
     if len(subjects) == 1 and subjects[0].get("name"):
         focus = str(subjects[0]["name"]).strip()
     elif len(getattr(plan, "funds", None) or []) == 1:
         focus = str(plan.funds[0]).strip()
-    if focus:
-        push_recent_fund_focus(frame, focus)
+
+    fund_tool_ok = any(row.get("tool") in _FUND_TOOLS for row in ok_rows)
+    fund_turn = bool(subjects) or fund_tool_ok or bool(focus)
+
+    if not fund_turn:
+        frame.pop("last_fund_focus", None)
+        frame.pop("last_fund_focus_turn", None)
+        frame["recent_fund_focus"] = []
+    elif focus:
+        touch_fund_entity_ttl(state, frame, focus, turn=turn, period=period, facts=facts)
 
     named = subjects or [row for row in (frame.get("subjects") or []) if isinstance(row, dict) and row.get("name")]
-    names = ", ".join(str(row.get("name") or "") for row in named) or "no fund"
+    if not named and focus:
+        names = focus
+    else:
+        names = ", ".join(str(row.get("name") or "") for row in named) or "no fund"
     fact_text = ", ".join(frame.get("shown_facts") or []) or "a general answer"
     add_gist(state, f"{names}; {frame.get('period') or 'no period'}; {fact_text}", turn)
     state["frame"] = frame

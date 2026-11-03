@@ -173,6 +173,26 @@ def node_route(state: GraphState) -> str | None:
             state.query_log.write("ROUTE blocked private_or_methodology")
         return "reply"
 
+    from news_rag.insight.greeting import greeting_reply, identity_reply
+
+    identified = identity_reply(state.question or "")
+    if identified:
+        state.answer = _clean_answer(identified)
+        state.reply_kind = "direct"
+        state.route_reason = "identity"
+        if state.query_log is not None:
+            state.query_log.write("ROUTE identity direct_reply")
+        return "reply"
+
+    greeted = greeting_reply(state.question or "")
+    if greeted:
+        state.answer = _clean_answer(greeted)
+        state.reply_kind = "direct"
+        state.route_reason = "greeting"
+        if state.query_log is not None:
+            state.query_log.write("ROUTE greeting direct_reply")
+        return "reply"
+
     settings = get_settings()
     plan = make_plan(
         state.question,
@@ -219,6 +239,11 @@ def node_route(state: GraphState) -> str | None:
     from news_rag.insight.plan_validate import validate_plan_tools
 
     plan = validate_plan_tools(state.question, plan, state.memory)
+    from news_rag.insight.fund_concentration import ensure_fund_concentration_plan
+    from news_rag.insight.multi_fact import ensure_planner_fund_fact_modules
+
+    plan = ensure_planner_fund_fact_modules(state.question or "", plan)
+    plan = ensure_fund_concentration_plan(state.question or "", plan)
     state.plan = plan
     if state.query_log is not None:
         tools = [f"{c.tool}({c.arguments})" for c in plan.tool_calls]
@@ -309,10 +334,16 @@ def _resolve_funds(
     for name in names_to_resolve:
         detail = None
         mem_isin = ""
+        owned_canonical = ""
         if memory:
-            from news_rag.insight.memory.fund_context import isin_for_owned_holding
+            from news_rag.insight.memory.fund_context import isin_for_owned_holding, owned_holding_rows
 
             mem_isin = isin_for_owned_holding(memory, name)
+            if mem_isin:
+                for row in owned_holding_rows(memory):
+                    if str(row.get("isin") or "").upper() == mem_isin.upper():
+                        owned_canonical = str(row.get("name") or "").strip()
+                        break
         if mem_isin:
             detail, _ambiguous, _close = idx.lookup_extracted_fund(isin=mem_isin, name="")
             if detail and not detail_has_live_facts(detail):
@@ -329,12 +360,23 @@ def _resolve_funds(
                     detail = live
         if not detail:
             detail, _ambiguous, _close = idx.lookup_extracted_fund(name=name)
+        if not detail and owned_canonical and owned_canonical != name:
+            detail, _ambiguous, _close = idx.lookup_extracted_fund(name=owned_canonical)
         if not detail and re.search(r"\bINF[A-Z0-9]{9}\b", name or "", re.I):
             isin_m = re.search(r"\b(INF[A-Z0-9]{9})\b", name, re.I)
             if isin_m:
                 detail, _ambiguous, _close = idx.lookup_extracted_fund(isin=isin_m.group(1))
         if detail:
-            resolved.append(str(detail.get("fund_short_name") or detail.get("fund_name") or name))
+            canonical = str(detail.get("fund_name") or detail.get("fund_short_name") or name).strip()
+            if owned_canonical:
+                canonical = owned_canonical
+            elif mem_isin and str(name or "").strip():
+                canonical = str(name).strip()
+            resolved.append(canonical)
+        elif owned_canonical:
+            resolved.append(owned_canonical)
+        elif mem_isin:
+            resolved.append(str(name).strip())
         else:
             unresolved.append(name)
 
@@ -577,6 +619,8 @@ def node_wave1(state: GraphState) -> str | None:
     from news_rag.config import get_settings as _wave_settings
 
     _pe = _wave_settings().portfolio_enabled
+    from news_rag.insight.memory.fund_context import merge_fund_isins_map
+
     context = _attach_conversation(state, {
         "question": state.question,
         "portfolio_enabled": _pe,
@@ -590,6 +634,7 @@ def node_wave1(state: GraphState) -> str | None:
         "direction": "any",
         "top_n": 5,
     })
+    context["fund_isins"] = merge_fund_isins_map(state.memory)
 
     deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 5000.0, 25000.0))
     t0 = time.time()
@@ -644,6 +689,8 @@ def node_wave1(state: GraphState) -> str | None:
                 if isinstance(row, dict)
             ]
             holding_names = list(dict.fromkeys(n for n in holding_names if n))
+            holdings_rows = holdings_rows_from_investor_tool_results(inv_results)
+            context["fund_isins"] = merge_fund_isins_map(state.memory, holdings_rows)
             if holding_names:
                 plan.funds = holding_names
                 state.resolved_funds = holding_names
@@ -936,6 +983,8 @@ def _drop_scheme_is_the_whole_book(text: str) -> str:
 COMPOSE_SYSTEM = """ROLE: COMPOSER (user-facing markdown only)
 You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words), and EVIDENCE (metrics + optional news).
 
+VOICE: Speak directly to the reader as **you** / **your**. Use a warm, plain tone — like a helpful colleague, not a formal report. Do not call the reader "the investor" or "investors".
+
 CORE RULES:
 0. **Subject line.** When WHAT THE USER WANTS includes `answer_subject`, the **first line** must be `## {answer_subject}` (exact scheme name from EVIDENCE). Then answer the question about **that** scheme only. Do not lead with a different fund from an old chat compare or screen.
 0a. **Whole investor book.** When `investor_portfolio_overview` is true, open with `## Your portfolio` (never a single scheme name as the title). Summarize total value, invested, gain, and portfolio XIRR first. For two or more schemes in EVIDENCE, use one markdown table for scheme-level figures (scheme, category, current value, invested, gain, absolute return, XIRR, RS label) and, when allocation.categoryShare is present, a second table for category weights. Put a **blank line** before each table and keep section headings as `### Your holdings` and `### Allocation by category`. Do not list the same scheme figures again as bullets if they are in a table. The server may append underlying concentration tables; do not duplicate those blocks.
@@ -946,7 +995,7 @@ CORE RULES:
 3. **Tables and prose.** Server-built markdown tables may be appended after your text. Do **not** paste markdown tables yourself when DISPLAY is present — write the insight in prose first. When you write a markdown table, put a **blank line** between the intro sentence and the first `|` row so the table renders as one block. When TABLE_SUMMARIES is in EVIDENCE, the opening 2–4 sentences must state the fund name, **equity/cash (and debt if any) weights**, **large/mid/small cap split**, the **largest sector weights**, **named top holdings with weights**, and the **top holdings sum** when present — exact percentages from TABLE_SUMMARIES. Never leave empty **Asset mix** or **Market cap mix** labels. When the evidence has several funds or several figures (and no DISPLAY takeover), you may build one markdown table with columns from the question. Do not repeat the same numbers in a paragraph and a table you wrote.
 4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
 5. **What stands out.** When NEWS or insight_links are in EVIDENCE, that is the answer. Open with `### What stands out` **after** the `## answer_subject` heading when present. One sentence on how recent news touches **that fund's** largest weighted exposure (from insight_links for the same fund as answer_subject). Then one block per insight_links row for **that fund only**. Do not map news to a peer fund's holdings because a compare happened earlier in chat. After each news block, when snapshot or investor holding returns exist for answer_subject, add one short line on how the fund's recent return (label the horizon) relates to that theme — blend data with news, do not paste a returns table here. A holding block is a bold line `**Name · 6.46% · Telecom - Services**` copied from that row's name, weight_pct, and sector. A sector block is `**Name · 8.45% of the fund**`. A macro block is `**Macro · name**` with no invented weight. After the bold line, write the facts in that row's points: the event and the figure the article reported. Use every point for that row. The last sentence is one of those facts. Do not add a closer about how the fund may behave, whether a forecast is confirmed, or that the news matters more to the stock than to the fund. Cover holdings, sectors, and macro when those rows exist. Do not leave a weight blank. Do not write that a name is outside the top five, that a weight is missing, or that the effect cannot be measured. Do not paste a headline or a publisher. Do not add `### Recent news`, `### Fund basics`, or `### Recent performance context`. Do not add a holdings or sectors table unless the question asked for that list. If NEWS is absent, do not write this section.
-6. **Numbers and knowledge:** If EVIDENCE has measured figures, those figures must match EVIDENCE. Investor portfolio amounts are already in rupees. Write ₹65,405 or ₹12,220.54 — **not** lakh, crore, or “₹12,221 lakh”. Do not rescale small book amounts into lakh. When concentration.top_holdings and concentration.sectors are present, name each top holding with its weight and each top sector with its weight. Do not write "approx" or "approximate". Do not say the top schemes hold the whole portfolio, or that the top 5 schemes are 100%, just because the book has only a few funds. Concentration is the underlying holdings and sectors, not a restatement that every scheme you own adds up to 100%. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and a standard educational read are yours to write. You may say what a term means and whether a lower or higher figure is generally better for the investor (for example a lower expense ratio usually leaves more of the return with the investor). That is not a buy or sell. Stay with mutual funds, stocks, and markets. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
+6. **Numbers and knowledge:** If EVIDENCE has measured figures, those figures must match EVIDENCE. Investor portfolio amounts are already in rupees. Write ₹65,405 or ₹12,220.54 — **not** lakh, crore, or “₹12,221 lakh”. Do not rescale small book amounts into lakh. When concentration.top_holdings and concentration.sectors are present, name each top holding with its weight and each top sector with its weight. Do not write "approx" or "approximate". Do not say the top schemes hold the whole portfolio, or that the top 5 schemes are 100%, just because the book has only a few funds. Concentration is the underlying holdings and sectors, not a restatement that every scheme you own adds up to 100%. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and a standard educational read are yours to write. You may say what a term means and whether a lower or higher figure is generally better for you (for example a lower expense ratio usually leaves more of the return with you). That is not a buy or sell. Stay with mutual funds, stocks, and markets. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
 7. **Horizon on every measured percent.** Each price or return row has `horizon` (1D, 1W, 1M, 3M, 6M, 1Y, or a day count such as 14D). WHAT THE USER WANTS also has `measured_window`. Write that code on the figure: Nifty **+0.7% (1W)**. If one figure is 1W and another is 1M, label both. Do not call a 1W or 1M change "the latest session", "today", or "right now".
 8. **No invented levels.** A macro row is a percent change, not a Brent price, a rupee level, or an Indian bond yield. Do not print a level the row does not contain, and do not leave a blank where a number should be. A level or a percent that appears only in a news summary is what that article reported, not the measured move. Gold figures from metals_spot are 24K gold in INR per 10 grams. State the horizon on every gold percent in prose. When a gold return has approx true, say it uses the nearest month-end price. Do **not** add a markdown table for gold windows — the server appends one with **then** and **now** prices from `returns.from_price` / `returns.to_price`. Never quote a silver price or a silver return. A silver answer comes from the articles only, and say it is based on news.
 
@@ -954,7 +1003,7 @@ CORE RULES:
 10. The markdown table in the answer is the table the user reads. Do not add a second copy of the same numbers.
 11. **Shape.** A RupeeStop rating lead is placed above your answer. Do not repeat that score or those pillar marks. Bold only the label, a pillar mark, and the figure the user asked for. One block per part of the question, in that order. A table only when there are several funds or several figures.
 12. **End summary.** Write `### Summary` only when WHAT THE USER WANTS has `end_summary` true. Two or three sentences: the overall read, not a repeat of every number. When `end_summary` is false, do not add a summary.
-13. Answer only what the question asked. If the user asked for a figure and it is not in EVIDENCE, write one sentence: "We can't get that data right now." If they did not ask for it, leave it out. Do not say that a figure is missing, not included, or cannot be shown. A rating list names the fund, the label, and the score. When WHAT THE USER WANTS has `fund_pick` **alternate_in_category** and the screen shows **one** fund, that fund **is** the answer — name it with RS score, label, and key returns. Do **not** say a second fund is unavailable or that you need another row to compare; the user asked for one additional scheme, not a side-by-side table of two. When pillar scores are present, write each as score out of the max in EVIDENCE for that pillar; max marks differ by fund type. For a general question about pillar maximums with no fund in EVIDENCE, say each pillar's cap depends on fund type and category, and do not invent fixed numbers like 40/25/25/10 for every scheme. Do not mention a return unless the question asked for one. When one fund is the period performer and another is the rated fund, name both. Say the performer's return over that period is the better return. Say the rated fund is the better rating only when its score is higher. Do not say the rated fund won that period when its return is lower. Do not open with "I can't recommend." Do not tell the reader to buy.
+13. Answer only what the question asked. If the user asked for a figure and it is not in EVIDENCE, write one friendly sentence: "We can't get that data right now." If they did not ask for it, leave it out. A rating list names the fund, the label, and the score. When WHAT THE USER WANTS has `fund_pick` **alternate_in_category** and the screen shows **one** fund, that fund **is** the answer — name it with RS score, label, and key returns. Do **not** say a second fund is unavailable or that you need another row to compare; the user asked for one additional scheme, not a side-by-side table of two. When pillar scores are present, write each as score out of the max in EVIDENCE for that pillar; max marks differ by fund type. For a general question about pillar maximums with no fund in EVIDENCE, say each pillar's cap depends on fund type and category, and do not invent fixed numbers like 40/25/25/10 for every scheme. Do not mention a return unless the question asked for one. When one fund is the period performer and another is the rated fund, name both. Say the performer's return over that period is the better return. Say the rated fund is the better rating only when its score is higher. Do not say the rated fund won that period when its return is lower. Do not open with "I can't recommend." Do not tell the reader to buy.
 14. **Managers.** Write only the managers present in EVIDENCE. Current managers are the default. Do not mention former managers unless they are in EVIDENCE.
 15. **Risk.** The SEBI riskometer is how risky the fund is.
 16. **Which tables to append.** WHAT THE USER WANTS lists `tables_in_answer` (candidate keys). TABLE_SUMMARIES.table_quality marks `complete`, `partial`, or `empty`. End your reply with exactly one HTML comment on its own line: `<!-- TABLES_APPEND: default -->` to append all candidates, `<!-- TABLES_APPEND: none -->` when tables would mislead, or `<!-- TABLES_APPEND: key1,key2 -->` for a subset (only keys from tables_in_answer). Omit partial or empty tables unless the user explicitly asked for that slice. A pillar mark, including the risk pillar, is a score from internal calculations. A lower risk-pillar mark does not mean the fund is less risky, and a higher mark does not mean it is more risky. Do not turn a pillar mark into a percentage of its maximum. When you add mid-cap and small-cap weights, write that sum. Do not write "approx" without the number. When drawdown episodes are present, write them once under the heading `### Maximum drawdown across periods`, one line per period. Do not list those same falls again in the opening or in a second Drawdown section. Do not say drawdown is missing, not recorded, or not available. Do not mention a return period or write "see the table below" unless that return is in EVIDENCE and the answer contains the table. When the user asks whether risk is lower or higher than before and EVIDENCE has no earlier riskometer reading, use exactly one sentence: "We can't get that data right now." Then report the current riskometer, pillar, mix, and drawdown. Do not write about snapshots, trends, or data that cannot show a change.
@@ -971,7 +1020,7 @@ RULES:
 5. Do not mention tools, EVIDENCE, or the pipeline.
 """
 
-COMPOSE_SYSTEM_FACTS = """ROLE: COMPOSER — one note for an investor
+COMPOSE_SYSTEM_FACTS = """ROLE: COMPOSER — one note for you
 FACTS has every figure the user asked for.
 
 RULES:
@@ -1048,6 +1097,9 @@ def _rating_lead_for_pack(pack: EvidencePack | None, question: str) -> str:
         return ""
     if asks_manager_roster(question):
         return ""
+    fund_keys = [k for k in (pack.data_pack or {}) if str(k).startswith("fund:")]
+    if len(fund_keys) > 1:
+        return ""
     screen = (pack.data_pack or {}).get("screen")
     if isinstance(screen, dict):
         rows = screen.get("rankings") or screen.get("funds") or []
@@ -1117,6 +1169,16 @@ def node_compose(state: GraphState) -> str | None:
                 state.answer = _clean_answer(drawback_answer)
                 state.route_reason = "portfolio drawback template"
                 return None
+
+        from news_rag.insight.evidence_pack import render_fund_concentration_answer
+
+        fund_concentration = render_fund_concentration_answer(
+            pack, plan, state.question or ""
+        )
+        if fund_concentration:
+            state.answer = _clean_answer(fund_concentration)
+            state.route_reason = "fund concentration template"
+            return None
 
         from news_rag.insight.evidence_pack import render_investor_concentration_answer
 
@@ -1371,6 +1433,8 @@ def node_compose(state: GraphState) -> str | None:
         )
 
     raw_text = (res.raw_text or "").strip() if res else ""
+    if state.query_log and raw_text:
+        state.query_log.write(f"COMPOSE_RAW chars={len(raw_text)} output_tokens={getattr(res, 'output_tokens', 0) or 0}")
     if not raw_text:
         state.pipeline_errors.append({"stage": "compose", "tool": "", "message": "empty response"})
         if template_answer:
@@ -1397,6 +1461,10 @@ def node_compose(state: GraphState) -> str | None:
             from news_rag.insight.grounding import investor_book_cores
 
             allowed_numbers |= investor_book_cores(pack.data_pack["investor_portfolio"])
+        if pack and isinstance(pack.data_pack, dict):
+            from news_rag.insight.grounding import fund_portfolio_cores
+
+            allowed_numbers |= fund_portfolio_cores(pack.data_pack)
         grounded_text = strip_ungrounded_numbers(raw_text, allowed_numbers)
     else:
         grounded_text = raw_text
@@ -1501,6 +1569,7 @@ def node_compose(state: GraphState) -> str | None:
         polished_text = _drop_scheme_is_the_whole_book(polished_text)
     from news_rag.insight.fact_slots import render_asked_facts, slots_from_plan
     from news_rag.insight.sector_exposure_tables import (
+        render_all_holdings_metric_table,
         render_all_holdings_return_table,
         render_all_holdings_sector_table,
     )
@@ -1509,9 +1578,17 @@ def node_compose(state: GraphState) -> str | None:
     wave_results = [*state.wave1_results, *state.wave2_results]
     fact_table = render_asked_facts(slots, wave_results)
     if state.plan and str(state.plan.holding_scope or "") == "all_holdings":
-        ret_table = render_all_holdings_return_table(state.plan, wave_results, state.memory)
-        if ret_table:
-            fact_table = ret_table
+        metric_table = render_all_holdings_metric_table(state.plan, wave_results, state.memory)
+        if metric_table:
+            fact_table = metric_table
+        elif not fact_table:
+            ret_table = render_all_holdings_return_table(state.plan, wave_results, state.memory)
+            if ret_table:
+                fact_table = ret_table
+        else:
+            ret_table = render_all_holdings_return_table(state.plan, wave_results, state.memory)
+            if ret_table:
+                fact_table = f"{fact_table}\n\n{ret_table}".strip()
         sector_table = render_all_holdings_sector_table(state.plan, wave_results, state.memory)
         if sector_table:
             fact_table = f"{fact_table}\n\n{sector_table}".strip() if fact_table else sector_table
@@ -1525,6 +1602,22 @@ def node_compose(state: GraphState) -> str | None:
         if gold_table not in polished_text:
             polished_text = f"{polished_text}\n\n{gold_table}".strip()
     polished_text = strip_news_roundup(polished_text)
+    if state.query_log and raw_text:
+        state.query_log.write(
+            f"COMPOSE_POST chars={len(polished_text)} measured={measured} "
+            f"grounded_delta={len(raw_text) - len(grounded_text if measured else raw_text)}"
+        )
+    if (
+        asks_one_figure(state.question or "")
+        and len(polished_text.strip()) < 80
+        and any(not r.get("ok") for r in (state.wave1_results or []) if r.get("tool") == "get_fund_data")
+    ):
+        polished_text = (
+            polished_text.strip()
+            or f"## {(plan.funds or ['This fund'])[0]}\n\nWe can't get that data right now."
+        )
+        if "can't get that data" not in polished_text.lower():
+            polished_text = f"{polished_text.rstrip()}\n\nWe can't get that data right now.".strip()
     state.answer = _clean_answer(polished_text)
 
     # Jev judge is paused for ask. The score was recorded and the answer was still returned.

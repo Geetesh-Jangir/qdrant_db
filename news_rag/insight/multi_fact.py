@@ -24,7 +24,7 @@ def requested_fund_facts(question: str) -> set[str]:
         facts.add("aum")
     if re.search(r"\bexpense\s+ratio\b|\bter\b", q, re.I):
         facts.add("expense")
-    if re.search(r"\bexit\s+load\b", q, re.I):
+    if re.search(r"\bexit\s+load\b|\bexitload\b|\bexit-load\b", q, re.I):
         facts.add("exit_load")
     if re.search(r"\bhistorical\s+performance\b|\bperformance\b|\bperforming\b|\breturns?\b", q, re.I):
         facts.add("returns")
@@ -65,7 +65,11 @@ def asks_one_figure(question: str) -> bool:
         return False
     if re.search(r"\b(?:different|difference|compare|versus|\bvs\b|why|also)\b", text, re.I):
         return False
-    if re.search(r"\bfunds\b", text, re.I):
+    if re.search(r"\bfunds\b", text, re.I) and not re.search(
+        r"\b(?:this|these|that|those)\s+funds?\b",
+        text,
+        re.I,
+    ):
         return False
     facts = requested_fund_facts(text)
     return len(facts) == 1 and facts <= _ONE_FIGURE
@@ -143,6 +147,61 @@ def ensure_screen_facts(question: str, plan: ExecutionPlan) -> ExecutionPlan:
         if words and all(word in question_l for word in words[:2]):
             kept.append(fund)
     plan.funds = kept
+    return plan
+
+
+def ensure_planner_fund_fact_modules(question: str, plan: ExecutionPlan) -> ExecutionPlan:
+    """Exit load, NAV, AUM, and expense ratio live in snapshot — not the limits module."""
+    facts = requested_fund_facts(question)
+    asked = {str(x).lower() for x in (plan.asked_facts or [])}
+    if re.search(r"\brupee\s*stop\s+rating|\brs\s+rating|\brs\s+score\b", question or "", re.I):
+        asked.add("rs_rating")
+    if "rs_rating" in asked and any(call.tool == "get_fund_data" for call in plan.tool_calls or []):
+        for call in plan.tool_calls or []:
+            if call.tool != "get_fund_data":
+                continue
+            args = dict(call.arguments or {})
+            modules = [str(m) for m in (args.get("modules") or [])]
+            if "rating" not in modules:
+                modules.append("rating")
+                call.arguments = {**args, "modules": modules}
+        plan.asked_facts = sorted(set(plan.asked_facts or []) | {"rs_rating"})
+    if not facts or not plan.funds:
+        return plan
+    if not any(call.tool == "get_fund_data" for call in plan.tool_calls or []):
+        return plan
+
+    wants_limits = bool(
+        re.search(
+            r"\b(?:min(?:imum)?\s+(?:sip|investment|lumpsum|additional)|"
+            r"redemption\s+(?:period|settlement)|sip\s+frequenc|how\s+(?:much|little)\s+(?:to\s+)?invest)\b",
+            question or "",
+            re.I,
+        )
+    )
+    snapshot_needed = facts & _SNAPSHOT_FACTS
+
+    for call in plan.tool_calls or []:
+        if call.tool != "get_fund_data":
+            continue
+        args = dict(call.arguments or {})
+        modules = [str(m) for m in (args.get("modules") or [])]
+        if not modules:
+            continue
+        changed = False
+        if snapshot_needed and "snapshot" not in modules:
+            modules.insert(0, "snapshot")
+            changed = True
+        if snapshot_needed and not wants_limits and "limits" in modules:
+            modules = [m for m in modules if m != "limits"]
+            changed = True
+        if changed:
+            call.arguments = {**args, "modules": modules}
+
+    merged = set(plan.asked_facts or []) | facts
+    plan.asked_facts = sorted(merged)
+    if len(facts) == 1 and facts <= _ONE_FIGURE:
+        plan.requires_compose = False
     return plan
 
 

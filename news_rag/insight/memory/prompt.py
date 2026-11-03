@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from news_rag.insight.memory.state import ENTITY_TTL_TURNS
+from news_rag.insight.greeting import ASSISTANT_MAIN_MEMORY
 
 
 def memory_json_tokens(payload: dict[str, Any] | None) -> int:
@@ -21,8 +22,9 @@ def memory_json_tokens(payload: dict[str, Any] | None) -> int:
 
 
 def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
+    identity = {"assistant_main_memory": dict(ASSISTANT_MAIN_MEMORY)}
     if not state or not state.get("turn_count"):
-        return {}
+        return identity
     frame = state.get("frame") if isinstance(state.get("frame"), dict) else {}
     subjects = []
     for row in frame.get("subjects") or []:
@@ -94,6 +96,7 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
             )
 
     out: dict[str, Any] = {
+        **identity,
         "turn": state.get("turn_count"),
         "entity_ttl_turns": ENTITY_TTL_TURNS,
         "frame": {

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from typing import Any
+
 _MEDIA_OUTLETS = (
     "Economic Times",
     "Financial Express",
@@ -149,6 +151,45 @@ def cores_for_float(value: float) -> set[str]:
     if abs(num) < 1000 and abs(num) > 0:
         cores.add(numeric_core(f"{num:.0f}"))
     cores.discard("")
+    return cores
+
+
+def fund_portfolio_cores(data_pack: dict[str, Any]) -> set[str]:
+    """Allow sums of top holding/sector weights in concentration answers."""
+    from news_rag.insight.evidence_pack import _holding_weight_pct, _sector_weight_pct
+
+    if not isinstance(data_pack, dict):
+        return set()
+    cores: set[str] = set()
+    for key, val in data_pack.items():
+        if not str(key).startswith("portfolio:") or not isinstance(val, dict):
+            continue
+        holdings = [h for h in (val.get("holdings") or []) if isinstance(h, dict)]
+        sectors = [s for s in (val.get("sectors") or []) if isinstance(s, dict)]
+        for row in holdings[:15]:
+            cores |= cores_for_float(_holding_weight_pct(row))
+        for row in sectors[:15]:
+            cores |= cores_for_float(_sector_weight_pct(row))
+        for n in (5, 10, len(holdings), len(sectors)):
+            if n <= 0:
+                continue
+            h_sum = round(sum(_holding_weight_pct(h) for h in holdings[:n]), 2)
+            s_sum = round(sum(_sector_weight_pct(s) for s in sectors[:n]), 2)
+            if h_sum:
+                cores |= cores_for_float(h_sum)
+            if s_sum:
+                cores |= cores_for_float(s_sum)
+        for fund_key, fund_val in data_pack.items():
+            if not str(fund_key).startswith("fund:") or not isinstance(fund_val, dict):
+                continue
+            comp = fund_val.get("composition") if isinstance(fund_val.get("composition"), dict) else {}
+            for field in ("top_5_pct", "top_10_pct"):
+                raw = comp.get(field)
+                if raw is not None:
+                    cores |= cores_for_float(float(raw))
+            count = comp.get("holding_count")
+            if count is not None:
+                cores.add(str(int(count)))
     return cores
 
 

@@ -50,6 +50,35 @@ def list_cursor_fund_name(memory: dict[str, Any] | None) -> str:
     return str(first.get("name") or "").strip()
 
 
+def merge_fund_isins_map(
+    memory: dict[str, Any] | None,
+    *holding_row_lists: list[dict[str, Any]],
+) -> dict[str, str]:
+    """Lowercase holding name -> ISIN for per-fund catalog tools."""
+    out: dict[str, str] = {}
+    if isinstance(memory, dict):
+        stored = memory.get("holding_isins")
+        if isinstance(stored, dict):
+            for raw_name, raw_isin in stored.items():
+                name = str(raw_name or "").strip()
+                isin = str(raw_isin or "").strip().upper()
+                if name and isin.startswith("INF"):
+                    out[name.lower()] = isin
+    for rows in holding_row_lists:
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("scheme_name") or row.get("name") or "").strip()
+            isin = str(row.get("isin") or "").strip().upper()
+            if name and isin.startswith("INF"):
+                out[name.lower()] = isin
+    for row in owned_holding_rows(memory):
+        isin = str(row.get("isin") or "").strip().upper()
+        if row.get("name") and isin.startswith("INF"):
+            out[row["name"].lower()] = isin
+    return out
+
+
 def owned_holding_rows(memory: dict[str, Any] | None) -> list[dict[str, str]]:
     """User book from memory: name + ISIN for catalog tool resolution."""
     if not isinstance(memory, dict):
@@ -69,6 +98,9 @@ def owned_holding_rows(memory: dict[str, Any] | None) -> list[dict[str, str]]:
     for row in memory.get("holdings_in_chat") or []:
         if isinstance(row, dict):
             _add(str(row.get("name") or ""), str(row.get("isin") or ""))
+    if isinstance(memory.get("holding_isins"), dict):
+        for raw_name, raw_isin in memory["holding_isins"].items():
+            _add(str(raw_name or ""), str(raw_isin or ""))
     for row in frame.get("investor_subjects") or []:
         if isinstance(row, dict):
             _add(str(row.get("name") or ""), str(row.get("isin") or row.get("id") or ""))
@@ -99,6 +131,9 @@ def primary_fund_name(memory: dict[str, Any] | None) -> str:
             focus = str(frame.get("last_fund_focus") or "").strip()
             if focus:
                 return focus
+    gist_name = last_fund_name_from_gists(memory)
+    if gist_name:
+        return gist_name
     name = str(primary_fund_subject(memory).get("name") or "").strip()
     if name:
         return name
@@ -182,7 +217,7 @@ def recent_fund_focus_names(memory: dict[str, Any] | None) -> list[str]:
     return out
 
 
-def push_recent_fund_focus(frame: dict[str, Any], fund_name: str) -> None:
+def push_recent_fund_focus(frame: dict[str, Any], fund_name: str, *, turn: int | None = None) -> None:
     name = str(fund_name or "").strip()
     if not name:
         return
@@ -193,6 +228,70 @@ def push_recent_fund_focus(frame: dict[str, Any], fund_name: str) -> None:
     ]
     frame["recent_fund_focus"] = recent[:4]
     frame["last_fund_focus"] = name
+    if turn is not None and int(turn) > 0:
+        frame["last_fund_focus_turn"] = int(turn)
+
+
+def deictic_fund_context_active(memory: dict[str, Any] | None) -> bool:
+    """True when 'this fund' may refer to a fund still in the active window (not after a non-fund turn)."""
+    from news_rag.insight.memory.state import ENTITY_TTL_TURNS
+
+    if not isinstance(memory, dict):
+        return False
+    frame = memory.get("frame") if isinstance(memory.get("frame"), dict) else {}
+    turn = int(memory.get("turn_count") or 0)
+    focus = str(frame.get("last_fund_focus") or "").strip()
+    focus_turn = int(frame.get("last_fund_focus_turn") or 0)
+    if focus:
+        ft = focus_turn or int(frame.get("subjects_turn") or 0)
+        for row in memory.get("entity_stack") or []:
+            if isinstance(row, dict) and str(row.get("name") or "").strip().lower() == focus.lower():
+                ft = max(ft, int(row.get("turn") or 0))
+        if turn <= 0 or not ft:
+            return True
+        if (turn - ft) < ENTITY_TTL_TURNS:
+            return True
+    gists = memory.get("gists") or []
+    if gists:
+        last_row = gists[-1] if isinstance(gists[-1], dict) else {}
+        last_gist = str(last_row.get("gist") or "").strip().lower()
+        if last_gist.startswith("no fund"):
+            return False
+        if focus and focus.lower() in last_gist:
+            return True
+    return False
+
+
+def touch_fund_entity_ttl(
+    state: dict[str, Any],
+    frame: dict[str, Any],
+    fund_name: str,
+    *,
+    turn: int,
+    period: str,
+    facts: list[str],
+) -> None:
+    """Re-mentioning the same fund refreshes entity TTL (stack + frame subjects)."""
+    from news_rag.insight.memory.state import push_fund
+
+    name = str(fund_name or "").strip()
+    if not name or turn <= 0:
+        return
+    push_recent_fund_focus(frame, name, turn=turn)
+    subject_row = next(
+        (row for row in (frame.get("subjects") or []) if isinstance(row, dict) and row.get("name") == name),
+        None,
+    )
+    if subject_row:
+        subject = dict(subject_row)
+    else:
+        built = subjects_from_fund_names([name])
+        subject = built[0] if built else {"id": "", "name": name, "plan": "", "role": "primary"}
+    push_fund(state, subject, period=period, facts=facts, turn=turn)
+    frame["subjects_turn"] = turn
+    if not frame.get("subjects") or len(frame.get("subjects") or []) <= 1:
+        frame["subjects"] = [subject]
+        frame["subject_kind"] = "single_fund"
 
 
 def fund_name_matches_category(fund_name: str, category: str) -> bool:

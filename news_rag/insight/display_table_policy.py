@@ -70,6 +70,7 @@ _OVERVIEW_RE = re.compile(
     r"\b(?:tell me about|overview of|how is|summar(?:y|ize)|about)\b",
     re.I,
 )
+_CONCENTRATION_RE = re.compile(r"\bconcentration\b|\bdiversif", re.I)
 
 
 _BENCHMARK_RE = re.compile(r"\bbenchmark\b", re.I)
@@ -145,6 +146,15 @@ def resolve_display_table_policy(
     wants_long = user_named_periods and bool(long_rows)
     if user_named_periods and not wants_short and not wants_long:
         wants_long = True
+
+    if plan and _CONCENTRATION_RE.search(q):
+        from news_rag.insight.investor_drawback import plan_wants_fund_concentration
+
+        if plan_wants_fund_concentration(plan, q):
+            return DisplayTablePolicy(
+                include=frozenset({TABLE_PORTFOLIO, TABLE_SECTORS, TABLE_COMPOSITION}),
+                rationale="Fund concentration — sector and holding weights, not return tables.",
+            )
 
     if mode == AnswerMode.DATA_ONLY:
         inc: set[str] = set()

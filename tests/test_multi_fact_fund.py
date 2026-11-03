@@ -141,6 +141,7 @@ def test_a_rating_row_is_filled_with_returns_riskometer_and_category_average(mon
     assert asks_one_figure("what is the nav of axis bluechip")
     assert asks_one_figure("what is the 1 month return of this fund")
     assert asks_one_figure("what is the benchmark of parag parikh flexi cap")
+    assert asks_one_figure("what is the aum of this funds")
     assert not asks_one_figure("what is the nav and aum of hdfc large cap")
     assert not asks_one_figure("show me 5 funds and their one month returns")
     assert not asks_one_figure(
@@ -322,6 +323,67 @@ def test_expense_ratio_renders_only_the_expense_ratio():
     assert "Exit load" not in text
     assert "AUM" not in text
     assert "Historical Returns" not in text
+
+
+def test_deictic_exit_load_swaps_limits_for_snapshot():
+    from news_rag.insight.plan_enforce import apply_planner_post_hooks
+    from news_rag.insight.plan_catalog_bind import enforce_planner_catalog_plan
+    from news_rag.insight.plan_validate import validate_plan_tools
+    from news_rag.insight.multi_fact import ensure_planner_fund_fact_modules
+
+    memory = {
+        "frame": {
+            "last_fund_focus": "HDFC Large Cap Fund - Growth",
+            "subjects": [{"name": "HDFC Large Cap Fund - Growth"}],
+        },
+        "entity_stack": [{"name": "HDFC Large Cap Fund - Growth"}],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        subject_ref="memory_primary",
+        funds=["HDFC Large Cap Fund - Growth"],
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["limits"], "window_days": 30, "top_n": 3},
+                wave=1,
+            ),
+        ],
+    )
+    q = "what are its exit load"
+    plan = apply_planner_post_hooks(q, plan, memory)
+    plan = enforce_planner_catalog_plan(plan, memory)
+    plan = validate_plan_tools(q, plan, memory)
+    plan = ensure_planner_fund_fact_modules(q, plan)
+    gfd = next(c for c in plan.tool_calls if c.tool == "get_fund_data")
+    assert gfd.arguments["modules"] == ["snapshot"]
+    assert "exit_load" in plan.asked_facts
+
+
+def test_planner_exit_load_swaps_limits_for_snapshot():
+    from news_rag.insight.plan_enforce import apply_planner_post_hooks
+
+    memory = {
+        "frame": {
+            "last_fund_focus": "HDFC Large Cap Fund - Growth",
+            "subjects": [{"name": "HDFC Large Cap Fund - Growth"}],
+        },
+        "entity_stack": [{"name": "HDFC Large Cap Fund - Growth"}],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        subject_ref="memory_primary",
+        funds=["HDFC Large Cap Fund - Growth"],
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["limits"]}, wave=1),
+        ],
+    )
+    out = apply_planner_post_hooks("what are the exit load charges", plan, memory)
+    gfd = next(c for c in out.tool_calls if c.tool == "get_fund_data")
+    assert gfd.arguments["modules"] == ["snapshot"]
+    assert "exit_load" in out.asked_facts
 
 
 def test_aum_and_exit_load_render_only_those_lines():

@@ -15,7 +15,7 @@ Optional integration with RupeeStop admin **workspace** API for “my portfolio�
 | `PORTFOLIO_FIXTURE_PATH` | Optional override: local workspace JSON instead of HTTP |
 | `RAG_USE_PLANNER_WHEN_PORTFOLIO` | When CRN set, skip slot router (default true) |
 
-**Load order:** explicit `PORTFOLIO_FIXTURE_PATH` → `data/portfolios/{CLIENT_REF_NO}.json` → live workspace HTTP for that CRN.
+**Load order:** explicit `PORTFOLIO_FIXTURE_PATH` → `data/portfolios/{CLIENT_REF_NO}.json` → if `RUPEESTOP_ADMIN_TOKEN` is empty, `data/workspace_sample.json` (local dev) → live workspace HTTP for that CRN.
 
 ## Deployment
 

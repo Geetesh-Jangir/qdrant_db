@@ -59,6 +59,19 @@ def plan_wants_pure_concentration(plan: ExecutionPlan, question: str = "") -> bo
     return False
 
 
+def plan_wants_fund_concentration(plan: ExecutionPlan, question: str = "") -> bool:
+    """Holdings/sector concentration for one catalog scheme (not the investor book)."""
+    from news_rag.insight.portfolio_scope import _data_need_is_investor
+
+    if not plan_wants_pure_concentration(plan, question):
+        return False
+    if _data_need_is_investor(plan):
+        return False
+    if str(plan.portfolio_scope or "").lower().strip() == "investor":
+        return False
+    return bool(plan.funds) or str(plan.subject_ref or "").strip().lower() == "memory_primary"
+
+
 def build_drawdown_wave2_calls(
     wave1_results: list[dict[str, Any]],
     *,

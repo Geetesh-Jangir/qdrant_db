@@ -29,3 +29,40 @@ def test_deictic_one_month_uses_get_fund_data_not_investor_pnl():
     assert "get_fund_data" in tools
     gfd = next(c for c in plan.tool_calls if c.tool == "get_fund_data")
     assert gfd.arguments.get("windows") == ["1M"]
+
+
+def test_aum_slot_renders_from_snapshot():
+    from news_rag.insight.fact_slots import render_asked_facts
+
+    results = [
+        {
+            "ok": True,
+            "tool": "get_fund_data",
+            "fund": "HDFC Large Cap Fund - Growth",
+            "data": {
+                "snapshot": {
+                    "fund_name": "HDFC Large Cap Fund - Growth",
+                    "aum": 37293.95,
+                    "aum_as_on_date": "2026-09-30",
+                }
+            },
+        }
+    ]
+    table = render_asked_facts(["aum"], results)
+    assert "37,293.95" in table
+    assert "2026-09-30" in table
+
+
+def test_snapshot_modules_without_returns_do_not_add_return_slots():
+    plan = ExecutionPlan(
+        asked_facts=["aum"],
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["snapshot"], "windows": ["1Y", "3Y", "5Y"]},
+            )
+        ],
+    )
+    slots = slots_from_plan(plan)
+    assert slots == ["aum"]
+    assert not any(s.startswith("return:") for s in slots)
