@@ -17,8 +17,6 @@ _SERIES_TICKER = {
     "brent": ("BZ=F", "Brent crude (ICE)"),
     "wti": ("CL=F", "WTI crude (NYMEX)"),
     "usdinr": ("INR=X", "USD/INR"),
-    "gold": ("GC=F", "Gold"),
-    "silver": ("SI=F", "Silver"),
     "yield": ("^TNX", "US 10-year yield"),
 }
 
@@ -62,7 +60,7 @@ ARG_HELP: dict[str, str] = {
     "macro_sector_impact": "Needs a driver. Rule table of sectors that usually gain or lose.",
     "sector_alignment": "One fund. Holdings versus the sector index.",
     "trace_relationships": "Needs a driver or sector plus a fund.",
-    "metals_spot": "No args. Gold and silver spot.",
+    "metals_spot": "metal gold. windows such as 1M or 1Y. history_months for the month-end series. 24K INR per 10g. Silver has no price feed.",
 }
 
 
@@ -324,6 +322,24 @@ def run_macro_series_tool(ctx: dict[str, Any]) -> dict[str, Any]:
     else:
         series_keys = ["crude", "usdinr"]
     for key in series_keys:
+        if key == "gold":
+            from historical_data.gold_service import get_gold_snapshot
+
+            code = "1M" if window <= 35 else "3M" if window <= 100 else "6M" if window <= 200 else "1Y"
+            gold = get_gold_snapshot(windows=[code])
+            change = ((gold.get("returns") or {}).get(code) or {}).get("pct")
+            series.append(
+                {
+                    "series": "gold",
+                    "label": "24K gold (INR per 10g)",
+                    "change_pct": change,
+                    "window_days": window,
+                    "horizon": code,
+                    "unit": gold.get("unit"),
+                    "approx": ((gold.get("returns") or {}).get(code) or {}).get("approx"),
+                }
+            )
+            continue
         ticker, label = _SERIES_TICKER.get(str(key), ("", ""))
         if not ticker:
             continue
@@ -390,9 +406,9 @@ def register_layer_tools() -> None:
         ToolSpec(
             name="macro_series",
             provides=frozenset({"commodity_spot"}),
-            description="Recent percent change in Brent/WTI crude, the rupee, gold, silver or the US 10-year yield (Yahoo Finance).",
-            when_to_use="The user asks how crude, the rupee, gold or yields have moved.",
-            args=(("series", "crude brent wti usdinr gold silver yield"), ("window_days", "1-365")),
+            description="Recent percent change in Brent/WTI crude, the rupee, India 24K gold, or the US 10-year yield.",
+            when_to_use="The user asks how crude, the rupee, gold or yields have moved. Gold is the India 24K per-10g series.",
+            args=(("series", "crude brent wti usdinr gold yield"), ("window_days", "1-365")),
             run=run_macro_series_tool,
             cost=2,
         ),

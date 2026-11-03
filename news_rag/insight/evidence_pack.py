@@ -356,6 +356,13 @@ def build_evidence_pack(
             focus = sector_focus_from_market(data, question)
             if focus:
                 data = {**data, "sector_focus": focus}
+            spot = data.get("metals_spot") if isinstance(data.get("metals_spot"), dict) else {}
+            if spot.get("available") is False:
+                data = {
+                    **data,
+                    "price_note": spot.get("message")
+                    or "No price data for this metal. Use news only and do not invent a price or return.",
+                }
             data_pack["market"] = data
             rows.append(EvidenceRow(
                 entity_id="market",

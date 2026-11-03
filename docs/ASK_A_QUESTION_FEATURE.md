@@ -259,7 +259,7 @@ Each row: **provides** | **requires** | **fan-out** | **applies gate** | **fallb
 | `stock_holders` | `stock_holders` | — | — | `stock_name` | — | `funds_holding_stock` |
 | `stock_snapshot` | `stock_price` | — | — | `stock_name` | — | `run_stock_snapshot` |
 | `sector_holdings` | `sector_holdings` | — | — | `sector_name` | — | `run_sector_holdings_tool` |
-| `metals_spot` | `commodity_spot` | — | — | — | — | `run_metals_spot` |
+| `metals_spot` | `commodity_spot` | — | — | `metal`, `windows` | — | `run_metals_spot` (24K gold INR/10g; silver is news only) |
 
 ### Sub-tool / internal call graph (important chains)
 

@@ -7,7 +7,7 @@ import time
 from datetime import date
 from typing import Any, Literal, TYPE_CHECKING
 
-from historical_data.metals_service import get_latest_metals_spot
+from historical_data.gold_service import get_gold_snapshot, get_silver_snapshot
 from historical_data.nav_service import get_fund_nav_history
 from historical_data.stocks_service import get_stock_profile
 from news_rag.fund_search import extract_top_holdings, extract_top_sectors, lookup_extracted_fund
@@ -844,9 +844,17 @@ def run_sector_funds(
     )
 
 
-def run_metals_spot() -> dict[str, Any]:
+def run_metals_spot(ctx: dict[str, Any] | None = None) -> dict[str, Any]:
     started = time.perf_counter()
-    spot = get_latest_metals_spot()
+    ctx = ctx or {}
+    metal = str(ctx.get("metal") or "gold").strip().lower()
+    if metal == "silver":
+        spot = get_silver_snapshot()
+    else:
+        spot = get_gold_snapshot(
+            windows=list(ctx.get("windows") or []),
+            history_months=ctx.get("history_months"),
+        )
     elapsed = (time.perf_counter() - started) * 1000
     return _ok(spot, elapsed)
 

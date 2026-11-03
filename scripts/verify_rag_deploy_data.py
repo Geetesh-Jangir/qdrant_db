@@ -7,12 +7,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Required for sector screens, fund catalog, metals tools, and stock-name resolution (BHEL, etc.).
+# Required for sector screens, fund catalog, and stock-name resolution (BHEL, etc.).
 REQUIRED = [
     "data/fund_holdings_aggregate/sector_to_isin_weights.json",
     "data/fund_holdings_aggregate/regular-growth-by-amc.md",
     "data/fund_holdings_aggregate/aggregated_holdings_map.json",
-    "data/metals_prices.json",
     "data/direct_plan_growth_isins.txt",
 ]
 

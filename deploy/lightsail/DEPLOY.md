@@ -131,7 +131,7 @@ curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1/backfill
 
 ## Data in git (no SCP)
 
-Committed files power fund screens, sector weights, stock aliases (e.g. BHEL), and metals context. Full list: **`data/DEPLOY_DATA.md`**.
+Committed files power fund screens, sector weights, and stock aliases (e.g. BHEL). Gold prices are fetched live. Full list: **`data/DEPLOY_DATA.md`**.
 
 **Not in git:** `.env`, `data/embedding_models/` (downloaded by `install.sh`), `data/nav_cache/` (runtime), Qdrant news corpus.
 

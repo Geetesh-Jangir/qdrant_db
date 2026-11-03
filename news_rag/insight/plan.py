@@ -725,7 +725,9 @@ Optional fields may be omitted. Do not invent field names.
 | Stocks or holdings inside one named fund | get_portfolio_data sections ["holdings"], top_n from the question | screen_funds_by_exposure, and do not also request sectors |
 | Sectors inside one scheme | get_portfolio_data sections ["sectors"] only | get_fund_data, news, holdings |
 | Compare two or more named funds | one compare_funds call, arguments mode metrics, overlap, or both | get_fund_data once per fund, and do not pass modules |
-| Market or macro level, no fund named | get_market_snapshot modules index_return, sector_ranking, macro_series, metals_spot, or stock_quote. series crude, brent, wti, usdinr, gold, silver, yield | a macro_impact module or a driver argument on this tool |
+| Market or macro level, no fund named | get_market_snapshot modules index_return, sector_ranking, macro_series, metals_spot, or stock_quote. series crude, brent, wti, usdinr, gold, yield | a macro_impact module or a driver argument on this tool |
+| Gold price, return, or history (24K, INR per 10g) | get_market_snapshot modules ["metals_spot"], metal "gold", windows for the asked period. Month-wise or year-wise history sets history_months. Add search_financial_news topics ["gold"] only when they ask why | metals_spot for silver, and do not use a USD gold future |
+| Silver price or move | search_financial_news topics ["silver"] only. There is no silver price feed | get_market_snapshot metals_spot or macro_series silver |
 | Which funds a driver hits | screen_funds_by_exposure with driver set to a lowercase id such as crude_oil | get_market_snapshot alone |
 | NAV, returns, or managers of one fund | get_fund_data | screen_funds_by_exposure |
 
@@ -751,6 +753,8 @@ A specific question lists only the modules that answer it. query_class is simple
 - A named-fund overview that also fetches news: add get_portfolio_data sections ["holdings", "sectors"] on wave 1. The news has to be tied to a weight. A later question that asks for a different section, period, or module is a new tool call. Do not reuse the previous call's arguments. Snapshot windows are ["1Y", "3Y", "5Y"] unless a period was named.
 - Versus the benchmark only: get_fund_data modules ["vs_benchmark"] only. Do not add snapshot, return_series, or attribution.
 - The fund manager's name: get_fund_data modules ["managers"] only.
+- Gold price or gold return: get_market_snapshot modules ["metals_spot"], arguments metal "gold" and windows set to the asked code (1D, 1W, 1M, 1Y, 3Y, 5Y). A month-wise or year-wise history also sets history_months. Figures are 24K INR per 10 grams. Add search_financial_news topics ["gold"] only when the user asks why gold moved.
+- Silver price, silver return, or why silver moved: search_financial_news topics ["silver"] only. Do not call metals_spot or macro_series for silver. The answer uses news and does not quote a silver price.
 - **All holdings in the user's book** (each fund's return, which of my funds has more banks): set request.holding_scope to all_holdings, portfolio_scope both, list every scheme from holdings_in_chat in entities.funds (with ISIN if known), and add get_fund_data and/or get_portfolio_data on wave 1. Do not rely on get_investor_portfolio alone for catalog return windows or sector weights inside schemes.
 - **Banking (or any sector) in every fund I own**: holding_scope all_holdings, entities.funds = all holdings, entities.sectors includes the sector (e.g. banks), get_portfolio_data sections ["sectors"] with find set when the tool supports it, portfolio_scope both.
 - shown_facts lists the exact modules and windows already fetched, such as get_fund_data:snapshot:1M. A different window (1Y after 1M) is missing. Call get_fund_data again with that window. Do not answer from the older window.

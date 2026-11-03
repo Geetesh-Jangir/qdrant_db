@@ -71,7 +71,7 @@ fi
 
 if [[ -f scripts/verify_rag_deploy_data.py ]]; then
   if ! .venv/bin/python scripts/verify_rag_deploy_data.py; then
-    echo "!! Fund/metals data missing — run: git pull origin ${NEWS_RAG_BRANCH}"
+    echo "!! Fund data missing — run: git pull origin ${NEWS_RAG_BRANCH}"
     exit 1
   fi
 fi

@@ -186,9 +186,10 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     },
     "get_market_snapshot": {
         "description": (
-            "Index returns, sector ranking, and macro series. "
+            "Index returns, sector ranking, macro series, and India 24K gold (INR per 10g). "
             "modules: index_return, sector_ranking, macro_series, metals_spot, stock_quote. "
-            "series: crude, brent, wti, usdinr, gold, silver, yield. There is no macro_impact module and no driver argument."
+            "series: crude, brent, wti, usdinr, gold, yield. Gold uses the India 24K per-10g series, not a USD futures price. "
+            "metals_spot takes metal gold, windows, and history_months. Do not request silver prices; silver is news only."
         ),
         "when_to_use": "Market or macro level, with no single fund named, or as context next to fund news.",
         "do_not_use": "Do not use this to list funds affected by a driver. That is screen_funds_by_exposure.",
@@ -201,9 +202,15 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "window_days": {"type": "int", "min": 1, "max": 365, "default": 30},
             "series": {
                 "type": "list",
-                "items": ["crude", "brent", "wti", "usdinr", "gold", "silver", "yield"],
+                "items": ["crude", "brent", "wti", "usdinr", "gold", "yield"],
             },
             "top_n": {"type": "int", "min": 3, "max": 12, "default": 6},
+            "metal": {"type": "str", "enum": ["gold", "silver"], "default": "gold"},
+            "windows": {
+                "type": "list",
+                "items": "1D, 1W, 1M, 3M, 6M, 1Y, 3Y, 5Y, or YTD. Used by metals_spot.",
+            },
+            "history_months": {"type": "int", "min": 1, "max": 240},
         },
         "per_fund": False,
     },
@@ -287,7 +294,7 @@ def capability_catalog_text(*, portfolio_enabled: bool | None = None) -> str:
 # Argument validation
 # ---------------------------------------------------------------------------
 
-_MACRO_SERIES = {"crude", "brent", "wti", "usdinr", "gold", "silver", "yield"}
+_MACRO_SERIES = {"crude", "brent", "wti", "usdinr", "gold", "yield"}
 
 
 def _clamp(value: Any, lo: int, hi: int, default: int) -> int:
@@ -429,6 +436,18 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
             "series": series or ["crude", "usdinr"],
             "top_n": _clamp(src.get("top_n"), 3, 12, 6),
         }
+        metal = str(src.get("metal") or "").strip().lower()
+        if metal in ("gold", "silver"):
+            out["metal"] = metal
+        windows = []
+        for raw in src.get("windows") or []:
+            code = str(raw or "").strip().upper()
+            if code and code not in windows:
+                windows.append(code)
+        if windows:
+            out["windows"] = windows[:8]
+        if src.get("history_months") is not None:
+            out["history_months"] = _clamp(src.get("history_months"), 1, 240, 12)
         stock = str(src.get("stock") or "").strip()
         if stock:
             out["stock"] = stock[:80]

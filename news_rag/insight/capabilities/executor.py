@@ -543,6 +543,33 @@ def _run_search_financial_news(args: dict[str, Any], ctx: dict[str, Any]) -> dic
                 },
             }
 
+    bullion = _bullion_topics(topics)
+    named = [str(topic or "").strip() for topic in topics if str(topic or "").strip()]
+    if bullion and named and len(bullion) == len(named):
+        from news_rag.bullion_retrieve import retrieve_bullion_macro_news, retrieve_bullion_metal_news
+
+        articles: list[dict[str, Any]] = []
+        question = str(ctx.get("question") or "")
+        query = " ".join(topics) or question
+        if bullion == {"bullion"} or bullion >= {"gold", "silver"}:
+            rows = retrieve_bullion_macro_news(
+                query, question=question, window_days=window_days, query_log=ctx.get("query_log")
+            )
+            articles.extend(_bullion_articles(rows))
+        else:
+            for metal in sorted(bullion):
+                if metal not in ("gold", "silver"):
+                    continue
+                rows = retrieve_bullion_metal_news(
+                    metal, query, question=question, window_days=window_days, query_log=ctx.get("query_log")
+                )
+                articles.extend(_bullion_articles(rows))
+        return {
+            "ok": bool(articles),
+            "scope": "macro",
+            "data": {"articles": articles, "article_count": len(articles), "metal": sorted(bullion)},
+        }
+
     targets = _news_search_targets(
         topics,
         scope=scope,
@@ -598,6 +625,47 @@ _TOPIC_KEYS = {
     "banks": "banks",
     "banking": "banks",
 }
+
+_BULLION_TOPICS = {
+    "gold": "gold",
+    "silver": "silver",
+    "bullion": "bullion",
+    "precious metal": "bullion",
+    "precious metals": "bullion",
+}
+
+
+def _bullion_topics(topics: list[Any]) -> set[str]:
+    found: set[str] = set()
+    for topic in topics or []:
+        key = _BULLION_TOPICS.get(str(topic or "").strip().lower())
+        if key:
+            found.add(key)
+    return found
+
+
+def _bullion_articles(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    articles: list[dict[str, Any]] = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        text = str(row.get("snippet") or row.get("text") or row.get("summary") or "")
+        title = str(row.get("title") or "")
+        articles.append(
+            {
+                "title": title,
+                "headline": title,
+                "text": text,
+                "summary": text,
+                "url": str(row.get("url") or ""),
+                "source": str(row.get("source") or ""),
+                "published_at": str(row.get("published_at") or ""),
+                "sentiment": str(row.get("sentiment") or ""),
+                "max_impact": row.get("max_impact"),
+                "direction": row.get("direction"),
+            }
+        )
+    return articles
 
 
 def _news_search_targets(
@@ -1132,11 +1200,16 @@ def _run_get_market_snapshot(args: dict[str, Any], ctx: dict[str, Any]) -> dict[
             combined["macro_series"] = res.get("data", {})
 
     if "metals_spot" in modules:
-        spec = get_tool("metals_spot")
-        if spec and spec.run:
-            res = spec.run(ctx)
-            if res.get("ok"):
-                combined["metals_spot"] = res.get("data", {})
+        from historical_data.gold_service import get_gold_snapshot, get_silver_snapshot
+
+        metal = str(args.get("metal") or "gold").strip().lower()
+        if metal == "silver":
+            combined["metals_spot"] = get_silver_snapshot()
+        else:
+            combined["metals_spot"] = get_gold_snapshot(
+                windows=list(args.get("windows") or []),
+                history_months=args.get("history_months"),
+            )
 
     if "stock_quote" in modules:
         stock_name = str(args.get("stock") or ctx.get("stock_name") or "").strip()

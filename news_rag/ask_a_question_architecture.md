@@ -840,8 +840,9 @@ Compare of “any two funds that hold X” uses **only** rows with `weight_pct` 
 
 ### 6.14 `metals_spot`
 
-- Reads `data/metals_prices.json` (plus CSV helpers).
-- Gold / silver spot moves for commodity questions.
+- Live India 24K gold in INR per 10 grams from the RupeeStop gold-price API.
+- Daily points for short windows; month-end history for 3M and longer (marked approximate).
+- Silver has no price feed. Silver questions use news only.
 
 ### 6.15 `stock_snapshot`
 
@@ -1016,7 +1017,7 @@ Standard tools in a round run **in parallel**. Special tools wait. The agent mus
 | `allisin_sectors_with_holdings.json` (optional, huge, not in git) | Offline full holdings. |
 | RupeeStop fund API | Live holdings / sectors when scanning schemes. |
 | RupeeStop NAV API | Window returns; cache `data/nav_cache/`. |
-| `data/metals_prices.json` | Gold/silver. |
+| RupeeStop gold-price API | 24K gold, INR per 10g. Not stored in git. |
 | `.env` | Qdrant, Gemini/DeepSeek keys. |
 
 Not available (must not be invented): expense ratio, AUM, TER, manager, riskometer.

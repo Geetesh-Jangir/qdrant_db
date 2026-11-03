@@ -9,8 +9,9 @@ These paths are **committed in git** (branch `ask-a-question` or `huge-corpus`).
 | `data/fund_holdings_aggregate/sector_to_isin_weights.json` | Sector exposure ranking (~310 sectors → fund weights) |
 | `data/fund_holdings_aggregate/regular-growth-by-amc.md` | Fund universe catalog (~2,194 schemes) |
 | `data/fund_holdings_aggregate/aggregated_holdings_map.json` | Stock name → industry + holder count; initials match (e.g. BHEL) |
-| `data/metals_prices.json` | Gold/silver context in answers |
 | `data/direct_plan_growth_isins.txt` | ISIN list used when rebuilding holdings aggregates |
+
+Gold prices are fetched live (24K, INR per 10g) and are not a committed file. Silver prices are not fetched; silver questions use news only.
 
 Verify on the server:
 

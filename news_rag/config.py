@@ -143,6 +143,14 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("RUPEESTOP_ADMIN_TOKEN", "rupeestop_admin_token"),
     )
+    gold_price_api_url: str = Field(
+        default="https://backend.rupeestop.com/api/v1/app/market/gold-price",
+        validation_alias=AliasChoices("GOLD_PRICE_API_URL", "gold_price_api_url"),
+    )
+    silver_price_api_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("SILVER_PRICE_API_URL", "silver_price_api_url"),
+    )
     portfolio_ttl_sec: int = Field(
         default=180,
         validation_alias=AliasChoices("PORTFOLIO_TTL_SEC", "portfolio_ttl_sec"),

@@ -724,7 +724,7 @@ def run_macro_sector_impact_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
 def run_metals_spot_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
     from news_rag.tools import run_metals_spot
 
-    return run_metals_spot()
+    return run_metals_spot(ctx)
 
 
 def run_stock_snapshot_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -1051,8 +1051,8 @@ def build_default_registry() -> None:
         ToolSpec(
             name="metals_spot",
             provides=frozenset({"commodity_spot"}),
-            description="Latest gold and silver spot prices and recent moves.",
-            when_to_use="Gold or silver is the subject.",
+            description="India 24K gold price in INR per 10 grams, with daily and month-end history.",
+            when_to_use="Gold price, return, or history. Not for silver.",
             run=run_metals_spot_adapter,
             cost=1,
         )

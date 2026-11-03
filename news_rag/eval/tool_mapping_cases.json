@@ -44,8 +44,9 @@
   {"id": 43, "question": "how is the nifty today", "tools": ["index_return"], "news": []},
   {"id": 44, "question": "is fii selling hurting the market", "tools": ["index_return"], "news": ["macro"]},
   {"id": 45, "question": "how are the rupee and crude doing", "tools": ["macro_series"], "news": ["macro"]},
-  {"id": 46, "question": "gold and silver price", "tools": ["metals_spot"], "news": []},
+  {"id": 46, "question": "gold price", "tools": ["metals_spot"], "news": []},
   {"id": 47, "question": "why is gold rising", "tools": ["metals_spot"], "news": ["macro"]},
+  {"id": 51, "question": "silver price", "tools": [], "news": ["macro"]},
   {"id": 48, "question": "what did the rbi do", "tools": ["macro_series"], "news": ["macro"]},
   {"id": 49, "question": "inflation news", "tools": [], "news": ["macro"]},
   {"id": 50, "question": "what should I watch in the market this week", "tools": ["index_return"], "news": ["market", "macro"]}
