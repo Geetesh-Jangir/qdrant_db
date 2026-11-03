@@ -69,10 +69,23 @@ sudo NEWS_RAG_DIR=/opt/news-rag bash deploy/lightsail/install.sh
 ## 3. Verify
 
 ```bash
+bash /opt/news-rag/scripts/diagnose_lightsail_site.sh YOUR_PUBLIC_IP
 python3 /opt/news-rag/scripts/verify_rag_deploy_data.py
 curl -s http://127.0.0.1:8081/health
 curl -s http://127.0.0.1/health
+curl -s -o /dev/null -w "GET / -> %{http_code}\n" http://127.0.0.1/
+curl -s http://127.0.0.1/ | head -c 80
+# Note: curl -I (HEAD) may show 405 on / — Chrome uses GET; that is OK if GET is 200.
 ```
+
+**Reading `/health`:** `"ok": true` on `127.0.0.1:8081` means the **Python app** is fine. That is not the same as the **website** in Chrome:
+
+| Check | Meaning |
+|-------|---------|
+| `embeddings_ready: false` | Normal for 1–2 minutes after restart; background warmup. First Ask still loads the model. **Not** why the home page fails. |
+| Browser `http://PUBLIC_IP/` | Must use **http://** (no TLS by default). **https://** will fail unless you added a certificate. |
+| `curl http://127.0.0.1/` on server | Must be **HTTP 200** and HTML. If only `:8081/health` works, **nginx** or port **80** firewall is the issue. |
+| `app_token_required: true` in `/health` | **`APP_TOKEN`** is set in `.env`. The UI loads but **Ask** returns 401 unless you open `?app_token=...` once or remove `APP_TOKEN` for a public demo. |
 
 Expect `"ok":true`, `"sector_ranking_index":true`, and `"holdings_archive":true`.
 
@@ -157,7 +170,9 @@ python3 -c "import news_rag.app"   # shows import errors immediately
 
 | Issue | Fix |
 |-------|-----|
-| Site timeout in browser | Lightsail **HTTP 80** open; use `http://` not `https://` |
+| `/health` OK on `:8081` but Chrome cannot open site | Open **`http://PUBLIC_IP/`** not `https://`. Lightsail **HTTP 80** open. On server: `curl -sI http://127.0.0.1/` must be 200. Run `bash scripts/diagnose_lightsail_site.sh PUBLIC_IP`. |
+| Page loads but Ask fails / 401 | Unset **`APP_TOKEN`** in `.env` or visit once with **`?app_token=YOUR_TOKEN`**. Check `/health` → `app_token_required`. |
+| `embeddings_ready: false` | Wait 1–2 min or send one question; not a deploy failure. |
 | `python` not found | Use `python3` or `.venv/bin/python` |
 | `Permission denied` on `.venv` or `rag_query_logs` | `sudo chown -R ubuntu:ubuntu /opt/news-rag && sudo systemctl restart news-rag` |
 | `git pull` divergent / wrong branch | `unset NEWS_RAG_BRANCH`; `bash deploy/lightsail/sync_repo_branch.sh v2` |

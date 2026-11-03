@@ -1016,6 +1016,39 @@ def investor_fact_brief(data_pack: dict[str, Any], asked: list[str] | set[str]) 
                     lines.append(f"- {label}: {float(weight):.2f}%")
             if len(lines) > 1:
                 parts.append("\n".join(lines))
+    rs = fund.get("rs_rating") if isinstance(fund.get("rs_rating"), dict) else {}
+    if not rs and isinstance(fund.get("rating"), dict):
+        rs = fund["rating"]
+    if "rs_rating" in wanted and rs:
+        label = str(rs.get("label") or "").strip()
+        score = rs.get("final_score") if rs.get("final_score") is not None else rs.get("score")
+        if label or score is not None:
+            bits = [b for b in (label, f"{score} out of {rs.get('max_score') or 100}" if score is not None else "") if b]
+            parts.append("RupeeStop rating: " + ", ".join(bits))
+    if "four_pillars" in wanted and rs.get("pillars"):
+        from news_rag.fund_risk import render_pillar_marks_table
+
+        table = render_pillar_marks_table(rs)
+        if table:
+            parts.append(table)
+    for slot in sorted(wanted):
+        if not slot.startswith("return:"):
+            continue
+        code = slot.split(":", 1)[1].upper()
+        returns = snap.get("returns") if isinstance(snap.get("returns"), dict) else {}
+        val = returns.get(code) if returns.get(code) is not None else returns.get(code.lower())
+        if val is not None:
+            parts.append(f"{code} return: {float(val):+.2f}%".replace("+", ""))
+    holdings = [row for row in (portfolio.get("holdings") or []) if isinstance(row, dict)]
+    if "holdings" in wanted and holdings:
+        lines = ["Top holdings:"]
+        for row in holdings[:5]:
+            label = row.get("name") or row.get("company_name") or ""
+            weight = row.get("weight_pct") if row.get("weight_pct") is not None else row.get("percentage")
+            if label and weight is not None:
+                lines.append(f"- {label}: {float(weight):.2f}%")
+        if len(lines) > 1:
+            parts.append("\n".join(lines))
     return "\n\n".join(part for part in parts if part)
 
 

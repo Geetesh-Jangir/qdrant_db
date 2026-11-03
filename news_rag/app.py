@@ -356,6 +356,7 @@ def health() -> dict:
     from news_rag.portfolio.health import portfolio_health_snapshot
 
     portfolio = portfolio_health_snapshot()
+    token_required = bool((settings.app_token or "").strip())
     return {
         "ok": True,
         "collection": settings.qdrant_collection,
@@ -365,6 +366,8 @@ def health() -> dict:
         "holdings_archive": holdings_map,
         "embeddings_ready": embeddings_ready(),
         "llm_key_configured": llm_api_key_configured(settings),
+        "app_token_required": token_required,
+        "ui_path": "/",
         **portfolio,
     }
 

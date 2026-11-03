@@ -132,6 +132,12 @@ if [[ -f deploy/lightsail/nginx-rag-only.conf ]]; then
   ${SUDO} rm -f /etc/nginx/sites-enabled/default
   ${SUDO} nginx -t && ${SUDO} systemctl reload nginx
   echo "==> Nginx: public site http://YOUR_PUBLIC_IP/ -> port ${RAG_PORT}"
+  UI_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1/" || echo "000")
+  if [[ "${UI_CODE}" != "200" ]]; then
+    echo "!! nginx GET / returned HTTP ${UI_CODE} — check: sudo systemctl status nginx"
+  else
+    echo "==> OK: nginx serves UI at http://127.0.0.1/"
+  fi
 fi
 
 if id "${SERVICE_USER}" &>/dev/null; then

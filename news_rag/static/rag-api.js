@@ -6,6 +6,33 @@ function ragUrl(path) {
   return base + normalized;
 }
 
+/** Optional APP_TOKEN: ?app_token=... once (stored in sessionStorage) or set sessionStorage rag_app_token. */
+function ragHeaders(extraHeaders) {
+  const headers = Object.assign({}, extraHeaders || {});
+  try {
+    const fromQuery = new URLSearchParams(window.location.search).get("app_token");
+    const stored = sessionStorage.getItem("rag_app_token");
+    let token = (stored || fromQuery || "").trim();
+    if (fromQuery && fromQuery.trim() && fromQuery.trim() !== stored) {
+      token = fromQuery.trim();
+      sessionStorage.setItem("rag_app_token", token);
+    }
+    if (token) {
+      headers["X-App-Token"] = token;
+    }
+  } catch (_e) {
+    /* ignore private mode */
+  }
+  return headers;
+}
+
+function ragAppTokenHint() {
+  return (
+    "Server requires APP_TOKEN. Open this page once as ?app_token=YOUR_TOKEN " +
+    "(saved for the tab session), or remove APP_TOKEN from the server .env for a public demo."
+  );
+}
+
 /**
  * Parse fetch response as JSON; if the server/nginx returned HTML or plain text, throw a clear Error.
  */
@@ -16,7 +43,9 @@ async function parseRagJsonResponse(response) {
     throw new Error(
       response.ok
         ? "Empty response from server."
-        : `Server error (${response.status} ${response.statusText}).`
+        : response.status === 401
+          ? ragAppTokenHint()
+          : `Server error (${response.status} ${response.statusText}).`
     );
   }
   if (trimmed.startsWith("<")) {
@@ -32,11 +61,25 @@ async function parseRagJsonResponse(response) {
     );
   }
   try {
-    return JSON.parse(trimmed);
+    const data = JSON.parse(trimmed);
+    if (!response.ok && response.status === 401) {
+      const detail = data && data.detail;
+      throw new Error(typeof detail === "string" && detail ? detail + " — " + ragAppTokenHint() : ragAppTokenHint());
+    }
+    return data;
   } catch (_parseErr) {
+    if (!response.ok && response.status === 401) {
+      throw new Error(ragAppTokenHint());
+    }
     const preview = trimmed.slice(0, 200);
     throw new Error(
       `Invalid JSON from server (HTTP ${response.status}): ${preview}`
     );
   }
+}
+
+if (typeof globalThis !== "undefined") {
+  globalThis.ragUrl = ragUrl;
+  globalThis.ragHeaders = ragHeaders;
+  globalThis.parseRagJsonResponse = parseRagJsonResponse;
 }

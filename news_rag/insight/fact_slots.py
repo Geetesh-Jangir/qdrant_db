@@ -140,10 +140,14 @@ def _slot_value(slot: str, data: dict[str, Any], snap: dict[str, Any]) -> str:
             elif isinstance(item, str):
                 names.append(item)
         return ", ".join(names)
-    rating = data.get("rating") if isinstance(data.get("rating"), dict) else {}
+    rating = data.get("rs_rating") if isinstance(data.get("rs_rating"), dict) else {}
+    if not rating and isinstance(data.get("rating"), dict):
+        rating = data["rating"]
     if slot == "rs_rating":
         label = rating.get("label") or rating.get("rs_label") or snap.get("rs_label")
-        score = rating.get("score") or rating.get("rs_score") or snap.get("rs_score")
+        score = rating.get("final_score")
+        if score is None:
+            score = rating.get("score") or rating.get("rs_score") or snap.get("rs_score")
         if label or score is not None:
             return " ".join(str(part) for part in (label, score) if part not in (None, ""))
     if slot == "four_pillars":

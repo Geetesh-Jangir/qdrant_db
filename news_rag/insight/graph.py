@@ -1154,11 +1154,18 @@ def node_compose(state: GraphState) -> str | None:
         raise GraphUnavailable("No LLM key configured for composer")
 
     fact_brief = ""
+    use_facts_compose = False
     if pack and len(plan.asked_facts or []) >= 2:
         from news_rag.insight.evidence_pack import investor_fact_brief
 
         fact_brief = investor_fact_brief(pack.data_pack, plan.asked_facts)
-    evidence_dict = {"FACTS": fact_brief} if fact_brief else (pack.compact() if pack else {})
+        # INSIGHT_FUSION overviews need full EVIDENCE (holdings, news, snapshot), not FACTS-only mode.
+        use_facts_compose = bool(fact_brief) and plan.answer_mode == AnswerMode.DATA_ONLY
+    evidence_dict = (
+        {"FACTS": fact_brief}
+        if use_facts_compose
+        else (pack.compact() if pack else {})
+    )
     news_articles = (
         news_insight_articles(state.question or "", pack.news_grouped)
         if pack and is_article_only_news(plan, pack)
@@ -1303,7 +1310,7 @@ def node_compose(state: GraphState) -> str | None:
         )
         compose_system = COMPOSE_SYSTEM_PRECISE
         max_tokens = 120
-    elif fact_brief:
+    elif use_facts_compose and fact_brief:
         wants["max_words"] = max(int(wants.get("max_words") or 0), 450)
         user_content = (
             f"QUESTION:\n{state.question.strip()}\n\n"

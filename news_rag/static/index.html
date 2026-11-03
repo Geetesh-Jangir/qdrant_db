@@ -385,7 +385,14 @@
     <a href="fund-search">Fund Search & Explorer</a>
     <a href="backfill">Historical backfill</a>
   </div>
-  <script src="static/rag-api.js?v=4"></script>
+  <script src="/static/rag-api.js?v=5"></script>
+  <script>
+    if (typeof ragHeaders !== "function") {
+      window.ragHeaders = function (extra) {
+        return Object.assign({}, extra || {});
+      };
+    }
+  </script>
 
   <h1>News Insight</h1>
   <p class="sub">Ask questions about Indian stocks, sectors, and macroeconomic developments. Answers are synthesized from your verified news store.</p>
@@ -1452,7 +1459,7 @@
       try {
         const response = await fetch(ragUrl("api/ask/stream"), {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: ragHeaders({ "Content-Type": "application/json" }),
           body: JSON.stringify(body),
         });
 
@@ -1532,7 +1539,7 @@
         try {
           const syncRes = await fetch(ragUrl("api/ask"), {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: ragHeaders({ "Content-Type": "application/json" }),
             body: JSON.stringify(body),
           });
           const syncData = await parseRagJsonResponse(syncRes);
