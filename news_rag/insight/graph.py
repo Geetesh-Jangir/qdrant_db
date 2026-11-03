@@ -845,6 +845,7 @@ def node_evidence_gate(state: GraphState) -> str | None:
         )
         if dossier:
             pack.data_pack["portfolio_news_impact"] = dossier
+            pack.data_pack.pop("screen", None)
     state.evidence_pack = pack
     state.route_reason = (
         f"pack: {len(pack.rows)} entity rows, news={bool(pack.news_grouped)}, "
@@ -872,7 +873,7 @@ You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words),
 CORE RULES:
 0. **Subject line.** When WHAT THE USER WANTS includes `answer_subject`, the **first line** must be `## {answer_subject}` (exact scheme name from EVIDENCE). Then answer the question about **that** scheme only. Do not lead with a different fund from an old chat compare or screen.
 0a. **Whole investor book.** When `investor_portfolio_overview` is true, open with `## Your portfolio` (never a single scheme name as the title). Summarize total value, invested, gain, and portfolio XIRR first. For two or more schemes in EVIDENCE, use one markdown table for scheme-level figures (scheme, category, current value, invested, gain, absolute return, XIRR, RS label) and, when allocation.categoryShare is present, a second table for category weights. Put a **blank line** before each table and keep section headings as `### Your holdings` and `### Allocation by category`. Do not list the same scheme figures again as bullets if they are in a table. The server may append underlying concentration tables; do not duplicate those blocks.
-0c. **Portfolio news impact.** When EVIDENCE includes `portfolio_news_impact`, answer how the news affects **the user's book**, not generic markets only. Use `## Your portfolio` or `## How this affects your portfolio` as the title. Structure: (1) `### What the news says` — 2–4 sentences from NEWS tied to the driver; (2) `### Sectors affected` — from `sector_impact_analysis` (sector, direction, reason); (3) `### Your exposure` — table with Sector | Portfolio weight | Linkage (direct if portfolio_weight_pct > 0, else indirect) | Why — use exact `portfolio_weight_pct` from EVIDENCE; (4) `### Funds in your book with sector exposure` — table from `fund_sector_exposure` (Scheme | Sector | Sector weight in fund | Your weight in portfolio | Expected direction); (5) `### Summary` — which holdings matter most and why. Do not say sector mix is unknown when `portfolio_sectors` or `fund_sector_exposure` is present. Direct = the sector appears in the user's portfolio sector list with a positive weight; indirect = affected by the news but zero or negligible weight in their book.
+0c. **Portfolio news impact.** When EVIDENCE includes `portfolio_news_impact`, explain how the news affects **the user's book** only — not catalog screen funds. Use `## How this affects your portfolio`, then `### What the news says` and `### What stands out` from `sector_impact_analysis` / `fund_sector_exposure`. Do **not** add `### Top holdings` or `### Top sectors`; the server appends **Sectors affected by the news** and **Your funds affected** tables. Do not cite index/ETF screen picks unless they are in the user's holdings. Direct = positive `portfolio_weight_pct`; indirect = affected but ~0% in the book.
 0b. **Concept + data:** When WHAT THE USER WANTS includes `concept_brief`, explain that concept first (1–3 sentences), then use EVIDENCE for the example fund/scheme. Do not skip the concept or invent fund names.
 1. **Match the question.** Read the whole question. You write the answer. A lookup is a short table or a few lines. An explanation can be longer. A calculation with empty EVIDENCE is still an answer: show the figures and the assumption. Do not pad a simple question into an essay. Do not dump the whole snapshot. One named figure and nothing else asked is one sentence: the fund name and that figure only. If the question has more than one part, answer every part: the figure from EVIDENCE, then the meaning, then whether a low or high value is generally better, if they asked. A misspelled or awkward wording still means the intended ask.
 2. **Returns in prose:** Compare a fund with its benchmark only when a benchmark return is present, and with the category average only when that average is present. If neither is present, do not write a comparison and do not say that the comparison is missing or cannot be stated. If only one side is present, compare only that side. Cite the exact gap in percentage points. Do not say "about" when the gap is computable. Do not fill a missing side with a hyphen or a guess. Do not write a returns bullet list. When several funds are compared, put the returns in the table you build. Do not say how much of the move is unexplained, or that named holdings fail to explain the fund's return. When the user asked for several of expense ratio, exit load, and AUM, state each one they asked for. Do not add the ones they did not ask for. Do not mention a direct-plan expense ratio unless that is the field in the snapshot. Do not say these figures are unavailable when they are present. When NEWS is present and the user did not ask for a returns list, do not walk 1-month, 3-month, 1-year, 3-year, and 5-year one after another. Use a return only inside a point that also uses the news.
@@ -1347,6 +1348,13 @@ def node_compose(state: GraphState) -> str | None:
     if _plan_fetches_manager_roster(plan):
         lead = ""
     display_tables = {} if fact_brief or asks_one_figure(state.question or "") else (pack.display_tables if pack else {})
+    impact_dossier = (
+        pack.data_pack.get("portfolio_news_impact")
+        if pack and isinstance(pack.data_pack.get("portfolio_news_impact"), dict)
+        else None
+    )
+    if impact_dossier:
+        display_tables = {}
     if display_tables and table_decision is not None:
         display_tables = filter_display_tables_by_decision(display_tables, table_decision)
     overview_layout = (
@@ -1384,8 +1392,16 @@ def node_compose(state: GraphState) -> str | None:
         if not (pack and isinstance(pack.data_pack.get("portfolio_news_impact"), dict)):
             polished_text = append_investor_portfolio_overview_tables(polished_text, investor, plan)
 
+    from news_rag.insight.portfolio_news_impact import (
+        question_is_portfolio_news_impact,
+        render_portfolio_news_impact_markdown,
+        _strip_book_concentration_tables,
+    )
+
     concentration_block = _concentration_markdown((investor or {}).get("concentration"))
     append_concentration = bool(concentration_block)
+    if impact_dossier or question_is_portfolio_news_impact(state.question or "", plan):
+        append_concentration = False
     if append_concentration and asks_fund_risk(state.question or "") and len(plan.funds or []) == 1:
         append_concentration = False
     if (
@@ -1394,6 +1410,12 @@ def node_compose(state: GraphState) -> str | None:
         and "### Top holdings" not in polished_text
     ):
         polished_text = f"{polished_text}\n\n{concentration_block}".strip()
+    if impact_dossier or question_is_portfolio_news_impact(state.question or "", plan):
+        polished_text = _strip_book_concentration_tables(polished_text)
+    if impact_dossier:
+        impact_block = render_portfolio_news_impact_markdown(impact_dossier)
+        if impact_block:
+            polished_text = f"{polished_text}\n\n{impact_block}".strip()
     if concentration_block:
         polished_text = _drop_scheme_is_the_whole_book(polished_text)
     polished_text = strip_news_roundup(polished_text)
@@ -1593,8 +1615,9 @@ def build_result(state: GraphState) -> dict[str, Any]:
     fund_managers: dict[str, Any] | None = None
     if pack and isinstance(pack.data_pack.get("screen"), dict):
         scr = pack.data_pack["screen"]
-        fund_rankings = list(scr.get("rankings") or scr.get("funds") or [])[:20]
-        fund_return_window = str(scr.get("return_window") or "").strip().upper()
+        if not isinstance(pack.data_pack.get("portfolio_news_impact"), dict):
+            fund_rankings = list(scr.get("rankings") or scr.get("funds") or [])[:20]
+            fund_return_window = str(scr.get("return_window") or "").strip().upper()
     if pack:
         for key, block in pack.data_pack.items():
             if not key.startswith("fund:") or not isinstance(block, dict):

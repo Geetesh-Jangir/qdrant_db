@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from news_rag.insight.contracts import ExecutionPlan, ToolCall
@@ -298,6 +299,8 @@ def resolve_answer_subject(
         return ""
     if question_asks_whole_investor_portfolio(question, plan):
         return ""
+    if question_refers_deictic_fund(question) and question_asks_fund_measured_return(question):
+        return ""
     for row in holdings:
         if isinstance(row, dict) and row.get("scheme_name"):
             return str(row["scheme_name"]).strip()
@@ -356,7 +359,120 @@ def resolve_deictic_fund_name(
                     return candidate
         if len(stack) == 1 and isinstance(stack[0], dict) and stack[0].get("name"):
             return str(stack[0]["name"]).strip()
+    from news_rag.insight.memory.fund_context import _frame_subjects
+
+    subjects = _frame_subjects(memory)
+    if len(subjects) == 1 and subjects[0].get("name"):
+        candidate = str(subjects[0]["name"]).strip()
+        if candidate.lower() in known:
+            return candidate
     return ""
+
+
+def question_asks_fund_measured_return(question: str) -> bool:
+    """User wants a catalog/measured return for a period (1M, 1W, …), not whole-book P&L."""
+    q = (question or "").lower()
+    from news_rag.tools import explicit_return_window
+
+    if explicit_return_window(question or ""):
+        return True
+    if re.search(r"\b(?:last|past|this|one|recent)\s+(?:day|week|month|year)s?\b", q):
+        return True
+    if re.search(r"\b\d+\s*(?:day|week|month|year)s?\b", q):
+        return True
+    if re.search(
+        r"\b(change|changes|return|returns|performance|nav|gain|loss|move|moved|doing)\b",
+        q,
+    ) and re.search(r"\b(?:month|week|year|day|1m|1w|1y)\b", q):
+        return True
+    return False
+
+
+def plan_targets_single_fund_measured_return(plan: ExecutionPlan, question: str) -> bool:
+    if not question_asks_fund_measured_return(question):
+        return False
+    fund = str((plan.funds or [""])[0] or "").strip()
+    if not fund:
+        return False
+    ref = str(plan.subject_ref or "none").strip().lower()
+    if question_refers_deictic_fund(question) or ref == "memory_primary":
+        return True
+    return len(plan.funds or []) == 1
+
+
+def ensure_deictic_fund_period_return_plan(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+    question: str = "",
+) -> ExecutionPlan:
+    """Deictic / memory_primary + '1 month change in this fund' → get_fund_data snapshot, not investor_pnl."""
+    if question_asks_whole_investor_portfolio(question, plan):
+        return plan
+    if not question_asks_fund_measured_return(question):
+        return plan
+
+    ref = str(plan.subject_ref or "none").strip().lower()
+    deictic = question_refers_deictic_fund(question)
+    binds_memory = deictic or ref in ("memory_primary", "memory_stack", "list_cursor")
+    fund = str((plan.funds or [""])[0] or "").strip()
+    if not fund and binds_memory:
+        fund = resolve_deictic_fund_name(question, memory)
+    if not fund and binds_memory and memory:
+        from news_rag.insight.memory.fund_context import primary_fund_name
+
+        fund = primary_fund_name(memory)
+    if not fund:
+        return plan
+
+    from news_rag.insight.return_windows import window_to_days
+    from news_rag.tools import explicit_return_window, infer_return_window
+
+    window = explicit_return_window(question or "") or infer_return_window(question or "")
+    window_days = window_to_days(window) or int(plan.window_days or 30) or 30
+
+    plan.funds = [fund]
+    plan.subject_ref = "memory_primary"
+    plan.data_need = "none"
+    plan.portfolio_scope = "catalog"
+    plan.window_days = window_days
+    if not str(plan.window_label or "").strip():
+        from news_rag.insight.return_windows import window_label as _window_label
+
+        plan.window_label = _window_label(window)
+
+    plan.tool_calls = [c for c in plan.tool_calls if c.tool != "get_investor_portfolio"]
+
+    args = {
+        "modules": ["snapshot"],
+        "windows": [window],
+        "window_days": window_days,
+    }
+    merged = False
+    for call in plan.tool_calls:
+        if call.tool != "get_fund_data":
+            continue
+        existing = dict(call.arguments or {})
+        modules = list(existing.get("modules") or [])
+        if "snapshot" not in modules:
+            modules.insert(0, "snapshot")
+        windows = list(existing.get("windows") or [])
+        if window not in windows:
+            windows = [window]
+        call.arguments = {**existing, "modules": modules, "windows": windows, "window_days": window_days}
+        merged = True
+        break
+    if not merged:
+        plan.tool_calls = [
+            ToolCall(
+                tool="get_fund_data",
+                arguments=args,
+                wave=1,
+                why="Measured return for fund in chat memory for the asked window",
+            ),
+            *plan.tool_calls,
+        ]
+    plan.requires_compose = True
+    return plan
 
 
 def reconcile_deictic_planner_fund(
@@ -415,7 +531,7 @@ def enforce_deictic_and_memory_primary_fund(
         elif deictic and any(c.tool == "get_fund_data" for c in plan.tool_calls or []):
             plan.funds = []
     elif ref == "memory_primary" and not plan.funds:
-        name = primary_fund_name(memory)
+        name = resolve_deictic_fund_name(question, memory) or primary_fund_name(memory)
         if name:
             plan.funds = [name]
     return plan

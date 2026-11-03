@@ -336,6 +336,7 @@ def apply_planner_post_hooks(
 
     plan = enforce_portfolio_scope(plan, memory, question)
     from news_rag.insight.investor_subject import (
+        ensure_deictic_fund_period_return_plan,
         ensure_my_category_fund_investor_plan,
         enforce_deictic_and_memory_primary_fund,
         enforce_investor_holding_subject,
@@ -351,6 +352,7 @@ def apply_planner_post_hooks(
     reconcile_deictic_planner_fund(plan, memory, question)
     enforce_investor_holding_subject(plan, memory, question)
     enforce_deictic_and_memory_primary_fund(plan, memory, question)
+    plan = ensure_deictic_fund_period_return_plan(plan, memory, question)
     ensure_catalog_tools_for_fund_news(plan)
     ensure_compare_fund_pair(plan, memory, question)
     apply_category_scoped_compare_funds(question, plan, memory)

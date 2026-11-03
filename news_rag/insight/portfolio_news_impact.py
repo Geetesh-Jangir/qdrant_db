@@ -43,6 +43,9 @@ def ensure_portfolio_news_impact_plan(plan: ExecutionPlan, question: str) -> Exe
         return plan
     plan.portfolio_scope = "investor"
     plan.requires_compose = True
+    plan.tool_calls = [
+        c for c in (plan.tool_calls or []) if c.tool != "screen_funds_by_exposure"
+    ]
     for call in plan.tool_calls or []:
         if call.tool != _INVESTOR_TOOL:
             continue
@@ -241,8 +244,11 @@ def build_portfolio_news_impact_dossier(
         extra_sectors=extra,
         query_log=query_log,
         stage="sector_impact",
+        max_tokens=1400,
     )
     sector_picks = _merge_sector_picks(news_picks, rule_picks, direction)
+    if not sector_picks and rule_picks:
+        sector_picks = rule_picks
     if not sector_picks:
         return None
 
@@ -312,3 +318,67 @@ def build_portfolio_news_impact_dossier(
         "fund_sector_exposure": fund_rows[:12],
         "macro_direction": direction,
     }
+
+
+def _strip_book_concentration_tables(text: str) -> str:
+    """Remove generic top-holdings / top-sectors blocks appended for overview queries."""
+    cut = len(text)
+    for marker in ("### Top holdings", "### Top sectors", "### Portfolio concentration"):
+        idx = (text or "").find(marker)
+        if idx >= 0:
+            cut = min(cut, idx)
+    if cut < len(text or ""):
+        return (text or "")[:cut].rstrip()
+    return (text or "").strip()
+
+
+def render_portfolio_news_impact_markdown(dossier: dict[str, Any]) -> str:
+    """Deterministic sector + fund impact tables (replaces concentration + screen rankings)."""
+    parts: list[str] = []
+    analysis = [row for row in (dossier.get("sector_impact_analysis") or []) if isinstance(row, dict)]
+    if analysis:
+        parts.extend(
+            [
+                "### Sectors affected by the news",
+                "",
+                "| Sector | Direction | Your portfolio weight | Linkage | Why |",
+                "| --- | --- | ---: | --- | --- |",
+            ]
+        )
+        for row in analysis:
+            direction = str(row.get("direction") or "—")
+            weight = row.get("portfolio_weight_pct")
+            weight_s = f"{float(weight):.2f}%" if weight is not None else "—"
+            parts.append(
+                "| {sector} | {dir} | {wt} | {link} | {why} |".format(
+                    sector=str(row.get("sector") or ""),
+                    dir=direction,
+                    wt=weight_s,
+                    link=str(row.get("linkage") or ""),
+                    why=str(row.get("reason") or "").replace("|", " ")[:160],
+                )
+            )
+
+    funds = [row for row in (dossier.get("fund_sector_exposure") or []) if isinstance(row, dict)]
+    if funds:
+        parts.extend(
+            [
+                "",
+                "### Your funds affected",
+                "",
+                "| Fund | Sector | Sector weight in fund | Your portfolio weight | Expected direction | How news may affect it |",
+                "| --- | --- | ---: | ---: | --- | --- |",
+            ]
+        )
+        for row in funds:
+            parts.append(
+                "| {name} | {sector} | {sw}% | {pw}% | {dir} | {why} |".format(
+                    name=str(row.get("scheme_name") or "")[:56],
+                    sector=str(row.get("sector") or ""),
+                    sw=row.get("sector_weight_in_fund_pct"),
+                    pw=row.get("scheme_portfolio_weight_pct"),
+                    dir=str(row.get("impact_direction") or "—"),
+                    why=str(row.get("sector_reason") or "").replace("|", " ")[:120],
+                )
+            )
+    return "\n".join(parts).strip()

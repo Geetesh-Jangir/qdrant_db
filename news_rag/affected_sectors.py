@@ -192,6 +192,7 @@ def pick_affected_sectors(
     extra_sectors: list[str] | None = None,
     query_log: Any = None,
     stage: str = "affected_sectors",
+    max_tokens: int = 800,
 ) -> list[dict[str, str]]:
     from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
 
@@ -217,7 +218,7 @@ def pick_affected_sectors(
     result = call_json_llm(
         system_prompt=build_affected_sectors_prompt(),
         user_content=prompt,
-        max_tokens=800,
+        max_tokens=max(400, int(max_tokens)),
         temperature=0.0,
         query_log=query_log,
         response_schema=PICKER_RESPONSE_SCHEMA,

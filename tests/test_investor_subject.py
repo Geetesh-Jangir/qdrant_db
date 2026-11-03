@@ -218,3 +218,48 @@ def test_whole_portfolio_question_has_no_answer_subject():
     question = "can you tell me about my portfolio"
     assert question_asks_whole_investor_portfolio(question, plan)
     assert resolve_answer_subject(question, plan, {}, investor_holdings=holdings, wave1_results=wave1) == ""
+
+
+def test_deictic_one_month_uses_get_fund_data_not_investor_pnl():
+    from news_rag.insight.plan_enforce import apply_planner_post_hooks
+
+    memory = {
+        "frame": {
+            "last_fund_focus": "Quant Small Cap Fund - Growth",
+            "subject_kind": "investor_portfolio",
+            "subjects": [],
+        },
+        "holdings_in_chat": [
+            {"name": "Quant Small Cap Fund - Growth", "isin": "INF966L01AA0", "category": "small cap"},
+            {"name": "Invesco India Large & Mid Cap Fund - Regular Plan - Growth", "category": "large & mid cap"},
+        ],
+    }
+    plan = ExecutionPlan(
+        data_need="investor_pnl",
+        subject_ref="memory_primary",
+        window_days=30,
+        window_label="last 1 month",
+        tool_calls=[],
+    )
+    plan = apply_planner_post_hooks("whats the last one month changes in this fund", plan, memory)
+    tools = [c.tool for c in plan.tool_calls]
+    assert plan.funds == ["Quant Small Cap Fund - Growth"]
+    assert "get_fund_data" in tools
+    assert "get_investor_portfolio" not in tools
+    gfd = next(c for c in plan.tool_calls if c.tool == "get_fund_data")
+    assert gfd.arguments.get("windows") == ["1M"]
+    assert "snapshot" in (gfd.arguments.get("modules") or [])
+
+
+def test_deictic_return_without_memory_focus_does_not_title_largest_holding():
+    holdings = [
+        {"name": "Invesco India Large & Mid Cap Fund - Regular Plan - Growth", "category": "large & mid cap"},
+    ]
+    plan = ExecutionPlan(funds=[], subject_ref="memory_primary")
+    subject = resolve_answer_subject(
+        "whats the last one month changes in this fund",
+        plan,
+        {"frame": {"last_fund_focus": ""}, "holdings_in_chat": holdings},
+        investor_holdings=[{"scheme_name": holdings[0]["name"]}],
+    )
+    assert subject == ""

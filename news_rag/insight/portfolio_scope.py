@@ -122,8 +122,13 @@ _CATALOG_BOOK_TOOLS = frozenset({"get_fund_data", "get_portfolio_data", "compare
 def strip_spurious_catalog_for_investor_book(
     plan: ExecutionPlan,
     memory: dict[str, Any] | None = None,
+    question: str = "",
 ) -> ExecutionPlan:
     """Drop hallucinated catalog funds/tools when the plan already fetches the user's book."""
+    from news_rag.insight.investor_subject import plan_targets_single_fund_measured_return
+
+    if plan_targets_single_fund_measured_return(plan, question):
+        return plan
     if not _has_investor_tool(plan) or not _plan_wants_investor_book(plan):
         return plan
     scope = _scope(plan)
@@ -204,10 +209,10 @@ def enforce_portfolio_scope(
         if str(plan.portfolio_scope or "").lower().strip() in ("none", "", "catalog"):
             plan.portfolio_scope = "investor"
         if _data_need_is_investor(plan) or plan_wants_portfolio_drawback(plan, question):
-            plan = strip_spurious_catalog_for_investor_book(plan, memory)
+            plan = strip_spurious_catalog_for_investor_book(plan, memory, question)
 
     plan = ensure_investor_portfolio_tool(plan, question)
-    plan = strip_spurious_catalog_for_investor_book(plan, memory)
+    plan = strip_spurious_catalog_for_investor_book(plan, memory, question)
 
     if not _plan_wants_investor_book(plan):
         plan.tool_calls = [c for c in plan.tool_calls if c.tool != _INVESTOR_TOOL]

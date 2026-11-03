@@ -1,10 +1,11 @@
 from news_rag.insight.contracts import ExecutionPlan, ToolCall
 from news_rag.insight.portfolio_news_impact import (
     _merge_sector_picks,
-    _portfolio_sector_weights,
+    _strip_book_concentration_tables,
     build_portfolio_news_impact_dossier,
     ensure_portfolio_news_impact_plan,
     question_is_portfolio_news_impact,
+    render_portfolio_news_impact_markdown,
 )
 
 
@@ -36,6 +37,7 @@ def test_ensure_plan_adds_concentration_and_news_topics():
         plan,
         "crude oil news impact on my portfolio",
     )
+    assert all(c.tool != "screen_funds_by_exposure" for c in plan.tool_calls)
     inv = next(c for c in plan.tool_calls if c.tool == "get_investor_portfolio")
     assert "concentration" in (inv.arguments or {}).get("modules", [])
     news = next(c for c in plan.tool_calls if c.tool == "search_financial_news")
@@ -117,3 +119,37 @@ def test_build_dossier_joins_portfolio_weights(monkeypatch):
     assert dossier["sector_impact_analysis"][0]["portfolio_weight_pct"] == 12.7
     assert dossier["sector_impact_analysis"][0]["linkage"] == "direct"
     assert dossier["fund_sector_exposure"][0]["scheme_name"] == "Test Fund"
+
+
+def test_strip_concentration_tail():
+    text = "## Title\n\nBody\n\n### Top holdings\n\n| x |"
+    assert "### Top holdings" not in _strip_book_concentration_tables(text)
+
+
+def test_render_impact_markdown():
+    md = render_portfolio_news_impact_markdown(
+        {
+            "sector_impact_analysis": [
+                {
+                    "sector": "Banks",
+                    "direction": "negative",
+                    "portfolio_weight_pct": 12.7,
+                    "linkage": "direct",
+                    "reason": "Higher rates",
+                },
+            ],
+            "fund_sector_exposure": [
+                {
+                    "scheme_name": "Kotak Contra Fund",
+                    "sector": "Banks",
+                    "sector_weight_in_fund_pct": 20.9,
+                    "scheme_portfolio_weight_pct": 18.7,
+                    "impact_direction": "negative",
+                    "sector_reason": "NIM pressure",
+                },
+            ],
+        }
+    )
+    assert "### Sectors affected by the news" in md
+    assert "### Your funds affected" in md
+    assert "Kotak Contra" in md
