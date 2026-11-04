@@ -117,7 +117,7 @@ def test_vs_category_column_in_long_table():
                 }
             }
         },
-        question="last one month",
+        question="how did it do over 1 year",
     )
     body = tables["vs_benchmark_table"]
     assert "vs category (pp)" in body
@@ -221,6 +221,33 @@ def test_zero_placeholder_benchmark_is_omitted():
         }),
     )
     assert "vs_benchmark_table" not in tables
+
+
+def test_a_question_does_not_keep_unasked_windows():
+    tables = build_fund_display_tables(
+        {
+            "fund:x": {
+                "fund_insights": {
+                    "fund_returns_pct": {"1W": -4.95, "1M": -8.92, "1Y": 6.0},
+                    "comparison_periods": {
+                        "1Y": {"fund_return": 6.0, "category_average_return": 5.0, "vs_category": 1.0},
+                        "3Y": {"fund_return": 10.0, "category_average_return": 8.0, "vs_category": 2.0},
+                    },
+                    "fund_returns_short_horizon_pct": {"1M": -8.92, "3M": -6.0},
+                    "category_average_returns_pct": {"1M": -7.0, "3M": -5.0},
+                }
+            }
+        },
+        question="how did this fund do last year versus the category",
+    )
+    assert "short_horizon_vs_category_table" not in tables
+    assert "1W" not in tables["fund_returns_table"]
+    assert "1M" not in tables["fund_returns_table"]
+    body = tables["vs_benchmark_table"]
+    assert "1Y" in body
+    assert "3Y" not in body
+    assert "1W" not in body
+    assert "1M" not in body
 
 
 def test_returns_render_as_a_period_table():

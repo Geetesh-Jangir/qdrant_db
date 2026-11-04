@@ -76,9 +76,20 @@ def _warmup_embeddings_background() -> None:
     threading.Thread(target=_run, name="embedding-warmup", daemon=True).start()
 
 
+def _preload_portfolio() -> None:
+    """Load the investor book before the first question. A failure falls back to lazy load."""
+    try:
+        from news_rag.portfolio.cache import preload_configured_portfolio
+
+        preload_configured_portfolio()
+    except Exception as exc:
+        logger.warning("portfolio preload failed: %s", exc)
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     _warmup_embeddings_background()
+    _preload_portfolio()
     yield
 
 

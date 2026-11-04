@@ -1074,6 +1074,7 @@ CORE RULES:
 14. **Managers.** Write only the managers present in EVIDENCE. Current managers are the default. Do not mention former managers unless they are in EVIDENCE.
 15. **Risk.** The SEBI riskometer is how risky the fund is.
 16. **Which tables to append.** WHAT THE USER WANTS lists `tables_in_answer` (candidate keys). TABLE_SUMMARIES.table_quality marks `complete`, `partial`, or `empty`. End your reply with exactly one HTML comment on its own line: `<!-- TABLES_APPEND: default -->` to append all candidates, `<!-- TABLES_APPEND: none -->` when tables would mislead, or `<!-- TABLES_APPEND: key1,key2 -->` for a subset (only keys from tables_in_answer). Omit partial or empty tables unless the user explicitly asked for that slice. A pillar mark, including the risk pillar, is a score from internal calculations. A lower risk-pillar mark does not mean the fund is less risky, and a higher mark does not mean it is more risky. Do not turn a pillar mark into a percentage of its maximum. When you add mid-cap and small-cap weights, write that sum. Do not write "approx" without the number. When drawdown episodes are present, write them once under the heading `### Maximum drawdown across periods`, one line per period. Do not list those same falls again in the opening or in a second Drawdown section. Do not say drawdown is missing, not recorded, or not available. Do not mention a return period or write "see the table below" unless that return is in EVIDENCE and the answer contains the table. When the user asks whether risk is lower or higher than before and EVIDENCE has no earlier riskometer reading, use exactly one sentence: "We can't get that data right now." Then report the current riskometer, pillar, mix, and drawdown. Do not write about snapshots, trends, or data that cannot show a change.
+17. **Only the asked slice.** Default length is 2 to 5 lines. The prose is the insight: say what the figure means for the book, in a calm voice. A higher equity share means the result mainly follows equity markets. When debt is also there, say that debt balances the equity. Do not alarm the reader. Do not use words like worried, risky, danger, concentrated, dominates, or tilted. Do not add "What you can do next", "Ask again", or a recap. If a figure is missing, one sentence names what is missing and stops. At most one or two tables, and only for the period the question named. Do not show 1W, 1M, or any other window that was not asked. When EVIDENCE has `balance_verdicts`, use those sentences for the mix. Do not invent a different mix conclusion.
 """
 
 COMPOSE_SYSTEM_PRECISE = """ROLE: COMPOSER — one specific figure
@@ -1135,16 +1136,37 @@ def _answer_stream_chunks(answer: str) -> list[str]:
 
 
 def _wants_end_summary(plan: ExecutionPlan, question: str) -> bool:
-    """An analysis gets a short close. A single fact does not."""
+    """A close only when the question asked for an overview or a why. A compare does not recap."""
     from news_rag.insight.multi_fact import asks_one_figure
 
     if asks_one_figure(question) and len(plan.sub_queries or []) < 2:
         return False
-    if len(plan.sub_queries or []) > 1:
-        return plan.intent in ("overview", "explain_cause", "compare")
-    if plan.intent in ("overview", "explain_cause", "compare"):
+    q = question or ""
+    if re.search(r"\b(?:summary|overview|tell me about|overall)\b", q, re.I):
         return True
-    return bool(re.search(r"\bwhy\b|\brisk analysis\b|\bhow risky\b", question or "", re.I))
+    if plan.intent == "explain_cause" and re.search(r"\bwhy\b", q, re.I):
+        return True
+    return False
+
+
+def _strip_unasked_closers(text: str, *, keep_summary: bool) -> str:
+    """Drop next-step and recap sections the model adds on a specific question."""
+    drop = {"what you can do next", "next steps", "what to do next"}
+    if not keep_summary:
+        drop.add("summary")
+    kept: list[str] = []
+    skipping = False
+    for line in (text or "").splitlines():
+        heading = re.match(r"^#{2,3}\s+(.*)$", line.strip())
+        if heading:
+            title = heading.group(1).strip().lower().rstrip(".")
+            skipping = title in drop
+            if skipping:
+                continue
+        if skipping:
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
 
 
 def _plan_fetches_manager_roster(plan: ExecutionPlan | None) -> bool:
@@ -1695,8 +1717,12 @@ def node_compose(state: GraphState) -> str | None:
         _strip_book_concentration_tables,
     )
 
+    from news_rag.insight.display_table_policy import question_wants_concentration_tables
+
     concentration_block = _concentration_markdown((investor or {}).get("concentration"))
-    append_concentration = bool(concentration_block)
+    append_concentration = bool(concentration_block) and question_wants_concentration_tables(
+        state.question or ""
+    )
     if impact_dossier or question_is_portfolio_news_impact(state.question or "", plan):
         append_concentration = False
     if append_concentration and asks_fund_risk(state.question or "") and len(plan.funds or []) == 1:
@@ -1715,6 +1741,11 @@ def node_compose(state: GraphState) -> str | None:
             polished_text = f"{polished_text}\n\n{impact_block}".strip()
     if concentration_block:
         polished_text = _drop_scheme_is_the_whole_book(polished_text)
+    from news_rag.insight.display_table_policy import (
+        fact_values_already_stated,
+        question_wants_fact_table,
+        question_wants_gold_table,
+    )
     from news_rag.insight.fact_slots import render_asked_facts, slots_from_plan
     from news_rag.insight.sector_exposure_tables import (
         render_all_holdings_metric_table,
@@ -1725,7 +1756,8 @@ def node_compose(state: GraphState) -> str | None:
     slots = slots_from_plan(state.plan) if state.plan else []
     wave_results = [*state.wave1_results, *state.wave2_results]
     fact_table = render_asked_facts(slots, wave_results)
-    if state.plan and str(state.plan.holding_scope or "") == "all_holdings":
+    wants_fact_table = question_wants_fact_table(state.question or "", state.plan)
+    if wants_fact_table and state.plan and str(state.plan.holding_scope or "") == "all_holdings":
         pack_data = pack.data_pack if pack else None
         metric_table = render_all_holdings_metric_table(
             state.plan,
@@ -1746,16 +1778,25 @@ def node_compose(state: GraphState) -> str | None:
         sector_table = render_all_holdings_sector_table(state.plan, wave_results, state.memory)
         if sector_table:
             fact_table = f"{fact_table}\n\n{sector_table}".strip() if fact_table else sector_table
-    if fact_table and fact_table not in polished_text:
+    if (
+        fact_table
+        and wants_fact_table
+        and fact_table not in polished_text
+        and not fact_values_already_stated(polished_text, fact_table)
+    ):
         polished_text = f"{polished_text}\n\n{fact_table}".strip()
     from news_rag.insight.metals_spot_tables import render_gold_returns_table, strip_gold_window_table
 
-    gold_table = render_gold_returns_table(wave_results)
+    gold_table = render_gold_returns_table(wave_results) if question_wants_gold_table(state.question or "") else ""
     if gold_table:
         polished_text = strip_gold_window_table(polished_text)
         if gold_table not in polished_text:
             polished_text = f"{polished_text}\n\n{gold_table}".strip()
     polished_text = strip_news_roundup(polished_text)
+    polished_text = _strip_unasked_closers(
+        polished_text,
+        keep_summary=_wants_end_summary(plan, state.question or ""),
+    )
     if state.query_log and raw_text:
         state.query_log.write(
             f"COMPOSE_POST chars={len(polished_text)} measured={measured} "

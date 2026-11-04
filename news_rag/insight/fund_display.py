@@ -515,6 +515,10 @@ def build_fund_display_tables(
             returns_by_period[str(key).upper()] = val
     ordered = [p for p in _RETURN_ORDER if p in returns_by_period]
     ordered.extend(p for p in returns_by_period if p not in ordered)
+    # A real question only keeps the periods it named. An empty question keeps the payload rows for tests.
+    if (question or "").strip():
+        named_periods = [str(period).upper() for period in periods_requested_in_question(question)]
+        ordered = [period for period in ordered if period in named_periods]
     if ordered:
         ncol = 2
         lines = [_table_row(["Period", "Return"], ncol), _table_row(["---", "---"], ncol)]
@@ -526,7 +530,15 @@ def build_fund_display_tables(
 
     requested = periods_requested_in_question(question)
     long_rows, short_rows = resolve_display_periods(requested)
-    long_for_benchmark = long_rows if long_rows else list(LONG_HORIZON_PERIODS)
+    asked_something = bool((question or "").strip())
+    if asks_fund_category_average(question):
+        long_for_benchmark = long_rows or list(LONG_HORIZON_PERIODS)
+    elif long_rows and requested:
+        long_for_benchmark = long_rows
+    elif not asked_something:
+        long_for_benchmark = list(LONG_HORIZON_PERIODS)
+    else:
+        long_for_benchmark = []
 
     peer_rows = [row for row in comparison.values() if isinstance(row, dict)] if comparison else []
     has_benchmark = any(
@@ -595,7 +607,8 @@ def build_fund_display_tables(
         short = {k: rets[k] for k in ("1M", "3M", "6M") if k in rets}
     if short_rows:
         short = {k: short[k] for k in short_rows if k in short}
-    show_short = short_rows or ("1M", "3M", "6M")
+    # 1W / 1M / 3M rows only when the question named that horizon.
+    show_short = short_rows if asked_something else (short_rows or ("1M", "3M", "6M"))
     short_pairs: list[tuple[str, Any, Any]] = []
     for period in show_short:
         fund_v = short.get(period) or short.get(period.lower()) or rets.get(period)

@@ -54,7 +54,7 @@ _PERF_RE = re.compile(
     re.I,
 )
 _HOLDINGS_RE = re.compile(
-    r"\b(?:hold(?:s|ing)?|holdings?|portfolio|composition|sectors?\s+allocation|"
+    r"\b(?:hold(?:s|ing)?|holdings?|composition|sectors?\s+allocation|"
     r"what\s+(?:does|this|that|it)\b.{0,40}\bhold(?:s|ing)?|top\s+stocks?)\b",
     re.I,
 )
@@ -123,6 +123,33 @@ def _named_fund_overview(question: str, plan: ExecutionPlan | None) -> bool:
     return intent == "overview" and about
 
 
+# One or two tables. A return comparison replaces the raw period list.
+_TABLE_PRIORITY = (
+    TABLE_LONG,
+    TABLE_SHORT,
+    TABLE_RETURNS,
+    TABLE_CATEGORY,
+    TABLE_COMPOSITION,
+    TABLE_HOLDINGS,
+    TABLE_FUND_FACTS,
+    TABLE_SECTORS,
+    TABLE_PORTFOLIO,
+    TABLE_SNAPSHOT,
+)
+
+
+def _limit_tables(include: set[str]) -> frozenset[str]:
+    """At most two tables. Drop a raw return list when a comparison table is already there."""
+    chosen = set(include)
+    if TABLE_LONG in chosen or TABLE_SHORT in chosen:
+        chosen.discard(TABLE_RETURNS)
+    if TABLE_COMPOSITION in chosen:
+        chosen.discard(TABLE_SECTORS)
+        chosen.discard(TABLE_PORTFOLIO)
+    ordered = [key for key in _TABLE_PRIORITY if key in chosen]
+    return frozenset(ordered[:2])
+
+
 def resolve_display_table_policy(
     question: str,
     plan: ExecutionPlan | None = None,
@@ -135,8 +162,8 @@ def resolve_display_table_policy(
     if asks_fund_category_average(q):
         inc = {TABLE_CATEGORY, TABLE_LONG}
         return DisplayTablePolicy(
-            include=inc,
-            rationale="User asked for category average — show category and full 1Y/3Y/5Y comparison.",
+            include=_limit_tables(inc),
+            rationale="User asked for category average — one comparison table.",
         )
 
     requested = periods_requested_in_question(q)
@@ -152,8 +179,8 @@ def resolve_display_table_policy(
 
         if plan_wants_fund_concentration(plan, q):
             return DisplayTablePolicy(
-                include=frozenset({TABLE_PORTFOLIO, TABLE_SECTORS, TABLE_COMPOSITION}),
-                rationale="Fund concentration — sector and holding weights, not return tables.",
+                include=_limit_tables({TABLE_COMPOSITION, TABLE_SECTORS}),
+                rationale="Fund concentration — one mix table, not a stack of return tables.",
             )
 
     if mode == AnswerMode.DATA_ONLY:
@@ -162,32 +189,35 @@ def resolve_display_table_policy(
             inc.update({TABLE_CATEGORY, TABLE_LONG})
         elif _plan_fetches_vs_benchmark(plan) or _BENCHMARK_RE.search(q):
             inc.add(TABLE_LONG)
-        elif _PERF_RE.search(q) or intent in ("lookup", "compare"):
+        elif _PERF_RE.search(q) or intent == "compare":
             holdings_only = _HOLDINGS_RE.search(q) and not _PERF_RE.search(q)
             if not holdings_only:
-                inc.add(TABLE_RETURNS)
                 if wants_short:
                     inc.add(TABLE_SHORT)
-                if wants_long:
+                elif wants_long:
                     inc.add(TABLE_LONG)
+                elif intent == "compare":
+                    inc.add(TABLE_RETURNS)
         if _HOLDINGS_RE.search(q):
             inc.update({TABLE_PORTFOLIO, TABLE_SECTORS, TABLE_COMPOSITION})
         if _WHY_RE.search(q):
             inc.add(TABLE_HOLDINGS)
-        if _NAV_SNAPSHOT_RE.search(q) or not inc:
-            inc.add(TABLE_SNAPSHOT)
-        return DisplayTablePolicy(
-            include=frozenset(inc & _ALL_KEYS),
-            rationale="DATA_ONLY lookup — tables match explicit metrics asked.",
-        )
-
-    if intent == "explain_cause" or _WHY_RE.search(q):
-        inc = {TABLE_RETURNS, TABLE_SHORT, TABLE_HOLDINGS, TABLE_LONG}
         if _NAV_SNAPSHOT_RE.search(q):
             inc.add(TABLE_SNAPSHOT)
         return DisplayTablePolicy(
-            include=frozenset(inc),
-            rationale="Explain move — returns vs peers/benchmark and holdings attribution.",
+            include=_limit_tables(inc & _ALL_KEYS),
+            rationale="DATA_ONLY lookup — at most two tables, and only the period asked.",
+        )
+
+    if intent == "explain_cause" or _WHY_RE.search(q):
+        inc = {TABLE_HOLDINGS}
+        if wants_short:
+            inc.add(TABLE_SHORT)
+        elif wants_long:
+            inc.add(TABLE_LONG)
+        return DisplayTablePolicy(
+            include=_limit_tables(inc),
+            rationale="Explain the move — the named period and the holdings, not every precomputed window.",
         )
 
     if _news_primary(q):
@@ -212,25 +242,28 @@ def resolve_display_table_policy(
     if _named_fund_overview(q, plan):
         inc = {TABLE_FUND_FACTS}
         if re.search(r"\b(?:returns?|performance|performing)\b", q, re.I):
-            inc.update({TABLE_RETURNS, TABLE_SHORT, TABLE_LONG})
+            if wants_short:
+                inc.add(TABLE_SHORT)
+            elif wants_long:
+                inc.add(TABLE_LONG)
         if re.search(r"\bholdings?\b|\btop\s+stocks?\b|\bwhat\s+(?:does|do)\s+it\s+hold\b", q, re.I):
             inc.update({TABLE_HOLDINGS, TABLE_PORTFOLIO, TABLE_COMPOSITION})
         if re.search(r"\bsectors?\b|\bsector\s+allocation\b", q, re.I):
             inc.update({TABLE_SECTORS, TABLE_COMPOSITION})
         return DisplayTablePolicy(
-            include=frozenset(inc),
-            rationale="Named-fund overview — a short fund table, plus returns, holdings, or sectors only when asked.",
+            include=_limit_tables(inc),
+            rationale="Named-fund overview — at most two tables, only for what was asked.",
         )
 
     inc = set()
     asks_returns = bool(re.search(r"\b(?:returns?|performance|performing)\b", q, re.I))
-    if asks_returns or _PERF_RE.search(q):
-        if asks_returns or intent in ("compare",):
+    if asks_returns or (_PERF_RE.search(q) and intent == "compare"):
+        if wants_short:
+            inc.add(TABLE_SHORT)
+        elif wants_long:
+            inc.add(TABLE_LONG)
+        elif asks_returns:
             inc.add(TABLE_RETURNS)
-            if wants_short:
-                inc.add(TABLE_SHORT)
-            if wants_long:
-                inc.add(TABLE_LONG)
     if _HOLDINGS_RE.search(q):
         inc.update({TABLE_PORTFOLIO, TABLE_SECTORS, TABLE_COMPOSITION})
     if _WHY_RE.search(q):
@@ -241,14 +274,70 @@ def resolve_display_table_policy(
     if not inc and plan and "attribution" in str(plan.tool_names):
         inc.add(TABLE_HOLDINGS)
 
-    if _PERF_RE.search(q) and TABLE_SHORT not in inc and TABLE_LONG not in inc:
-        inc.update({TABLE_SHORT, TABLE_LONG})
+    explicit_compare = bool(re.search(r"\b(?:vs\.?|versus|benchmark|category)\b", q, re.I))
+    if explicit_compare and TABLE_SHORT not in inc and TABLE_LONG not in inc:
+        if wants_long or re.search(r"\b(?:year|1\s*y|3\s*y|5\s*y)\b", q, re.I):
+            inc.add(TABLE_LONG)
+        elif wants_short:
+            inc.add(TABLE_SHORT)
 
     rationale = "Tables match performance / holdings / NAV signals in the question."
     if not inc:
         rationale = "No comparison or holdings signals — skip vs-format tables."
 
-    return DisplayTablePolicy(include=frozenset(inc & _ALL_KEYS), rationale=rationale)
+    return DisplayTablePolicy(include=_limit_tables(inc & _ALL_KEYS), rationale=rationale)
+
+
+_FACT_TABLE_ASK_RE = re.compile(
+    r"\b(?:table|show all|list all|list every|all my funds|each of my|compare|versus|vs\.?|rank)\b",
+    re.I,
+)
+_CONCENTRATION_ASK_RE = re.compile(
+    r"concentrat|diversif|top holdings|sector allocation|sector weight|underlying",
+    re.I,
+)
+_GOLD_ASK_RE = re.compile(r"\bgold\b", re.I)
+
+
+def question_wants_fact_table(question: str, plan: ExecutionPlan | None = None) -> bool:
+    """A trailing fact table only for a compare, a rank, or an explicit list."""
+    q = question or ""
+    if not _FACT_TABLE_ASK_RE.search(q):
+        return False
+    intent = (plan.intent if plan else "") or ""
+    if intent in ("compare", "rank"):
+        return True
+    return bool(re.search(r"\b(?:table|show all|list all|list every|all my funds|each of my)\b", q, re.I))
+
+
+def question_wants_concentration_tables(question: str) -> bool:
+    return bool(_CONCENTRATION_ASK_RE.search(question or ""))
+
+
+def question_wants_gold_table(question: str) -> bool:
+    return bool(_GOLD_ASK_RE.search(question or ""))
+
+
+def fact_values_already_stated(text: str, table: str) -> bool:
+    """True when every value cell of the fact table already appears in the prose."""
+    values: list[str] = []
+    for line in (table or "").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("|") or "---" in stripped:
+            continue
+        if stripped.lower().startswith("| fact"):
+            continue
+        cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+        if len(cells) >= 2 and cells[-1]:
+            values.append(cells[-1])
+    if not values:
+        return False
+    haystack = (text or "").lower().replace(",", "")
+    for value in values:
+        token = value.split()[0].replace("%", "").replace(",", "")
+        if token and token.lower() in haystack:
+            return True
+    return False
 
 
 def filter_display_tables(

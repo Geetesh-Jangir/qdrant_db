@@ -333,6 +333,12 @@ def build_evidence_pack(
                 ))
 
         elif tool == "get_investor_portfolio":
+            if isinstance(data, dict) and "balance_verdicts" not in data:
+                from news_rag.portfolio.views import balance_verdicts_for_payload
+
+                notes = balance_verdicts_for_payload(data)
+                if notes:
+                    data = {**data, "balance_verdicts": notes}
             data_pack["investor_portfolio"] = data
             rows.append(EvidenceRow(
                 entity_id="investor",

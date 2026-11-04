@@ -9,7 +9,7 @@ Optional integration with RupeeStop admin **workspace** API for “my portfolio�
 | `CLIENT_REF_NO` | **Required for portfolio Q&A.** CRN (e.g. `CRN-…`). Empty = catalog-only RAG. |
 | `RUPEESTOP_BACKEND_BASE` | Default `https://backend.rupeestop.com` |
 | `RUPEESTOP_ADMIN_TOKEN` | Optional Bearer if your environment requires auth on workspace GET |
-| `PORTFOLIO_TTL_SEC` | In-process cache TTL (default 180) |
+| `PORTFOLIO_TTL_SEC` | In-process refresh interval (default 900). Requests serve the snapshot and do not wait on refresh. |
 | `PORTFOLIO_HTTP_TIMEOUT_SEC` | HTTP timeout (default 15) |
 | `PORTFOLIO_HTTP_RETRIES` | Retries on 502/503/504 (default 1) |
 | `PORTFOLIO_FIXTURE_PATH` | Optional override: local workspace JSON instead of HTTP |

@@ -255,11 +255,10 @@
     "ast_empty": true
   },
   "data/index_cache/Automobiles_7.json": {
-    "mtime": 1793685705.5461206,
-    "seen": 1793772841.0208714,
-    "ast_hash": "3bba59409931440dd5abdbe3e3bf3c36",
-    "semantic_hash": "3bba59409931440dd5abdbe3e3bf3c36",
-    "ast_empty": true
+    "mtime": 1793786767.2020793,
+    "seen": 1793786818.2319973,
+    "ast_hash": "0a00ba4203457c5a2e7d7abc18e4148f",
+    "semantic_hash": ""
   },
   "data/index_cache/Banks_1.json": {
     "mtime": 1793080811.2663548,
@@ -289,11 +288,10 @@
     "ast_empty": true
   },
   "data/index_cache/Banks_7.json": {
-    "mtime": 1793685704.956615,
-    "seen": 1793772841.0208826,
-    "ast_hash": "0c57e217f1fcc447b5c6ec8313f8e4ef",
-    "semantic_hash": "0c57e217f1fcc447b5c6ec8313f8e4ef",
-    "ast_empty": true
+    "mtime": 1793786766.7866533,
+    "seen": 1793786818.2325864,
+    "ast_hash": "c4ebb769fea15f1c635fc91336bb7035",
+    "semantic_hash": ""
   },
   "data/index_cache/Cement___Cement_Products_1.json": {
     "mtime": 1793080812.0211596,
@@ -323,11 +321,10 @@
     "ast_empty": true
   },
   "data/index_cache/Cement___Cement_Products_7.json": {
-    "mtime": 1793685705.9281256,
-    "seen": 1793772841.0208924,
-    "ast_hash": "e26f06059d9fcf3fcc4894763fc454db",
-    "semantic_hash": "e26f06059d9fcf3fcc4894763fc454db",
-    "ast_empty": true
+    "mtime": 1793786767.67118,
+    "seen": 1793786818.2331862,
+    "ast_hash": "72dd2515963587f713e82fc68a321205",
+    "semantic_hash": ""
   },
   "data/index_cache/Diversified_Fmcg_1.json": {
     "mtime": 1793080812.1340525,
@@ -357,11 +354,10 @@
     "ast_empty": true
   },
   "data/index_cache/Diversified_Fmcg_7.json": {
-    "mtime": 1793685706.0557995,
-    "seen": 1793772841.0209033,
-    "ast_hash": "b2a485c5ba6e7a126034c17689434d5e",
-    "semantic_hash": "b2a485c5ba6e7a126034c17689434d5e",
-    "ast_empty": true
+    "mtime": 1793786767.7888734,
+    "seen": 1793786818.2337666,
+    "ast_hash": "c6e3996a7375f83b98756c5a6346ae14",
+    "semantic_hash": ""
   },
   "data/index_cache/It_-_Software_1.json": {
     "mtime": 1793080811.433174,
@@ -391,11 +387,10 @@
     "ast_empty": true
   },
   "data/index_cache/It_-_Software_7.json": {
-    "mtime": 1793685705.1385627,
-    "seen": 1793772841.0209126,
-    "ast_hash": "f047e1586a751904595fc3a8f64f0e78",
-    "semantic_hash": "f047e1586a751904595fc3a8f64f0e78",
-    "ast_empty": true
+    "mtime": 1793786766.953723,
+    "seen": 1793786818.2344568,
+    "ast_hash": "70f7ce154e78959a2da38317f1047749",
+    "semantic_hash": ""
   },
   "data/index_cache/Mutual_Funds_180.json": {
     "mtime": 1791809506.781043,
@@ -412,8 +407,8 @@
     "ast_empty": true
   },
   "data/index_cache/Nifty_50_30.json": {
-    "mtime": 1793339626.7288575,
-    "seen": 1793772841.0209184,
+    "mtime": 1793786263.097141,
+    "seen": 1793786277.7426698,
     "ast_hash": "7e20b65da3d523b9f30c0a474db1db86",
     "semantic_hash": "7e20b65da3d523b9f30c0a474db1db86",
     "ast_empty": true
@@ -426,11 +421,10 @@
     "ast_empty": true
   },
   "data/index_cache/Nifty_50_7.json": {
-    "mtime": 1793694985.6346762,
-    "seen": 1793772841.020922,
-    "ast_hash": "19cfe524693a3f35e81bd80ff06968c9",
-    "semantic_hash": "19cfe524693a3f35e81bd80ff06968c9",
-    "ast_empty": true
+    "mtime": 1793786766.6536143,
+    "seen": 1793786818.2350638,
+    "ast_hash": "0c7cdd618f2f9abf4a2bb5f04ec8e2ff",
+    "semantic_hash": ""
   },
   "data/index_cache/Petroleum_Products_1.json": {
     "mtime": 1793080811.903955,
@@ -460,11 +454,10 @@
     "ast_empty": true
   },
   "data/index_cache/Petroleum_Products_7.json": {
-    "mtime": 1793685705.73004,
-    "seen": 1793772841.0209315,
-    "ast_hash": "39429334bcbaeae22b99fef7c02fa487",
-    "semantic_hash": "39429334bcbaeae22b99fef7c02fa487",
-    "ast_empty": true
+    "mtime": 1793786767.5034366,
+    "seen": 1793786818.235663,
+    "ast_hash": "13b68a713572911dc4b286f0057291ec",
+    "semantic_hash": ""
   },
   "data/index_cache/Pharmaceuticals___Biotechnology_1.json": {
     "mtime": 1793080811.5688167,
@@ -494,11 +487,10 @@
     "ast_empty": true
   },
   "data/index_cache/Pharmaceuticals___Biotechnology_7.json": {
-    "mtime": 1793685705.3704605,
-    "seen": 1793772841.0209403,
-    "ast_hash": "c6da46d229ecee70ebac30b6d47fdb05",
-    "semantic_hash": "c6da46d229ecee70ebac30b6d47fdb05",
-    "ast_empty": true
+    "mtime": 1793786767.0848558,
+    "seen": 1793786818.2362688,
+    "ast_hash": "a0779f805a5d6eb3c5f2f596b5bf6f25",
+    "semantic_hash": ""
   },
   "data/index_cache/Retailing_180.json": {
     "mtime": 1792589099.4766445,
@@ -542,11 +534,10 @@
     "ast_empty": true
   },
   "data/index_cache/Telecom_-_Services_7.json": {
-    "mtime": 1793685705.5908835,
-    "seen": 1793772841.0209537,
-    "ast_hash": "aa601cfcef9f66764842b6454a1f944b",
-    "semantic_hash": "aa601cfcef9f66764842b6454a1f944b",
-    "ast_empty": true
+    "mtime": 1793786767.234519,
+    "seen": 1793786818.2371576,
+    "ast_hash": "cd1eede8e88eab6498ee5e5d98021714",
+    "semantic_hash": ""
   },
   "data/index_cache/_180.json": {
     "mtime": 1791809574.460081,
@@ -1133,10 +1124,10 @@
     "semantic_hash": "ec250581345add0d3c49bab2ad907976"
   },
   "news_rag/app.py": {
-    "mtime": 1793700529.463371,
-    "seen": 1793772841.0318384,
-    "ast_hash": "a0bf4dac27eb7b314397b2506de25c44",
-    "semantic_hash": "a0bf4dac27eb7b314397b2506de25c44"
+    "mtime": 1793785665.0522907,
+    "seen": 1793786277.7593997,
+    "ast_hash": "213b99958769306dc8089ad951eca4d7",
+    "semantic_hash": ""
   },
   "news_rag/article_pool.py": {
     "mtime": 1792752394.9340398,
@@ -1169,9 +1160,9 @@
     "semantic_hash": "d7ffbca9aa6165614f59f50932a6ea93"
   },
   "news_rag/config.py": {
-    "mtime": 1793779231.803785,
-    "seen": 1793779268.0176873,
-    "ast_hash": "24e8a359c62764219efebd48f00e7357",
+    "mtime": 1793785664.5994282,
+    "seen": 1793786277.7601206,
+    "ast_hash": "b8b914bd073c60a8412a3df6ad7fe073",
     "semantic_hash": ""
   },
   "news_rag/domain_intake.py": {
@@ -1281,10 +1272,10 @@
     "semantic_hash": ""
   },
   "news_rag/fund_rupeestop_metrics.py": {
-    "mtime": 1793429183.7302687,
-    "seen": 1793772841.03476,
-    "ast_hash": "3fd3d5e5de1d2ea4cec47e03dbcec2a4",
-    "semantic_hash": "3fd3d5e5de1d2ea4cec47e03dbcec2a4"
+    "mtime": 1793786716.613345,
+    "seen": 1793786818.254731,
+    "ast_hash": "aa45ad70591dc1e89224b5a83e6b5933",
+    "semantic_hash": ""
   },
   "news_rag/fund_search.py": {
     "mtime": 1793615494.6112807,
@@ -1371,9 +1362,9 @@
     "semantic_hash": "cfa4a691e9eac7c8849c6af6fd7728c9"
   },
   "news_rag/insight/capabilities/executor.py": {
-    "mtime": 1793782110.584079,
-    "seen": 1793784769.2128954,
-    "ast_hash": "095cc9f94982ba2968ed6cee8a7c4c5a",
+    "mtime": 1793785699.017888,
+    "seen": 1793786277.7649803,
+    "ast_hash": "7e2d79f7c048d331bc5bf7aaf1a105b4",
     "semantic_hash": ""
   },
   "news_rag/insight/category_plan.py": {
@@ -1413,15 +1404,15 @@
     "semantic_hash": "c0009a6b099c36e8fdd7a703137392f1"
   },
   "news_rag/insight/display_table_policy.py": {
-    "mtime": 1793709533.0817535,
-    "seen": 1793772841.0379548,
-    "ast_hash": "138e8f756608070e696f3784d2233edf",
-    "semantic_hash": "138e8f756608070e696f3784d2233edf"
+    "mtime": 1793786717.4878337,
+    "seen": 1793786818.2579706,
+    "ast_hash": "3de2ccc5971104f9279e0f10e2d476f1",
+    "semantic_hash": ""
   },
   "news_rag/insight/evidence_pack.py": {
-    "mtime": 1793781942.337009,
-    "seen": 1793784769.214276,
-    "ast_hash": "c2baeaddc8821cc1522ac145401b718a",
+    "mtime": 1793785735.5044053,
+    "seen": 1793786277.7658951,
+    "ast_hash": "904e2d0dfbf8ef178ae1690970f26e5d",
     "semantic_hash": ""
   },
   "news_rag/insight/facets.py": {
@@ -1449,9 +1440,9 @@
     "semantic_hash": "44ac393a39506f9881eab3364f896cad"
   },
   "news_rag/insight/fund_display.py": {
-    "mtime": 1793780642.7065408,
-    "seen": 1793784769.2150943,
-    "ast_hash": "f27c7c429d3efb011750c311086ceacd",
+    "mtime": 1793786434.1014557,
+    "seen": 1793786818.259004,
+    "ast_hash": "055b080dd37b53d2221d8aa167c86520",
     "semantic_hash": ""
   },
   "news_rag/insight/fund_news_scope.py": {
@@ -1485,9 +1476,9 @@
     "semantic_hash": "c3f997c51ba6d5a826d71ac5fcf0219a"
   },
   "news_rag/insight/graph.py": {
-    "mtime": 1793784550.685886,
-    "seen": 1793784769.2158647,
-    "ast_hash": "10446b2529e842b4f6a2cd457764ce3b",
+    "mtime": 1793786474.4401562,
+    "seen": 1793786818.259783,
+    "ast_hash": "c179d806384a5cd10c27b6925dea951b",
     "semantic_hash": ""
   },
   "news_rag/insight/greeting.py": {
@@ -1665,9 +1656,9 @@
     "semantic_hash": ""
   },
   "news_rag/insight/plan_enforce.py": {
-    "mtime": 1793784549.5251124,
-    "seen": 1793784769.219605,
-    "ast_hash": "d4dfd4f92dfa68a5ac832f248a68c57c",
+    "mtime": 1793785683.363443,
+    "seen": 1793786277.7719092,
+    "ast_hash": "1b765a55ac803f807245a2fac8c99ff8",
     "semantic_hash": ""
   },
   "news_rag/insight/plan_intent.py": {
@@ -1743,10 +1734,10 @@
     "semantic_hash": "dd9e94bd7ac5b29bc503749e5edbcc6b"
   },
   "news_rag/insight/tool_runners.py": {
-    "mtime": 1793699256.3400586,
-    "seen": 1793772841.0459442,
-    "ast_hash": "8000b5a7b9dcd04f57e5827586257b5f",
-    "semantic_hash": "8000b5a7b9dcd04f57e5827586257b5f"
+    "mtime": 1793785694.4834054,
+    "seen": 1793786277.7736566,
+    "ast_hash": "ed40b504e81b1a26826e5546ebccfa41",
+    "semantic_hash": ""
   },
   "news_rag/insight/top_n.py": {
     "mtime": 1793017442.7091184,
@@ -1833,10 +1824,10 @@
     "semantic_hash": "dbead61feddd5e62d407f07c74f4e74a"
   },
   "news_rag/portfolio/cache.py": {
-    "mtime": 1793471476.6339488,
-    "seen": 1793772841.0482037,
-    "ast_hash": "9da3e34a8140b4faa23c7900546e7064",
-    "semantic_hash": "9da3e34a8140b4faa23c7900546e7064"
+    "mtime": 1793785660.7071378,
+    "seen": 1793786277.775657,
+    "ast_hash": "57147cada126d63c1537a109c54e36ce",
+    "semantic_hash": ""
   },
   "news_rag/portfolio/client.py": {
     "mtime": 1793777876.157379,
@@ -1881,9 +1872,9 @@
     "semantic_hash": "89dbdc6ebfa486e453dd83e3bed82811"
   },
   "news_rag/prompts.py": {
-    "mtime": 1793780642.445093,
-    "seen": 1793784769.2247243,
-    "ast_hash": "425969bc2f5197e0f5ed460e2ba87d20",
+    "mtime": 1793785734.4904895,
+    "seen": 1793786277.7766688,
+    "ast_hash": "83003a12fdd6a26f89cfb89977a790ce",
     "semantic_hash": ""
   },
   "news_rag/qdrant_reader.py": {
@@ -2241,10 +2232,10 @@
     "semantic_hash": "59645ac371f3d176177d503ae8de6f65"
   },
   "tests/test_display_table_policy.py": {
-    "mtime": 1793617736.8436239,
-    "seen": 1793772841.0578785,
-    "ast_hash": "401d1ff0299109c1d7bfe20982386967",
-    "semantic_hash": "401d1ff0299109c1d7bfe20982386967"
+    "mtime": 1793786475.178269,
+    "seen": 1793786818.2789001,
+    "ast_hash": "91468850c00b45a454e50a28b7d858fb",
+    "semantic_hash": ""
   },
   "tests/test_entity_memory_ttl.py": {
     "mtime": 1793623032.2208757,
@@ -2283,10 +2274,10 @@
     "semantic_hash": "d903f4bff11a453a4aee123b4056d203"
   },
   "tests/test_fund_display_tables.py": {
-    "mtime": 1793616551.135516,
-    "seen": 1793772841.0588348,
-    "ast_hash": "0f6e4c30267b17b874ea4a50fc89037e",
-    "semantic_hash": "0f6e4c30267b17b874ea4a50fc89037e"
+    "mtime": 1793786747.8247821,
+    "seen": 1793786818.2801197,
+    "ast_hash": "f78d5bd5a589ccd0dd2fc79b93391b08",
+    "semantic_hash": ""
   },
   "tests/test_fund_drawdown.py": {
     "mtime": 1793261160.5797112,
@@ -2961,9 +2952,9 @@
     "semantic_hash": ""
   },
   "news_rag/portfolio/README.md": {
-    "mtime": 1793712298.877517,
-    "seen": 1793774995.2013106,
-    "ast_hash": "c24d8a9f98ff7773207e845a3265b83e",
+    "mtime": 1793785664.5994282,
+    "seen": 1793786277.8033185,
+    "ast_hash": "0dd8e5e4de1182ee3b3ab526b8399620",
     "semantic_hash": ""
   },
   "news_rag/requirements.txt": {
@@ -3048,6 +3039,30 @@
     "mtime": 1793781043.8574042,
     "seen": 1793784769.2407804,
     "ast_hash": "716007c0354e63c981c8ebd55b450841",
+    "semantic_hash": ""
+  },
+  "news_rag/insight/portfolio_bind.py": {
+    "mtime": 1793785981.6810338,
+    "seen": 1793786277.7723403,
+    "ast_hash": "b02bc9450743170d34c75fbb450a7dba",
+    "semantic_hash": ""
+  },
+  "news_rag/portfolio/views.py": {
+    "mtime": 1793786471.9236,
+    "seen": 1793786818.26964,
+    "ast_hash": "c4a6045964f849e8a0bf1a16efdb16d7",
+    "semantic_hash": ""
+  },
+  "tests/test_answer_precision.py": {
+    "mtime": 1793785802.32896,
+    "seen": 1793786277.783144,
+    "ast_hash": "3cd2a987093f06fa5be57c2a317b72f7",
+    "semantic_hash": ""
+  },
+  "tests/test_portfolio_startup_cache.py": {
+    "mtime": 1793786718.3608954,
+    "seen": 1793786818.2894824,
+    "ast_hash": "945f0bea3be57fc21f7db93ddfee6aac",
     "semantic_hash": ""
   },
   "cloudflare/scrape-worker/package-lock.json": {

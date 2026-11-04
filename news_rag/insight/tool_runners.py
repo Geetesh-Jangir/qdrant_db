@@ -595,6 +595,18 @@ def run_compare_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         if d:
             details.append(d)
     if len(details) < 2:
+        from news_rag.portfolio.cache import find_cached_holdings
+
+        have = {str((row or {}).get("isin") or "") for row in details}
+        for hit in find_cached_holdings(str(ctx.get("question") or "")):
+            peer, _ambiguous, _close = idx.lookup_extracted_fund(name=str(hit.get("scheme_name") or ""))
+            peer_isin = str((peer or {}).get("isin") or "")
+            if peer and peer_isin not in have:
+                details.append(peer)
+                have.add(peer_isin)
+            if len(details) >= 2:
+                break
+    if len(details) < 2:
         return _fail("need_two_funds")
     out = run_compare_funds(details, compare_on="all", return_window=_s(ctx, "return_window", "1M"), top_n=max(len(details), 5))
     if out.get("ok"):

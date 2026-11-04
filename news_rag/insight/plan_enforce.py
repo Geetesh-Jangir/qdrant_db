@@ -471,25 +471,27 @@ def apply_planner_post_hooks(
 
     from news_rag.insight.plan_intent import plan_wants_unnamed_category_pair_compare
 
+    from news_rag.insight.portfolio_bind import finish_portfolio_plan_bind
+
     if plan_wants_unnamed_category_pair_compare(question, plan, memory):
         plan.requires_compose = True
-        return plan
+        return finish_portfolio_plan_bind(question, plan, memory)
 
     if plan_wants_fund_compare(plan):
         finalize_fund_compare_plan(question, plan)
-        return plan
+        return finish_portfolio_plan_bind(question, plan, memory)
 
     if plan_wants_compare_categories(plan):
         ensure_cross_category_compare_plan(question, plan)
         plan.intent = "compare"
         plan.requires_compose = True
-        return plan
+        return finish_portfolio_plan_bind(question, plan, memory)
 
     ensure_alternate_category_fund_plan(question, plan, memory)
     ensure_better_rated_category_fund_plan(question, plan, memory)
     if plan_wants_alternate_in_category(plan):
         plan.requires_compose = True
-        return plan
+        return finish_portfolio_plan_bind(question, plan, memory)
 
     repair_data_need_tools(plan)
 
@@ -518,7 +520,7 @@ def apply_planner_post_hooks(
 
         ensure_planner_fund_fact_modules(question, plan)
         ensure_fund_concentration_plan(question, plan)
-        return plan
+        return finish_portfolio_plan_bind(question, plan, memory)
 
     ensure_category_performance_plan(question, plan, memory)
     ensure_cross_category_compare_plan(question, plan)
@@ -541,4 +543,4 @@ def apply_planner_post_hooks(
     ensure_category_composition_plan(question, plan, memory)
     ensure_fund_holdings_followup_plan(question, plan, memory)
     ensure_alternate_category_fund_plan(question, plan, memory)
-    return plan
+    return finish_portfolio_plan_bind(question, plan, memory)

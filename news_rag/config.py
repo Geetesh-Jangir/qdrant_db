@@ -156,7 +156,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("SILVER_PRICE_API_URL", "silver_price_api_url"),
     )
     portfolio_ttl_sec: int = Field(
-        default=180,
+        default=900,
         validation_alias=AliasChoices("PORTFOLIO_TTL_SEC", "portfolio_ttl_sec"),
     )
     portfolio_http_timeout_sec: float = Field(

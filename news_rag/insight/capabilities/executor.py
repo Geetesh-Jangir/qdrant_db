@@ -1492,6 +1492,14 @@ def execute_capability(
         if arg_fund and arg_fund not in target_funds:
             target_funds.append(arg_fund)
         if not target_funds:
+            from news_rag.portfolio.cache import find_cached_holdings
+
+            target_funds = [
+                str(row.get("scheme_name") or "").strip()
+                for row in find_cached_holdings(str(base_ctx.get("question") or ""))
+                if str(row.get("scheme_name") or "").strip()
+            ]
+        if not target_funds:
             return [{"ok": False, "tool": call.tool, "fund": "", "error": "no_funds_resolved", "data": {}, "elapsed_ms": 0}]
         skip_cache = bool(base_ctx.get("skip_tool_cache"))
         for name in target_funds:
@@ -1528,10 +1536,17 @@ def execute_capability(
                 })
                 continue
             t0 = time.perf_counter()
-            try:
-                out = runner(name, args, per_ctx)
-            except Exception as exc:
-                out = {"ok": False, "error": f"{type(exc).__name__}: {exc}", "data": {}}
+            attempts = 2 if call.tool == "get_fund_data" else 1
+            out = {"ok": False, "error": "no_attempt", "data": {}}
+            for attempt in range(attempts):
+                try:
+                    out = runner(name, args, per_ctx)
+                except Exception as exc:
+                    out = {"ok": False, "error": f"{type(exc).__name__}: {exc}", "data": {}}
+                err = str(out.get("error") or "")
+                if out.get("ok") or "timeout" not in err.lower() or attempt == attempts - 1:
+                    break
+                logger.info("get_fund_data retry after timeout fund=%s", name[:80])
             elapsed = round((time.perf_counter() - t0) * 1000, 1)
             data = out.get("data", {}) if isinstance(out.get("data"), dict) else {}
             complete = _return_slice_covers(call.tool, args, data)

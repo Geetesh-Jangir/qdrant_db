@@ -20,6 +20,10 @@ LONG_HORIZON_PERIODS: tuple[str, ...] = ("1Y", "3Y", "5Y")
 SHORT_HORIZON_PERIODS: tuple[str, ...] = ("1M", "3M", "6M")
 
 _PERIOD_ALIASES: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"\b(?:last|past|this|one)\s+year\b", re.I), "1Y"),
+    (re.compile(r"\b(?:last|past|this|one)\s+month\b", re.I), "1M"),
+    (re.compile(r"\bone\s+month\b", re.I), "1M"),
+    (re.compile(r"\b(?:last|past|this|one)\s+week\b", re.I), "1W"),
     (re.compile(r"\b1\s*(?:y|yr|year|years)\b", re.I), "1Y"),
     (re.compile(r"\b3\s*(?:y|yr|year|years)\b", re.I), "3Y"),
     (re.compile(r"\b5\s*(?:y|yr|year|years)\b", re.I), "5Y"),

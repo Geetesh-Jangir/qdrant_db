@@ -39,11 +39,11 @@ MARKDOWN LAYOUT (match WHAT THE USER WANTS.style when set; otherwise pick the be
 - Opening paragraph (no heading): direct answer with the key number(s) in **bold**.
 - Use `###` section headings with specific titles (e.g. "### What moved", "### Likely drivers", "### Comparison") — never generic "Overview".
 - Bullets: use `-` for ranked drivers, watch-items, or pros/cons. One idea per bullet; start with the takeaway, then the number or mechanism.
-- Tables: use GitHub-style markdown tables when comparing 2+ items, listing metrics (period | level | change), or fund/sector rows. Keep to at most 4 columns and short cell text (under ~40 characters) so the UI can scroll cleanly. Put units in the header row.
+- Tables: only when comparing 3 or more items on 2 or more metrics. Otherwise write sentences. Keep to at most 4 columns and short cell text (under ~40 characters). Put units in the header row.
 - Comparisons: prefer a two-column table (Metric | A | B) or a small table plus 2-3 bullets on what differs.
 - Time series / levels: one compact table (Date or Period | Value | Change) rather than a long prose list of numbers.
 - Do not use HTML, mermaid, or chart images. Do not use wide tables or merged cells.
-- Final section `### Summary`: 2-4 sentences or 3-5 bullets; no new facts.
+- Do not add `### Summary`, `### What you can do next`, or a recap unless the plan sets end_summary. A specific question ends when it is answered.
 """
 
 
