@@ -457,13 +457,32 @@ def question_refers_deictic_fund(question: str) -> bool:
     if stripped.startswith(("its ", "it ")):
         return True
     q = f" {stripped} "
-    if any(p in q for p in (" its ", " it ", " this fund", " that fund", " this scheme", " that scheme")):
+    if any(p in q for p in (" its ", " this fund", " that fund", " this scheme", " that scheme")):
         return True
-    if any(p in q for p in (" its ", " it ")) and any(
+    if re.search(
+        r"\bis it a(?:n| the|\s+(?:bad|good|right|wrong|safe|worth|better|worse|time)\b)",
+        q,
+    ):
+        return False
+    if " it " in q and any(
         w in q for w in ("risk", "return", "nav", "rating", "holdings", "drawdown", "news", "portfolio")
     ):
         return True
     return False
+
+
+def resolve_user_named_fund_in_memory(question: str, memory: dict[str, Any] | None) -> str:
+    """Longest session fund whose AMC/category tokens the user actually wrote."""
+    from news_rag.insight.memory.fund_context import memory_known_fund_names
+
+    text = str(question or "").strip()
+    if not text:
+        return ""
+    best = ""
+    for name in memory_known_fund_names(memory):
+        if user_explicitly_named_scheme(text, name) and len(name) > len(best):
+            best = name
+    return best
 
 
 def resolve_deictic_fund_name(
@@ -747,6 +766,12 @@ def reconcile_deictic_planner_fund(
     """Deictic follow-ups: bind fund from memory, drop planner-invented catalog names."""
     from news_rag.insight.memory.fund_context import memory_known_fund_names
 
+    explicit = resolve_user_named_fund_in_memory(question, memory)
+    if explicit:
+        plan.funds = [explicit]
+        plan.subject_ref = "user_named"
+        return plan
+
     if not question_refers_deictic_fund(question):
         return plan
     from news_rag.insight.memory.fund_context import deictic_fund_context_active, memory_known_fund_names
@@ -790,6 +815,12 @@ def enforce_deictic_and_memory_primary_fund(
     deictic = question_refers_deictic_fund(question)
     binds_memory = ref in ("memory_primary", "memory_stack", "list_cursor") or deictic
     if not binds_memory or not memory:
+        return plan
+
+    explicit = resolve_user_named_fund_in_memory(question, memory)
+    if explicit:
+        plan.funds = [explicit]
+        plan.subject_ref = "user_named"
         return plan
 
     if deictic:

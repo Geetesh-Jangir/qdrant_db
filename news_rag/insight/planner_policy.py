@@ -121,8 +121,18 @@ def finalize_planner_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
 
 
 def align_planned_news_execution(plan: ExecutionPlan) -> ExecutionPlan:
-    """Planned wave-2 news with trigger=none never runs; move it to wave 1 for fusion."""
+    """Planned wave-2 news with trigger=none never runs; move it to wave 1 for fusion.
+
+    A DATA_ONLY plan is a figure, a list, or a comparison. It does not fetch news.
+    """
     if plan.answer_mode == AnswerMode.DATA_ONLY:
+        plan.tool_calls = [
+            call
+            for call in plan.tool_calls
+            if call.tool not in ("search_financial_news", "get_macro_news")
+        ]
+        if (plan.wave_2_policy.trigger or "none").lower() != "none":
+            plan.wave_2_policy.trigger = "none"
         return plan
     trigger = (plan.wave_2_policy.trigger or "none").lower()
     if trigger == "none":

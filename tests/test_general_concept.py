@@ -18,6 +18,19 @@ def test_large_cap_vs_mid_cap_is_pure_concept():
     assert plan.requires_compose is True
 
 
+def test_named_large_cap_scheme_keeps_tools():
+    q = "what is the aum and expense ratio of hdfc large cap fund"
+    assert not question_is_pure_general_concept(q)
+    plan = ExecutionPlan(
+        routed_by="planner",
+        planner_task="data",
+        funds=["HDFC Large Cap Fund - Growth"],
+        tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1)],
+    )
+    plan = apply_pure_concept_plan(plan, q)
+    assert any(call.tool == "get_fund_data" for call in plan.tool_calls)
+
+
 def test_my_funds_is_not_pure_concept():
     q = "show me the rs rating of all my funds"
     assert not question_is_pure_general_concept(q)

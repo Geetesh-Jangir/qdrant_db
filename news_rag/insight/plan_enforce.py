@@ -170,6 +170,14 @@ def resolve_planner_subject_refs(
     ref = str(plan.subject_ref or "none").strip().lower()
     category = _compare_category_slug(question, plan)
     if ref == "memory_primary" and memory:
+        if not plan_wants_fund_compare(plan):
+            from news_rag.insight.investor_subject import resolve_user_named_fund_in_memory
+
+            explicit = resolve_user_named_fund_in_memory(question, memory)
+            if explicit:
+                plan.funds = [explicit]
+                plan.subject_ref = "user_named"
+                return
         if plan_wants_fund_compare(plan):
             scoped = memory_funds_for_category(memory, category) if category else []
             if len(scoped) >= 2:

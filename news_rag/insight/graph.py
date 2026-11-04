@@ -244,6 +244,9 @@ def node_route(state: GraphState) -> str | None:
 
     plan = ensure_planner_fund_fact_modules(state.question or "", plan)
     plan = ensure_fund_concentration_plan(state.question or "", plan)
+    from news_rag.insight.fields import bind_fields_to_tools
+
+    plan = bind_fields_to_tools(state.question or "", plan)
     state.plan = plan
     if state.query_log is not None:
         tools = [f"{c.tool}({c.arguments})" for c in plan.tool_calls]
@@ -1190,6 +1193,33 @@ def node_compose(state: GraphState) -> str | None:
             state.route_reason = "portfolio concentration template"
             return None
 
+    from news_rag.insight.fact_answer import (
+        is_pure_field_answer,
+        render_benchmark_comparison_table,
+        render_fact_answer,
+    )
+    from news_rag.insight.fields import wants_comparison_table
+
+    if pack is not None and wants_comparison_table(state.question or "", plan):
+        table_answer = render_benchmark_comparison_table(pack, plan, state.question or "")
+        if table_answer:
+            state.answer = _clean_answer(table_answer)
+            state.route_reason = "benchmark comparison table"
+            if state.query_log is not None:
+                state.query_log.write("COMPOSE benchmark_comparison_table")
+            return None
+
+    if pack is not None and is_pure_field_answer(plan, state.question or ""):
+        fact_text = render_fact_answer(plan, pack.data_pack, state.question or "")
+        if fact_text:
+            state.answer = _clean_answer(fact_text)
+            state.route_reason = "field template"
+            if state.query_log is not None:
+                state.query_log.write(
+                    "COMPOSE field_template fields=" + ",".join(plan.asked_fields or [])
+                )
+            return None
+
     template_answer = None
     if (
         plan.answer_mode == AnswerMode.DATA_ONLY
@@ -1270,6 +1300,12 @@ def node_compose(state: GraphState) -> str | None:
     if plan.answer_depth == "more":
         wants["explain_more"] = True
         wants["max_words"] = max(int(wants.get("max_words") or 0), 220)
+    if pack and plan.asked_fields and not is_pure_field_answer(plan, state.question or ""):
+        pinned = render_fact_answer(plan, pack.data_pack, state.question or "")
+        if pinned:
+            plan.presentation_notes = (
+                f"{plan.presentation_notes} Use these measured lines and do not add figures they do not contain:\n{pinned}"
+            ).strip()
     if (plan.presentation_notes or "").strip():
         wants["presentation_notes"] = plan.presentation_notes.strip()
     from news_rag.insight.investor_subject import (

@@ -99,6 +99,9 @@ class ExecutionPlan(BaseModel):
     lead_with: str = ""
     presentation_notes: str = ""
     asked_facts: list[str] = Field(default_factory=list)
+    # Attributes asked in this turn only (registry names, plus return:1M style codes).
+    asked_fields: list[str] = Field(default_factory=list)
+    planner_task: str = ""
     concept_brief: str = ""
     requires_compose: bool = False
     asks_for_advice: bool = False

@@ -1,0 +1,78 @@
+[
+  {
+    "id": "fund-identity",
+    "question": "what is hdfc large cap fund",
+    "expect": {"fields": ["identity"], "modules": ["snapshot"], "forbid_tools": ["search_financial_news"]}
+  },
+  {
+    "id": "fund-nav",
+    "question": "what is the nav of hdfc large cap fund",
+    "expect": {"fields": ["nav"], "modules": ["snapshot"], "forbid_modules": ["rating", "limits"]}
+  },
+  {
+    "id": "fund-aum-expense-followup",
+    "turns": [
+      "what is the aum of hdfc large cap fund",
+      "what is the aum and expense ratio of this fund"
+    ],
+    "expect_turns": [
+      {"fields": ["aum"]},
+      {"fields": ["aum", "expense_ratio"]}
+    ]
+  },
+  {
+    "id": "fund-exit-load",
+    "question": "what is the exit load of hdfc large cap fund",
+    "expect": {"fields": ["exit_load"], "modules": ["snapshot"]}
+  },
+  {
+    "id": "fund-returns",
+    "question": "what is the 1 month and 1 year return of hdfc large cap fund",
+    "expect": {"fields": ["return:1Y", "return:1M"], "windows": ["1Y", "1M"]}
+  },
+  {
+    "id": "fund-holdings",
+    "question": "top 5 holdings of hdfc large cap fund",
+    "expect": {"fields": ["holdings"], "sections": ["holdings"]}
+  },
+  {
+    "id": "fund-sectors",
+    "question": "how much of hdfc large cap is in banks",
+    "expect": {"fields": ["sector_lookup"], "sections": ["sectors"]}
+  },
+  {
+    "id": "fund-benchmark",
+    "question": "is hdfc large cap beating its benchmark",
+    "expect": {"fields": ["vs_benchmark"], "modules": ["vs_benchmark"]}
+  },
+  {
+    "id": "benchmark-return-1y",
+    "question": "what is the benchmark return in last 1 year",
+    "expect": {"fields": ["benchmark_return"], "modules": ["vs_benchmark"]}
+  },
+  {
+    "id": "fund-benchmark-category-table",
+    "question": "do benchmark vs fund vs category average",
+    "expect": {"fields": ["vs_benchmark", "category_avg"], "modules": ["vs_benchmark"], "comparison_table": true}
+  },
+  {
+    "id": "book-value",
+    "question": "what is the aum of my portfolio",
+    "expect": {"fields": ["book_value"], "investor_modules": ["summary"]}
+  },
+  {
+    "id": "book-xirr",
+    "question": "what is my portfolio xirr",
+    "expect": {"fields": ["book_xirr"], "investor_modules": ["xirr"]}
+  },
+  {
+    "id": "news-only",
+    "question": "what's in the news today",
+    "expect": {"fields": [], "live_answer_mode": "NEWS_ONLY"}
+  },
+  {
+    "id": "news-why-fund",
+    "question": "why did hdfc large cap fall in the last month",
+    "expect": {"live_answer_mode": "INSIGHT_FUSION"}
+  }
+]

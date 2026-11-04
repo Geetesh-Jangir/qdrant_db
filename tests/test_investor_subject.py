@@ -367,3 +367,52 @@ def test_deictic_return_without_memory_focus_does_not_title_largest_holding():
         investor_holdings=[{"scheme_name": row["name"]} for row in holdings],
     )
     assert subject == ""
+
+
+def test_memory_primary_yields_explicit_hdfc_when_user_names_it_not_list_cursor():
+    from news_rag.insight.plan_enforce import apply_planner_post_hooks
+
+    memory = {
+        "frame": {
+            "last_fund_focus": "Nippon India ETF Nifty 50 Shariah BeES",
+            "subjects": [{"name": "Nippon India ETF Nifty 50 Shariah BeES"}],
+        },
+        "entity_stack": [
+            {"name": "Nippon India ETF Nifty 50 Shariah BeES"},
+            {"name": "HDFC Large Cap Fund - Growth"},
+        ],
+        "category_funds_in_chat": [{"category": "large cap", "fund_names": ["HDFC Large Cap Fund - Growth"]}],
+        "list_cursor": {"rows": [{"n": 1, "name": "Nippon India ETF Nifty 50 Shariah BeES"}]},
+    }
+    question = (
+        "if we see the hdfc large cap performance of 1 year against its category avg "
+        "then its not performing good, so is it a bad fund and should i sell it"
+    )
+    plan = ExecutionPlan(
+        funds=[],
+        subject_ref="memory_primary",
+        routed_by="planner",
+        data_need="category_performance",
+        planner_reading="1 year return of HDFC Large Cap versus its category average",
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={
+                    "modules": ["snapshot", "vs_benchmark", "rating"],
+                    "windows": ["1Y"],
+                    "include_category": True,
+                },
+                wave=1,
+            )
+        ],
+    )
+    plan = apply_planner_post_hooks(question, plan, memory)
+    assert plan.funds == ["HDFC Large Cap Fund - Growth"]
+
+
+def test_is_it_a_bad_fund_is_not_deictic_fund_pronoun():
+    from news_rag.insight.investor_subject import question_refers_deictic_fund
+
+    q = "is it a bad fund and should i sell it"
+    assert not question_refers_deictic_fund(q)
+    assert question_refers_deictic_fund("do its risk analysis")

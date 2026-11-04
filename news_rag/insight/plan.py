@@ -170,6 +170,15 @@ PLAN_SCHEMA: dict[str, Any] = {
                     "enum": ["holdings", "sectors", "both", "none"],
                 },
                 "reading": {"type": "string"},
+                "fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Attributes asked in THIS message only. Do not copy fields from memory. "
+                        "Use registry names such as nav, aum, expense_ratio, exit_load, benchmark, "
+                        "holdings, sectors, book_value, book_xirr. A return period is return:1M."
+                    ),
+                },
                 "fund_pick": {
                     "type": "string",
                     "enum": [
@@ -526,6 +535,8 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
         list_ordinals=list_ordinals,
         answer_depth=depth,
         refers_to_turn=refers_to_turn,
+        planner_task=str(under.get("task") or "").strip().lower(),
+        asked_fields=_planner_fields(request.get("fields")),
     )
     from news_rag.insight.plan_intent import normalize_fund_pick_from_planner
 
@@ -533,7 +544,7 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
 
     canned = bool((plan.direct_reply or "").strip() and not plan.tool_calls)
     plan.requires_compose = not canned
-    if str(under.get("task") or "").strip().lower() == "explain":
+    if str(under.get("task") or "").strip().lower() == "explain" and not plan.funds:
         from news_rag.fund_rating_categories import explanation_brief
 
         example = _example_part(plan.sub_queries)
@@ -572,6 +583,17 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
             )
         plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
     return plan
+
+
+def _planner_fields(raw: Any) -> list[str]:
+    from news_rag.insight.fields import canonicalize_field
+
+    out: list[str] = []
+    for item in raw or []:
+        name = canonicalize_field(str(item or ""))
+        if name and name not in out:
+            out.append(name)
+    return out
 
 
 def _example_part(sub_queries: list[dict[str, Any]]) -> str:
@@ -678,7 +700,10 @@ def plan_system_prompt(*, portfolio_enabled: bool | None = None) -> str:
     if cached is not None:
         return cached
 
+    from news_rag.insight.fields import field_prompt_table
+
     catalog = capability_catalog_text(portfolio_enabled=portfolio_enabled)
+    field_map = field_prompt_table()
     tool_count = "seven" if portfolio_enabled else "six"
     portfolio_block = ""
     if portfolio_enabled:
@@ -746,8 +771,14 @@ Set memory.turn_relation to continue, partial_keep, or reset. continue keeps the
 If one part points at an earlier fund, set memory.stack_refs to those numbers. A follow-up may name the previous fund and the one before it. If a part points at a row of the list, set memory.list_ordinals. Do not invent a fund from a sector or a holding that appeared only inside an explanation.
 A news follow-up keeps the news topic. "How is my fund affected" uses the fund plus that topic and fetches holdings or sectors and news. "Tell me more about that news" searches the topic again and does not dump the fund. "What is the RBI rate" is a definition with no fund tool. The topic stays for a later question.
 
+### FIELDS (this message only)
+{field_map}
+
 ### MINIMAL TOOLS
 A specific question lists only the modules that answer it. query_class is simple. Do not add search_financial_news, return_series, or attribution.
+DATA_ONLY never includes search_financial_news or get_macro_news. News is NEWS_ONLY (headlines, no fund numbers) or INSIGHT_FUSION (a fund or the user's book plus why/news).
+NEWS_ONLY examples: news on RBI, headlines on Reliance, why silver moved, market roundup. Tool is search_financial_news. Silver is news only.
+INSIGHT_FUSION examples: why a named fund fell, news for that fund's holdings, how crude news affects my portfolio. Keep the data tools and add search_financial_news.
 - NAV, AUM, expense ratio, or exit load: get_fund_data modules ["snapshot"] only. When the user names no return period, set windows to ["1Y", "3Y", "5Y"].
 - One return period, such as 1 month or 1 week: get_fund_data modules ["snapshot"] and windows set to that one code, such as ["1M"] or ["1W"]. Do not add 1Y, 3Y, or 5Y unless they also asked for those. Do not add return_series. A period can be any length. Use 2M, 8M, 14D, YTD, 6M, or 1Y when that is what they asked. Two periods means both codes, such as ["6M", "1Y"]. Set time.label to those periods, not to 1 month, unless they asked for 1 month.
 - Minimum SIP, lumpsum, additional purchase, or how the scheme can be bought: get_fund_data modules ["limits"] only.

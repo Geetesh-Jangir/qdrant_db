@@ -139,6 +139,10 @@ class Settings(BaseSettings):
         default="https://backend.rupeestop.com",
         validation_alias=AliasChoices("RUPEESTOP_BACKEND_BASE", "rupeestop_backend_base"),
     )
+    rupeestop_auth_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("RUPEESTOP_AUTH_TOKEN", "rupeestop_auth_token"),
+    )
     rupeestop_admin_token: str = Field(
         default="",
         validation_alias=AliasChoices("RUPEESTOP_ADMIN_TOKEN", "rupeestop_admin_token"),

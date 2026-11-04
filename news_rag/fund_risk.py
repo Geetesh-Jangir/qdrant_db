@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 
+from news_rag.rupeestop_auth import rupeestop_admin_request_headers
 from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall, Wave2Policy
 
 logger = logging.getLogger(__name__)
@@ -548,8 +549,10 @@ def fetch_public_rating(isin: str, *, timeout: float = 12.0) -> dict[str, Any] |
     if cached and now - cached[0] < _TTL_SEC:
         return dict(cached[1])
     try:
+        url = _RATING_URL.format(isin=key)
+        headers = rupeestop_admin_request_headers(url)
         with httpx.Client(timeout=timeout) as client:
-            resp = client.get(_RATING_URL.format(isin=key))
+            resp = client.get(url, headers=headers)
             resp.raise_for_status()
             payload = resp.json()
     except Exception as exc:

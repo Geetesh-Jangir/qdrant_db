@@ -19,6 +19,7 @@ from urllib.parse import quote
 
 import httpx
 
+from news_rag.rupeestop_auth import rupeestop_admin_request_headers
 from news_rag.fund_rating_categories import (
     asks_taxonomy,
     categories_for,
@@ -417,7 +418,8 @@ def fetch_category_ratings(fund_type: str, category: str) -> dict[str, Any]:
             return deepcopy(hit[1])
     url = _RATING_URL.format(fund_type=quote(fund_type, safe=""), category=quote(category, safe=""))
     try:
-        response = httpx.get(url, timeout=_HTTP_TIMEOUT)
+        headers = rupeestop_admin_request_headers(url)
+        response = httpx.get(url, headers=headers, timeout=_HTTP_TIMEOUT)
         response.raise_for_status()
         payload = response.json()
     except Exception as exc:

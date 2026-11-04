@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 from news_rag.config import get_settings
+from news_rag.rupeestop_auth import rupeestop_admin_request_headers, rupeestop_bearer_token
 from news_rag.portfolio.errors import PortfolioNotConfigured, PortfolioUpstreamError
 
 logger = logging.getLogger(__name__)
@@ -38,12 +39,12 @@ def _resolve_fixture_path(settings: Any, root: Path) -> Path | None:
         if by_crn.is_file():
             return by_crn
 
-    token = str(getattr(settings, "rupeestop_admin_token", "") or "").strip()
+    token = rupeestop_bearer_token(settings)
     if not token:
         sample = root / _DEV_SAMPLE
         if sample.is_file():
             logger.info(
-                "portfolio: no RUPEESTOP_ADMIN_TOKEN; using %s for local workspace data",
+                "portfolio: no RUPEESTOP_AUTH_TOKEN; using %s for local workspace data",
                 _DEV_SAMPLE,
             )
             return sample
@@ -67,14 +68,11 @@ def fetch_workspace_raw(crn: str) -> dict[str, Any]:
         return _load_json_file(fixture_path)
 
     base = str(getattr(settings, "rupeestop_backend_base", "") or "https://backend.rupeestop.com").strip()
-    token = str(getattr(settings, "rupeestop_admin_token", "") or "").strip()
 
     timeout = float(getattr(settings, "portfolio_http_timeout_sec", 15.0) or 15.0)
     retries = int(getattr(settings, "portfolio_http_retries", 1) or 1)
     url = _workspace_url(base, crn)
-    headers: dict[str, str] = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    headers = rupeestop_admin_request_headers(url, settings=settings)
     last_exc: Exception | None = None
 
     for attempt in range(retries + 1):
@@ -92,10 +90,9 @@ def fetch_workspace_raw(crn: str) -> dict[str, Any]:
             if status in (502, 503, 504) and attempt < retries:
                 continue
             if status in (401, 403):
-                raise PortfolioError(
-                    "workspace auth failed — set RUPEESTOP_ADMIN_TOKEN or "
+                raise PortfolioUpstreamError(
+                    "workspace auth failed — set RUPEESTOP_AUTH_TOKEN (or RUPEESTOP_ADMIN_TOKEN) or "
                     f"PORTFOLIO_FIXTURE_PATH (or add data/portfolios/{crn}.json)",
-                    code="auth_required",
                 ) from exc
             raise PortfolioUpstreamError(f"workspace HTTP {status or 'error'}") from exc
         except httpx.HTTPError as exc:

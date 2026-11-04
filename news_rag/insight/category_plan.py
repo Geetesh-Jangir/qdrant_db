@@ -908,9 +908,13 @@ def ensure_category_performance_plan(
     elif not asks_category_performance(question):
         return plan
 
-    fund = _primary_fund_from_memory(memory)
+    from news_rag.insight.investor_subject import resolve_user_named_fund_in_memory
+
+    fund = resolve_user_named_fund_in_memory(question, memory)
     if not fund and plan.funds:
         fund = str(plan.funds[0]).strip()
+    if not fund:
+        fund = _primary_fund_from_memory(memory)
     if not fund:
         return plan
 

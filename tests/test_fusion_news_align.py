@@ -27,6 +27,24 @@ def test_wave2_news_moves_to_wave1_when_trigger_none():
     assert len(plan.wave2_calls) == 0
 
 
+def test_data_only_drops_news():
+    plan = ExecutionPlan(
+        answer_mode=AnswerMode.DATA_ONLY,
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1),
+            ToolCall(
+                tool="search_financial_news",
+                arguments={"scope": "market", "top_n": 8, "window_days": 7},
+                wave=1,
+            ),
+        ],
+        wave_2_policy=Wave2Policy(trigger="always"),
+    )
+    align_planned_news_execution(plan)
+    assert [call.tool for call in plan.tool_calls] == ["get_fund_data"]
+    assert plan.wave_2_policy.trigger == "none"
+
+
 def test_wave2_news_kept_when_trigger_always():
     plan = ExecutionPlan(
         answer_mode=AnswerMode.INSIGHT_FUSION,

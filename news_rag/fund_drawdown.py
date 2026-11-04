@@ -11,6 +11,8 @@ from typing import Any
 
 import httpx
 
+from news_rag.rupeestop_auth import rupeestop_admin_request_headers
+
 from news_rag.fund_search import resolve_canonical_isin
 
 logger = logging.getLogger(__name__)
@@ -188,8 +190,9 @@ def fetch_trailing_drawdown(isin: str, period: str, *, timeout: float = 12.0) ->
             cached = hit[1]
             return dict(cached) if isinstance(cached, dict) else cached
     try:
+        headers = rupeestop_admin_request_headers(_DRAWDOWN_URL)
         with httpx.Client(timeout=timeout) as client:
-            resp = client.get(_DRAWDOWN_URL, params={"isin": isin_clean, "period": period_clean})
+            resp = client.get(_DRAWDOWN_URL, params={"isin": isin_clean, "period": period_clean}, headers=headers)
             if resp.status_code != 200:
                 logger.warning("drawdown API status %s for %s %s", resp.status_code, isin_clean, period_clean)
                 return None

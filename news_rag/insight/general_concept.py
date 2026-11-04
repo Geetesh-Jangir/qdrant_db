@@ -35,6 +35,18 @@ _CATEGORY_CONCEPT_RE = re.compile(
     r"\b(?:debt|equity|hybrid|index|sectoral|thematic)\s+funds?\b",
     re.I,
 )
+# An AMC or scheme name means the user wants that fund, not a category definition.
+_NAMED_SCHEME_RE = re.compile(
+    r"\b(?:hdfc|icici|sbi|axis|kotak|bandhan|parag|quant|invesco|nippon|mirae|"
+    r"dsp|motilal|uti|tata|canara|aditya|birla|edelweiss|franklin|hsbc|idfc|"
+    r"lic|mahindra|navi|pgim|ppfas|whiteoak)\b",
+    re.I,
+)
+_SCHEME_FIGURE_RE = re.compile(
+    r"\b(?:nav|aum|expense|exit\s+load|ter|returns?|holdings?|sectors?|"
+    r"managers?|benchmark|inception)\b",
+    re.I,
+)
 
 
 def question_is_pure_general_concept(question: str) -> bool:
@@ -64,6 +76,12 @@ def question_is_pure_general_concept(question: str) -> bool:
     )
     if mentions_scheme and not category_concept:
         return False
+    # "what is the aum of hdfc large cap" names a scheme. The category word is part of the name.
+    if _NAMED_SCHEME_RE.search(q) and (
+        _SCHEME_FIGURE_RE.search(q) or re.search(r"\bfunds?\b", q, re.I)
+    ):
+        if not re.search(r"\b(?:different|difference|versus|\bvs\.?\b)\b", q, re.I):
+            return False
     if asks_precise_definition(q):
         return True
     if _CONCEPT_RE.search(q) or _VERSUS_RE.search(q):
@@ -72,10 +90,13 @@ def question_is_pure_general_concept(question: str) -> bool:
 
 
 def apply_pure_concept_plan(plan: ExecutionPlan, question: str) -> ExecutionPlan:
-    if not question_is_pure_general_concept(question):
-        return plan
     task = str(getattr(plan, "planner_task", None) or "").lower()
+    # A resolved scheme is a data question even when its name contains "large cap" or "hybrid".
+    if plan.funds and task != "explain":
+        return plan
     if task == "data" and plan.tool_calls:
+        return plan
+    if not question_is_pure_general_concept(question):
         return plan
     plan.tool_calls = []
     plan.portfolio_scope = "none"

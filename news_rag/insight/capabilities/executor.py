@@ -1413,6 +1413,16 @@ def _return_slice_covers(tool: str, args: dict[str, Any], data: Any) -> bool:
     windows = [str(item).upper() for item in (args.get("windows") or []) if str(item).strip()]
     if not windows:
         return True
+    if "vs_benchmark" in modules and "snapshot" not in modules:
+        vs = data.get("vs_benchmark") if isinstance(data.get("vs_benchmark"), dict) else {}
+        periods = vs.get("periods") if isinstance(vs.get("periods"), dict) else {}
+        if not periods:
+            insights = data.get("fund_insights") if isinstance(data.get("fund_insights"), dict) else {}
+            comp = insights.get("comparison_periods") if isinstance(insights.get("comparison_periods"), dict) else {}
+            periods = comp
+        covered_vs = {str(key).upper() for key in periods}
+        if all(code in covered_vs for code in windows):
+            return True
     snap = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
     returns = snap.get("returns") if isinstance(snap.get("returns"), dict) else {}
     limits = snap.get("unavailable_returns") if isinstance(snap.get("unavailable_returns"), list) else []
