@@ -1,0 +1,151 @@
+1. Identity and basics
+What is [fund name]?
+Tell me about HDFC Large Cap / this fund.
+Which category is it (large cap, flexi cap, ELSS, hybrid, etc.)?
+Regular plan or direct plan — which one are we looking at?
+Growth or IDCW/dividend option?
+When was the fund launched / inception date?
+How old is the scheme?
+What is the benchmark for this fund?
+What type of fund is it (equity, debt, hybrid)?
+2. NAV, AUM, and snapshot facts
+What is the NAV of [fund]?
+NAV as of today / latest date?
+How much did NAV change today / this week?
+What is the AUM?
+Assets under management of this scheme?
+52-week high and low?
+Current price of the fund (NAV)?
+Day change / daily move?
+3. Returns and performance (any horizon)
+How is [fund] performing?
+Returns for 1 week, 1 month, 3 months, 6 months, 1 year, 3 years, 5 years, YTD?
+What was the return in the last one month / last year?
+Historical performance of this fund.
+How did it do in [custom period]?
+Is it up or down recently?
+Best / worst period recently?
+Rolling returns (if you ask in those words)?
+Return since inception?
+4. Versus benchmark and category
+How does it compare to its benchmark?
+Fund vs Nifty / vs TRI benchmark — gap in percentage points?
+Is it beating or lagging the benchmark over 1Y / 3Y / 5Y?
+How does it compare to category average (large cap avg, etc.)?
+Outperformance / underperformance vs peers in the category?
+Alpha vs benchmark (wording you might use)?
+5. Costs, loads, and investment rules
+Expense ratio of this fund?
+TER / total expense ratio?
+Direct plan vs regular plan expense (if you name direct)?
+Exit load / exit load charges?
+Is there a lock-in (especially ELSS)?
+Minimum SIP amount?
+Minimum lumpsum / additional purchase?
+Redemption settlement period / how many days to get money back?
+Which SIP frequencies are allowed (monthly, weekly, etc.)?
+Can I invest through demat and physical?
+6. What the fund holds (portfolio inside the scheme)
+Top 5 / top 10 holdings of this fund?
+Which stocks does it hold?
+Does it hold [Reliance / HDFC Bank / a stock name]?
+How much of the fund is in [company]?
+Full holdings list (if you ask for many / all)?
+How many stocks does the fund hold?
+Top 5 / top 10 stock weight (concentration in names)?
+Concentration in this fund / is it concentrated in few stocks?
+Diversification — is it spread out or concentrated?
+Overlap between its top holdings and another fund (usually a compare, but you can ask overlap for two named funds)?
+7. Sectors and themes inside the fund
+Top sectors / sector allocation of this fund?
+How much is in banks / IT / pharma / auto?
+Sector weights table?
+Which sector has the highest weight?
+Is this fund heavily tilted to financials?
+Find banking exposure inside this fund.
+Market cap mix: large / mid / small cap weights?
+Asset allocation: equity vs cash vs debt?
+How much is in mid and small caps combined?
+8. Risk, rating, and quality scores
+How risky is this fund?
+SEBI riskometer label?
+Risk analysis of this fund.
+RupeeStop score / rating / label (Recommended, Best in category, etc.)?
+Performance pillar / risk pillar / portfolio quality pillar / fund manager pillar scores?
+Drawdown — max fall in 1Y / 3Y / 5Y?
+Volatility / how bad was the last decline?
+Recovery after drawdown?
+9. Fund manager and stewardship
+Who manages this fund?
+Fund manager name(s)?
+How long has the manager been running it?
+Manager experience / tenure?
+Past managers (if you ask)?
+10. Why it moved (fund + news)
+Why did [fund] fall / rise in the last month?
+What drove returns recently?
+Attribution — which holdings or sectors helped or hurt?
+News affecting this fund?
+What in the news matters for this fund given what it holds?
+Overview of the fund and what recent news means for it?
+Explain the recent drop using holdings and news.
+11. Compare this fund to another (still fund-centric)
+Compare HDFC Large Cap and Invesco Large Cap.
+Which is better — A or B?
+Side-by-side returns, expense, risk, AUM?
+Holdings overlap between two named funds?
+Compare overlap of holdings between X and Y.
+Difference between two funds in the same category?
+12. Category context (one fund named, category in the answer)
+Is there a better fund in the same category than this one?
+Suggest another large cap fund (not this one).
+Best rated fund in large cap (screening — you may name a category, not always a second fund).
+How does this fund rank in its category (by score, not only return)?
+Note: “Which funds hold banking?” is not fund-only — that’s a screen across many funds. You asked fund-only, so that’s excluded.
+
+13. Follow-ups in conversation (fund stays in memory)
+What is its NAV / exit load / expense ratio?
+Show concentration in this fund.
+Top holdings again with a higher number (top 10)?
+Same fund, different period: “what about 3 month return?”
+“Tell me more” / “I didn’t understand” (same fund, more detail).
+Switch section: “now show sectors” after holdings.
+14. Definitions tied to this fund
+What does expense ratio mean for this fund?
+What is exit load and what is it for HDFC Large Cap?
+What is benchmark in the context of this scheme?
+Explain riskometer for this fund.
+What does AUM mean here?
+15. Multi-part questions (one message, several facts)
+Examples you can combine in one ask:
+
+NAV, expense ratio, and exit load of [fund]?
+Returns, top 5 sectors, and top 5 holdings?
+Who manages it and how has it performed over 3 years?
+AUM, benchmark, and vs benchmark over 1Y?
+How to phrase it so it stays “fund only”
+Do	Example
+Name the scheme or use this fund / it after discussing one
+“Compare it with Axis Bluechip”
+Ask for inside the fund
+holdings, sectors, concentration, weights
+Ask for scheme facts
+NAV, returns, ER, exit load, rating, managers
+Avoid if you want strictly one fund	Example
+Whole market with no fund
+“Why is Nifty down?”
+Your folio without naming the scheme as catalog
+“How is my portfolio?” (investor book)
+Find funds by sector/stock
+“Which funds hold Tata Motors?”
+Short “starter pack” (copy-paste)
+Overview of [fund name]
+NAV and 1Y / 3Y / 5Y returns
+Expense ratio and exit load
+Top 5 holdings and top 5 sectors
+Concentration in this fund
+Vs benchmark and vs category
+RupeeStop rating and riskometer
+Who is the fund manager?
+Why did it move in the last month?
+Compare [fund A] and [fund B]
