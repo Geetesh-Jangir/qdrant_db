@@ -101,6 +101,8 @@ def render_all_holdings_return_table(
     names = owned_holding_names(memory) or list(plan.funds or [])
     if not names:
         return ""
+    if not by_fund:
+        return ""
     lines = [f"| Fund | {window} return |", "| --- | --- |"]
     for name in names:
         val = by_fund.get(name) or "not available"
@@ -130,8 +132,31 @@ def _fund_data_from_results(
     return by_fund
 
 
+def _investor_holdings_rating_rows(data_pack: dict[str, Any] | None) -> dict[str, dict[str, Any]]:
+    """RS label/score from get_investor_portfolio when get_fund_data was not fan-out."""
+    pack = data_pack or {}
+    investor = pack.get("investor_portfolio") if isinstance(pack.get("investor_portfolio"), dict) else {}
+    out: dict[str, dict[str, Any]] = {}
+    for row in investor.get("holdings") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("scheme_name") or "").strip()
+        if not name:
+            continue
+        out[name] = {
+            "rs_rating": {
+                "label": row.get("rs_label"),
+                "final_score": row.get("rs_score"),
+            }
+        }
+    return out
+
+
 def _all_holdings_metric_spec(plan: ExecutionPlan) -> tuple[str, str]:
     asked = [str(x) for x in (plan.asked_facts or [])]
+    fields = {str(x) for x in (plan.asked_fields or [])}
+    if "holding_rs_labels" in fields:
+        return "rs_rating", ""
     for pref in ("rs_rating", "nav", "aum", "expense", "exit_load"):
         if pref in asked:
             return pref, ""
@@ -210,6 +235,11 @@ def render_all_holdings_metric_table(
     }
     col = headers.get(metric, metric)
     by_fund = _fund_data_from_results(results, data_pack)
+    if metric == "rs_rating":
+        for name, payload in _investor_holdings_rating_rows(data_pack).items():
+            merged = dict(by_fund.get(name) or {})
+            merged.update(payload)
+            by_fund[name] = merged
     names = owned_holding_names(memory) or list(plan.funds or [])
     if not names:
         return ""

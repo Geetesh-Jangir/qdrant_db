@@ -1370,20 +1370,20 @@ def _shared_value(rankings: list[dict[str, Any]], key: str) -> str:
 
 
 def _fmt_inr(value: Any) -> str:
-    try:
-        return f"₹{float(value):,.2f}"
-    except (TypeError, ValueError):
-        return "—"
+    from news_rag.indian_format import format_inr
+
+    return format_inr(value)
 
 
 def _fmt_table_inr(value: Any) -> str:
+    from news_rag.indian_format import format_inr
+
     try:
         n = float(value)
-        if abs(n - round(n)) < 0.005:
-            return f"₹{int(round(n)):,}"
-        return f"₹{n:,.2f}"
     except (TypeError, ValueError):
         return "—"
+    decimals = 0 if abs(n - round(n)) < 0.005 else 2
+    return format_inr(n, max_decimals=decimals)
 
 
 def _fmt_pct(value: Any) -> str:
@@ -1441,13 +1441,22 @@ def _category_rows_from_investor(investor: dict[str, Any]) -> list[tuple[str, fl
     return [(_pretty_category(name), amt, pct) for name, amt, pct in _sorted_inr_weights(mapping)]
 
 
-def _render_investor_holdings_table(data: dict[str, Any], plan: ExecutionPlan, prefix: str) -> str | None:
+def _render_investor_holdings_table(
+    data: dict[str, Any],
+    plan: ExecutionPlan,
+    prefix: str,
+    question: str = "",
+) -> str | None:
     """Deterministic holdings / returns table (no composer — avoids grounding stripping totals)."""
     holdings = [row for row in (data.get("holdings") or []) if isinstance(row, dict)]
     if not holdings:
         return None
 
-    from news_rag.insight.pack_sanitize import _rollup_investor_summary
+    from news_rag.insight.pack_sanitize import (
+        _rollup_investor_summary,
+        investor_holdings_for_display,
+        scheme_gain_loss_pct,
+    )
 
     rolled = _rollup_investor_summary(data)
     need = str(plan.data_need or "").lower().strip()
@@ -1482,31 +1491,43 @@ def _render_investor_holdings_table(data: dict[str, Any], plan: ExecutionPlan, p
 
     heading = "### Returns by scheme\n" if returns_focus else "### Your holdings\n"
     header = (
-        "| Scheme | Category | Current value (₹) | Invested (₹) | Gain (₹) | "
-        "Absolute return | XIRR | RS label |\n"
+        "| Scheme | Category | Current value (₹) | Invested (₹) | Gain/loss (₹) | "
+        "Gain on invested | XIRR | RS label |\n"
         "| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |"
     )
+    display_rows, total_schemes, truncated = investor_holdings_for_display(
+        holdings, question, plan, sort_weakest=False
+    )
     body_rows: list[str] = []
-    for row in sorted(holdings, key=lambda item: float(item.get("aum_inr") or 0), reverse=True):
+    for row in display_rows:
         rs = str(row.get("rs_label") or "—")
         if row.get("rs_score") is not None:
             rs = f"{rs} ({row.get('rs_score')})"
+        gp = scheme_gain_loss_pct(row)
         body_rows.append(
-            "| {name} | {cat} | {val} | {inv} | {gl} | {abs_ret} | {xirr} | {rs} |".format(
+            "| {name} | {cat} | {val} | {inv} | {gl} | {gp} | {xirr} | {rs} |".format(
                 name=str(row.get("scheme_name") or "")[:72],
                 cat=_pretty_category(str(row.get("scheme_category") or "")),
                 val=_fmt_table_inr(row.get("aum_inr")).replace("₹", ""),
                 inv=_fmt_table_inr(row.get("invested_inr")).replace("₹", ""),
                 gl=_fmt_table_inr(row.get("gain_loss_inr")).replace("₹", ""),
-                abs_ret=_fmt_pct(row.get("absolute_return_pct")),
+                gp=_fmt_pct(gp) if gp is not None else "—",
                 xirr=_fmt_pct(row.get("xirr_pct")),
                 rs=rs,
             )
         )
     if not body_rows:
         return None
-    parts.extend([heading, header, *body_rows])
-    return "\n\n".join(parts).strip()
+    table = "\n".join([header, *body_rows])
+    chunks = [p for p in parts if p]
+    chunks.append(heading.strip())
+    if truncated:
+        chunks.append(
+            f"*Showing {len(display_rows)} of {total_schemes} schemes by current value; "
+            f"portfolio totals include all {total_schemes} schemes.*"
+        )
+    lead = "\n\n".join(chunks).strip()
+    return f"{lead}\n\n{table}".strip() if lead else table
 
 
 def _render_investor_category_allocation_table(data: dict[str, Any]) -> str | None:
@@ -1519,36 +1540,48 @@ def _render_investor_category_allocation_table(data: dict[str, Any]) -> str | No
     for row in rows:
         try:
             pct = float(row.get("aum_pct") or 0)
+            amount = float(row.get("aum_inr") or 0)
         except (TypeError, ValueError):
-            pct = 0.0
+            continue
+        if amount <= 0 and pct <= 0:
+            continue
         body_rows.append(
             "| {cat} | {val} | {pct} |".format(
                 cat=_pretty_category(str(row.get("name") or "")),
-                val=_fmt_table_inr(row.get("aum_inr")).replace("₹", ""),
+                val=_fmt_table_inr(amount).replace("₹", ""),
                 pct=f"{pct:.2f}%",
             )
         )
-    if not body_rows:
+    if len(body_rows) < 2:
         return None
-    return "\n\n".join(["### Allocation by category", "", header, *body_rows]).strip()
+    table = "\n".join([header, *body_rows])
+    return f"### Allocation by category\n\n{table}"
 
 
 def append_investor_portfolio_overview_tables(
     prose: str,
     data: dict[str, Any],
     plan: ExecutionPlan,
+    question: str = "",
 ) -> str:
     """Append canonical scheme + category tables when the composer skipped them."""
     text = (prose or "").strip()
+    alloc = _render_investor_category_allocation_table(data)
+    if alloc:
+        text = re.sub(
+            r"### Allocation by category\b.*?(?=\n### |\Z)",
+            "",
+            text,
+            count=1,
+            flags=re.S,
+        ).strip()
     blocks: list[str] = []
     if "### Your holdings" not in text and "### Returns by scheme" not in text:
-        holdings_table = _render_investor_holdings_table(data, plan, "")
+        holdings_table = _render_investor_holdings_table(data, plan, "", question)
         if holdings_table:
             blocks.append(holdings_table)
-    if "### Allocation by category" not in text:
-        alloc = _render_investor_category_allocation_table(data)
-        if alloc:
-            blocks.append(alloc)
+    if alloc:
+        blocks.append(alloc)
     if not blocks:
         return text
     return f"{text}\n\n" + "\n\n".join(blocks).strip()

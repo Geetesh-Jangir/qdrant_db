@@ -65,6 +65,13 @@ def ensure_compare_fund_pair(
         _merge_fund_names(plan, pair)
 
 
+def _compare_against_portfolio_holding(question: str) -> bool:
+    import re
+
+    q = question or ""
+    return bool(re.search(r"\bmy portfolio\b|\bmy book\b|\bi hold\b|\bin my portfolio\b", q, re.I))
+
+
 def finalize_fund_compare_plan(question: str, plan: ExecutionPlan) -> None:
     """Keep compare_funds as the only wave-1 tool; do not let data_need hooks replace it."""
     from news_rag.insight.plan_intent import plan_wants_fund_compare
@@ -97,9 +104,26 @@ def finalize_fund_compare_plan(question: str, plan: ExecutionPlan) -> None:
     plan.data_need = "none"
     plan.intent = "compare"
     plan.requires_compose = True
-    kept = [c for c in plan.tool_calls if c.tool == "compare_funds"]
-    if not kept:
-        kept = [ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1)]
+    category = _compare_category_slug(question, plan)
+    portfolio_side = _compare_against_portfolio_holding(question) and bool(category)
+    keep_tools = {"compare_funds", "get_investor_portfolio"} if portfolio_side else {"compare_funds"}
+    kept = [c for c in plan.tool_calls if c.tool in keep_tools]
+    if not any(c.tool == "compare_funds" for c in kept):
+        kept.append(ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1))
+    if portfolio_side and not any(c.tool == "get_investor_portfolio" for c in kept):
+        kept.insert(
+            0,
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={
+                    "modules": ["holdings"],
+                    "scheme_filter": category,
+                    "holdings_fields": "minimal",
+                },
+                wave=1,
+                why="Named category holding in the user's book, to compare with the fund in chat",
+            ),
+        )
     plan.tool_calls = kept
     note = (
         "The user asked to compare two funds already in the conversation. "
@@ -402,6 +426,9 @@ def apply_planner_post_hooks(
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
 
     plan = enforce_portfolio_scope(plan, memory, question)
+    from news_rag.insight.portfolio_news_impact import ensure_portfolio_news_impact_plan
+
+    plan = ensure_portfolio_news_impact_plan(plan, question)
     from news_rag.insight.investor_subject import (
         ensure_deictic_fund_period_return_plan,
         ensure_my_category_fund_investor_plan,
@@ -472,7 +499,7 @@ def apply_planner_post_hooks(
 
     from news_rag.insight.plan_catalog_bind import enforce_planner_catalog_plan
 
-    plan = enforce_planner_catalog_plan(plan, memory)
+    plan = enforce_planner_catalog_plan(plan, memory, question)
 
     if planner_owns(plan):
         need = str(plan.data_need or "none").lower()

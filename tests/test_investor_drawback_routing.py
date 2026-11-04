@@ -1,8 +1,10 @@
 from news_rag.insight.contracts import AnswerMode, EvidencePack, ExecutionPlan, ToolCall
 from news_rag.insight.investor_drawback import (
     build_drawdown_wave2_calls,
+    plan_wants_investor_drawdown_fetch,
     plan_wants_portfolio_drawback,
     plan_wants_pure_concentration,
+    question_asks_portfolio_level_drawdown,
     render_portfolio_drawback_answer,
 )
 from news_rag.insight.portfolio_scope import enforce_portfolio_scope, plan_wants_concentration
@@ -53,8 +55,8 @@ def test_build_drawdown_wave2_from_holdings():
             "tool": "get_investor_portfolio",
             "data": {
                 "holdings": [
-                    {"scheme_name": "Fund A", "xirr_pct": -5, "isin": "INF000000001"},
-                    {"scheme_name": "Fund B", "xirr_pct": 3, "isin": "INF000000002"},
+                    {"scheme_name": "Fund A", "xirr_pct": -5, "aum_inr": 100, "isin": "INF000000001"},
+                    {"scheme_name": "Fund B", "xirr_pct": 3, "aum_inr": 500, "isin": "INF000000002"},
                 ],
             },
         },
@@ -63,6 +65,17 @@ def test_build_drawdown_wave2_from_holdings():
     assert len(calls) == 2
     assert calls[0].tool == "get_fund_data"
     assert "drawdown" in calls[0].arguments.get("modules", [])
+
+
+def test_portfolio_drawdown_question_triggers_wave2_fetch():
+    plan = ExecutionPlan(
+        data_need="investor_risk",
+        asked_facts=["drawdown"],
+        holding_scope="all_holdings",
+    )
+    q = "what is the biggest drawdown in my portfolio"
+    assert plan_wants_investor_drawdown_fetch(plan, q)
+    assert question_asks_portfolio_level_drawdown(q, plan)
 
 
 def test_render_drawback_includes_underperformers():

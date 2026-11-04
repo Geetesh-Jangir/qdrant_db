@@ -9,6 +9,7 @@ from news_rag.insight.contracts import ExecutionPlan, ToolCall
 
 _DRAWBACK_HINTS = (
     "drawback",
+    "drawdown",
     "weakness",
     "underperform",
     "not performing",
@@ -43,7 +44,43 @@ def plan_wants_portfolio_drawback(plan: ExecutionPlan, question: str = "") -> bo
         str(part or "").lower()
         for part in (question, plan.planner_reading, plan.goal)
     )
-    return any(hint in blob for hint in _DRAWBACK_HINTS)
+    if any(hint in blob for hint in _DRAWBACK_HINTS):
+        return True
+    return False
+
+
+def plan_wants_investor_drawdown_fetch(plan: ExecutionPlan, question: str = "") -> bool:
+    """Wave 2 get_fund_data drawdown for each holding after get_investor_portfolio."""
+    from news_rag.fund_drawdown import drawdown_words, is_drawdown_definition
+
+    q = question or ""
+    if is_drawdown_definition(q):
+        return False
+    asked = {str(x).lower() for x in (plan.asked_facts or [])}
+    if "drawdown" not in asked and not drawdown_words(q):
+        return False
+    if str(plan.data_need or "").lower().strip() == "investor_risk":
+        return True
+    if str(getattr(plan, "holding_scope", "") or "").lower() == "all_holdings":
+        return True
+    return question_signals_investor_book(q)
+
+
+def question_asks_portfolio_level_drawdown(question: str, plan: ExecutionPlan | None = None) -> bool:
+    """Book-level max drawdown — not a single named scheme."""
+    from news_rag.fund_drawdown import drawdown_words, is_drawdown_definition
+
+    q = (question or "").strip()
+    if is_drawdown_definition(q):
+        return False
+    if not drawdown_words(q) and "drawdown" not in q.lower():
+        return False
+    if plan is not None and str(plan.data_need or "").lower().strip() == "investor_risk":
+        return question_signals_investor_book(q) or "portfolio" in q.lower()
+    return question_signals_investor_book(q) and (
+        "portfolio" in q.lower()
+        or any(w in q.lower() for w in ("biggest", "largest", "worst", "maximum", "max "))
+    )
 
 
 def plan_wants_pure_concentration(plan: ExecutionPlan, question: str = "") -> bool:
@@ -75,9 +112,21 @@ def plan_wants_fund_concentration(plan: ExecutionPlan, question: str = "") -> bo
 def build_drawdown_wave2_calls(
     wave1_results: list[dict[str, Any]],
     *,
-    max_funds: int = 4,
+    plan: ExecutionPlan | None = None,
+    question: str = "",
+    max_funds: int = 8,
 ) -> list[ToolCall]:
     """Fetch trailing drawdown for each scheme in the user's book (wave 2)."""
+    periods: list[str] = ["1y", "3y", "5y"]
+    if plan is not None:
+        for call in plan.tool_calls or []:
+            if call.tool != "get_fund_data" or int(call.wave or 1) != 2:
+                continue
+            raw = (call.arguments or {}).get("periods")
+            if raw:
+                periods = [str(p) for p in raw if str(p).strip()]
+            break
+
     investor = None
     for row in wave1_results or []:
         if row.get("tool") == "get_investor_portfolio" and row.get("ok"):
@@ -91,9 +140,17 @@ def build_drawdown_wave2_calls(
     holdings = [
         h for h in (investor.get("holdings") or []) if isinstance(h, dict) and h.get("scheme_name")
     ]
-    holdings.sort(key=lambda item: float(item.get("xirr_pct") or 0))
+    if plan_wants_investor_drawdown_fetch(plan, question) if plan else question_asks_portfolio_level_drawdown(
+        question, plan
+    ):
+        holdings = [h for h in holdings if float(h.get("aum_inr") or 0) > 0]
+        holdings.sort(key=lambda item: -float(item.get("aum_inr") or 0))
+        cap = max(max_funds, 8)
+    else:
+        holdings.sort(key=lambda item: float(item.get("xirr_pct") or 0))
+        cap = max_funds
     calls: list[ToolCall] = []
-    for row in holdings[:max_funds]:
+    for row in holdings[:cap]:
         name = str(row.get("scheme_name") or "").strip()
         if not name:
             continue
@@ -103,7 +160,7 @@ def build_drawdown_wave2_calls(
                 arguments={
                     "fund": name,
                     "modules": ["drawdown"],
-                    "periods": ["1y", "3y"],
+                    "periods": periods,
                     "include_category": False,
                 },
                 wave=2,
@@ -126,11 +183,15 @@ def attach_drawback_digest(
     if not isinstance(investor, dict):
         return
 
-    from news_rag.insight.pack_sanitize import _rollup_investor_summary
+    from news_rag.insight.pack_sanitize import (
+        _rollup_investor_summary,
+        scheme_gain_loss_pct,
+        sort_holdings_weakest_first,
+    )
 
     summary = _rollup_investor_summary(investor)
     holdings = [h for h in (investor.get("holdings") or []) if isinstance(h, dict)]
-    holdings_sorted = sorted(holdings, key=lambda h: float(h.get("xirr_pct") or 999))
+    holdings_sorted = sort_holdings_weakest_first(holdings)
 
     computed = investor.get("computed") if isinstance(investor.get("computed"), dict) else {}
     allocation = computed.get("allocation_by_category") or []
@@ -138,17 +199,16 @@ def attach_drawback_digest(
     underperformers = []
     for row in holdings_sorted:
         xirr = row.get("xirr_pct")
-        abs_ret = row.get("absolute_return_pct")
         gl = row.get("gain_loss_inr")
-        if xirr is None and abs_ret is None:
+        if xirr is None and gl is None:
             continue
         underperformers.append(
             {
                 "scheme_name": row.get("scheme_name"),
                 "category": row.get("scheme_category"),
                 "xirr_pct": xirr,
-                "absolute_return_pct": abs_ret,
                 "gain_loss_inr": gl,
+                "gain_on_invested_pct": scheme_gain_loss_pct(row),
                 "value_inr": row.get("aum_inr"),
                 "invested_inr": row.get("invested_inr"),
             }
@@ -199,10 +259,9 @@ def attach_drawback_digest(
 
 
 def _fmt_inr(value: Any) -> str:
-    try:
-        return f"₹{float(value):,.2f}"
-    except (TypeError, ValueError):
-        return "—"
+    from news_rag.indian_format import format_inr
+
+    return format_inr(value)
 
 
 def _pretty_category(name: str) -> str:
@@ -221,19 +280,24 @@ def render_portfolio_drawback_answer(pack: Any, plan: ExecutionPlan, question: s
     if not isinstance(investor, dict):
         return None
 
-    from news_rag.insight.pack_sanitize import _rollup_investor_summary
+    from news_rag.insight.pack_sanitize import (
+        _rollup_investor_summary,
+        investor_holdings_for_display,
+        scheme_gain_loss_pct,
+        sort_holdings_weakest_first,
+    )
 
     summary = _rollup_investor_summary(investor)
     holdings = [h for h in (investor.get("holdings") or []) if isinstance(h, dict)]
-    if not holdings:
+    sorted_all = sort_holdings_weakest_first(holdings)
+    worst = sorted_all[0] if sorted_all else None
+    if not worst:
         return None
 
-    sorted_holdings = sorted(holdings, key=lambda h: float(h.get("xirr_pct") or 999))
-    worst = sorted_holdings[0]
     w_name = str(worst.get("scheme_name") or "")
     w_xirr = worst.get("xirr_pct")
-    w_abs = worst.get("absolute_return_pct")
     w_gl = worst.get("gain_loss_inr")
+    w_gain_pct = scheme_gain_loss_pct(worst)
 
     meta = investor.get("meta") if isinstance(investor.get("meta"), dict) else {}
     as_of = str(meta.get("as_of_date") or "").strip()
@@ -245,21 +309,21 @@ def render_portfolio_drawback_answer(pack: Any, plan: ExecutionPlan, question: s
     lines.append(headline)
     lines.append("")
 
-    if w_xirr is not None:
-        lead = (
-            f"The main drag is **{w_name}**, with XIRR **{float(w_xirr):.2f}%**"
-        )
-        if w_abs is not None:
-            lead += f" and absolute return **{float(w_abs):.2f}%**"
+    if w_xirr is not None or w_gl is not None:
+        lead = f"The main drag is **{w_name}**"
+        if w_xirr is not None:
+            lead += f", with XIRR **{float(w_xirr):.2f}%**"
         if w_gl is not None:
-            lead += f" ({_fmt_inr(w_gl)} gain/loss on your investment)"
+            lead += f" and {_fmt_inr(w_gl)} gain/loss"
+            if w_gain_pct is not None:
+                lead += f" (**{w_gain_pct:.2f}%** on amount invested)"
         lead += "."
         lines.append(lead)
     lines.append("")
 
     port_xirr = summary.get("portfolio_xirr_pct")
-    port_abs = summary.get("absolute_return_pct")
-    if port_xirr is not None or port_abs is not None:
+    port_gl = summary.get("gain_loss_inr")
+    if port_xirr is not None or port_gl is not None:
         lines.append("### Overall returns")
         lines.append("")
         bits = []
@@ -267,8 +331,10 @@ def render_portfolio_drawback_answer(pack: Any, plan: ExecutionPlan, question: s
             bits.append(
                 f"Book value {_fmt_inr(summary.get('aum_inr'))} on {_fmt_inr(summary.get('invested_inr'))} invested"
             )
-        if port_abs is not None:
-            bits.append(f"**{float(port_abs):.2f}%** absolute return")
+        if port_gl is not None:
+            bits.append(f"total gain/loss {_fmt_inr(port_gl)}")
+        if summary.get("absolute_return_pct") is not None:
+            bits.append(f"**{float(summary.get('absolute_return_pct')):.2f}%** on invested (book-wide)")
         if port_xirr is not None:
             bits.append(f"**{float(port_xirr):.2f}%** portfolio XIRR")
         lines.append(". ".join(bits) + ".")
@@ -304,21 +370,30 @@ def render_portfolio_drawback_answer(pack: Any, plan: ExecutionPlan, question: s
             lines.append(equity_note.strip())
         lines.append("")
 
+    display_rows, total_schemes, truncated = investor_holdings_for_display(
+        holdings, question, plan, sort_weakest=True
+    )
     lines.append("### Scheme performance (weakest first)")
     lines.append("")
-    lines.append("| Scheme | XIRR | Absolute return | Gain (₹) |")
+    lines.append("| Scheme | XIRR | Gain/loss (₹) | Gain on invested |")
     lines.append("| --- | ---: | ---: | ---: |")
-    for row in sorted_holdings:
+    for row in display_rows:
         xirr = row.get("xirr_pct")
-        abs_ret = row.get("absolute_return_pct")
         gl = row.get("gain_loss_inr")
+        gain_pct = scheme_gain_loss_pct(row)
         lines.append(
-            "| {name} | {xirr} | {abs_ret} | {gl} |".format(
+            "| {name} | {xirr} | {gl} | {gp} |".format(
                 name=str(row.get("scheme_name") or "")[:64],
                 xirr=f"{float(xirr):.2f}%" if xirr is not None else "—",
-                abs_ret=f"{float(abs_ret):.2f}%" if abs_ret is not None else "—",
                 gl=_fmt_inr(gl).replace("₹", "") if gl is not None else "—",
+                gp=f"{gain_pct:.2f}%" if gain_pct is not None else "—",
             )
+        )
+    if truncated:
+        lines.append("")
+        lines.append(
+            f"*Showing {len(display_rows)} of {total_schemes} schemes (weakest by gain/loss); "
+            f"totals above include all schemes.*"
         )
     lines.append("")
 

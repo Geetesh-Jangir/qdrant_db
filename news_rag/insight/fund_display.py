@@ -407,10 +407,12 @@ def strip_empty_bold_sections(prose: str) -> str:
 
 
 def _fmt_inr(val: Any) -> str:
+    from news_rag.indian_format import format_inr
+
     if val is None or val == "":
         return _MISSING
     try:
-        return f"₹{float(val):,.2f}"
+        return format_inr(val)
     except (TypeError, ValueError):
         return str(val)
 

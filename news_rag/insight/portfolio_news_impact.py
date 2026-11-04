@@ -64,12 +64,32 @@ def ensure_portfolio_news_impact_plan(plan: ExecutionPlan, question: str) -> Exe
             topics: list[str] = []
             if re.search(r"\bcrude\b|\bbrent\b|\boil\b|\bpetroleum\b", question, re.I):
                 topics = ["crude oil", "crude", "brent", "oil prices"]
-            elif args.get("scope") == "macro":
-                topics = ["macro", "crude", "inflation", "rupee"]
-            if topics:
-                args["topics"] = topics
-                args["scope"] = "macro"
+            else:
+                topics = ["RBI", "repo rate", "inflation", "rupee", "crude oil"]
+            args["topics"] = topics
+            args["scope"] = args.get("scope") or "macro"
         call.arguments = args
+        call.wave = 1
+    if not any(c.tool == "search_financial_news" for c in plan.tool_calls or []):
+        plan.tool_calls.append(
+            ToolCall(
+                tool="search_financial_news",
+                arguments={
+                    "scope": "macro",
+                    "topics": ["RBI", "repo rate", "inflation", "rupee", "crude oil"],
+                    "top_n": 8,
+                    "window_days": min(int(plan.window_days or 7), 30),
+                    "direction": "any",
+                },
+                wave=1,
+                why="Macro news to map against portfolio sector weights",
+            )
+        )
+    plan.presentation_notes = (
+        f"{plan.presentation_notes} Map each news theme to concentration.sectors weights. "
+        "Example: an RBI repo-rate item applies to Banks at that sector's portfolio weight. "
+        "Say the weight from EVIDENCE. Do not invent a sector weight."
+    ).strip()
     return plan
 
 

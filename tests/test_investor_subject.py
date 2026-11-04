@@ -183,6 +183,30 @@ def test_my_contra_nav_plan_uses_holdings_not_summary():
     assert (inv.arguments or {}).get("holdings_fields") == "standard"
 
 
+def test_category_money_share_keeps_full_book_allocation():
+    plan = ExecutionPlan(
+        data_need="investor_holding",
+        funds=["Axis Large Cap Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1),
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["holdings"], "scheme_filter": "large cap"},
+                wave=1,
+            ),
+        ],
+    )
+    ensure_my_category_fund_investor_plan(
+        plan,
+        "how much of my money is investd in large cap category",
+        {},
+    )
+    inv = next(c for c in plan.tool_calls if c.tool == "get_investor_portfolio")
+    assert "scheme_filter" not in (inv.arguments or {})
+    assert "allocation" in (inv.arguments or {}).get("modules", [])
+    assert all(c.tool != "get_fund_data" for c in plan.tool_calls)
+
+
 def test_minimum_redemption_uses_hdfc_in_memory_not_planner_hallucination():
     from news_rag.insight.plan_enforce import apply_planner_post_hooks
 

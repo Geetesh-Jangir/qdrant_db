@@ -15,15 +15,93 @@ _EXPLAIN_RE = re.compile(
     r"\bwhat\s+is\b.+\band\b.+\bwhat\s+is\b",
     re.I,
 )
+# Semicolon field templates are for short book answers; larger RS lists use a table or composer.
+FIELD_TEMPLATE_COMPOSER_MIN_HOLDINGS = 6
+FIELD_TEMPLATE_COMPOSER_MIN_CHARS = 500
 
 
-def is_pure_field_answer(plan: ExecutionPlan, question: str) -> bool:
+def _investor_holdings_rows(data_pack: dict[str, Any] | None) -> list[dict[str, Any]]:
+    pack = data_pack or {}
+    investor = pack.get("investor_portfolio") if isinstance(pack.get("investor_portfolio"), dict) else {}
+    return [row for row in (investor.get("holdings") or []) if isinstance(row, dict)]
+
+
+def _asks_portfolio_rs_ratings(plan: ExecutionPlan, question: str) -> bool:
+    fields = {str(x) for x in (plan.asked_fields or [])}
+    if "holding_rs_labels" in fields:
+        return True
+    if "rs_rating" in {str(x).lower() for x in (plan.asked_facts or [])}:
+        return True
+    return bool(re.search(r"\brs\s+(?:rating|label|score)\b|\brupee\s*stop\s+(?:rating|score)\b", question or "", re.I))
+
+
+def field_answer_needs_composer(
+    plan: ExecutionPlan,
+    data_pack: dict[str, Any] | None,
+    template_text: str = "",
+) -> bool:
+    """Long RS lists need the composer (or a markdown table), not one semicolon sentence."""
+    if not _asks_portfolio_rs_ratings(plan, ""):
+        return False
+    if str(plan.holding_scope or "").strip().lower() != "all_holdings":
+        return False
+    holdings = _investor_holdings_rows(data_pack)
+    if len(holdings) >= FIELD_TEMPLATE_COMPOSER_MIN_HOLDINGS:
+        return True
+    if len(template_text or "") >= FIELD_TEMPLATE_COMPOSER_MIN_CHARS:
+        return True
+    return False
+
+
+def render_investor_rs_ratings_table(
+    plan: ExecutionPlan,
+    data_pack: dict[str, Any] | None,
+    question: str = "",
+) -> str:
+    """Markdown table of RS label + score for every holding (investor portfolio API)."""
+    if not _asks_portfolio_rs_ratings(plan, question):
+        return ""
+    scope = str(plan.holding_scope or "").strip().lower()
+    if scope != "all_holdings" and not re.search(
+        r"\ball\s+(?:of\s+)?(?:my\s+)?(?:funds|schemes|holdings)\b",
+        question or "",
+        re.I,
+    ):
+        return ""
+    holdings = _investor_holdings_rows(data_pack)
+    if not holdings:
+        return ""
+    lines = [
+        "### RupeeStop ratings for your funds",
+        "",
+        "| Scheme | RS label | Score |",
+        "| --- | --- | ---: |",
+    ]
+    for row in sorted(holdings, key=lambda item: float(item.get("aum_inr") or 0), reverse=True):
+        name = str(row.get("scheme_name") or "").strip()[:72]
+        label = str(row.get("rs_label") or "—")
+        score = row.get("rs_score")
+        try:
+            score_cell = f"{float(score):.2f}" if score is not None else "—"
+        except (TypeError, ValueError):
+            score_cell = "—"
+        lines.append(f"| {name} | {label} | {score_cell} |")
+    return "\n".join(lines)
+
+
+def is_pure_field_answer(
+    plan: ExecutionPlan,
+    question: str,
+    data_pack: dict[str, Any] | None = None,
+) -> bool:
     """True when the whole reply is the asked figures and nothing else."""
     if plan.answer_mode != AnswerMode.DATA_ONLY:
         return False
     if wants_comparison_table(question, plan):
         return False
     if not plan.asked_fields:
+        return False
+    if field_answer_needs_composer(plan, data_pack, ""):
         return False
     if str(plan.intent or "") in ("explain_cause", "overview", "compare", "rank", "outlook"):
         return False
@@ -123,11 +201,9 @@ def _missing(label: str, fund_name: str) -> str:
 
 
 def _inr(value: Any) -> str:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    return f"Rs {number:,.2f}"
+    from news_rag.indian_format import format_rs
+
+    return format_rs(value)
 
 
 def _pct(value: Any) -> str:
@@ -557,8 +633,15 @@ def _book_line(name: str, investor: dict[str, Any], question: str) -> str:
         return f"You have invested {_inr(summary.get('invested_inr'))}."
     if name == "gain_abs" and summary.get("gain_loss_inr") is not None:
         return f"Your gain or loss is {_inr(summary.get('gain_loss_inr'))}."
-    if name == "gain_pct" and summary.get("absolute_return_pct") is not None:
-        return f"Your gain or loss is {_pct(summary.get('absolute_return_pct'))}."
+    if name == "gain_pct":
+        from news_rag.insight.pack_sanitize import _rollup_investor_summary
+
+        rolled = _rollup_investor_summary(investor)
+        if rolled.get("gain_loss_inr") is not None and rolled.get("invested_inr"):
+            pct = 100.0 * float(rolled["gain_loss_inr"]) / float(rolled["invested_inr"])
+            return f"Your gain or loss is {_pct(pct)}."
+        if summary.get("absolute_return_pct") is not None:
+            return f"Your gain or loss is {_pct(summary.get('absolute_return_pct'))}."
     if name == "scheme_count":
         count = summary.get("scheme_count") or len(holdings)
         if count:
@@ -641,9 +724,19 @@ def _book_line(name: str, investor: dict[str, Any], question: str) -> str:
         for row in holdings:
             if not isinstance(row, dict):
                 continue
-            label = row.get("rs_label") or row.get("rs_score")
-            if row.get("scheme_name") and label:
-                bits.append(f"{row.get('scheme_name')} {label}")
+            label = row.get("rs_label")
+            score = row.get("rs_score")
+            if not row.get("scheme_name") or (label is None and score is None):
+                continue
+            parts = [str(row.get("scheme_name"))]
+            if label:
+                parts.append(str(label))
+            if score is not None:
+                try:
+                    parts.append(f"score {float(score):.2f}")
+                except (TypeError, ValueError):
+                    parts.append(f"score {score}")
+            bits.append(" — ".join(parts))
         if bits:
-            return "RupeeStop labels: " + "; ".join(bits) + "."
+            return "RupeeStop ratings: " + "; ".join(bits) + "."
     return f"{label} is not available for your portfolio right now."

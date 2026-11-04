@@ -1,5 +1,10 @@
 from news_rag.insight.contracts import AnswerMode, ExecutionPlan
-from news_rag.insight.fact_answer import is_pure_field_answer, render_fact_answer
+from news_rag.insight.fact_answer import (
+    field_answer_needs_composer,
+    is_pure_field_answer,
+    render_fact_answer,
+    render_investor_rs_ratings_table,
+)
 
 
 def _plan(*fields: str) -> ExecutionPlan:
@@ -147,6 +152,55 @@ def test_three_way_compare_is_not_pure_field_template():
     q = "do benchmark vs fund vs category average"
     assert wants_comparison_table(q, plan)
     assert not is_pure_field_answer(plan, q)
+
+
+def test_all_holdings_rs_uses_composer_not_field_template():
+    plan = ExecutionPlan(
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        holding_scope="all_holdings",
+        asked_fields=["holding_rs_labels"],
+    )
+    holdings = [{"scheme_name": f"Fund {i}", "rs_label": "Good", "rs_score": 60.0 + i} for i in range(8)]
+    pack = {"investor_portfolio": {"holdings": holdings}}
+    assert not is_pure_field_answer(plan, "rs rating of all my funds", pack)
+    assert field_answer_needs_composer(plan, pack, "")
+
+
+def test_investor_rs_table_includes_scores():
+    plan = ExecutionPlan(
+        holding_scope="all_holdings",
+        asked_fields=["holding_rs_labels"],
+    )
+    pack = {
+        "investor_portfolio": {
+            "holdings": [
+                {"scheme_name": "Alpha Fund", "rs_label": "Recommended", "rs_score": 79.0, "aum_inr": 100},
+            ]
+        }
+    }
+    table = render_investor_rs_ratings_table(plan, pack, "rs rating of all my funds")
+    assert "| Alpha Fund | Recommended | 79.00 |" in table
+    assert is_pure_field_answer(plan, "rs rating of all my funds", pack)
+
+
+def test_investor_rs_metric_table_from_portfolio_only():
+    from news_rag.insight.sector_exposure_tables import render_all_holdings_metric_table
+
+    plan = ExecutionPlan(
+        holding_scope="all_holdings",
+        asked_fields=["holding_rs_labels"],
+        funds=["Alpha Fund"],
+    )
+    memory = {"holdings_in_chat": [{"name": "Alpha Fund"}]}
+    pack = {
+        "investor_portfolio": {
+            "holdings": [{"scheme_name": "Alpha Fund", "rs_label": "Recommended", "rs_score": 79.0}],
+        }
+    }
+    table = render_all_holdings_metric_table(plan, [], memory, data_pack=pack)
+    assert "Recommended" in table
+    assert "79" in table
 
 
 def test_book_value_sentence():

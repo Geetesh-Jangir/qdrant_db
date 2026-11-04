@@ -200,6 +200,58 @@ def _ensure_portfolio_data_for_holdings(plan: ExecutionPlan) -> None:
     ]
 
 
+_PER_FUND_ASKED = frozenset(
+    {
+        "rs_rating",
+        "nav",
+        "aum",
+        "expense",
+        "returns",
+        "managers",
+        "fund_manager",
+        "exit_load",
+        "benchmark",
+        "inception",
+        "risk",
+        "drawdown",
+    }
+)
+_PER_FUND_FIELDS = frozenset({"holding_rs_labels", "rs_rating", "nav", "returns"})
+
+
+def _investor_portfolio_covers_ask(plan: ExecutionPlan, question: str = "") -> bool:
+    """Book summary/allocation from get_investor_portfolio — skip catalog fan-out."""
+    if _holding_scope(plan) != "all_holdings":
+        return False
+    if not any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or []):
+        return False
+    if any(c.tool == "get_portfolio_data" for c in plan.tool_calls or []):
+        return False
+    if any(c.tool == "compare_funds" for c in plan.tool_calls or []):
+        return False
+    asked = {str(x).lower() for x in (plan.asked_facts or [])}
+    if asked & _PER_FUND_ASKED or any(x.startswith("return:") for x in asked):
+        return False
+    fields = {str(x).lower() for x in (plan.asked_fields or [])}
+    if fields & _PER_FUND_FIELDS:
+        return False
+    need = str(plan.data_need or "").lower().strip()
+    q = (question or "").lower()
+    reading = " ".join(
+        str(part or "").lower() for part in (plan.planner_reading, plan.goal)
+    )
+    if need in ("investor_summary", "investor_holding", "investor_hybrid", "investor_concentration"):
+        if "concentration" in q or "concentration" in reading or "diversif" in q:
+            return True
+        if need in ("investor_summary", "investor_holding"):
+            return True
+    if "allocation" in q and ("portfolio" in q or "my " in q):
+        return True
+    if "concentration" in q and ("portfolio" in q or "my " in q):
+        return True
+    return False
+
+
 def _ensure_portfolio_data_for_compare(plan: ExecutionPlan) -> None:
     if not plan.funds or len(plan.funds) < 2:
         return
@@ -234,6 +286,7 @@ def _ensure_portfolio_data_for_compare(plan: ExecutionPlan) -> None:
 def enforce_planner_catalog_plan(
     plan: ExecutionPlan,
     memory: dict[str, Any] | None,
+    question: str = "",
 ) -> ExecutionPlan:
     """Align funds + catalog tools with planner holding_scope, entities, and tool_calls."""
     scope = str(plan.portfolio_scope or "none").lower()
@@ -241,10 +294,14 @@ def enforce_planner_catalog_plan(
         if scope in ("none", "", "investor"):
             plan.portfolio_scope = "both"
     _bind_fund_list(plan, memory)
+    investor_book_only = _investor_portfolio_covers_ask(plan, question)
+    if investor_book_only:
+        plan.tool_calls = [c for c in (plan.tool_calls or []) if c.tool != "get_fund_data"]
     if planner_requested_catalog(plan) or _holding_scope(plan) in ("all_holdings", "single"):
-        _ensure_get_fund_data_for_holdings(plan)
-        _ensure_portfolio_data_for_holdings(plan)
-        _ensure_portfolio_data_for_compare(plan)
+        if not investor_book_only:
+            _ensure_get_fund_data_for_holdings(plan)
+            _ensure_portfolio_data_for_holdings(plan)
+            _ensure_portfolio_data_for_compare(plan)
         plan.requires_compose = True
     elif plan.funds and int(plan.window_days or 0) in _DAYS_TO_WINDOW:
         _ensure_get_fund_data_for_holdings(plan)

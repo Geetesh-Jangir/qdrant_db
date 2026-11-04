@@ -232,7 +232,7 @@ def node_route(state: GraphState) -> str | None:
     plan = apply_planner_post_hooks(state.question, plan, state.memory)
     from news_rag.insight.plan_catalog_bind import enforce_planner_catalog_plan
 
-    plan = enforce_planner_catalog_plan(plan, state.memory)
+    plan = enforce_planner_catalog_plan(plan, state.memory, state.question or "")
     from news_rag.insight.planner_policy import align_planned_news_execution
 
     plan = align_planned_news_execution(plan)
@@ -259,6 +259,10 @@ def node_route(state: GraphState) -> str | None:
         state.deadline_ms = float(getattr(settings, "request_deadline_complex_ms", 60000))
     else:
         state.deadline_ms = float(getattr(settings, "request_deadline_standard_ms", 40000))
+
+    if any(c.tool == "get_investor_portfolio" for c in (plan.tool_calls or [])):
+        # Portfolio APIs often take 12–20s. The simple 20s budget expires mid-call.
+        state.deadline_ms = max(state.deadline_ms, 45000.0)
 
     if state.telemetry is not None:
         state.telemetry.routed_by = plan.routed_by
@@ -329,6 +333,20 @@ def _resolve_funds(
         if ctx_fund:
             plan.funds = [ctx_fund]
             names_to_resolve = [ctx_fund]
+
+    if str(getattr(plan, "holding_scope", "") or "").lower() == "all_holdings":
+        from news_rag.insight.memory.fund_context import owned_holding_names
+
+        owned = owned_holding_names(memory)
+        if owned:
+            plan.funds = owned
+            return owned, []
+        if any(c.tool == "get_investor_portfolio" for c in (plan.tool_calls or [])):
+            plan.funds = []
+            return [], []
+        if plan.funds:
+            return list(dict.fromkeys(plan.funds)), []
+        return [], []
 
     mem_isin = primary_fund_isin(memory)
     mem_name = primary_fund_name(memory)
@@ -417,20 +435,6 @@ def _resolve_funds(
                 elif name not in unresolved:
                     unresolved.append(name)
         resolved = list(dict.fromkeys(resolved))
-
-    if str(getattr(plan, "holding_scope", "") or "").lower() == "all_holdings":
-        from news_rag.insight.memory.fund_context import owned_holding_names
-
-        owned = owned_holding_names(memory)
-        if owned:
-            plan.funds = owned
-            return owned, []
-        if any(c.tool == "get_investor_portfolio" for c in (plan.tool_calls or [])):
-            plan.funds = []
-            return [], []
-        if plan.funds:
-            return list(dict.fromkeys(plan.funds)), []
-        return [], []
 
     return list(dict.fromkeys(resolved)), unresolved
 
@@ -639,7 +643,9 @@ def node_wave1(state: GraphState) -> str | None:
     })
     context["fund_isins"] = merge_fund_isins_map(state.memory)
 
-    deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 5000.0, 25000.0))
+    deadline_ms = max(8000.0, min(state.remaining_deadline_ms() - 2000.0, 35000.0))
+    if any(c.tool == "get_investor_portfolio" for c in calls):
+        deadline_ms = max(deadline_ms, min(25000.0, state.remaining_deadline_ms() - 1500.0))
     t0 = time.time()
     if sequence_screen:
         screen_results = execute_wave(
@@ -675,9 +681,11 @@ def node_wave1(state: GraphState) -> str | None:
         from news_rag.insight.investor_subject import holdings_rows_from_investor_tool_results
         from news_rag.insight.plan_catalog_bind import plan_needs_investor_before_catalog
 
-        if plan_needs_investor_before_catalog(plan, state.memory):
-            investor_calls = [c for c in calls if c.tool == "get_investor_portfolio"]
-            catalog_calls = [c for c in calls if c.tool != "get_investor_portfolio"]
+        investor_calls = [c for c in calls if c.tool == "get_investor_portfolio"]
+        catalog_calls = [c for c in calls if c.tool != "get_investor_portfolio"]
+        # Book tool first. Catalog fan-out on every holding shares one deadline and
+        # marks get_investor_portfolio deadline_exceeded before it starts.
+        if investor_calls and (catalog_calls or plan_needs_investor_before_catalog(plan, state.memory)):
             inv_results = execute_wave(
                 investor_calls,
                 context,
@@ -695,17 +703,65 @@ def node_wave1(state: GraphState) -> str | None:
             holdings_rows = holdings_rows_from_investor_tool_results(inv_results)
             context["fund_isins"] = merge_fund_isins_map(state.memory, holdings_rows)
             if holding_names:
-                plan.funds = holding_names
-                state.resolved_funds = holding_names
-                context["fund_names"] = holding_names
-            rest_results = execute_wave(
-                catalog_calls,
-                context,
-                fund_names=holding_names or state.resolved_funds,
-                telemetry=state.telemetry,
-                deadline_ms=deadline_ms,
-                query_log=state.query_log,
-            )
+                from news_rag.insight.plan_intent import plan_wants_fund_compare
+
+                if plan_wants_fund_compare(plan) and plan.funds:
+                    merged = list(plan.funds)
+                    for name in holding_names:
+                        if name not in merged:
+                            merged.append(name)
+                    plan.funds = merged
+                else:
+                    plan.funds = holding_names
+                state.resolved_funds = list(plan.funds)
+                context["fund_names"] = list(plan.funds)
+            from news_rag.insight.portfolio_news_impact import question_is_portfolio_news_impact
+
+            if question_is_portfolio_news_impact(state.question or "", plan):
+                sectors: list[str] = []
+                for row in inv_results:
+                    data = row.get("data") if isinstance(row.get("data"), dict) else {}
+                    conc = data.get("concentration") if isinstance(data.get("concentration"), dict) else {}
+                    for sector_row in (conc.get("sectors") or [])[:5]:
+                        if isinstance(sector_row, dict):
+                            name = str(sector_row.get("sector") or "").strip()
+                            if name and name not in sectors:
+                                sectors.append(name)
+                if sectors:
+                    for call in catalog_calls:
+                        if call.tool != "search_financial_news":
+                            continue
+                        args = dict(call.arguments or {})
+                        topics = [str(t) for t in (args.get("topics") or []) if str(t).strip()]
+                        for name in sectors:
+                            if name not in topics:
+                                topics.append(name)
+                        args["topics"] = topics[:8]
+                        call.arguments = args
+            spent_ms = (time.time() - t0) * 1000.0
+            rest_budget = deadline_ms - spent_ms
+            fanout_tools = {"get_fund_data", "get_portfolio_data", "compare_funds"}
+            fanout_calls = [c for c in catalog_calls if c.tool in fanout_tools]
+            other_calls = [c for c in catalog_calls if c.tool not in fanout_tools]
+            fund_count = len(holding_names or state.resolved_funds or [])
+            run_fanout = bool(fanout_calls) and rest_budget >= 8000 and fund_count <= 8
+            rest_calls = other_calls + (fanout_calls if run_fanout else [])
+            if fanout_calls and not run_fanout and state.query_log is not None:
+                state.query_log.write(
+                    f"WAVE1 skip_catalog reason=deadline_or_fanout "
+                    f"funds={fund_count} rest_ms={rest_budget:.0f}"
+                )
+            if rest_calls:
+                rest_results = execute_wave(
+                    rest_calls,
+                    context,
+                    fund_names=holding_names or state.resolved_funds,
+                    telemetry=state.telemetry,
+                    deadline_ms=max(rest_budget, 8000.0),
+                    query_log=state.query_log,
+                )
+            else:
+                rest_results = []
             results = inv_results + rest_results
         else:
             results = execute_wave(
@@ -802,12 +858,20 @@ def node_bridge(state: GraphState) -> str | None:
 
     from news_rag.insight.investor_drawback import (
         build_drawdown_wave2_calls,
+        plan_wants_investor_drawdown_fetch,
         plan_wants_portfolio_drawback,
     )
 
     remaining_ms = state.remaining_deadline_ms()
-    if plan_wants_portfolio_drawback(plan, state.question or "") and remaining_ms >= 2500:
-        drawdown_calls = build_drawdown_wave2_calls(state.wave1_results)
+    wants_drawdown = plan_wants_investor_drawdown_fetch(plan, state.question or "") or plan_wants_portfolio_drawback(
+        plan, state.question or ""
+    )
+    if wants_drawdown and remaining_ms >= 2500:
+        drawdown_calls = build_drawdown_wave2_calls(
+            state.wave1_results,
+            plan=plan,
+            question=state.question or "",
+        )
         if drawdown_calls:
             fund_names = [
                 str(c.arguments.get("fund") or "").strip()
@@ -998,7 +1062,7 @@ CORE RULES:
 3. **Tables and prose.** Server-built markdown tables may be appended after your text. Do **not** paste markdown tables yourself when DISPLAY is present — write the insight in prose first. When you write a markdown table, put a **blank line** between the intro sentence and the first `|` row so the table renders as one block. When TABLE_SUMMARIES is in EVIDENCE, the opening 2–4 sentences must state the fund name, **equity/cash (and debt if any) weights**, **large/mid/small cap split**, the **largest sector weights**, **named top holdings with weights**, and the **top holdings sum** when present — exact percentages from TABLE_SUMMARIES. Never leave empty **Asset mix** or **Market cap mix** labels. When the evidence has several funds or several figures (and no DISPLAY takeover), you may build one markdown table with columns from the question. Do not repeat the same numbers in a paragraph and a table you wrote.
 4. **Missing measured data:** Use **-** only for a figure that should have come from EVIDENCE and is absent. Never replace a number the user stated, or a number you calculated, with a hyphen.
 5. **What stands out.** When NEWS or insight_links are in EVIDENCE, that is the answer. Open with `### What stands out` **after** the `## answer_subject` heading when present. One sentence on how recent news touches **that fund's** largest weighted exposure (from insight_links for the same fund as answer_subject). Then one block per insight_links row for **that fund only**. Do not map news to a peer fund's holdings because a compare happened earlier in chat. After each news block, when snapshot or investor holding returns exist for answer_subject, add one short line on how the fund's recent return (label the horizon) relates to that theme — blend data with news, do not paste a returns table here. A holding block is a bold line `**Name · 6.46% · Telecom - Services**` copied from that row's name, weight_pct, and sector. A sector block is `**Name · 8.45% of the fund**`. A macro block is `**Macro · name**` with no invented weight. After the bold line, write the facts in that row's points: the event and the figure the article reported. Use every point for that row. The last sentence is one of those facts. Do not add a closer about how the fund may behave, whether a forecast is confirmed, or that the news matters more to the stock than to the fund. Cover holdings, sectors, and macro when those rows exist. Do not leave a weight blank. Do not write that a name is outside the top five, that a weight is missing, or that the effect cannot be measured. Do not paste a headline or a publisher. Do not add `### Recent news`, `### Fund basics`, or `### Recent performance context`. Do not add a holdings or sectors table unless the question asked for that list. If NEWS is absent, do not write this section.
-6. **Numbers and knowledge:** If EVIDENCE has measured figures, those figures must match EVIDENCE. Investor portfolio amounts are already in rupees. Write ₹65,405 or ₹12,220.54 — **not** lakh, crore, or “₹12,221 lakh”. Do not rescale small book amounts into lakh. When concentration.top_holdings and concentration.sectors are present, name each top holding with its weight and each top sector with its weight. Do not write "approx" or "approximate". Do not say the top schemes hold the whole portfolio, or that the top 5 schemes are 100%, just because the book has only a few funds. Concentration is the underlying holdings and sectors, not a restatement that every scheme you own adds up to 100%. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and a standard educational read are yours to write. You may say what a term means and whether a lower or higher figure is generally better for you (for example a lower expense ratio usually leaves more of the return with you). That is not a buy or sell. Stay with mutual funds, stocks, and markets. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
+6. **Numbers and knowledge:** If EVIDENCE has measured figures, those figures must match EVIDENCE. Investor portfolio rupee **amounts** in EVIDENCE are plain rupees (not pre-formatted). From **₹1 lakh** (100,000) upward, print them with **Indian commas** (last three digits, then groups of two): ₹1,00,000, ₹12,45,678.90, ₹1,00,00,000 — not Western grouping like ₹1,245,678. You may also say "X lakh" or "X crore" in words when it reads naturally, but never combine both wrongly (not "₹12,221 lakh"). Below ₹1 lakh, use ₹ with the same grouping when you show the full figure (e.g. ₹65,405). AUM or size fields already labeled **crore** in EVIDENCE stay in crore unless the user asked for rupees. When concentration.top_holdings and concentration.sectors are present, name each top holding with its weight and each top sector with its weight. Do not write "approx" or "approximate". Do not say the top schemes hold the whole portfolio, or that the top 5 schemes are 100%, just because the book has only a few funds. Concentration is the underlying holdings and sectors, not a restatement that every scheme you own adds up to 100%. If EVIDENCE is empty, answer the question anyway. Definitions, explanations, and a standard educational read are yours to write. You may say what a term means and whether a lower or higher figure is generally better for you (for example a lower expense ratio usually leaves more of the return with you). That is not a buy or sell. Stay with mutual funds, stocks, and markets. If an input is missing, name one assumption and compute with it. A small calculation table is allowed when the user asked for a plan or a projection. Do not recommend a product.
 7. **Horizon on every measured percent.** Each price or return row has `horizon` (1D, 1W, 1M, 3M, 6M, 1Y, or a day count such as 14D). WHAT THE USER WANTS also has `measured_window`. Write that code on the figure: Nifty **+0.7% (1W)**. If one figure is 1W and another is 1M, label both. Do not call a 1W or 1M change "the latest session", "today", or "right now".
 8. **No invented levels.** A macro row is a percent change, not a Brent price, a rupee level, or an Indian bond yield. Do not print a level the row does not contain, and do not leave a blank where a number should be. A level or a percent that appears only in a news summary is what that article reported, not the measured move. Gold figures from metals_spot are 24K gold in INR per 10 grams. State the horizon on every gold percent in prose. When a gold return has approx true, say it uses the nearest month-end price. Do **not** add a markdown table for gold windows — the server appends one with **then** and **now** prices from `returns.from_price` / `returns.to_price`. Never quote a silver price or a silver return. A silver answer comes from the articles only, and say it is based on news.
 
@@ -1047,7 +1111,10 @@ RULES:
 
 
 def _clean_answer(text: str) -> str:
+    from news_rag.indian_format import normalize_rupee_commas_in_text
+
     text = normalize_user_facing_text(re.sub(r"```(?:json|markdown)?", "", text or "").strip())
+    text = normalize_rupee_commas_in_text(text)
     return strip_context_disclaimer(text)
 
 
@@ -1194,13 +1261,20 @@ def node_compose(state: GraphState) -> str | None:
             return None
 
     from news_rag.insight.fact_answer import (
+        FIELD_TEMPLATE_COMPOSER_MIN_HOLDINGS,
+        field_answer_needs_composer,
         is_pure_field_answer,
         render_benchmark_comparison_table,
         render_fact_answer,
+        render_investor_rs_ratings_table,
     )
     from news_rag.insight.fields import wants_comparison_table
 
-    if pack is not None and wants_comparison_table(state.question or "", plan):
+    compose_always = bool(getattr(get_settings(), "insight_compose_always", True))
+    if compose_always:
+        plan.requires_compose = True
+
+    if not compose_always and pack is not None and wants_comparison_table(state.question or "", plan):
         table_answer = render_benchmark_comparison_table(pack, plan, state.question or "")
         if table_answer:
             state.answer = _clean_answer(table_answer)
@@ -1209,7 +1283,22 @@ def node_compose(state: GraphState) -> str | None:
                 state.query_log.write("COMPOSE benchmark_comparison_table")
             return None
 
-    if pack is not None and is_pure_field_answer(plan, state.question or ""):
+    if not compose_always and pack is not None:
+        rs_table = render_investor_rs_ratings_table(plan, pack.data_pack, state.question or "")
+        if rs_table and not field_answer_needs_composer(plan, pack.data_pack, rs_table):
+            state.answer = _clean_answer(rs_table)
+            state.route_reason = "investor rs ratings table"
+            if state.query_log is not None:
+                state.query_log.write(f"COMPOSE investor_rs_table rows={rs_table.count(chr(10))}")
+            return None
+        if rs_table and field_answer_needs_composer(plan, pack.data_pack, rs_table):
+            plan.requires_compose = True
+            if state.query_log is not None:
+                state.query_log.write(
+                    f"COMPOSE defer_to_llm reason=rs_list_size holdings>={FIELD_TEMPLATE_COMPOSER_MIN_HOLDINGS}"
+                )
+
+    if not compose_always and pack is not None and is_pure_field_answer(plan, state.question or "", pack.data_pack):
         fact_text = render_fact_answer(plan, pack.data_pack, state.question or "")
         if fact_text:
             state.answer = _clean_answer(fact_text)
@@ -1222,7 +1311,8 @@ def node_compose(state: GraphState) -> str | None:
 
     template_answer = None
     if (
-        plan.answer_mode == AnswerMode.DATA_ONLY
+        not compose_always
+        and plan.answer_mode == AnswerMode.DATA_ONLY
         and pack is not None
         and not (plan.concept_brief or "").strip()
     ):
@@ -1300,7 +1390,7 @@ def node_compose(state: GraphState) -> str | None:
     if plan.answer_depth == "more":
         wants["explain_more"] = True
         wants["max_words"] = max(int(wants.get("max_words") or 0), 220)
-    if pack and plan.asked_fields and not is_pure_field_answer(plan, state.question or ""):
+    if pack and plan.asked_fields and not is_pure_field_answer(plan, state.question or "", pack.data_pack):
         pinned = render_fact_answer(plan, pack.data_pack, state.question or "")
         if pinned:
             plan.presentation_notes = (
@@ -1312,6 +1402,10 @@ def node_compose(state: GraphState) -> str | None:
         question_asks_whole_investor_portfolio,
         question_refers_deictic_fund,
         resolve_answer_subject,
+    )
+    from news_rag.insight.investor_drawback import (
+        plan_wants_investor_drawdown_fetch,
+        question_asks_portfolio_level_drawdown,
     )
 
     inv_holdings: list[dict[str, Any]] = []
@@ -1326,11 +1420,27 @@ def node_compose(state: GraphState) -> str | None:
         investor_holdings=inv_holdings,
         wave1_results=state.wave1_results,
     )
-    if question_asks_whole_investor_portfolio(state.question or "", plan):
+    if question_asks_portfolio_level_drawdown(state.question or "", plan) or plan_wants_investor_drawdown_fetch(
+        plan, state.question or ""
+    ):
+        wants["investor_portfolio_overview"] = True
+        dd_notes = (
+            "Portfolio drawdown ask: title `## Your portfolio`. "
+            "Compare `drawdown.episodes` (max_drawdown) across fund entries in EVIDENCE; "
+            "name the scheme with the deepest maximum drawdown and the period (1Y/3Y/5Y). "
+            "Do not pick the first holding row as the answer subject."
+        )
+        wants["presentation_notes"] = " ".join(
+            filter(None, [str(wants.get("presentation_notes") or "").strip(), dd_notes])
+        ).strip()
+    elif question_asks_whole_investor_portfolio(state.question or "", plan):
         wants["investor_portfolio_overview"] = True
         overview_notes = (
             "Whole-book overview: use `## Your portfolio` as the title. "
-            "Prefer markdown tables for schemes and category allocation; blank line before each table."
+            "Prefer markdown tables for schemes and category allocation; blank line before each table. "
+            "Per scheme use gain_loss_inr and gain on invested (gain/invested), not API absolute_return_pct "
+            "(-100% when current value is zero). Show at most 8 schemes in tables unless the user asked for all funds; "
+            "portfolio totals must reflect every scheme."
         )
         wants["presentation_notes"] = " ".join(
             filter(None, [str(wants.get("presentation_notes") or "").strip(), overview_notes])
@@ -1575,7 +1685,9 @@ def node_compose(state: GraphState) -> str | None:
 
     if question_asks_whole_investor_portfolio(state.question or "", plan) and investor:
         if not (pack and isinstance(pack.data_pack.get("portfolio_news_impact"), dict)):
-            polished_text = append_investor_portfolio_overview_tables(polished_text, investor, plan)
+            polished_text = append_investor_portfolio_overview_tables(
+                polished_text, investor, plan, state.question or ""
+            )
 
     from news_rag.insight.portfolio_news_impact import (
         question_is_portfolio_news_impact,
@@ -1614,7 +1726,13 @@ def node_compose(state: GraphState) -> str | None:
     wave_results = [*state.wave1_results, *state.wave2_results]
     fact_table = render_asked_facts(slots, wave_results)
     if state.plan and str(state.plan.holding_scope or "") == "all_holdings":
-        metric_table = render_all_holdings_metric_table(state.plan, wave_results, state.memory)
+        pack_data = pack.data_pack if pack else None
+        metric_table = render_all_holdings_metric_table(
+            state.plan,
+            wave_results,
+            state.memory,
+            data_pack=pack_data,
+        )
         if metric_table:
             fact_table = metric_table
         elif not fact_table:

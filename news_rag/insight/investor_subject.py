@@ -152,9 +152,14 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
         "my holdings",
         "my mutual funds",
         "my mutual fund portfolio",
+        "portfolio allocation",
+        "my portfolio allocation",
     )
     has_book_phrase = any(p in q for p in book_phrases)
     if plan is not None:
+        need = str(plan.data_need or "").lower().strip()
+        if need == "investor_summary":
+            return True
         asked = {str(x).lower() for x in (plan.asked_facts or [])}
         per_fund_metrics = {
             "rs_rating",
@@ -171,19 +176,14 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
             "drawdown",
         }
         has_return_window = any(x.startswith("return:") for x in asked)
-        if has_book_phrase:
-            pass
-        elif (asked & per_fund_metrics or has_return_window) and any(
+        if (asked & per_fund_metrics or has_return_window) and any(
             c.tool == "get_fund_data" for c in plan.tool_calls or []
         ):
             return False
-        elif str(plan.holding_scope or "") == "all_holdings" and any(
+        if str(plan.holding_scope or "") == "all_holdings" and any(
             c.tool == "get_fund_data" for c in plan.tool_calls or []
         ):
             return False
-        need = str(plan.data_need or "").lower().strip()
-        if need == "investor_summary":
-            return True
         intent = str(plan.intent or "").lower().strip()
         scope = str(plan.portfolio_scope or "").lower().strip()
         if intent == "overview" and scope in ("investor", "both") and not (plan.funds or []):
@@ -194,6 +194,24 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
         if question_refers_to_investor_holding(question) or "about" in q or "tell me" in q:
             return True
     return False
+
+
+def question_asks_all_schemes_in_answer(question: str, plan: ExecutionPlan | None = None) -> bool:
+    """User wants every scheme listed — not the default top-8 table."""
+    del plan
+    q = (question or "").lower()
+    phrases = (
+        "all my funds",
+        "all of my funds",
+        "every fund i own",
+        "each of my funds",
+        "all my holdings",
+        "all schemes",
+        "every scheme",
+        "list all my",
+        "all funds",
+    )
+    return any(p in q for p in phrases)
 
 
 def resolve_investor_holding_from_holdings_rows(
@@ -244,6 +262,17 @@ def question_asks_holding_metric_and_glossary(question: str) -> bool:
     return any(g in q for g in glossary) and any(m in q for m in metrics)
 
 
+def question_asks_category_book_share(question: str) -> bool:
+    """How much of the whole book sits in a category — not 'my large cap fund' NAV."""
+    q = (question or "").lower()
+    if not _category_slug_from_question(question):
+        return False
+    money = any(w in q for w in ("how much", "money", "invested", "investment", "allocation", "share of"))
+    book = "portfolio" in q or " my " in f" {q} " or "book" in q
+    one_scheme = any(w in q for w in (" my fund", "that fund", "this fund", "the fund"))
+    return money and book and not one_scheme
+
+
 def question_needs_category_holdings_fetch(question: str) -> bool:
     """User asks for a figure on my {category} fund — needs holdings rows, not portfolio summary alone."""
     if not question_refers_to_investor_holding(question):
@@ -258,6 +287,41 @@ def ensure_my_category_fund_investor_plan(
 ) -> ExecutionPlan:
     """NAV/XIRR on 'my contra fund' → holdings module + category filter; not investor_summary."""
     cat = _category_slug_from_question(question)
+    if question_asks_category_book_share(question) and cat:
+        plan.portfolio_scope = "investor"
+        plan.holding_scope = "all_holdings"
+        plan.funds = []
+        plan.data_need = "investor_summary"
+        plan.tool_calls = [c for c in (plan.tool_calls or []) if c.tool != "get_fund_data"]
+        args = {
+            "modules": ["summary", "allocation", "holdings"],
+            "include_meta": True,
+            "holdings_fields": "standard",
+            "top_n": 20,
+            "sort_by": "aum",
+        }
+        investor_calls = [c for c in plan.tool_calls if c.tool == "get_investor_portfolio"]
+        if investor_calls:
+            investor_calls[0].arguments = args
+            investor_calls[0].why = f"Full book allocation so {cat} is a share of the portfolio, not 100% of a filtered list"
+        else:
+            plan.tool_calls = [
+                ToolCall(
+                    tool="get_investor_portfolio",
+                    arguments=args,
+                    wave=1,
+                    why=f"Full book allocation so {cat} is a share of the portfolio",
+                ),
+                *plan.tool_calls,
+            ]
+        note = (
+            f"Category share of the whole book for {cat}. "
+            "Use allocation.investedByCategory and aumByCategory versus the portfolio total. "
+            "Do not say the category is 100% of the book just because one scheme is listed."
+        )
+        plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
+        plan.requires_compose = True
+        return plan
     if not question_needs_category_holdings_fetch(question) or not cat:
         return plan
 
@@ -438,6 +502,10 @@ def resolve_answer_subject(
     if subject:
         return subject
     if question_refers_to_investor_holding(question) and _category_slug_from_question(question):
+        return ""
+    from news_rag.insight.investor_drawback import question_asks_portfolio_level_drawdown
+
+    if question_asks_portfolio_level_drawdown(question, plan):
         return ""
     if question_asks_whole_investor_portfolio(question, plan):
         return ""

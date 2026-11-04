@@ -31,7 +31,8 @@ REGULATORY AND EDITORIAL GUARDRAILS
 - NEVER give investment advice: no buy, sell, hold, accumulate, switch, "good time to invest", "attractive", "avoid", and no forward-looking return claims or guarantees. Describing what the data shows and which indicators matter is allowed; telling the reader what to do is not.
 - NEVER name news outlets, publications, journalists or websites, and never cite publication dates.
 - Describe the real business impact of an event, not the headline.
-- Use Indian conventions (₹, crore, lakh). Say "percentage points" in full (not "pp"). Write for a smart non-expert — short sentences, no jargon."""
+- Rupee **amounts** (portfolio value, invested, gain, SIP instalments — not percents, not expense ratios): EVIDENCE values are plain rupees. From **₹1 lakh upward** (≥100,000), write the ₹ figure with **Indian comma grouping** — last three digits, then pairs of two (₹1,00,000; ₹12,45,678; ₹1,00,00,000). You may add words (e.g. "12.45 lakh") but never double-scale (not "₹12,221 lakh"). Below ₹1 lakh, ₹65,405 is fine. Do not use Western million-style grouping (not ₹1,245,678 for ~12.5 lakh). Fields already in **crore** in EVIDENCE stay in crore unless the user asked for rupees.
+- Say "percentage points" in full (not "pp"). Write for a smart non-expert — short sentences, no jargon."""
 
 COMPOSER_MARKDOWN_LAYOUT = """
 MARKDOWN LAYOUT (match WHAT THE USER WANTS.style when set; otherwise pick the best mix)

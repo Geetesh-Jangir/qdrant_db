@@ -1649,6 +1649,16 @@ def execute_wave(
                     remaining = max(0.5, deadline_at - time.time())
                 results = fut.result(timeout=remaining)
                 all_results.extend(results)
+            except TimeoutError:
+                # The portfolio call often lands just after the wave clock. Keep that payload.
+                try:
+                    results = fut.result(timeout=12)
+                    all_results.extend(results)
+                except Exception as exc:
+                    all_results.append({
+                        "ok": False, "tool": call.tool, "fund": "",
+                        "error": f"{type(exc).__name__}: {exc}", "data": {}, "elapsed_ms": 0,
+                    })
             except Exception as exc:
                 all_results.append({
                     "ok": False, "tool": call.tool, "fund": "",

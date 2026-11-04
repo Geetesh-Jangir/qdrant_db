@@ -113,6 +113,55 @@ def test_all_holdings_return_only_no_auto_portfolio_sectors():
     assert "get_portfolio_data" not in [c.tool for c in plan.tool_calls]
 
 
+def test_investor_summary_strips_catalog_fanout():
+    plan = ExecutionPlan(
+        holding_scope="all_holdings",
+        data_need="investor_summary",
+        portfolio_scope="both",
+        window_days=30,
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["allocation", "summary"]},
+                wave=1,
+            ),
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["snapshot"], "windows": ["1M"]},
+                wave=1,
+            ),
+        ],
+    )
+    plan = enforce_planner_catalog_plan(plan, _book(), "show me my portfolio allocation")
+    tools = [c.tool for c in plan.tool_calls]
+    assert "get_fund_data" not in tools
+    assert "get_investor_portfolio" in tools
+
+
+def test_concentration_strips_fund_snapshot_fanout():
+    plan = ExecutionPlan(
+        holding_scope="all_holdings",
+        data_need="investor_hybrid",
+        portfolio_scope="both",
+        window_days=30,
+        planner_reading="Concentration in the user's own mutual fund book",
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["summary", "allocation", "concentration"]},
+                wave=1,
+            ),
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["snapshot"], "windows": ["1M"]},
+                wave=1,
+            ),
+        ],
+    )
+    plan = enforce_planner_catalog_plan(plan, _book(), "show me the concentration in my portfolio")
+    assert [c.tool for c in plan.tool_calls] == ["get_investor_portfolio"]
+
+
 def test_plan_needs_investor_before_catalog_when_no_memory():
     from news_rag.insight.plan_catalog_bind import plan_needs_investor_before_catalog
 
@@ -198,3 +247,32 @@ def test_slots_from_plan_not_question():
         ],
     )
     assert "return:1D" in slots_from_plan(plan)
+
+
+def test_compare_this_with_portfolio_large_cap_fetches_holding():
+    plan = ExecutionPlan(
+        intent="compare",
+        subject_ref="memory_primary",
+        funds=["Bandhan Large Cap Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1),
+            ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1),
+        ],
+    )
+    memory = {
+        "frame": {
+            "subjects": [{"name": "Bandhan Large Cap Fund - Regular Plan - Growth", "role": "primary"}],
+            "last_fund_focus": "Bandhan Large Cap Fund - Regular Plan - Growth",
+        }
+    }
+    plan = apply_planner_post_hooks(
+        "compare this with the large cap that is in my portfolio",
+        plan,
+        memory,
+    )
+    tools = [c.tool for c in plan.tool_calls]
+    assert tools[0] == "get_investor_portfolio"
+    assert "compare_funds" in tools
+    assert "get_fund_data" not in tools
+    assert plan.tool_calls[0].arguments.get("scheme_filter") == "large cap"
+    assert plan.funds == ["Bandhan Large Cap Fund - Regular Plan - Growth"]

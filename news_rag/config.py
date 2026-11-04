@@ -306,6 +306,10 @@ class Settings(BaseSettings):
         default=4,
         validation_alias=AliasChoices("INSIGHT_COMPOSER_BODY_ARTICLES", "insight_composer_body_articles"),
     )
+    insight_compose_always: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INSIGHT_COMPOSE_ALWAYS", "insight_compose_always"),
+    )
     insight_pulse_vector_limit: int = Field(
         default=24,
         validation_alias=AliasChoices("INSIGHT_PULSE_VECTOR_LIMIT", "insight_pulse_vector_limit"),

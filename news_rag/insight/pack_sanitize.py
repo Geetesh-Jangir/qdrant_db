@@ -115,6 +115,57 @@ def _rollup_investor_summary(inv: dict[str, Any]) -> dict[str, Any]:
     return rolled
 
 
+INVESTOR_HOLDINGS_DISPLAY_MAX = 8
+
+
+def scheme_gain_loss_pct(row: dict[str, Any]) -> float | None:
+    """Gain on invested from ₹ figures — omit -100% when the scheme has no current value (redeemed)."""
+    inv = _num(row.get("invested_inr"))
+    gl = _num(row.get("gain_loss_inr"))
+    aum = _num(row.get("aum_inr"))
+    if inv is None or inv <= 0 or gl is None:
+        return None
+    aum_val = float(aum or 0)
+    if aum_val <= 0:
+        # API often sends absolute_return_pct=-100 with aum_inr=0 after redemption; ₹ loss is enough.
+        if abs(gl + inv) < max(1.0, 0.001 * inv):
+            return None
+        raw_abs = _num(row.get("absolute_return_pct"))
+        if raw_abs is not None and abs(float(raw_abs) + 100.0) < 0.05:
+            return None
+    return round(100.0 * gl / inv, 2)
+
+
+def sort_holdings_weakest_first(holdings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def key(row: dict[str, Any]) -> tuple[int, float, float]:
+        gl = _num(row.get("gain_loss_inr"))
+        if gl is not None:
+            return (0, gl, float(_num(row.get("xirr_pct")) or 999))
+        return (1, float(_num(row.get("xirr_pct")) or 999), 0.0)
+
+    return sorted(holdings, key=key)
+
+
+def investor_holdings_for_display(
+    holdings: list[dict[str, Any]],
+    question: str,
+    plan: Any,
+    *,
+    sort_weakest: bool = False,
+) -> tuple[list[dict[str, Any]], int, bool]:
+    """Table rows (capped), total scheme count, whether the table is truncated."""
+    from news_rag.insight.investor_subject import question_asks_all_schemes_in_answer
+
+    total = len(holdings)
+    if sort_weakest:
+        ordered = sort_holdings_weakest_first(holdings)
+    else:
+        ordered = sorted(holdings, key=lambda h: float(h.get("aum_inr") or 0), reverse=True)
+    if question_asks_all_schemes_in_answer(question, plan) or total <= INVESTOR_HOLDINGS_DISPLAY_MAX:
+        return ordered, total, False
+    return ordered[:INVESTOR_HOLDINGS_DISPLAY_MAX], total, True
+
+
 def _enrich_investor_computed_fields(inv: dict[str, Any]) -> None:
     """Pre-compute category weights and per-scheme facts for composer + grounding."""
     summary = inv.get("summary") if isinstance(inv.get("summary"), dict) else {}
@@ -141,7 +192,7 @@ def _enrich_investor_computed_fields(inv: dict[str, Any]) -> None:
                 "invested_inr": _num(row.get("invested_inr")),
                 "gain_loss_inr": _num(row.get("gain_loss_inr")),
                 "xirr_pct": _num(row.get("xirr_pct")),
-                "absolute_return_pct": _num(row.get("absolute_return_pct")),
+                "gain_on_invested_pct": scheme_gain_loss_pct(row),
             }
         )
 
