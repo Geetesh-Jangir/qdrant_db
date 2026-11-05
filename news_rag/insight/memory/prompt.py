@@ -1,24 +1,78 @@
-"""What the planner and the composer are allowed to see. No cached numbers."""
+"""LLM-facing chat transcript and legacy pointer view for internal tooling."""
 
 from __future__ import annotations
 
 import json
 from typing import Any
 
-from news_rag.insight.memory.state import ENTITY_TTL_TURNS
+from news_rag.insight.memory.state import ENTITY_TTL_TURNS, MAX_CHAT_TURNS
 from news_rag.insight.greeting import ASSISTANT_MAIN_MEMORY
 
 
-def memory_json_tokens(payload: dict[str, Any] | None) -> int:
-    """Estimated tokens for the memory JSON only. Empty memory is zero.
+def _chat_turn_rows(state: dict[str, Any] | None) -> list[dict[str, str]]:
+    if not state:
+        return []
+    rows: list[dict[str, str]] = []
+    for row in state.get("chat_turns") or []:
+        if not isinstance(row, dict):
+            continue
+        user = str(row.get("user") or "").strip()
+        assistant = str(row.get("assistant") or "").strip()
+        if not user and not assistant:
+            continue
+        rows.append({"user": user, "assistant": assistant})
+    return rows[-MAX_CHAT_TURNS:]
 
-    This is not the API's input-token total. It is len(json) / 4, the usual
-    stand-in when the provider does not count one field on its own.
-    """
-    if not payload:
+
+def chat_history_view(state: dict[str, Any] | None) -> dict[str, Any]:
+    """Prior turns sent to the planner and composer (user + assistant text only)."""
+    return {"turns": _chat_turn_rows(state)}
+
+
+def format_chat_history_block(state: dict[str, Any] | None) -> str:
+    turns = _chat_turn_rows(state)
+    if not turns:
+        return ""
+    lines = [f"Conversation history (oldest first, at most {MAX_CHAT_TURNS} turns):"]
+    for row in turns:
+        lines.append(f"User: {row['user']}")
+        lines.append(f"Assistant: {row['assistant']}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def memory_json_tokens(payload: dict[str, Any] | None) -> int:
+    """Estimated tokens for the chat history payload. Empty is zero."""
+    if not payload or not isinstance(payload, dict):
         return 0
-    text = json.dumps(payload, ensure_ascii=False)
-    return max(1, (len(text) + 3) // 4)
+    turns = payload.get("turns")
+    if not isinstance(turns, list) or not turns:
+        return 0
+    fake = {
+        "chat_turns": [
+            {"user": t.get("user"), "assistant": t.get("assistant")}
+            for t in turns
+            if isinstance(t, dict)
+        ]
+    }
+    block = format_chat_history_block(fake)
+    return max(1, (len(block) + 3) // 4) if block else 0
+
+
+def format_chat_history_from_view(view: dict[str, Any] | None) -> str:
+    if not view or not isinstance(view, dict):
+        return ""
+    turns = view.get("turns")
+    if not isinstance(turns, list) or not turns:
+        return ""
+    fake: dict[str, Any] = {
+        "chat_turns": [
+            {"user": t.get("user"), "assistant": t.get("assistant")}
+            for t in turns
+            if isinstance(t, dict)
+        ]
+    }
+    return format_chat_history_block(fake)
 
 
 def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:

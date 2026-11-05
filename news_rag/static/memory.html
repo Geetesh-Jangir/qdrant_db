@@ -50,21 +50,21 @@
             show("");
             return;
           }
-          if (passedPage) {
+            if (passedPage) {
             const passed = data.passed || {};
             const tokens = passed.token_estimate || {};
             const sent = Array.isArray(passed.sent_to) ? passed.sent_to : [];
             const who = sent.length ? sent.join(" and ") : "neither model";
             statusEl.textContent =
-              "Estimated memory JSON: ~" + (tokens.planner || 0) + " tokens to the planner, ~" +
+              "Estimated chat history: ~" + (tokens.planner || 0) + " tokens to the planner, ~" +
               (tokens.composer || 0) + " tokens to the composer. Sent to " + who +
-              ". This is only the memory JSON, not the full prompt. The model reads it and does not write the stored memory.";
+              ". This is the prior Q&A transcript only, not the full prompt.";
             show(JSON.stringify(passed.memory || {}, null, 2));
             return;
           }
           const stored = data.stored || {};
           statusEl.textContent =
-            "Python wrote this after the answer, from the tool result and the planner's pointers. The LLM does not change this JSON.";
+            "Chat transcript stored after this answer (up to 8 turns). Internal routing state is updated separately in Python.";
           show(JSON.stringify(stored.memory || {}, null, 2));
         })
         .catch((err) => {

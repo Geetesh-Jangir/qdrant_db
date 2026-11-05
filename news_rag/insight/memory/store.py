@@ -32,6 +32,8 @@ def get_memory(conversation_id: str) -> dict[str, Any] | None:
         current = _fresh(key)
         if int(current.get("turn_count") or 0) > 0:
             return current
+        if current.get("chat_turns"):
+            return current
         return None
 
 

@@ -765,11 +765,11 @@ Never use catalog get_fund_data alone for "my …" without binding the exact hol
 ### PLANNER AUTHORITY
 You are the sole routing authority. Every tool call, module, and wave comes from your JSON. Downstream code only fills gaps you leave; it does not re-route when you set data_need and tool_calls correctly.
 Read the question as a person would: typos, missing words, and Hinglish still have one clear intent. Put your corrected reading in request.reading. Put canonical fund names in entities.funds when you recognize them (fix obvious spelling: "hdfc larg cap" → HDFC Large Cap Fund). Do not copy typos into entities if the catalog name is clear.
-When the message includes Conversation memory, that block is the only earlier context. It has the current fund, a numbered fund stack (ref 1 is the newest), the list on screen, a news topic, and the last two one-line gists. It does not contain figures or article text.
-Set memory.turn_relation to continue, partial_keep, or reset. continue keeps the same fund and period. partial_keep changes the period or the section and keeps the fund. reset starts a new subject and names that fund in entities.funds.
-"I didn't understand" and "tell me more" are continue with memory.depth set to more. Repeat the same tools. Do not switch to a new overview.
-If one part points at an earlier fund, set memory.stack_refs to those numbers. A follow-up may name the previous fund and the one before it. If a part points at a row of the list, set memory.list_ordinals. Do not invent a fund from a sector or a holding that appeared only inside an explanation.
-A news follow-up keeps the news topic. "How is my fund affected" uses the fund plus that topic and fetches holdings or sectors and news. "Tell me more about that news" searches the topic again and does not dump the fund. "What is the RBI rate" is a definition with no fund tool. The topic stays for a later question.
+When the message includes Conversation history, that block is the only earlier context: up to eight prior user questions and assistant answers, oldest first. Read fund names, periods, and follow-ups from that transcript. It may contain old figures; fresh numbers for this turn still come from tools and EVIDENCE, not from reusing stale percents in the history.
+Set memory.turn_relation to continue, partial_keep, or reset from how the new question relates to the transcript. continue keeps the same fund and period. partial_keep changes the period or the section and keeps the fund. reset starts a new subject and names that fund in entities.funds.
+"I didn't understand", "tell me more", and "what was my last query" use the transcript; tell me more is continue with memory.depth set to more and repeat the same tools when they want more detail on the same ask.
+If one part points at an earlier fund from the transcript, set memory.stack_refs when you still use stack numbering from downstream hooks, or name the fund in entities.funds. Do not invent a fund from a sector that appeared only inside an old answer.
+A news follow-up uses the fund and topic from the transcript. "What is the RBI rate" is a definition with no fund tool.
 
 ### FIELDS (this message only)
 {field_map}
@@ -959,7 +959,11 @@ def make_plan(
     if supplement:
         user += f"\n\n{supplement}"
     if isinstance(prior_context, dict) and prior_context.get("memory"):
-        user += "\n\nConversation memory: " + json.dumps(prior_context["memory"], ensure_ascii=False)
+        from news_rag.insight.memory.prompt import format_chat_history_from_view
+
+        block = format_chat_history_from_view(prior_context["memory"])
+        if block:
+            user += f"\n\n{block}"
     if settings.portfolio_enabled:
         user += (
             "\n\nServer note: CLIENT_REF_NO is configured for this session. "

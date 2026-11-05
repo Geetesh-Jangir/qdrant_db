@@ -9,6 +9,7 @@ IDLE_SEC = 30 * 60
 MAX_STACK = 5
 MAX_GISTS = 2
 MAX_TURNS = 12
+MAX_CHAT_TURNS = 8
 # Catalog entities (screens, compares, list cursor) drop out of planner memory after this many newer turns.
 ENTITY_TTL_TURNS = 4
 
@@ -46,6 +47,7 @@ def empty_state(conversation_id: str) -> dict[str, Any]:
         "entity_stack": [],
         "list_cursor": None,
         "gists": [],
+        "chat_turns": [],
         "updated_at": now,
         "cache_events": [],
     }
@@ -75,6 +77,28 @@ def push_fund(state: dict[str, Any], subject: dict[str, Any], *, period: str, fa
     stack = [item for item in (state.get("entity_stack") or []) if str(item.get("name") or "") != name]
     stack.insert(0, row)
     state["entity_stack"] = stack[:MAX_STACK]
+
+
+def append_chat_turn(
+    state: dict[str, Any],
+    *,
+    user: str,
+    assistant: str,
+    turn: int,
+    query_id: str = "",
+) -> None:
+    user_text = " ".join(str(user or "").split())
+    assistant_text = str(assistant or "").strip()
+    if not user_text and not assistant_text:
+        return
+    rows = list(state.get("chat_turns") or [])
+    rows.append({
+        "turn": int(turn or 0),
+        "query_id": str(query_id or "").strip(),
+        "user": user_text,
+        "assistant": assistant_text,
+    })
+    state["chat_turns"] = rows[-MAX_CHAT_TURNS:]
 
 
 def add_gist(state: dict[str, Any], text: str, turn: int) -> None:

@@ -146,16 +146,16 @@ def _attach_conversation(state: GraphState, ctx: dict[str, Any]) -> dict[str, An
 
 
 def _load_planner_memory(state: GraphState) -> dict[str, Any] | None:
-    from news_rag.insight.memory.prompt import prompt_view
+    from news_rag.insight.memory.prompt import chat_history_view
     from news_rag.insight.memory.store import get_memory
 
     state.conversation_id = _conversation_id(state)
     state.memory = get_memory(state.conversation_id) if state.conversation_id else None
-    view = prompt_view(state.memory)
+    view = chat_history_view(state.memory)
     state.memory_passed_view = view
     if state.query_log is not None:
         state.query_log.write("MEMORY_PASSED " + json.dumps(view, ensure_ascii=False))
-    if not view:
+    if not view.get("turns"):
         return None
     return {"conversation_id": state.conversation_id, "memory": view}
 
@@ -1049,6 +1049,7 @@ def _drop_scheme_is_the_whole_book(text: str) -> str:
 
 COMPOSE_SYSTEM = """ROLE: COMPOSER (user-facing markdown only)
 You receive QUESTION, WHAT THE USER WANTS (goal, answer_mode, style, max_words), and EVIDENCE (metrics + optional news).
+When WHAT THE USER WANTS includes conversation_history, use it for follow-ups and pronouns; do not contradict earlier assistant answers in that history.
 
 VOICE: Speak directly to the reader as **you** / **your**. Use a warm, plain tone — like a helpful colleague, not a formal report. Do not call the reader "the investor" or "investors".
 
@@ -1402,12 +1403,13 @@ def node_compose(state: GraphState) -> str | None:
         wants["measured_window"] = ", ".join(dict.fromkeys(return_windows))
         wants["measured_window_days"] = plan.window_days
     wants["end_summary"] = _wants_end_summary(plan, state.question or "")
+    history_block = ""
     if state.memory:
-        from news_rag.insight.memory.prompt import prompt_view
+        from news_rag.insight.memory.prompt import format_chat_history_block
 
-        view = prompt_view(state.memory)
-        if view:
-            wants["conversation"] = view
+        history_block = format_chat_history_block(state.memory)
+        if history_block:
+            wants["conversation_history"] = history_block
             state.memory_sent_composer = True
     if plan.answer_depth == "more":
         wants["explain_more"] = True
@@ -1921,30 +1923,53 @@ def run_graph(state: GraphState) -> GraphState:
 
 
 def _store_turn_memory(state: GraphState, sources: list[dict[str, Any]] | None) -> dict[str, int]:
-    """Write the frame after the turn. A failed lookup is recorded as no subject."""
+    """Write internal frame after the turn and append chat transcript for the LLM."""
     from news_rag.insight.memory.evidence import drain_cache_events
-    from news_rag.insight.memory.prompt import memory_json_tokens, prompt_view
-    from news_rag.insight.memory.store import save_sources, save_turn_record
+    from news_rag.insight.memory.prompt import chat_history_view, memory_json_tokens
+    from news_rag.insight.memory.state import append_chat_turn
+    from news_rag.insight.memory.store import get_or_create, save_sources, save_state, save_turn_record
     from news_rag.insight.memory.update import commit_turn
 
     empty_tokens = {"planner": 0, "composer": 0}
-    if not state.conversation_id or state.plan is None:
+    if not state.conversation_id:
         return empty_tokens
-    if state.query_log is not None:
-        for event in drain_cache_events(state.conversation_id):
-            beside = f" beside={event['beside']}" if event.get("beside") else ""
-            state.query_log.write(f"CACHE status={event['status']} key={event['key']}{beside}")
+
     query_id = state.query_log.query_id if state.query_log is not None else ""
-    if sources and query_id:
-        save_sources(query_id, sources, conversation_id=state.conversation_id)
-    saved = commit_turn(
-        state.conversation_id,
-        state.plan,
-        state.wave1_results + state.wave2_results,
-        question=state.question or "",
-    )
-    stored_view = prompt_view(saved)
+    answer_text = (state.answer or "").strip()
+    conv_state: dict[str, Any] | None = None
+
+    if state.plan is not None:
+        if state.query_log is not None:
+            for event in drain_cache_events(state.conversation_id):
+                beside = f" beside={event['beside']}" if event.get("beside") else ""
+                state.query_log.write(f"CACHE status={event['status']} key={event['key']}{beside}")
+        if sources and query_id:
+            save_sources(query_id, sources, conversation_id=state.conversation_id)
+        conv_state = commit_turn(
+            state.conversation_id,
+            state.plan,
+            state.wave1_results + state.wave2_results,
+            question=state.question or "",
+        )
+    elif answer_text:
+        conv_state = get_or_create(state.conversation_id)
+
+    if conv_state and answer_text:
+        if state.plan is not None:
+            chat_turn = int(conv_state.get("turn_count") or 0)
+        else:
+            chat_turn = len(conv_state.get("chat_turns") or []) + 1
+        append_chat_turn(
+            conv_state,
+            user=state.question or "",
+            assistant=answer_text,
+            turn=chat_turn,
+            query_id=query_id,
+        )
+        save_state(conv_state)
+
     passed_view = state.memory_passed_view if isinstance(state.memory_passed_view, dict) else {}
+    stored_view = chat_history_view(conv_state) if conv_state else {"turns": []}
     planner_tokens = memory_json_tokens(passed_view)
     composer_tokens = planner_tokens if state.memory_sent_composer else 0
     sent_to = []
@@ -1952,7 +1977,7 @@ def _store_turn_memory(state: GraphState, sources: list[dict[str, Any]] | None) 
         sent_to.append("planner")
     if composer_tokens:
         sent_to.append("composer")
-    if query_id:
+    if query_id and conv_state is not None:
         save_turn_record(query_id, {
             "query_id": query_id,
             "passed": {
@@ -1965,7 +1990,7 @@ def _store_turn_memory(state: GraphState, sources: list[dict[str, Any]] | None) 
                 "memory": stored_view,
             },
         })
-    if state.query_log is not None:
+    if state.query_log is not None and conv_state is not None:
         state.query_log.write("MEMORY_STORED " + json.dumps(stored_view, ensure_ascii=False))
         state.query_log.write(
             f"MEMORY_TOKENS planner={planner_tokens} composer={composer_tokens}"
