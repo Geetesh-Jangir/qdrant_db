@@ -144,6 +144,6 @@ def test_plan_system_prompt_planner_authority():
     prompt = plan_system_prompt()
     assert "PLANNER AUTHORITY" in prompt
     assert "crude_oil" in prompt
-    assert "There is no high_weight_holding" in prompt
-    assert "macro_impact module" in prompt
+    assert "Fetch exactly what was asked" in prompt
+    assert len(prompt) < 25000
     assert "DETERMINISTIC INTENT HINT" not in prompt

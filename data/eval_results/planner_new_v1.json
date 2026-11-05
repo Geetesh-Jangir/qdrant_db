@@ -1,0 +1,771 @@
+{
+ "summary": {
+  "passed": 30,
+  "total": 34,
+  "avg_tools": 1.32,
+  "avg_latency_ms": 2419,
+  "input_tokens": 6548,
+  "output_tokens": 13325,
+  "cached_input_tokens": 404328
+ },
+ "results": [
+  {
+   "q": "what is the nav of axis largecap fund",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 181,
+     "output_tokens": 295,
+     "cached_input_tokens": 11892,
+     "total_ms": 1934.2,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "what is the nav of the bandhan large cap fund ?",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 188,
+     "output_tokens": 301,
+     "cached_input_tokens": 11892,
+     "total_ms": 2324.3,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "what is the aum of hdfc large cap fund?",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 180,
+     "output_tokens": 289,
+     "cached_input_tokens": 11892,
+     "total_ms": 2058.7,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "whats the 1 year historical retrurns of absl large cap?",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 321,
+     "output_tokens": 399,
+     "cached_input_tokens": 11892,
+     "total_ms": 2506.4,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "show me invescos one day return",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 181,
+     "output_tokens": 457,
+     "cached_input_tokens": 11892,
+     "total_ms": 2542.5,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "tell me about the fund manager of the hdfc large cap fund",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 184,
+     "output_tokens": 349,
+     "cached_input_tokens": 11892,
+     "total_ms": 2445.8,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "what is the drawdown of hdfc large cap fund?",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 182,
+     "output_tokens": 346,
+     "cached_input_tokens": 11892,
+     "total_ms": 1985.8,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "do the risk analysis of hdfc large cap fund",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 181,
+     "output_tokens": 509,
+     "cached_input_tokens": 11892,
+     "total_ms": 2682.3,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "tell me about hdfc large cap funds weekly sip limit",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 184,
+     "output_tokens": 368,
+     "cached_input_tokens": 11892,
+     "total_ms": 2157.0,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "what is the name of the benchmark of the hdfc large cap?",
+   "fail": [],
+   "tools": [
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 184,
+     "output_tokens": 313,
+     "cached_input_tokens": 11892,
+     "total_ms": 3171.3,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "what are the top 5 sectors of absl Conservative Hybrid Active FOF",
+   "fail": [
+    "tools ['get_fund_data', 'get_portfolio_data'] != ['get_portfolio_data']"
+   ],
+   "tools": [
+    "get_fund_data",
+    "get_portfolio_data"
+   ],
+   "planned": [
+    "get_portfolio_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 203,
+     "output_tokens": 369,
+     "cached_input_tokens": 11892,
+     "total_ms": 2165.8,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "top sector of axis largecap",
+   "fail": [
+    "tools ['get_fund_data', 'get_portfolio_data'] != ['get_portfolio_data']",
+    "sections ['holdings', 'sectors']"
+   ],
+   "tools": [
+    "get_fund_data",
+    "get_portfolio_data"
+   ],
+   "planned": [
+    "get_portfolio_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 177,
+     "output_tokens": 406,
+     "cached_input_tokens": 11892,
+     "total_ms": 2217.8,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "compare axis large cap fund and hdfc large cap fund?",
+   "fail": [],
+   "tools": [
+    "compare_funds"
+   ],
+   "planned": [
+    "compare_funds"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 184,
+     "output_tokens": 279,
+     "cached_input_tokens": 11892,
+     "total_ms": 1718.4,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "tell me about the news related to the hdfc large cap fund in last one month?",
+   "fail": [
+    "4 tool calls"
+   ],
+   "tools": [
+    "get_portfolio_data",
+    "get_fund_data",
+    "get_portfolio_data",
+    "search_financial_news"
+   ],
+   "planned": [
+    "get_fund_data",
+    "get_portfolio_data",
+    "search_financial_news"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 187,
+     "output_tokens": 598,
+     "cached_input_tokens": 11892,
+     "total_ms": 3078.0,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "tell me about the news related to axis bank?",
+   "fail": [],
+   "tools": [
+    "get_market_snapshot",
+    "search_financial_news"
+   ],
+   "planned": [
+    "get_market_snapshot",
+    "search_financial_news"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 308,
+     "output_tokens": 311,
+     "cached_input_tokens": 11892,
+     "total_ms": 1982.3,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "Why is gold down",
+   "fail": [],
+   "tools": [
+    "get_market_snapshot",
+    "search_financial_news"
+   ],
+   "planned": [
+    "get_market_snapshot",
+    "search_financial_news"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 100,
+     "output_tokens": 806,
+     "cached_input_tokens": 11892,
+     "total_ms": 3576.7,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "what are the current market news",
+   "fail": [],
+   "tools": [],
+   "planned": [
+    "search_financial_news",
+    "get_market_snapshot"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 100,
+     "output_tokens": 282,
+     "cached_input_tokens": 11892,
+     "total_ms": 1805.2,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "what is swp",
+   "fail": [],
+   "tools": [],
+   "planned": [],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 98,
+     "output_tokens": 209,
+     "cached_input_tokens": 11892,
+     "total_ms": 1726.8,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "differenc  between flexi cap and hybrid fund",
+   "fail": [],
+   "tools": [],
+   "planned": [],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 191,
+     "output_tokens": 200,
+     "cached_input_tokens": 11892,
+     "total_ms": 1614.0,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "if i invest for 10 year 10000 per month and increased it 10% half yearly so how much money would i have if the average return is 12",
+   "fail": [],
+   "tools": [],
+   "planned": [],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 229,
+     "output_tokens": 305,
+     "cached_input_tokens": 11892,
+     "total_ms": 2243.0,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "tell me any 5 defence funds",
+   "fail": [],
+   "tools": [
+    "screen_funds_by_exposure"
+   ],
+   "planned": [
+    "screen_funds_by_exposure"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 162,
+     "output_tokens": 385,
+     "cached_input_tokens": 11892,
+     "total_ms": 2623.0,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "name the highest rating large cap fund?",
+   "fail": [],
+   "tools": [
+    "screen_funds_by_exposure"
+   ],
+   "planned": [
+    "screen_funds_by_exposure"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 193,
+     "output_tokens": 401,
+     "cached_input_tokens": 11892,
+     "total_ms": 2490.6,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "recommend me any 5 large cap funds",
+   "fail": [],
+   "tools": [
+    "get_fund_data",
+    "screen_funds_by_exposure"
+   ],
+   "planned": [
+    "screen_funds_by_exposure"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 192,
+     "output_tokens": 521,
+     "cached_input_tokens": 11892,
+     "total_ms": 3152.8,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "whats my portfolios aum",
+   "fail": [],
+   "tools": [
+    "get_investor_portfolio"
+   ],
+   "planned": [],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 103,
+     "output_tokens": 314,
+     "cached_input_tokens": 11892,
+     "total_ms": 2141.1,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "whats my last one months return s",
+   "fail": [],
+   "tools": [
+    "get_investor_portfolio",
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 177,
+     "output_tokens": 337,
+     "cached_input_tokens": 11892,
+     "total_ms": 2002.8,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "show me my all funds one month returns",
+   "fail": [],
+   "tools": [
+    "get_investor_portfolio",
+    "get_fund_data"
+   ],
+   "planned": [
+    "get_fund_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 186,
+     "output_tokens": 325,
+     "cached_input_tokens": 11892,
+     "total_ms": 2069.0,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "what is the concentration of my portfolio",
+   "fail": [],
+   "tools": [
+    "get_investor_portfolio"
+   ],
+   "planned": [],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 330,
+     "output_tokens": 334,
+     "cached_input_tokens": 11892,
+     "total_ms": 2220.2,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "do i have any systematic tranfer process",
+   "fail": [
+    "modules ['summary'] != ['stp']"
+   ],
+   "tools": [
+    "get_investor_portfolio"
+   ],
+   "planned": [],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 106,
+     "output_tokens": 326,
+     "cached_input_tokens": 11892,
+     "total_ms": 2208.3,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "which of my funds have banking sector in it and how much",
+   "fail": [],
+   "tools": [
+    "get_investor_portfolio",
+    "get_fund_data",
+    "get_portfolio_data"
+   ],
+   "planned": [
+    "get_portfolio_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 188,
+     "output_tokens": 581,
+     "cached_input_tokens": 11892,
+     "total_ms": 3507.1,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "whats my risk profile",
+   "fail": [],
+   "tools": [
+    "get_investor_portfolio"
+   ],
+   "planned": [],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 187,
+     "output_tokens": 294,
+     "cached_input_tokens": 11892,
+     "total_ms": 2173.1,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "How will rising bond yields impact debt mutual funds in India?",
+   "fail": [],
+   "tools": [
+    "screen_funds_by_exposure"
+   ],
+   "planned": [
+    "screen_funds_by_exposure"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 303,
+     "output_tokens": 531,
+     "cached_input_tokens": 11892,
+     "total_ms": 3001.4,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "tell me hdfc flexi cap fund?",
+   "fail": [],
+   "tools": [
+    "get_fund_data",
+    "get_portfolio_data",
+    "search_financial_news"
+   ],
+   "planned": [
+    "get_fund_data",
+    "get_portfolio_data",
+    "search_financial_news"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 179,
+     "output_tokens": 570,
+     "cached_input_tokens": 11892,
+     "total_ms": 2855.6,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "why did hdfc large cap fall in the last month",
+   "fail": [],
+   "tools": [
+    "get_fund_data",
+    "get_portfolio_data"
+   ],
+   "planned": [
+    "get_fund_data",
+    "get_portfolio_data"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 179,
+     "output_tokens": 485,
+     "cached_input_tokens": 11892,
+     "total_ms": 2660.1,
+     "usage_source": "api"
+    }
+   ]
+  },
+  {
+   "q": "compare any two large cap funds which are performing well in last 1 year?",
+   "fail": [],
+   "tools": [
+    "screen_funds_by_exposure"
+   ],
+   "planned": [
+    "screen_funds_by_exposure"
+   ],
+   "usage": [
+    {
+     "stage": "plan",
+     "provider": "anthropic",
+     "model": "claude-haiku-5-5",
+     "input_tokens": 320,
+     "output_tokens": 530,
+     "cached_input_tokens": 11892,
+     "total_ms": 3199.9,
+     "usage_source": "api"
+    }
+   ]
+  }
+ ]
+}

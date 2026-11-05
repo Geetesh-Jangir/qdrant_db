@@ -90,6 +90,10 @@ def question_is_pure_general_concept(question: str) -> bool:
 
 
 def apply_pure_concept_plan(plan: ExecutionPlan, question: str) -> ExecutionPlan:
+    from news_rag.insight.brief import question_is_standalone_macro
+
+    if question_is_standalone_macro(question):
+        return plan
     task = str(getattr(plan, "planner_task", None) or "").lower()
     # A resolved scheme is a data question even when its name contains "large cap" or "hybrid".
     if plan.funds and task != "explain":

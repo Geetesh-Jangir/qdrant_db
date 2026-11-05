@@ -131,6 +131,23 @@ def test_compare_binds_cached_large_cap(monkeypatch):
     clear_cache_for_tests()
 
 
+def test_catalog_fund_holdings_not_own_book():
+    from news_rag.insight.portfolio_bind import bind_cached_portfolio, question_mentions_own_book
+    from news_rag.insight.contracts import ExecutionPlan, ToolCall
+
+    q = "tell me the one month return of top 3 holdings of absl quant fund"
+    assert question_mentions_own_book(q) is False
+    plan = ExecutionPlan(
+        funds=["Aditya Birla Sun Life Quant Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(tool="get_portfolio_data", arguments={"sections": ["holdings"], "top_n": 3}),
+            ToolCall(tool="get_market_snapshot", arguments={"modules": ["stock_quote"]}, wave=2),
+        ],
+    )
+    plan = bind_cached_portfolio(q, plan)
+    assert not any(call.tool == "get_investor_portfolio" for call in plan.tool_calls)
+
+
 def test_one_fund_compare_drops_compare_tool(monkeypatch):
     from news_rag.insight.portfolio_bind import bind_cached_portfolio
     from news_rag.portfolio.cache import clear_cache_for_tests

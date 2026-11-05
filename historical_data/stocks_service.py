@@ -264,7 +264,7 @@ def resolve_stock_ticker(entity_name: str) -> str | None:
 
 
 def get_stock_profile(ticker_or_name: str) -> dict[str, Any] | None:
-    """Fetch 1W return, 1M return, 30D high/low, and 52W high/low for a given stock.
+    """Fetch 1D/1W/1M/1Y returns, 30D high/low, and 52W high/low for a given stock.
 
     Uses in-memory caching with 1-hour TTL for ultra-fast response.
     Returns None gracefully if the stock cannot be fetched.
@@ -288,7 +288,7 @@ def get_stock_profile(ticker_or_name: str) -> dict[str, Any] | None:
 
     try:
         t = yf.Ticker(ticker)
-        hist = t.history(period="3mo")
+        hist = t.history(period="1y")
         if hist.empty or len(hist) < 2:
             _STOCK_CACHE[ticker] = None
             _CACHE_TIMESTAMP[ticker] = now
@@ -318,6 +318,15 @@ def get_stock_profile(ticker_or_name: str) -> dict[str, Any] | None:
             p_1m = float(hist["Close"].iloc[0])
             pct_1m = ((cmp_price - p_1m) / p_1m) * 100.0
 
+        # 1-Year change (~252 trading days, or full available history if shorter)
+        pct_1y: float | None = None
+        if len(hist) >= 252:
+            p_1y = float(hist["Close"].iloc[-252])
+        elif len(hist) >= 2:
+            p_1y = float(hist["Close"].iloc[0])
+        if p_1y is not None and p_1y > 0:
+            pct_1y = ((cmp_price - p_1y) / p_1y) * 100.0
+
         # 30-Day Trading Range
         last_30d = hist.tail(21)
         low_30d = float(last_30d["Low"].min())
@@ -338,6 +347,7 @@ def get_stock_profile(ticker_or_name: str) -> dict[str, Any] | None:
             "return_1d": round(pct_1d, 2),
             "return_1w": round(pct_1w, 2),
             "return_1m": round(pct_1m, 2),
+            "return_1y": round(pct_1y, 2) if pct_1y is not None else None,
             "range_30d": (round(low_30d, 2), round(high_30d, 2)),
             "range_52w": (round(fifty_two_low, 2), round(fifty_two_high, 2))
             if (fifty_two_high and fifty_two_low)

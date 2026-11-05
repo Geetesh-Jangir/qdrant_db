@@ -159,7 +159,10 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
             "period": frame.get("period") or "",
             "last_intent": frame.get("last_intent") or "",
             "shown_facts": list(frame.get("shown_facts") or []),
-            "shown_facts_note": "Each get_fund_data:module:windows entry is one fetched slice. A new window is not in memory until that tool runs again.",
+            "shown_facts_note": (
+                "ALREADY FETCHED: each tool:module:window entry is data already in hand. Do not fetch it again. "
+                "A different window, module or section is NOT fetched yet: call the tool for it."
+            ),
             "depth": frame.get("depth") or "short",
             "open_part": frame.get("open_part") or {"answered": [], "pending": []},
             "news_topic": news_view,

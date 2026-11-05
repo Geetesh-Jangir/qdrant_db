@@ -290,20 +290,24 @@ def enforce_planner_catalog_plan(
 ) -> ExecutionPlan:
     """Align funds + catalog tools with planner holding_scope, entities, and tool_calls."""
     scope = str(plan.portfolio_scope or "none").lower()
-    if planner_requested_catalog(plan) or _holding_scope(plan) == "all_holdings":
-        if scope in ("none", "", "investor"):
-            plan.portfolio_scope = "both"
+    # A catalog-only plan (scope none/catalog, no holding scope) is the planner's exact ask:
+    # code must not add tools to it. Extras below are for asks that involve the user's own book.
+    book_involved = scope in ("investor", "both") or _holding_scope(plan) in ("all_holdings", "single")
+    if (planner_requested_catalog(plan) or _holding_scope(plan) == "all_holdings") and scope in ("investor", "") and book_involved:
+        plan.portfolio_scope = "both"
+    elif _holding_scope(plan) == "all_holdings" and scope == "none":
+        plan.portfolio_scope = "both"
     _bind_fund_list(plan, memory)
     investor_book_only = _investor_portfolio_covers_ask(plan, question)
     if investor_book_only:
         plan.tool_calls = [c for c in (plan.tool_calls or []) if c.tool != "get_fund_data"]
     if planner_requested_catalog(plan) or _holding_scope(plan) in ("all_holdings", "single"):
-        if not investor_book_only:
+        if not investor_book_only and book_involved:
             _ensure_get_fund_data_for_holdings(plan)
             _ensure_portfolio_data_for_holdings(plan)
             _ensure_portfolio_data_for_compare(plan)
         plan.requires_compose = True
-    elif plan.funds and int(plan.window_days or 0) in _DAYS_TO_WINDOW:
+    elif plan.funds and int(plan.window_days or 0) in _DAYS_TO_WINDOW and book_involved:
         _ensure_get_fund_data_for_holdings(plan)
         plan.portfolio_scope = "both"
         plan.requires_compose = True

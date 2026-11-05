@@ -245,6 +245,57 @@ def asks_market_briefing(question: str) -> bool:
     return bool(_MARKET_RE.search(question or ""))
 
 
+_GOLD_ETF_FUND_RE = re.compile(
+    r"\bgold\s+(?:etf|etfs|fund|funds|bees|fof|scheme|schemes)\b|"
+    r"\b(?:etf|mutual\s+fund|scheme|folio|amc)\b.{0,24}\bgold\b|"
+    r"\bsovereign\s+gold\s+bond|\bsgb\b",
+    re.I,
+)
+
+
+def question_mentions_gold_etf_or_fund(question: str) -> bool:
+    return bool(_GOLD_ETF_FUND_RE.search(question or ""))
+
+
+def primary_metal_in_question(question: str) -> str:
+    q = (question or "").lower()
+    if re.search(r"\bsilver\b", q) and not re.search(r"\bgold\b", q):
+        return "silver"
+    return "gold"
+
+
+def question_is_bullion_metal_price_question(question: str) -> bool:
+    """Spot/bullion metal price or direction — not a named gold ETF/scheme."""
+    q = question or ""
+    if not _METAL_RE.search(q):
+        return False
+    if question_mentions_gold_etf_or_fund(q):
+        return False
+    if re.search(r"\b(?:etf|mutual\s+fund|scheme|folio|amc|bees)\b", q, re.I):
+        return False
+    return True
+
+
+_STANDALONE_MACRO_RE = re.compile(
+    r"\b(?:rupee|inr\b|dollar|usd\b|forex|fx\b|midterm|mid-term|election|geopolit|"
+    r"tariff|crude|brent|oil prices?|inflation|rbi|repo rate|treasury|"
+    r"(?:us|u\.s\.)\s+(?:fed|yield|election)|bond yield|yield curve)\b",
+    re.I,
+)
+
+
+def question_is_standalone_macro(question: str) -> bool:
+    """Elections, FX, macro drivers — not a named-fund or deictic-fund turn."""
+    q = question or ""
+    if re.search(
+        r"\b(?:mutual fund|this fund|that scheme|my fund|nav|holdings?|scheme name|amc)\b",
+        q,
+        re.I,
+    ):
+        return False
+    return asks_market_briefing(q) or bool(_STANDALONE_MACRO_RE.search(q))
+
+
 def asks_weak_sector(question: str) -> bool:
     """User wants the sector that performed poorly, judged from returns, not from a news headline."""
     return bool(_WEAK_SECTOR_RE.search(question or ""))
@@ -331,10 +382,23 @@ def _detect_direction(question: str) -> str:
 _AMC_TOKENS = {
     "hdfc", "sbi", "icici", "axis", "kotak", "dsp", "tata", "nippon",
     "uti", "mirae", "parag", "ppfas", "absl", "motilal", "aditya", "birla",
-    "franklin", "canara", "bandhan", "invesco", "hsbc", "quant",
+    "franklin", "canara", "bandhan", "invesco", "hsbc", "quant", "quantum",
     "edelweiss", "sundaram", "pgim", "baroda", "bnp", "groww", "navi", "angel",
     "whiteoak", "mahindra", "manulife",
 }
+
+
+def _amc_token_set() -> set[str]:
+    """All AMC tokens from regular-growth-by-amc.md plus legacy nicknames."""
+    try:
+        from news_rag.fund_search import get_fund_index
+
+        get_fund_index()._ensure_loaded()
+        from news_rag.fund_catalog import amc_hint_token_set
+
+        return set(amc_hint_token_set()) | _AMC_TOKENS
+    except Exception:
+        return set(_AMC_TOKENS)
 
 
 _PRICE_ASK_RE = re.compile(
@@ -416,7 +480,7 @@ def _detect_funds(question: str) -> list[str]:
                 low_tokens = [t.lower() for t in ngram_tokens]
                 if all(t in stopwords for t in low_tokens):
                     continue
-                if not any(t in _AMC_TOKENS for t in low_tokens):
+                if not any(t in _amc_token_set() for t in low_tokens):
                     continue
                 ngram = " ".join(ngram_tokens)
                 try:

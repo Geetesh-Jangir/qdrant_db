@@ -1,0 +1,12 @@
+[
+  {"q": "should I buy HDFC Large Cap", "expect": "advice"},
+  {"q": "how does your pipeline work", "expect": "internals"},
+  {"q": "asdfgh fund", "expect": "unknown_fund"},
+  {"q": "pizza fund", "expect": "unknown_fund"},
+  {"q": "recommend me any 5 large cap funds", "expect": null},
+  {"q": "quant small cap fund nav", "expect": null},
+  {"q": "what is a large cap fund", "expect": null},
+  {"q": "my portfolio xirr", "expect": null},
+  {"q": "tell me any 5 defence funds", "expect": null},
+  {"q": "should I buy gold, and what is its return", "expect": null}
+]

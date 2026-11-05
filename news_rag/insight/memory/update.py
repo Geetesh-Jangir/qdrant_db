@@ -81,12 +81,11 @@ def _facts_from_plan(plan: Any) -> list[str]:
         args = call.arguments or {}
         if call.tool == "get_fund_data":
             modules = [str(item) for item in (args.get("modules") or [])] or ["snapshot"]
-            windows = ",".join(str(item) for item in (args.get("windows") or [])) or "-"
-            facts.extend(f"get_fund_data:{mod}:{windows}" for mod in modules)
-            facts.extend(modules)
-            facts.extend(str(item) for item in (args.get("windows") or []))
+            windows = [str(item) for item in (args.get("windows") or [])] or ["-"]
+            # One entry per module and window, so "1M fetched" is never read as "1Y fetched".
+            facts.extend(f"get_fund_data:{mod}:{win}" for mod in modules for win in windows)
         elif call.tool == "get_portfolio_data":
-            facts.extend(str(item) for item in (args.get("sections") or []))
+            facts.extend(f"get_portfolio_data:{item}" for item in (args.get("sections") or []))
         elif call.tool == "search_financial_news":
             facts.append("news")
         elif call.tool:

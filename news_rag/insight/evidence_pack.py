@@ -418,6 +418,40 @@ def build_evidence_pack(
                 evidence_ids=["screen_funds"],
             ))
 
+        elif tool == "get_macro_news":
+            if isinstance(data, dict):
+                clusters = data.get("clusters") or []
+                if isinstance(clusters, list) and clusters:
+                    data_pack["macro_news"] = {
+                        "window_days": data.get("window_days"),
+                        "article_total": data.get("article_total"),
+                    }
+                    bucket = news_grouped.setdefault("macro", [])
+                    for cluster in clusters:
+                        if not isinstance(cluster, dict):
+                            continue
+                        theme = str(cluster.get("label") or "")
+                        for a in (cluster.get("articles") or [])[:8]:
+                            if not isinstance(a, dict):
+                                continue
+                            bucket.append(
+                                {
+                                    "theme": theme,
+                                    "title": a.get("title") or a.get("headline", ""),
+                                    "summary": a.get("summary")
+                                    or a.get("snippet")
+                                    or str(a.get("text", ""))[:400],
+                                    "source": a.get("source", ""),
+                                    "url": a.get("url", ""),
+                                    "date": a.get("published_at")
+                                    or a.get("published_date")
+                                    or a.get("date", ""),
+                                    "published_at": a.get("published_at")
+                                    or a.get("published_date")
+                                    or a.get("date", ""),
+                                }
+                            )
+
         elif tool == "search_financial_news":
             if isinstance(data.get("macro_news"), dict):
                 data_pack["macro_news"] = data["macro_news"]

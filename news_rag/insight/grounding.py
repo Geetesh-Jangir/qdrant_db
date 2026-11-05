@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from datetime import date
 from typing import Any
 
 _MEDIA_OUTLETS = (
@@ -103,20 +104,73 @@ def publication_date_keys(published_at: str) -> set[str]:
     return keys
 
 
-def mentions_publication_date(text: str, published_keys: set[str]) -> bool:
-    """True for outlet-style date citations, not for event dates in prose."""
-    if _CITE_DATE_RE.search(text or ""):
-        return True
-    if not published_keys:
-        return False
-    for match in _PROSE_DATE_RE.finditer(text or ""):
-        if match.group(0).lower() in published_keys:
-            return True
-    return False
+def _ordinal_day(day: int) -> str:
+    if 11 <= (day % 100) <= 13:
+        return f"{day}th"
+    suffix = ("th", "st", "nd", "rd", "th", "th", "th", "th", "th", "th")
+    return f"{day}{suffix[day % 10]}"
+
+
+def format_user_calendar_date(iso_timestamp: str, *, include_year: bool | None = None) -> str:
+    """ISO publish time -> user-facing anchor like 2nd Nov or 31st Oct 2026."""
+    raw = str(iso_timestamp or "").strip()
+    if len(raw) < 10 or not raw[:4].isdigit():
+        return ""
+    try:
+        year, month, day = int(raw[:4]), int(raw[5:7]), int(raw[8:10])
+    except ValueError:
+        return ""
+    short = ("", "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    if not 1 <= month <= 12 or not 1 <= day <= 31:
+        return ""
+    show_year = include_year if include_year is not None else year != date.today().year
+    base = f"{_ordinal_day(day)} {short[month]}"
+    return f"{base} {year}" if show_year else base
+
+
+def collect_evidence_calendar_dates(evidence: dict[str, Any], *, limit: int = 12) -> list[dict[str, str]]:
+    """NEWS published_at rows the composer can anchor events to."""
+    news = evidence.get("NEWS")
+    if not isinstance(news, dict):
+        return []
+    rows: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add_article(art: dict[str, Any], topic: str) -> None:
+        if len(rows) >= limit:
+            return
+        iso = str(
+            art.get("published_at") or art.get("date") or art.get("published_date") or ""
+        ).strip()
+        label = format_user_calendar_date(iso)
+        if not label or label in seen:
+            return
+        seen.add(label)
+        theme = str(art.get("theme") or topic or "").strip()
+        rows.append({"date": label, "topic": theme[:96]})
+
+    for scope, bucket in news.items():
+        if isinstance(bucket, list):
+            for art in bucket:
+                if isinstance(art, dict):
+                    add_article(art, str(scope))
+        elif isinstance(bucket, dict):
+            for entity, arts in bucket.items():
+                if isinstance(arts, list):
+                    for art in arts:
+                        if isinstance(art, dict):
+                            add_article(art, str(entity or scope))
+    return rows
+
+
+def mentions_publication_date(text: str, published_keys: set[str] | None = None) -> bool:
+    """True only for parenthetical outlet-style date citations, not calendar dates in prose."""
+    del published_keys
+    return bool(_CITE_DATE_RE.search(text or ""))
 
 
 def derived_cores(allowed: set[str]) -> set[str]:
-    """Sums of two measured figures, so a mid-cap plus small-cap total is not deleted."""
+    """Sum, gap and weight x return of two measured figures, so honest derived numbers are not deleted."""
     numbers: list[float] = []
     for core in allowed:
         try:
@@ -128,10 +182,12 @@ def derived_cores(allowed: set[str]) -> set[str]:
     extra: set[str] = set()
     for index, left in enumerate(numbers[:30]):
         for right in numbers[index + 1 : 30]:
-            total = round(left + right, 2)
-            extra.add(numeric_core(f"{total:.2f}"))
-            extra.add(numeric_core(f"{total:.1f}"))
-            extra.add(str(int(round(total))))
+            # sum (cap totals), gap (fund minus benchmark), contribution (weight x return / 100)
+            for total in (left + right, abs(left - right), left * right / 100):
+                total = round(total, 2)
+                extra.add(numeric_core(f"{total:.2f}"))
+                extra.add(numeric_core(f"{total:.1f}"))
+                extra.add(str(int(round(total))))
     extra.discard("")
     return extra
 

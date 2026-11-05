@@ -2,8 +2,8 @@
   "sector_label": "Diversified Fmcg",
   "benchmark_label": "Diversified Fmcg",
   "yfinance_ticker": "^CNXFMCG",
-  "return_pct": 3.34,
+  "return_pct": 2.8,
   "window_days": 30,
   "substituted_broad_index": false,
-  "cached_at": 1793776654.583942
+  "cached_at": 1793876330.3878164
 }

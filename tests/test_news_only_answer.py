@@ -86,6 +86,51 @@ def test_news_insight_drops_publisher_clips_and_unrelated_articles():
     assert "..." not in cleaned
 
 
+def test_get_macro_news_clusters_reach_composer_news():
+    plan = ExecutionPlan(
+        intent="overview",
+        answer_mode=AnswerMode.NEWS_ONLY,
+        tool_calls=[
+            ToolCall(tool="get_market_snapshot", arguments={}, wave=1),
+            ToolCall(tool="get_macro_news", arguments={}, wave=1),
+        ],
+    )
+    pack = build_evidence_pack(
+        plan,
+        [
+            {"tool": "get_market_snapshot", "ok": True, "data": {"index_return": {"return_pct": 6.99}}},
+            {
+                "tool": "get_macro_news",
+                "ok": True,
+                "data": {
+                    "window_days": 7,
+                    "article_total": 2,
+                    "clusters": [
+                        {
+                            "label": "Macro - Rupee / USD",
+                            "articles": [
+                                {
+                                    "title": "Rupee likely to resume slide",
+                                    "summary": "Foreign outflows keep pressure on the currency.",
+                                    "published_at": "2026-11-04T09:01:39Z",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+        ],
+        [],
+        question="what happening in the market?",
+    )
+    assert pack.coverage.get("has_news") is True
+    assert "macro" in pack.news_grouped
+    assert pack.news_grouped["macro"][0]["title"] == "Rupee likely to resume slide"
+    compact = pack.compact()
+    assert "NEWS" in compact
+    assert "Rupee" in str(compact["NEWS"])
+
+
 def test_news_plus_a_market_snapshot_stays_with_the_composer():
     plan = ExecutionPlan(
         intent="lookup",

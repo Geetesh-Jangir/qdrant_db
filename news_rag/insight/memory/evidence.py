@@ -46,6 +46,18 @@ def slice_slot(tool: str, args: dict[str, Any] | None) -> str:
         scheme = str(args.get("scheme_filter") or "").strip().lower()[:80]
         fields = str(args.get("holdings_fields") or "minimal").lower()
         return f"investor|{modules}|scheme={scheme}|hf={fields}"
+    if tool == "get_market_snapshot":
+        modules = ",".join(str(item) for item in (args.get("modules") or ["index_return"]))
+        index = str(args.get("index") or "nifty50").strip().lower()[:40]
+        days = int(args.get("window_days") or 30)
+        slot = f"snapshot|{index}|m={modules}|d={days}|n={int(args.get('top_n') or 6)}"
+        metal = str(args.get("metal") or "").strip().lower()
+        if metal:
+            slot = f"{slot}|metal={metal}"
+        stock = str(args.get("stock") or "").strip().lower()[:40]
+        if stock:
+            slot = f"{slot}|stock={stock}"
+        return slot
     return tool
 
 
@@ -91,6 +103,24 @@ def recall_slice(conversation_id: str, fund: str, tool: str, args: dict[str, Any
             bucket.pop(key, None)
             return None
         return row.get("data")
+
+
+def stored_fund_slices(conversation_id: str, fund: str) -> list[Any]:
+    """Every live get_fund_data payload kept for this fund, newest first. The caller checks coverage."""
+    conv = str(conversation_id or "").strip()
+    name = " ".join(str(fund or "").lower().split())
+    if not conv or not name:
+        return []
+    prefix = f"{name}|fund|"
+    now = time.time()
+    with _lock:
+        rows = [
+            row
+            for key, row in (_slices.get(conv) or {}).items()
+            if key.startswith(prefix) and now - float(row.get("stored_at") or 0) <= IDLE_SEC
+        ]
+    rows.sort(key=lambda row: float(row.get("stored_at") or 0), reverse=True)
+    return [row.get("data") for row in rows]
 
 
 def recall_wider_portfolio(conversation_id: str, fund: str, args: dict[str, Any] | None) -> Any | None:

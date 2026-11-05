@@ -6,7 +6,7 @@ from news_rag.insight.display_table_policy import (
     question_wants_fact_table,
     resolve_display_table_policy,
 )
-from news_rag.insight.graph import _strip_unasked_closers
+from news_rag.insight.graph import _strip_unasked_closers, strip_meta_opening_heading
 
 
 def test_specific_lookup_has_no_default_table():
@@ -27,6 +27,14 @@ def test_fact_table_only_for_compare_or_an_explicit_list():
     assert question_wants_fact_table("compare these two funds", compare)
     lookup = ExecutionPlan(intent="lookup")
     assert not question_wants_fact_table("what is the expense ratio", lookup)
+
+
+def test_strip_meta_opening_heading_keeps_summary_prose():
+    raw = "### The short answer\nCrude fell **16%** last week.\n\n### What drove it\n- Iran talks"
+    out = strip_meta_opening_heading(raw)
+    assert not out.startswith("#")
+    assert out.startswith("Crude fell")
+    assert "### What drove it" in out
 
 
 def test_next_steps_and_summary_are_removed():

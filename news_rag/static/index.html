@@ -476,12 +476,42 @@
       bot.scrollIntoView({ block: "nearest" });
     }
 
-    document.getElementById("newChat").addEventListener("click", () => {
-      conversationId = "conv_" + Math.random().toString(36).substring(2, 9);
-      sessionStorage.setItem("rag_conversation_id", conversationId);
+    function collectPriorTurns() {
+      const bubbles = threadEl.querySelectorAll(".bubble");
+      const turns = [];
+      let pendingUser = null;
+      for (const node of bubbles) {
+        if (node.classList.contains("user")) {
+          pendingUser = (node.textContent || "").trim();
+        } else if (node.classList.contains("assistant") && pendingUser) {
+          const insightNode = node.querySelector(".insight");
+          const assistant = insightNode ? (insightNode.textContent || "").trim() : "";
+          if (assistant) {
+            turns.push({ user: pendingUser, assistant: assistant });
+          }
+          pendingUser = null;
+        }
+      }
+      return turns.slice(-8);
+    }
+
+    function resetChatScreen() {
       threadEl.innerHTML = "";
       document.getElementById("question").value = "";
       resultEl = null;
+      askedAt = 0;
+      errorEl.textContent = "";
+      errorEl.classList.add("hidden");
+      statusEl.textContent = "";
+      statusEl.classList.add("hidden");
+      resetTimeline();
+      if (timelineEl) timelineEl.classList.add("hidden");
+    }
+
+    document.getElementById("newChat").addEventListener("click", () => {
+      conversationId = "conv_" + Math.random().toString(36).substring(2, 9);
+      sessionStorage.setItem("rag_conversation_id", conversationId);
+      resetChatScreen();
     });
 
     function resetTimeline() {
@@ -1435,6 +1465,11 @@
         }
       }
       if (resultEl) resultEl.classList.remove("hidden");
+      if (data.conversation_reset_required) {
+        sessionStorage.removeItem("rag_conversation_id");
+        window.location.reload();
+        return;
+      }
     }
 
     form.addEventListener("submit", async (event) => {
@@ -1446,11 +1481,13 @@
       resetTimeline();
 
       const q = document.getElementById("question").value.trim();
+      const priorTurns = collectPriorTurns();
       beginBubble(q);
       document.getElementById("question").value = "";
       const body = {
         question: q,
         conversation_id: conversationId,
+        prior_turns: priorTurns,
       };
 
       let streamedText = "";

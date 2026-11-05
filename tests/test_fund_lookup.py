@@ -137,6 +137,29 @@ def test_absl_and_ppfas_shorthand() -> None:
         assert needle in name, (question, name)
 
 
+def test_quant_small_cap_is_quant_amc_not_quantum_or_axis_quant() -> None:
+    for phrase in ("quant small cap", "quant small cap fund"):
+        detail, ambiguous, _ = lookup_extracted_fund(name=phrase)
+        assert not ambiguous, phrase
+        assert detail is not None, phrase
+        assert detail.get("isin") in ("INF966L01051", "INF966L01AA0"), phrase
+    detail, ambiguous, _ = resolve_fund_for_query(
+        "why do quant small cap fund is going down lately? give me in depth?"
+    )
+    assert not ambiguous
+    assert detail is not None
+    assert detail.get("isin") in ("INF966L01051", "INF966L01AA0")
+
+
+def test_axis_quant_is_not_quant_amc() -> None:
+    detail, ambiguous, _ = lookup_extracted_fund(name="axis quant fund")
+    assert not ambiguous
+    assert detail is not None
+    name = (detail.get("fund_short_name") or "").lower()
+    assert "axis" in name
+    assert detail.get("isin") == "INF846K011A2"
+
+
 def test_invested_hdfc_large_cap_not_large_mid() -> None:
     q = (
         "I have invested in the HDFC large cap fund, "

@@ -9,6 +9,8 @@ Generated: 2026-09-30
 - Skipped other plans: 8138
 - Accord rows with no Regular Growth ISIN: 104 (adjusted, unclaimed, and old plans)
 
+**AMC names:** every `##` header is an AMC (or SIF) brand in the catalog, including **Quant Mutual Fund** (AMC «Quant») and **Quantum Mutual Fund** (separate brand). Schemes named «Quant Fund» under other AMCs (e.g. Axis Quant Fund) are strategy names, not the Quant AMC.
+
 ## 360 ONE Mutual Fund
 
 12 funds
@@ -1981,7 +1983,7 @@ Generated: 2026-09-30
 - Quant Overnight Fund - Regular Plan - Growth — `INF966L01BC4`
 - Quant PSU Fund - Regular Plan - Growth — `INF966L01DQ0`
 - Quant Quantamental Fund - Regular Plan - Growth — `INF966L01AH5`
-- Quant Small Cap Fund - Growth — `INF966L01051`
+- Quant Small Cap Fund - Growth — `INF966L01AA0`
 - Quant Teck Fund - Regular Plan - Growth — `INF966L01CQ2`
 - Quant Value Fund - Regular Plan - Growth — `INF966L01AQ6`
 

@@ -374,16 +374,18 @@ def repair_data_need_tools(plan: ExecutionPlan) -> ExecutionPlan:
                 )
             )
     elif need == "category_performance":
-        if not any(c.tool == "get_fund_data" for c in plan.tool_calls):
-            plan.tool_calls = [
+        # Only for a fund already bound; without one the call has no target and would replace a valid screen.
+        if plan.funds and not any(c.tool == "get_fund_data" for c in plan.tool_calls):
+            _prepend_tool(
+                plan,
                 ToolCall(
                     tool="get_fund_data",
                     arguments={"modules": ["snapshot", "vs_benchmark"], "windows": ["1Y", "3Y", "5Y"]},
                     wave=1,
                 ),
-            ]
+            )
     elif need == "rating_for_screened_list":
-        if not _has_modules(plan, "rating"):
+        if plan.funds and not _has_modules(plan, "rating"):
             _prepend_tool(
                 plan,
                 ToolCall(tool="get_fund_data", arguments={"modules": ["rating"]}, wave=1),
@@ -457,6 +459,9 @@ def apply_planner_post_hooks(
 
     ensure_whole_book_catalog_scope(plan, memory, question)
     plan = ensure_deictic_fund_period_return_plan(plan, memory, question)
+    from news_rag.insight.investor_subject import enforce_catalog_fund_list_scope
+
+    plan = enforce_catalog_fund_list_scope(plan, memory, question)
     from news_rag.insight.fact_slots import merge_planner_asked_facts, tag_answer_parts
 
     merge_planner_asked_facts(plan)
@@ -464,7 +469,12 @@ def apply_planner_post_hooks(
     from news_rag.insight.multi_fact import ensure_planner_fund_fact_modules
 
     ensure_planner_fund_fact_modules(question, plan)
-    ensure_catalog_tools_for_fund_news(plan)
+    from news_rag.insight.bullion_plan import apply_bullion_metal_scope
+    from news_rag.insight.macro_scope import apply_standalone_macro_scope
+
+    plan = apply_bullion_metal_scope(question, plan)
+    plan = apply_standalone_macro_scope(question, plan)
+    ensure_catalog_tools_for_fund_news(plan, question)
     ensure_compare_fund_pair(plan, memory, question)
     apply_category_scoped_compare_funds(question, plan, memory)
     apply_deictic_equity_compare_funds(question, plan, memory)

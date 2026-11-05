@@ -21,11 +21,33 @@ def test_tidy_prose_keeps_percent_after_a_number():
     assert "per cent" not in tidy_prose("a stray per cent with no number")
 
 
-def test_publication_date_does_not_flag_unrelated_event_dates():
+def test_publication_date_flags_paren_cites_not_prose_anchors():
     keys = publication_date_keys("2026-10-07")
-    assert mentions_publication_date("The RBI hiked rates on 7 October.", keys)
+    assert not mentions_publication_date("Brent rebounded to $106 on 7 October.", keys)
     assert not mentions_publication_date("The RBI hiked rates on 15 October.", keys)
-    assert mentions_publication_date("Sold off (7 Oct).", set())
+    assert mentions_publication_date("Sold off (7 Oct).", keys)
+
+
+def test_format_user_calendar_date_and_news_collection():
+    from news_rag.insight.grounding import collect_evidence_calendar_dates, format_user_calendar_date
+
+    assert format_user_calendar_date("2026-11-04") == "4th Nov"
+    assert format_user_calendar_date("2025-10-31") == "31st Oct 2025"
+    evidence = {
+        "NEWS": {
+            "macro": {
+                "rupee": [
+                    {
+                        "published_at": "2026-10-12T18:16:26Z",
+                        "theme": "rupee",
+                        "title": "Rupee steady",
+                    }
+                ]
+            }
+        }
+    }
+    rows = collect_evidence_calendar_dates(evidence)
+    assert rows and rows[0]["date"] == "12th Oct"
 
 
 def test_market_brief_is_tier_t0_and_one_news_path():

@@ -82,6 +82,36 @@ def test_investor_slice_keys_differ_by_modules():
     assert a != b
 
 
+def test_market_snapshot_slice_keys_differ_by_window_days():
+    from news_rag.insight.memory.evidence import slice_slot
+
+    week = slice_slot(
+        "get_market_snapshot",
+        {"modules": ["index_return"], "index": "nifty50", "window_days": 7},
+    )
+    month = slice_slot(
+        "get_market_snapshot",
+        {"modules": ["index_return"], "index": "nifty50", "window_days": 30},
+    )
+    assert week != month
+
+
+def test_market_snapshot_cache_does_not_cover_different_window():
+    cached_week = {
+        "index_return": {"return_pct": 6.99, "window_days": 7, "horizon": "1W"},
+    }
+    assert _return_slice_covers(
+        "get_market_snapshot",
+        {"modules": ["index_return"], "window_days": 30},
+        cached_week,
+    ) is False
+    assert _return_slice_covers(
+        "get_market_snapshot",
+        {"modules": ["index_return"], "window_days": 7},
+        cached_week,
+    ) is True
+
+
 def test_rollup_summary_from_holdings_survives_grounding():
     from news_rag.insight.grounding import cores_in_text, derived_cores, strip_ungrounded_numbers
     from news_rag.insight.pack_sanitize import sanitize_data_pack_for_composer

@@ -12,7 +12,13 @@ from typing import Any
 import httpx
 
 from news_rag.config import get_settings
-from news_rag.fund_catalog import get_amc_catalog, install_amc_catalog
+from news_rag.fund_catalog import (
+    bare_amc_name,
+    get_amc_catalog,
+    install_amc_catalog,
+    is_quant_amc_entry,
+    is_quantum_amc_entry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +29,7 @@ _API_BASE_URL = "https://backend.rupeestop.com/api/v1/app/fund"
 _ISIN_ALIASES: dict[str, str] = {
     "INF063A01027": "INF179KA1RT1",  # HDFC Large & Mid Cap Regular Growth
     "INF063A01050": "INF179KA1RZ8",  # HDFC Small Cap Regular Growth
+    "INF966L01051": "INF966L01AA0",  # Quant Small Cap Regular Growth (Accord vs API canonical)
 }
 
 # Rare legacy nicknames only — routine resolution uses catalog fuzzy match, not this map.
@@ -91,6 +98,7 @@ _AMC_HINT_TOKENS: dict[str, tuple[str, ...]] = {
     "canara": ("canara",),
     "edelweiss": ("edelweiss",),
     "quant": ("quant",),
+    "quantum": ("quantum",),
     "hsbc": ("hsbc",),
     "jm": ("jm financial", "jm "),
     "pgim": ("pgim",),
@@ -141,17 +149,29 @@ def _amc_hints_from_tokens(tokens: list[str]) -> list[str]:
     return list(dict.fromkeys(hints))
 
 
+def _hint_matches_amc_entry(entry: dict[str, Any], hint: str, *, all_hints: list[str]) -> bool:
+    amc_hdr = str(entry.get("amc") or "")
+    name_raw = str(entry.get("fund_short_name") or entry.get("fund_name") or "")
+    name = _normalize_fund_text(name_raw)
+    amc_norm = _normalize_fund_text(amc_hdr)
+    blob = f"{amc_norm} {name}"
+
+    if hint == "quant":
+        others = [h for h in all_hints if h != "quant"]
+        if others:
+            return bool(re.search(r"\bquant\b", name)) and not name.startswith("quantum")
+        return is_quant_amc_entry(amc_header=amc_hdr, fund_name=name_raw)
+    if hint == "quantum":
+        return is_quantum_amc_entry(amc_header=amc_hdr, fund_name=name_raw)
+
+    needles = _needles_for_amc_hint(hint)
+    return any(n in blob for n in needles)
+
+
 def _entry_matches_amc(entry: dict[str, Any], hints: list[str]) -> bool:
     if not hints:
         return True
-    amc = _normalize_fund_text(str(entry.get("amc") or ""))
-    name = _normalize_fund_text(str(entry.get("fund_short_name") or entry.get("fund_name") or ""))
-    blob = f"{amc} {name}"
-    for hint in hints:
-        needles = _needles_for_amc_hint(hint)
-        if any(n in blob for n in needles):
-            return True
-    return False
+    return all(_hint_matches_amc_entry(entry, h, all_hints=hints) for h in hints)
 
 
 def _normalize_fund_text(text: str) -> str:

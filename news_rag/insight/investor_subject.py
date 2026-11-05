@@ -75,10 +75,10 @@ def resolve_investor_holding_by_amc_token(
     """'My quant fund' → Quant Small Cap in holdings when category slug does not match."""
     if not question_refers_to_investor_holding(question):
         return ""
-    from news_rag.insight.brief import _AMC_TOKENS
+    from news_rag.insight.brief import _amc_token_set
 
     q_tokens = set(re.findall(r"[a-z0-9]+", (question or "").lower()))
-    amc_hits = [t for t in q_tokens if t in _AMC_TOKENS]
+    amc_hits = [t for t in q_tokens if t in _amc_token_set()]
     if not amc_hits:
         return ""
 
@@ -98,8 +98,9 @@ def resolve_investor_holding_by_amc_token(
         if not name:
             continue
         lowered = name.lower()
-        if any(amc in lowered for amc in amc_hits):
-            matches.append(name)
+        if not any(re.search(rf"\b{re.escape(amc)}\b", lowered) for amc in amc_hits):
+            continue
+        matches.append(name)
     unique = list(dict.fromkeys(matches))
     if len(unique) == 1:
         return unique[0]
@@ -407,38 +408,73 @@ def ensure_all_holdings_metrics_plan(
     question: str,
     memory: dict[str, Any] | None = None,
 ) -> ExecutionPlan:
-    """RS rating / returns for all my funds → investor book first, then catalog per holding."""
+    """Returns for all my funds: one get_investor_portfolio with windows when possible."""
     if not question_asks_whole_investor_portfolio(question, plan):
         return plan
     if not any(c.tool in ("get_fund_data", "get_portfolio_data", "compare_funds") for c in plan.tool_calls or []):
         return plan
     from news_rag.config import get_settings
     from news_rag.insight.memory.fund_context import owned_holding_names
+    from news_rag.insight.return_windows import normalize_window_code
 
     if not get_settings().portfolio_enabled:
         return plan
     plan.holding_scope = "all_holdings"
     plan.portfolio_scope = "both"
-    names = owned_holding_names(memory)
-    if names:
-        plan.funds = names
+
+    windows: list[str] = []
+    label = str(getattr(plan, "window_label", "") or "").strip().upper()
+    if label:
+        code = normalize_window_code(label)
+        if code:
+            windows.append(code)
+    for call in plan.tool_calls or []:
+        if call.tool != "get_fund_data":
+            continue
+        for raw in (call.arguments or {}).get("windows") or []:
+            code = normalize_window_code(str(raw))
+            if code and code not in windows:
+                windows.append(code)
+
     investor_calls = [c for c in plan.tool_calls or [] if c.tool == "get_investor_portfolio"]
     if not investor_calls:
+        inv_args: dict[str, Any] = {
+            "modules": ["holdings"],
+            "include_meta": True,
+            "holdings_fields": "standard",
+            "top_n": 20,
+            "sort_by": "aum",
+        }
+        if windows:
+            inv_args["windows"] = windows[:8]
         plan.tool_calls = [
             ToolCall(
                 tool="get_investor_portfolio",
-                arguments={
-                    "modules": ["holdings"],
-                    "include_meta": True,
-                    "holdings_fields": "standard",
-                    "top_n": 20,
-                    "sort_by": "aum",
-                },
+                arguments=inv_args,
                 wave=1,
-                why="Load book before catalog metrics for all holdings",
+                why="Load book and catalog returns for all holdings in one call",
             ),
             *(plan.tool_calls or []),
         ]
+    elif windows:
+        for call in plan.tool_calls or []:
+            if call.tool == "get_investor_portfolio":
+                call.arguments = {**(call.arguments or {}), "windows": windows[:8]}
+
+    if windows:
+        plan.tool_calls = [
+            c
+            for c in (plan.tool_calls or [])
+            if not (
+                c.tool == "get_fund_data"
+                and set((c.arguments or {}).get("modules") or []) <= {"snapshot"}
+            )
+        ]
+        plan.funds = []
+    else:
+        names = owned_holding_names(memory)
+        if names:
+            plan.funds = names
     plan.requires_compose = True
     return plan
 
@@ -485,9 +521,15 @@ def resolve_answer_subject(
     investor_holdings: list[dict[str, Any]] | None = None,
     wave1_results: list[dict[str, Any]] | None = None,
 ) -> str:
+    if question_asks_catalog_fund_list(question, plan):
+        return ""
     subject = str((plan.funds or [""])[0] or "").strip()
     if subject:
         return subject
+    from news_rag.insight.brief import question_is_standalone_macro
+
+    if question_is_standalone_macro(question):
+        return ""
     subject = resolve_investor_holding_fund_name(question, memory)
     if subject:
         return subject
@@ -525,10 +567,21 @@ def question_refers_deictic_fund(question: str) -> bool:
     if stripped.startswith(("its ", "it ")):
         return True
     q = f" {stripped} "
-    if any(p in q for p in (" its ", " this fund", " that fund", " this scheme", " that scheme")):
+    if any(p in q for p in (" this fund", " that fund", " this scheme", " that scheme")):
+        return True
+    if re.search(
+        r"\bits\s+(?:risk|returns?|nav|rating|holdings?|drawdown|news|portfolio|"
+        r"allocation|performance|aum|expense|benchmark|category|sectors?)\b",
+        q,
+    ):
         return True
     if re.search(
         r"\bis it a(?:n| the|\s+(?:bad|good|right|wrong|safe|worth|better|worse|time)\b)",
+        q,
+    ):
+        return False
+    if re.search(
+        r"\b(?:some|any|many|top|best|few)\s+it\b|\bit\s+(?:sector|stocks?|companies|industry|services|focused)\b",
         q,
     ):
         return False
@@ -629,6 +682,54 @@ def question_asks_fund_measured_return(question: str) -> bool:
     return False
 
 
+def question_asks_catalog_fund_list(question: str, plan: ExecutionPlan) -> bool:
+    """Sector/theme fund screen listing several schemes — not a single-fund memory follow-up."""
+    if question_refers_deictic_fund(question):
+        return False
+    if resolve_user_named_fund_in_memory(question, None):
+        return False
+    has_screen = any(c.tool == "screen_funds_by_exposure" for c in (plan.tool_calls or []))
+    if not has_screen:
+        return False
+    q = (question or "").lower()
+    from news_rag.tools import explicit_fund_count
+
+    count = explicit_fund_count(question or "")
+    if count and count >= 2:
+        return True
+    if int(plan.planner_count or 0) >= 2:
+        return True
+    if str(plan.intent or "").lower() == "rank" and re.search(r"\bfunds?\b", q):
+        return True
+    if re.search(
+        r"\bsome\b|\ba few\b|\bwhich funds\b|\blist\b|\btell me .{0,24} funds\b|\bfunds .{0,20} returns\b",
+        q,
+    ):
+        return True
+    for call in plan.tool_calls or []:
+        if call.tool == "screen_funds_by_exposure" and int((call.arguments or {}).get("top_n") or 0) >= 2:
+            return True
+    return False
+
+
+def enforce_catalog_fund_list_scope(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+    question: str = "",
+) -> ExecutionPlan:
+    """Keep catalog screens off chat memory / list_cursor fund bindings."""
+    del memory
+    if not question_asks_catalog_fund_list(question, plan):
+        return plan
+    plan.funds = []
+    plan.subject_ref = "none"
+    plan.holding_scope = "none"
+    if str(plan.portfolio_scope or "").lower() in ("investor", "both"):
+        plan.portfolio_scope = "none"
+    plan.tool_calls = [c for c in (plan.tool_calls or []) if c.tool != "get_fund_data"]
+    return plan
+
+
 def plan_targets_single_fund_measured_return(plan: ExecutionPlan, question: str = "") -> bool:
     del question
     if len(plan.funds or []) != 1:
@@ -645,6 +746,8 @@ def ensure_deictic_fund_period_return_plan(
     if str(plan.holding_scope or "").strip().lower() == "all_holdings":
         return plan
     if question_asks_whole_investor_portfolio(question, plan):
+        return plan
+    if question_asks_catalog_fund_list(question, plan):
         return plan
     if not question_asks_fund_measured_return(question):
         return plan
@@ -763,16 +866,16 @@ _SCHEME_NAME_MATCH_SKIP = frozenset(
 
 def user_explicitly_named_scheme(question: str, fund_name: str) -> bool:
     """True only when the user text actually names this scheme — not a token like 'minimum' alone."""
-    from news_rag.insight.brief import _AMC_TOKENS
+    from news_rag.insight.brief import _amc_token_set
 
     text = (question or "").lower()
     name_lower = (fund_name or "").lower()
     if not text or not name_lower:
         return False
     q_tokens = set(re.findall(r"[a-z0-9]+", text))
-    amc_in_question = [t for t in q_tokens if t in _AMC_TOKENS]
+    amc_in_question = [t for t in q_tokens if t in _amc_token_set()]
     if amc_in_question:
-        return any(amc in name_lower for amc in amc_in_question)
+        return any(re.search(rf"\b{re.escape(amc)}\b", name_lower) for amc in amc_in_question)
     fund_tokens = [
         w
         for w in re.findall(r"[a-z0-9]+", name_lower)
@@ -790,9 +893,20 @@ def reconcile_planner_invented_fund_name(
     question: str = "",
 ) -> ExecutionPlan:
     """Follow-ups with no new scheme in the question — keep last_fund_focus, not planner word-match."""
+    from news_rag.insight.brief import question_is_standalone_macro
     from news_rag.insight.memory.fund_context import memory_known_fund_names, primary_fund_name
 
-    if not memory or not plan.funds:
+    if question_is_standalone_macro(question):
+        plan.funds = []
+        plan.subject_ref = "none"
+        return plan
+
+    if not plan.funds:
+        return plan
+    if not memory:
+        current = str((plan.funds or [""])[0] or "").strip()
+        if current and not user_explicitly_named_scheme(question, current):
+            plan.funds = []
         return plan
     pick = str(plan.fund_pick or "none").strip().lower()
     if pick not in ("none", "", "single"):
@@ -949,8 +1063,15 @@ def enforce_investor_holding_subject(
     return plan
 
 
-def ensure_catalog_tools_for_fund_news(plan: ExecutionPlan) -> ExecutionPlan:
+def ensure_catalog_tools_for_fund_news(
+    plan: ExecutionPlan,
+    question: str = "",
+) -> ExecutionPlan:
     """News tied to a fund needs that fund's snapshot + portfolio holdings/sectors in wave 1."""
+    from news_rag.insight.brief import question_is_standalone_macro
+
+    if question_is_standalone_macro(question):
+        return plan
     if not any(c.tool == "search_financial_news" for c in plan.tool_calls or []):
         return plan
     fund = str((plan.funds or [""])[0] or "").strip()

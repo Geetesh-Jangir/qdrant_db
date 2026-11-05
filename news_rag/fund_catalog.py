@@ -38,6 +38,8 @@ _COLL_AMC_SHORTHAND: dict[str, str] = {
     "white": "whiteoak capital",
     "oak": "whiteoak capital",
     "360": "360 one",
+    "quant": "quant",
+    "quantum": "quantum",
 }
 
 _HEADER_SUFFIX_RE = re.compile(
@@ -140,6 +142,63 @@ _CATALOG: AmcCatalogIndex | None = None
 
 def get_amc_catalog() -> AmcCatalogIndex | None:
     return _CATALOG
+
+
+def is_quant_amc_entry(*, amc_header: str = "", fund_name: str = "") -> bool:
+    """Quant Mutual Fund / QSIF — not Axis Quant, ABSL Quant, or Quantum MF."""
+    bare = bare_amc_name(amc_header).lower()
+    if bare == "quant" or bare.startswith("quant ") or "quant qsif" in amc_header.lower():
+        return True
+    name = (fund_name or "").lower()
+    return name.startswith("quant ") and not name.startswith("quantum ")
+
+
+def is_quantum_amc_entry(*, amc_header: str = "", fund_name: str = "") -> bool:
+    bare = bare_amc_name(amc_header).lower()
+    if bare.startswith("quantum"):
+        return True
+    return (fund_name or "").lower().startswith("quantum ")
+
+
+def amc_headers_for_hint(hint: str) -> list[str]:
+    """Catalog ## headers whose brand matches an AMC token (Quant ≠ Quantum)."""
+    cat = get_amc_catalog()
+    if not cat or not hint:
+        return []
+    h = hint.lower().strip()
+    if h == "quant":
+        return [hdr for hdr in cat.amc_headers if is_quant_amc_entry(amc_header=hdr)]
+    if h == "quantum":
+        return [hdr for hdr in cat.amc_headers if is_quantum_amc_entry(amc_header=hdr)]
+    needles = cat.needles_for_hint(h)
+    out: list[str] = []
+    for hdr in cat.amc_headers:
+        blob = f"{bare_amc_name(hdr)} {hdr}".lower()
+        if any(n in blob for n in needles):
+            out.append(hdr)
+    return out
+
+
+def amc_planner_lines(hints: list[str]) -> list[str]:
+    """Short catalog-backed AMC names for the planner when the user typed a brand token."""
+    lines: list[str] = []
+    for hint in hints:
+        headers = amc_headers_for_hint(hint)
+        if not headers:
+            continue
+        bare = sorted({bare_amc_name(h) for h in headers if bare_amc_name(h)})
+        if bare:
+            lines.append(f"- AMC token «{hint}»: {', '.join(bare)}")
+    return lines
+
+
+def amc_hint_token_set() -> frozenset[str]:
+    """Searchable AMC tokens from regular-growth-by-amc.md (plus colloquial shorthand)."""
+    cat = get_amc_catalog()
+    tokens = set(_COLL_AMC_SHORTHAND.keys())
+    if cat and cat.hint_tokens:
+        tokens |= set(cat.hint_tokens.keys())
+    return frozenset(tokens)
 
 
 def install_amc_catalog(amc_headers: list[str]) -> AmcCatalogIndex:

@@ -19,6 +19,7 @@ _MODULES_BY_DATA_NEED: dict[str, list[str]] = {
     "investor_summary": ["summary"],
     "investor_holding": ["holdings"],
     "investor_sip": ["sip"],
+    "investor_stp": ["stp"],
     "investor_pnl": ["summary", "holdings"],
     # Holdings rows already carry xirr_pct and absolute_return_pct; summary has portfolio XIRR.
     "investor_xirr": ["summary", "holdings"],

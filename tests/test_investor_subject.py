@@ -440,3 +440,42 @@ def test_is_it_a_bad_fund_is_not_deictic_fund_pronoun():
     q = "is it a bad fund and should i sell it"
     assert not question_refers_deictic_fund(q)
     assert question_refers_deictic_fund("do its risk analysis")
+
+
+def test_it_sector_fund_list_does_not_bind_prior_chat_fund():
+    from news_rag.insight.investor_subject import (
+        enforce_catalog_fund_list_scope,
+        ensure_deictic_fund_period_return_plan,
+        question_asks_catalog_fund_list,
+    )
+
+    q = "can you tell me some IT focused funds and their one month returns"
+    memory = {
+        "frame": {"last_fund_focus": "Kotak Services Fund - Regular Plan - Growth"},
+        "entity_stack": [{"name": "Kotak Services Fund - Regular Plan - Growth"}],
+    }
+    plan = ExecutionPlan(
+        intent="rank",
+        funds=["Kotak Services Fund - Regular Plan - Growth"],
+        subject_ref="memory_primary",
+        window_days=30,
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["snapshot"], "windows": ["1M"], "window_days": 30},
+                wave=1,
+            ),
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"sector": "Technology", "top_n": 5, "return_window": "1M"},
+                wave=1,
+            ),
+        ],
+    )
+    assert question_asks_catalog_fund_list(q, plan)
+    plan = ensure_deictic_fund_period_return_plan(plan, memory, q)
+    plan = enforce_catalog_fund_list_scope(plan, memory, q)
+    assert plan.funds == []
+    assert plan.subject_ref == "none"
+    assert all(c.tool != "get_fund_data" for c in plan.tool_calls)
+    assert resolve_answer_subject(q, plan, memory) == ""

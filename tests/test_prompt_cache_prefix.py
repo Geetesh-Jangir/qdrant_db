@@ -1,6 +1,6 @@
 """Planner and composer must share one Anthropic cache prefix and must not put tools in front of it."""
 
-from news_rag.insight.graph import COMPOSE_SYSTEM, COMPOSE_SYSTEM_PRECISE
+from news_rag.insight.graph import COMPOSE_SYSTEM
 from news_rag.insight.plan import plan_system_prompt
 from news_rag.llm_client import build_anthropic_messages_body
 from news_rag.prompts import shared_system_prefix
@@ -22,9 +22,8 @@ def test_planner_and_composer_share_the_first_system_block():
     prefix = shared_system_prefix()
     planner = _body(plan_system_prompt() + "\n\nReturn a JSON object that matches this schema:\n{}", schema={"type": "object"})
     composer = _body(COMPOSE_SYSTEM)
-    precise = _body(COMPOSE_SYSTEM_PRECISE)
 
-    assert planner["system"][0]["text"] == composer["system"][0]["text"] == precise["system"][0]["text"] == prefix
+    assert planner["system"][0]["text"] == composer["system"][0]["text"] == prefix
     assert planner["system"][0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
     assert composer["system"][1]["cache_control"]["ttl"] == "1h"
     assert "tools" not in planner
@@ -36,7 +35,6 @@ def test_planner_and_composer_share_the_first_system_block():
     assert "ROLE: COMPOSER" in composer["system"][1]["text"]
     assert "senior financial analyst" not in COMPOSE_SYSTEM
     assert "MARKDOWN LAYOUT" not in COMPOSE_SYSTEM
-    assert "What stands out" in COMPOSE_SYSTEM
     assert "MARKDOWN LAYOUT" in prefix
 
 

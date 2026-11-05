@@ -1263,6 +1263,32 @@ def _run_get_investor_portfolio(args: dict[str, Any], ctx: dict[str, Any] | None
         return {"ok": False, "error": str(projected.get("error") or "project_failed"), "data": {}}
 
     data = projected.get("data") if isinstance(projected.get("data"), dict) else {}
+    windows = [str(w).upper() for w in (args.get("windows") or []) if str(w).strip()]
+    if windows and "holdings" in modules and isinstance(data.get("holdings"), list):
+        from news_rag.insight.layer_tools import run_fund_snapshot
+
+        for row in data["holdings"]:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("scheme_name") or row.get("name") or "").strip()
+            isin = str(row.get("isin") or "").strip()
+            if not name:
+                continue
+            snap = run_fund_snapshot(
+                {
+                    **(ctx or {}),
+                    "fund_name": name,
+                    "fund_names": [name],
+                    "fund_isin": isin,
+                    "windows": windows,
+                }
+            )
+            if not snap.get("ok"):
+                continue
+            payload = snap.get("data") if isinstance(snap.get("data"), dict) else {}
+            rets = payload.get("returns") if isinstance(payload.get("returns"), dict) else payload
+            if rets:
+                row["catalog_returns"] = {str(k).upper(): v for k, v in rets.items()}
     meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
     if ctx is not None:
         ctx["portfolio_fetch_ms"] = stats.get("fetch_ms")
@@ -1331,6 +1357,11 @@ def _take_conversation_slice(ctx: dict[str, Any] | None, fund: str, tool: str, a
     data = recall_slice(conv, fund, tool, args)
     if data is None and tool == "get_portfolio_data":
         data = recall_wider_portfolio(conv, fund, args)
+    if data is None and tool == "get_fund_data":
+        # A wider cached fetch (more modules or windows) answers a narrower ask without a new call.
+        from news_rag.insight.memory.evidence import stored_fund_slices
+
+        data = next((d for d in stored_fund_slices(conv, fund) if _return_slice_covers(tool, args, d)), None)
     if data is None or not _return_slice_covers(tool, args, data):
         note_cache(conv, "fetched", key)
         return None
@@ -1339,6 +1370,42 @@ def _take_conversation_slice(ctx: dict[str, Any] | None, fund: str, tool: str, a
         return None
     note_cache(conv, "hit", key)
     return data
+
+
+_FUND_MODULE_KEYS = {
+    "snapshot": ("snapshot",),
+    "rating": ("rs_rating", "rating"),
+    "limits": ("investment_limits",),
+    "composition": ("composition",),
+    "risk": ("risk",),
+    "drawdown": ("drawdown",),
+    "managers": ("managers",),
+    "attribution": ("attribution",),
+    "vs_benchmark": ("vs_benchmark",),
+    "return_series": ("return_series",),
+}
+
+
+def _trim_cached_to_ask(tool: str, args: dict[str, Any], data: Any) -> Any:
+    """A wider cached fund payload is cut to the modules and return windows asked now."""
+    if tool != "get_fund_data" or not isinstance(data, dict):
+        return data
+    wanted = {str(m).lower() for m in (args.get("modules") or [])}
+    if not wanted:
+        return data
+    out = dict(data)
+    for module, keys in _FUND_MODULE_KEYS.items():
+        if module not in wanted:
+            for key in keys:
+                out.pop(key, None)
+    windows = {str(w).upper() for w in (args.get("windows") or []) if str(w).strip()}
+    snap = out.get("snapshot")
+    if windows and isinstance(snap, dict):
+        snap = dict(snap)
+        if isinstance(snap.get("returns"), dict):
+            snap["returns"] = {k: v for k, v in snap["returns"].items() if str(k).upper() in windows}
+        out["snapshot"] = snap
+    return out
 
 
 def _return_slice_covers(tool: str, args: dict[str, Any], data: Any) -> bool:
@@ -1350,6 +1417,23 @@ def _return_slice_covers(tool: str, args: dict[str, Any], data: Any) -> bool:
         for section in sections:
             rows = data.get(section)
             if not isinstance(rows, list) or not rows:
+                return False
+        return True
+    if tool == "get_market_snapshot":
+        if not isinstance(data, dict):
+            return False
+        want_modules = {str(m) for m in (args.get("modules") or ["index_return"])}
+        if not want_modules.issubset(data.keys()):
+            return False
+        want_days = int(args.get("window_days") or 30)
+        for module in ("index_return", "sector_ranking", "macro_series"):
+            if module not in want_modules:
+                continue
+            block = data.get(module)
+            if not isinstance(block, dict):
+                return False
+            got_days = block.get("window_days")
+            if got_days is not None and int(got_days) != want_days:
                 return False
         return True
     if tool == "get_investor_portfolio":
@@ -1517,7 +1601,8 @@ def execute_capability(
             remembered = None if skip_cache else _take_conversation_slice(per_ctx, name, call.tool, args)
             if remembered is not None:
                 results.append({
-                    "ok": True, "tool": call.tool, "fund": name, "data": remembered,
+                    "ok": True, "tool": call.tool, "fund": name,
+                    "data": _trim_cached_to_ask(call.tool, args, remembered),
                     "elapsed_ms": 0, "cached": True, "cache_layer": "conversation",
                 })
                 continue

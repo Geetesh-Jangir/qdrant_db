@@ -233,7 +233,7 @@ class EvidencePack(BaseModel):
             summaries = summarize_tables_for_composer(self.data_pack, self.display_tables)
             if summaries.get("asset_mix") or summaries.get("top_holdings") or summaries.get("top_sectors"):
                 out["TABLE_SUMMARIES"] = summaries
-            out["DISPLAY"] = self.display_tables
+            # Full markdown tables are stitched after compose; omit DISPLAY to save tokens.
         if data_pack:
             out["DATA"] = data_pack
         news = self.news_grouped

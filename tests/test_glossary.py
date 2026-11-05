@@ -64,7 +64,7 @@ def test_expense_ratio_meaning_and_judgment_uses_composer(monkeypatch):
         }
     )
     node_compose(state)
-    assert seen["system"] == COMPOSE_SYSTEM
+    assert seen["system"].startswith(COMPOSE_SYSTEM)
     assert "one specific figure" not in seen["system"].lower()
     assert "Current NAV" not in (state.answer or "")
     assert "1.58" in (state.answer or "")

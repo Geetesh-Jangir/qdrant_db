@@ -7,6 +7,7 @@ enforces fan-out caps from settings.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 # ---------------------------------------------------------------------------
@@ -16,23 +17,15 @@ from typing import Any
 CAPABILITIES: dict[str, dict[str, Any]] = {
     "get_fund_data": {
         "description": (
-            "One named mutual fund scheme: NAV, day change, benchmark, category, 52-week range, "
-            "regular expense ratio, exit load, AUM, return windows, minimum investment, asset mix, "
-            "market-cap mix, holding count, top-5 and top-10 weights, maximum drawdown, "
-            "the SEBI riskometer, and the RupeeStop score. "
-            "Request only the modules the question needs. "
-            "Direct expense ratio is included only when the user asks for the direct plan. "
-            "When no return period is named, windows are 1Y, 3Y, and 5Y. "
-            "When the user names a period, windows is only that period."
+            "Facts about ONE named scheme, by module: snapshot (NAV, day change, benchmark, category, "
+            "52-week range, expense ratio, exit load, AUM, returns per window), return_series, attribution "
+            "(what drove the move), managers, drawdown, risk (SEBI riskometer), vs_benchmark, rating "
+            "(RupeeStop score), limits (minimum SIP/lumpsum), composition (asset mix, cap mix, stock count, "
+            "top-N weight). Request only the modules the question needs."
         ),
-        "when_to_use": (
-            "User names a specific scheme (e.g. HDFC Large Cap Fund) and asks NAV, returns, "
-            "how it is doing, why it moved, or who manages it. NOT for listing unnamed funds."
-        ),
-        "do_not_use": (
-            "Do not use for 'which funds hold banking' or 'top 5 funds in IT sector' — use "
-            "screen_funds_by_exposure. Do not use for holdings inside a fund — use get_portfolio_data."
-        ),
+        "when_to_use": "A named scheme and its NAV, returns, rating, risk, manager, or why it moved.",
+        "do_not_use": "Unnamed funds (screen_funds_by_exposure); stocks inside a fund (get_portfolio_data).",
+        "example": {"modules": ["snapshot"], "windows": ["1M"]},
         "modules": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating", "limits", "composition"],
         "args_schema": {
             "modules": {"type": "list", "items": ["snapshot", "return_series", "attribution", "managers", "drawdown", "risk", "vs_benchmark", "rating", "limits", "composition"]},
@@ -40,27 +33,22 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
             "pillars": {"type": "bool", "default": False},
             "windows": {
                 "type": "list",
-                "items": "A period code: 1D, 1W, 2W, 1M, 2M, 6M, 8M, 1Y, 3Y, or YTD. Default 1Y, 3Y, 5Y when the user names no period. List only the periods the user named.",
+                "items": "period codes such as 1D, 1W, 2W, 1M, 2M, 6M, 1Y, 3Y, 5Y, 14D, YTD. Only the periods the user named; default 1Y, 3Y, 5Y when none named.",
             },
-            "periods": {"type": "list", "items": ["1y", "3y", "5y", "10y", "inception"]},
-            "window_days": {"type": "int", "min": 7, "max": 365, "default": 30},
+            "periods": {"type": "list", "items": ["1y", "3y", "5y", "10y", "inception"], "description": "drawdown/risk horizons only"},
+            "window_days": {"type": "int", "min": 7, "max": 365, "default": 30, "description": "lookback for attribution/return_series, not for snapshot returns"},
             "top_n": {"type": "int", "min": 3, "max": 12, "default": 3},
         },
         "per_fund": True,
     },
     "get_portfolio_data": {
-        "description": (
-            "What a named mutual fund holds: top stocks and/or sector weights inside that scheme."
-        ),
+        "description": "What ONE named scheme holds: top stocks (holdings) and/or sector weights (sectors).",
         "when_to_use": (
-            "Top stocks, shares, or holdings inside one named fund: sections [\"holdings\"] and top_n from the question. "
-            "Top sectors inside one fund: sections [\"sectors\"] only. "
-            "Both only when the user asked for the whole portfolio. A misspelled word still means the slice they intended."
+            "sections [\"holdings\"] for stocks, [\"sectors\"] for sector weights; both only when the user asked for both "
+            "or the whole portfolio. top_n is the number the user asked for."
         ),
-        "do_not_use": (
-            "NOT when user asks which funds are invested in banking/HDFC Bank/ a sector — "
-            "that is screen_funds_by_exposure (reverse lookup across many funds)."
-        ),
+        "do_not_use": "Which funds hold a sector or stock (screen_funds_by_exposure).",
+        "example": {"sections": ["holdings"], "top_n": 5},
         "args_schema": {
             "sections": {"type": "list", "items": ["holdings", "sectors", "count"]},
             "top_n": {"type": "int", "min": 1, "max": 50, "default": 3},
@@ -100,11 +88,12 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     },
     "search_financial_news": {
         "description": (
-            "News search. scope is all, fund, holdings, sectors, macro, stock, sector, or market. "
-            "top_n is at most 8. Use wave 2."
+            "Recent news, tied to a fund's holdings and sectors (scope all/fund/holdings/sectors), a stock, "
+            "a sector, or macro/market topics. Results carry a sentiment per article."
         ),
-        "when_to_use": "The user asked for news, or why a move happened and metrics alone are not enough.",
-        "do_not_use": "Do not use for a pure NAV, holdings, or sector-weight lookup.",
+        "when_to_use": "The user asked for news or impact, or why a move happened and the numbers alone do not explain it.",
+        "do_not_use": "A pure NAV, return, holdings, or sector-weight lookup.",
+        "example": {"scope": "all", "top_n": 8, "window_days": 30},
         "args_schema": {
             "scope": {
                 "type": "str",
@@ -119,18 +108,15 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     },
     "screen_funds_by_exposure": {
         "description": (
-            "Find multiple funds from the catalog: by sector weight, by holding a stock, "
-            "by macro driver impact, or by return window when no single fund is named."
+            "Find funds in the catalog when none is named: by sector weight, by a stock held, by macro driver "
+            "impact, by return window, or by RupeeStop rating inside a category (rating_screen)."
         ),
         "when_to_use": (
-            "Unnamed funds: sector exposure (argument sector), a stock they hold, or a macro driver. "
-            "driver must be a lowercase id such as crude_oil or rbi_repo, with direction positive, negative, or any. "
-            "top_n is how many funds to return, from 1 to 20."
+            "Pick one: sector, driver (lowercase id like crude_oil), or rating_screen with focus_question = category slug. "
+            "top_n is how many funds, 1 to 20."
         ),
-        "do_not_use": (
-            "NOT for top holdings inside one named fund — use get_portfolio_data. "
-            "NOT for NAV of one fund — use get_fund_data snapshot."
-        ),
+        "do_not_use": "Holdings inside one named fund (get_portfolio_data); NAV of one fund (get_fund_data).",
+        "example": {"sector": "Banks", "direction": "positive", "top_n": 5},
         "args_schema": {
             "sector": {"type": "str"},
             "driver": {"type": "str"},
@@ -186,13 +172,13 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     },
     "get_market_snapshot": {
         "description": (
-            "Index returns, sector ranking, macro series, and India 24K gold (INR per 10g). "
-            "modules: index_return, sector_ranking, macro_series, metals_spot, stock_quote. "
-            "series: crude, brent, wti, usdinr, gold, yield. Gold uses the India 24K per-10g series, not a USD futures price. "
-            "metals_spot takes metal gold, windows, and history_months. Do not request silver prices; silver is news only."
+            "Market numbers: index_return, sector_ranking, macro_series (crude, brent, wti, usdinr, yield), "
+            "metals_spot (India 24K gold, INR per 10g; windows and history_months), stock_quote. "
+            "No silver price exists: silver is news only."
         ),
-        "when_to_use": "Market or macro level, with no single fund named, or as context next to fund news.",
-        "do_not_use": "Do not use this to list funds affected by a driver. That is screen_funds_by_exposure.",
+        "when_to_use": "Market, index, macro or gold level with no single fund named, or as context next to fund news.",
+        "do_not_use": "Listing funds affected by a driver (screen_funds_by_exposure).",
+        "example": {"modules": ["index_return"], "index": "nifty50", "window_days": 30},
         "args_schema": {
             "modules": {"type": "list", "items": [
                 "index_return", "sector_ranking", "macro_series", "metals_spot", "stock_quote",
@@ -249,7 +235,13 @@ INVESTOR_PORTFOLIO_CAPABILITY: dict[str, Any] = {
         "transaction_limit": {"type": "int", "min": 1, "max": 15, "default": 5},
         "live_only": {"type": "bool", "default": True},
         "include_meta": {"type": "bool", "default": True},
+        "windows": {
+            "type": "list",
+            "items": ["1D", "1W", "1M", "3M", "6M", "1Y", "3Y", "5Y"],
+            "description": "When set with holdings, attach catalog return for each holding in one call (no per-fund get_fund_data fan-out).",
+        },
     },
+    "example": {"modules": ["holdings"], "holdings_fields": "standard", "windows": ["1M"]},
     "per_fund": False,
 }
 
@@ -278,16 +270,38 @@ def capability_catalog_text(*, portfolio_enabled: bool | None = None) -> str:
         portfolio_enabled = get_settings().portfolio_enabled
     lines: list[str] = []
     for name, cap in _capabilities_for_planner(portfolio_enabled=portfolio_enabled).items():
-        args = ", ".join(
-            f"{k}: {v.get('type', 'str')}" for k, v in cap["args_schema"].items()
-        )
+        args = "; ".join(_arg_text(k, v) for k, v in cap["args_schema"].items())
         block = f"- **{name}**: {cap['description']}\n  args: {args}"
         if cap.get("when_to_use"):
-            block += f"\n  USE WHEN: {cap['when_to_use']}"
+            block += f"\n  Use: {cap['when_to_use']}"
         if cap.get("do_not_use"):
-            block += f"\n  AVOID WHEN: {cap['do_not_use']}"
+            block += f"\n  Not for: {cap['do_not_use']}"
+        if cap.get("example"):
+            block += f"\n  Example: {json.dumps(cap['example'])}"
         lines.append(block)
     return "\n".join(lines)
+
+
+def _arg_text(key: str, spec: dict[str, Any]) -> str:
+    """One argument with its real allowed values, range and default, so the planner needs no prose rules."""
+    kind = spec.get("type", "str")
+    items = spec.get("items")
+    if spec.get("enum"):
+        shape = "|".join(str(x) for x in spec["enum"])
+    elif kind == "list" and isinstance(items, list):
+        shape = "list of " + "|".join(str(x) for x in items)
+    elif kind == "list":
+        shape = "list" + (f" ({items})" if items else "")
+    elif "min" in spec or "max" in spec:
+        shape = f"{kind} {spec.get('min', '')}-{spec.get('max', '')}"
+    else:
+        shape = kind
+    text = f"{key}: {shape}"
+    if "default" in spec:
+        text += f" (default {spec['default']})"
+    if spec.get("description"):
+        text += f" - {spec['description']}"
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -472,6 +486,15 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
         scheme_filter = str(src.get("scheme_filter") or "").strip()
         if scheme_filter:
             out["scheme_filter"] = scheme_filter[:120]
+        from news_rag.insight.return_windows import normalize_window_code
+
+        windows = []
+        for raw in src.get("windows") or []:
+            code = normalize_window_code(str(raw))
+            if code and code not in windows:
+                windows.append(code)
+        if windows:
+            out["windows"] = windows[:8]
         return out
 
     return {}

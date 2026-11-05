@@ -20,9 +20,37 @@ _CONCEPT_ONLY_RE = re.compile(
 )
 _DATA_INTENTS = frozenset({"lookup", "compare", "rank", "overview", "explain_cause", "measure"})
 
+_CATALOG_FUND_HOLDINGS_RE = re.compile(
+    r"\b(?:top|largest)\s+\d+\s+holdings?\s+of\b|\bholdings?\s+of\b|\bholdings?\s+in\b",
+    re.I,
+)
+
+
+def _catalog_fund_holdings_question(question: str) -> bool:
+    """Stock/scheme holdings inside a named mutual fund — not the investor's book."""
+    q = (question or "").strip()
+    if not q or not re.search(r"\bholdings?\b", q, re.I):
+        return False
+    if re.search(r"\b(?:my|mine|our)\b", q, re.I):
+        return False
+    if re.search(r"\bportfolio\b", q, re.I):
+        return False
+    if _CATALOG_FUND_HOLDINGS_RE.search(q):
+        return True
+    from news_rag.fund_search import resolve_fund_from_question
+    from news_rag.insight.investor_subject import user_explicitly_named_scheme
+
+    detail, ambiguous, _close = resolve_fund_from_question(q)
+    if not detail or ambiguous:
+        return False
+    name = str(detail.get("scheme_name") or detail.get("fund_name") or "").strip()
+    return bool(name and user_explicitly_named_scheme(q, name))
+
 
 def question_mentions_own_book(question: str) -> bool:
     if _CONCEPT_ONLY_RE.search(question or ""):
+        return False
+    if _catalog_fund_holdings_question(question):
         return False
     return bool(_OWN_BOOK_RE.search(question or ""))
 
