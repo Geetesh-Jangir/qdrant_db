@@ -1,4 +1,4 @@
-from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
+from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ScopeKind, ToolCall
 from news_rag.insight.plan_enforce import (
     apply_planner_post_hooks,
     repair_data_need_tools,
@@ -184,6 +184,175 @@ def test_compare_these_equity_funds_uses_latest_equity_category_pair():
     assert "Bandhan" in out.funds[0] or "Bandhan" in out.funds[1]
     assert not any("Value Fund" in n for n in out.funds)
     assert not any("Hybrid" in n for n in out.funds)
+
+
+def test_compare_both_rebinds_hdfc_and_absl_not_planner_invention():
+    memory = {
+        "frame": {
+            "subject_kind": "single_fund",
+            "last_fund_focus": "HDFC Large Cap Fund - Growth",
+            "subjects": [{"name": "HDFC Large Cap Fund - Growth", "role": "primary"}],
+        },
+        "entity_stack": [{"name": "HDFC Large Cap Fund - Growth"}],
+        "chat_turns": [
+            {
+                "user": "should i buy hdfc large cap fund",
+                "assistant": "For personalised recommendations, please visit our app.",
+            },
+            {
+                "user": "tell me about its nav",
+                "assistant": "## HDFC Large Cap Fund - Growth\nNAV ...",
+            },
+            {
+                "user": "what is the 1 year category avg of absl large cap",
+                "assistant": "## HDFC Large Cap Fund - Growth\nCategory avg ...",
+            },
+        ],
+        "category_funds_in_chat": [
+            {"category": "large cap", "fund_names": ["HDFC Large Cap Fund - Growth"]},
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="compare",
+        tool_calls=[ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1)],
+        funds=[
+            "The Wealth Company Arbitrage Fund - Regular Plan - Growth",
+            "Axis Children's Fund - Compulsory Lock-in - Regular Plan - Growth",
+        ],
+    )
+    out = apply_planner_post_hooks("do the fund comparison of both", plan, memory)
+    assert len(out.funds) == 2
+    assert any("HDFC" in n and "Large Cap" in n for n in out.funds)
+    assert any("Aditya Birla" in n or "ABSL" in n.upper() or "Birla" in n for n in out.funds)
+    assert not any("Wealth Company" in n for n in out.funds)
+    assert any(c.tool == "compare_funds" for c in out.tool_calls)
+    assert not any(c.tool == "get_fund_data" for c in out.tool_calls)
+
+
+def test_compare_both_prefers_chat_pair_over_stale_stack_compare():
+    memory = {
+        "frame": {
+            "subject_kind": "comparison",
+            "last_fund_focus": "HDFC Large Cap Fund - Growth",
+            "subjects": [
+                {"name": "The Wealth Company Arbitrage Fund - Regular Plan - Growth", "role": "primary"},
+                {"name": "Axis Children's Fund - Compulsory Lock-in - Regular Plan - Growth", "role": "secondary"},
+            ],
+        },
+        "entity_stack": [
+            {
+                "name": "The Wealth Company Arbitrage Fund - Regular Plan - Growth",
+                "fact_names": ["compare_funds"],
+            },
+            {
+                "name": "Axis Children's Fund - Compulsory Lock-in - Regular Plan - Growth",
+                "fact_names": ["compare_funds"],
+            },
+        ],
+        "chat_turns": [
+            {"user": "should i buy hdfc large cap fund", "assistant": "..."},
+            {"user": "tell me about its nav", "assistant": "## HDFC Large Cap Fund - Growth\nNAV ..."},
+            {"user": "what is the 1 year category avg of absl large cap", "assistant": "..."},
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="compare",
+        tool_calls=[ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1)],
+        funds=[
+            "The Wealth Company Arbitrage Fund - Regular Plan - Growth",
+            "Axis Children's Fund - Compulsory Lock-in - Regular Plan - Growth",
+        ],
+    )
+    out = apply_planner_post_hooks("do the fund comparison of both", plan, memory)
+    assert any("HDFC" in n and "Large Cap" in n for n in out.funds)
+    assert any("Aditya Birla" in n or "Birla" in n for n in out.funds)
+    assert not any("Wealth Company" in n for n in out.funds)
+
+
+def test_compare_both_prefers_recent_large_cap_pair_over_old_mention():
+    memory = {
+        "frame": {
+            "subject_kind": "single_fund",
+            "last_fund_focus": "HDFC Large Cap Fund - Growth",
+            "subjects": [{"name": "HDFC Large Cap Fund - Growth", "role": "primary"}],
+        },
+        "entity_stack": [{"name": "HDFC Large Cap Fund - Growth"}],
+        "chat_turns": [
+            {
+                "user": "tell me about icici prudential large cap fund",
+                "assistant": "ICICI ...",
+            },
+            {
+                "user": "should i buy hdfc large cap fund",
+                "assistant": "For personalised recommendations, please visit our app.",
+            },
+            {
+                "user": "tell me about its nav",
+                "assistant": "## HDFC Large Cap Fund - Growth\nNAV ...",
+            },
+            {
+                "user": "what is the 1 year category avg of absl large cap",
+                "assistant": "## HDFC Large Cap Fund - Growth\nCategory avg ...",
+            },
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="compare",
+        tool_calls=[ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1)],
+        funds=["Wrong Fund A", "Wrong Fund B"],
+    )
+    out = apply_planner_post_hooks("do the fund comparison of both", plan, memory)
+    assert len(out.funds) == 2
+    assert not any("ICICI" in n for n in out.funds)
+    assert any("HDFC" in n and "Large Cap" in n for n in out.funds)
+    assert any("Birla" in n or "Aditya Birla" in n for n in out.funds)
+
+
+def test_name_debt_fund_uses_rating_screen_not_prior_equity():
+    memory = {
+        "frame": {
+            "last_fund_focus": "360 ONE Quant Fund - Regular Plan - Growth",
+            "subject_kind": "single_fund",
+        },
+        "chat_turns": [
+            {
+                "user": "what is equity fund and can you name any one for me",
+                "assistant": "## 360 ONE Quant Fund ...",
+            },
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        data_need="fund_holdings_breakdown",
+        subject_ref="memory_primary",
+        funds=["360 ONE Quant Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(tool="get_portfolio_data", arguments={"sections": ["sectors"], "top_n": 1}, wave=1),
+        ],
+    )
+    q = "can you name me a debt fund and show its sector information"
+    out = apply_planner_post_hooks(q, plan, memory)
+    assert not any("360 ONE" in str(f) for f in (out.funds or []))
+    screen = next(c for c in out.tool_calls if c.tool == "screen_funds_by_exposure")
+    assert screen.arguments.get("rating_screen") is True
+    assert any(c.tool == "get_portfolio_data" for c in out.tool_calls)
+
+
+def test_random_debt_plus_difference_not_clarify_gate():
+    from news_rag.insight.fund_name_gate import clarify_plan_if_fund_unknown
+
+    q = "name me any random debt fund and tell me whats the difference in debt and equity fund"
+    plan = ExecutionPlan(routed_by="planner", intent="lookup", tool_calls=[])
+    out = apply_planner_post_hooks(q, plan, None)
+    assert any(c.tool == "screen_funds_by_exposure" for c in out.tool_calls)
+    final = clarify_plan_if_fund_unknown(out, None, q)
+    assert final.scope_kind != ScopeKind.NEEDS_CLARIFICATION
+    assert any(c.tool == "screen_funds_by_exposure" for c in final.tool_calls)
+    assert out.concept_brief
 
 
 def test_repair_holdings_breakdown_adds_risk():

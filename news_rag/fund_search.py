@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import json
 import logging
 import re
@@ -146,6 +147,13 @@ def _amc_hints_from_tokens(tokens: list[str]) -> list[str]:
             continue
         if key in tokens or any(n in joined for n in needles):
             hints.append(key)
+    known = set(cat.hint_tokens) if cat and cat.hint_tokens else set(_AMC_HINT_TOKENS)
+    for tok in tokens:
+        if len(tok) < 5 or tok in hints or tok in known:
+            continue
+        hit = difflib.get_close_matches(tok, list(known), n=1, cutoff=0.8)
+        if hit and hit[0] not in hints:
+            hints.append(hit[0])
     return list(dict.fromkeys(hints))
 
 

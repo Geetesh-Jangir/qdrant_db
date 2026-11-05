@@ -177,9 +177,18 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
         "list_cursor": listed,
         "recent": [row.get("gist") for row in (state.get("gists") or []) if isinstance(row, dict)],
     }
+    recency_hint = (
+        "Fund binding prefers **recent chat turns**: later user messages outweigh older ones; "
+        f"catalog stack / compare frames older than {ENTITY_TTL_TURNS} turns lose priority. "
+        "For 'compare both', pick the two most recently discussed schemes in the same category. "
+        "Never put a scheme in entities.funds unless the user named it in this message or an earlier turn — "
+        "except when they explicitly ask for random/any fund picks (see random_funds rules)."
+    )
+    existing_hint = str(out.get("memory_hint") or "").strip()
+    out["memory_hint"] = f"{existing_hint} {recency_hint}".strip() if existing_hint else recency_hint
     if category_funds:
         out["category_funds_in_chat"] = category_funds
-        out["memory_hint"] = (
+        cat_hint = (
             "frame.subjects may be from an older cross-category compare. "
             f"Catalog entities in entity_stack and list_cursor older than {ENTITY_TTL_TURNS} turns are dropped automatically. "
             "For 'both funds in [category]', use category_funds_in_chat for that slug "
@@ -187,6 +196,7 @@ def prompt_view(state: dict[str, Any] | None) -> dict[str, Any]:
             "For 'compare these/those equity funds', use the latest pure-equity category pair "
             "in category_funds_in_chat (e.g. large cap), not hybrid funds or a single alternate pick."
         )
+        out["memory_hint"] = f"{cat_hint} {recency_hint}".strip()
     if list_note:
         out["list_cursor_note"] = list_note
 

@@ -290,8 +290,12 @@ def node_route(state: GraphState) -> str | None:
     plan = ensure_planner_fund_fact_modules(state.question or "", plan)
     plan = ensure_fund_concentration_plan(state.question or "", plan)
     from news_rag.insight.fields import bind_fields_to_tools
+    from news_rag.insight.plan_enforce import finalize_fund_compare_plan
+    from news_rag.insight.plan_intent import plan_wants_fund_compare
 
     plan = bind_fields_to_tools(state.question or "", plan)
+    if plan_wants_fund_compare(plan):
+        finalize_fund_compare_plan(state.question or "", plan)
     plan = enforce_catalog_fund_list_scope(plan, state.memory, state.question or "")
     state.plan = plan
     if state.query_log is not None:

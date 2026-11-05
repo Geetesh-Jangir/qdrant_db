@@ -92,6 +92,16 @@ def clarify_plan_if_fund_unknown(
         return plan
     if question_asks_whole_investor_portfolio(question, plan):
         return plan
+    from news_rag.fund_rating_screen import fund_type_name_spec
+    from news_rag.insight.fund_name_policy import plan_allows_server_fund_pick
+
+    if fund_type_name_spec(question) or plan_allows_server_fund_pick(question, plan, memory):
+        return plan
+    if any(
+        c.tool == "screen_funds_by_exposure" and (c.arguments or {}).get("rating_screen")
+        for c in (plan.tool_calls or [])
+    ):
+        return plan
     if str(plan.holding_scope or "") == "all_holdings":
         return plan
 

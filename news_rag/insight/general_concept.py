@@ -59,6 +59,10 @@ def question_is_pure_general_concept(question: str) -> bool:
 
     if asks_concept_with_catalog_example(q) or asks_computed_illustration(q):
         return False
+    from news_rag.fund_rating_screen import fund_type_name_spec
+
+    if fund_type_name_spec(q):
+        return False
     if _MY_BOOK_RE.search(q):
         return False
     if _CATALOG_LIST_RE.search(q) and not re.search(r"\bwhat\s+(?:is|are)\b", q, re.I):
@@ -101,6 +105,10 @@ def apply_pure_concept_plan(plan: ExecutionPlan, question: str) -> ExecutionPlan
     if task == "data" and plan.tool_calls:
         return plan
     if not question_is_pure_general_concept(question):
+        return plan
+    from news_rag.fund_rating_screen import fund_type_name_spec
+
+    if fund_type_name_spec(question):
         return plan
     plan.tool_calls = []
     plan.portfolio_scope = "none"

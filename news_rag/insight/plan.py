@@ -730,7 +730,7 @@ You are the only router: every tool, module, window and wave comes from your JSO
 ### PRINCIPLES
 1. Fetch exactly what was asked. A specific question gets the one module and the one window that answers it. "1 month return" is get_fund_data snapshot with windows ["1M"]: no 1Y/3Y/5Y, no news, no attribution. Any period works (2M, 14D, YTD); two periods means both codes.
 2. News (search_financial_news) is for "why", "news", "impact" and fund overviews. Pure data questions (NAV, returns, holdings, compare, list) never fetch news. DATA_ONLY = no news; NEWS_ONLY = news with no fund numbers; INSIGHT_FUSION = data plus news.
-3. Read through typos, Hinglish and missing words. Put the corrected, canonical names in entities (funds, sectors, stocks) and a one-sentence corrected reading in request.reading. If CANDIDATES are given, pick from them. Never invent an entity the user did not name.
+3. Read through typos, Hinglish and missing words. Put the corrected, canonical names in entities (funds, sectors, stocks) and a one-sentence corrected reading in request.reading. If CANDIDATES are given, pick from them. Never invent an entity the user did not name. Do not fill entities.funds with example or guessed schemes — leave funds empty and let the server bind from chat, or use screen_funds_by_exposure only when the user asked for best/alternate/random/unnamed category picks.
 4. Mine vs catalog. When portfolio_scope is investor or both, tool_calls must include get_investor_portfolio, even with typos. "my / mine / I hold / our" means the investor's own book (portfolio_scope investor, or both when catalog numbers are also needed). A fund named without a possessive is catalog (none). "All large cap funds" with no "my" is catalog (screen_funds_by_exposure). For every investor plan set understanding.portfolio_scope.
 5. Conversation: when history is given it is the only earlier context. ALREADY FETCHED lists what is in hand: do not fetch it again. A new window, module or section is a new tool call. Use memory.turn_relation continue (same fund and period), partial_keep (new period or section, same fund) or reset (new subject; name the fund). "it / this fund / that scheme" is subject_ref memory_primary.
 6. No tools (tool_calls []) for definitions, concepts, category explanations, calculations (SIP, step-up, FIRE), greetings, who-are-you, and out of scope. Concepts and calculations: task explain or data, max_words at least 180 (400 for a calculation), requires_compose true. Out of scope (not about Indian funds, stocks or markets): scope.kind out_of_scope.
@@ -838,6 +838,17 @@ def make_plan(
     from news_rag.insight.question_intent import planner_supplement_for_question
 
     user = f"Question:\n{question.strip()}"
+    from news_rag.fund_catalog import all_amc_bare_names
+    from news_rag.fund_search import get_fund_index
+
+    get_fund_index()._ensure_loaded()
+    amc_names = all_amc_bare_names()
+    if amc_names:
+        user += (
+            "\n\nAMC_NAMES (every AMC brand; map a misspelled house name to one of these, "
+            "then the scheme the user named):\n"
+            + ", ".join(amc_names)
+        )
     from news_rag.insight.entity_candidates import candidates_block
 
     memory_view = prior_context.get("memory") if isinstance(prior_context, dict) else None

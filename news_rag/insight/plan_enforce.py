@@ -48,6 +48,7 @@ def ensure_compare_fund_pair(
     question: str = "",
 ) -> None:
     """compare_funds needs two names — pull the pair from comparison memory when missing."""
+    reconcile_planner_compare_fund_pair(plan, memory, question)
     from news_rag.insight.plan_intent import named_compare_funds_in_question, plan_wants_fund_compare
     from news_rag.insight.memory.fund_context import comparison_fund_names
 
@@ -63,6 +64,42 @@ def ensure_compare_fund_pair(
     pair = comparison_fund_names(memory, category=category)
     if pair:
         _merge_fund_names(plan, pair)
+
+
+def reconcile_planner_compare_fund_pair(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+    question: str = "",
+) -> None:
+    """Drop planner-invented pairs when the user meant funds already in chat."""
+    from news_rag.insight.plan_intent import named_compare_funds_in_question, plan_wants_fund_compare
+    from news_rag.insight.memory.fund_context import (
+        compare_side_in_chat,
+        implicit_compare_pair_from_chat,
+        question_asks_compare_both_in_chat,
+    )
+
+    if not plan_wants_fund_compare(plan):
+        return
+    if (
+        len(named_compare_funds_in_question(question)) >= 2
+        and not question_asks_compare_both_in_chat(question)
+    ):
+        return
+    funds = [str(f).strip() for f in (plan.funds or []) if str(f).strip()]
+    rebind = question_asks_compare_both_in_chat(question)
+    if len(funds) >= 2 and not rebind:
+        if all(compare_side_in_chat(f, memory, question) for f in funds[:2]):
+            return
+        rebind = True
+    elif len(funds) >= 2 and rebind:
+        if all(compare_side_in_chat(f, memory, question) for f in funds[:2]):
+            return
+    if not rebind and len(funds) < 2:
+        return
+    pair = implicit_compare_pair_from_chat(memory, question)
+    if len(pair) >= 2:
+        plan.funds = pair[:2]
 
 
 def _compare_against_portfolio_holding(question: str) -> bool:
@@ -127,7 +164,9 @@ def finalize_fund_compare_plan(question: str, plan: ExecutionPlan) -> None:
     plan.tool_calls = kept
     note = (
         "The user asked to compare two funds already in the conversation. "
-        "Use compare_funds output only. When the question names a category (e.g. aggressive hybrid), "
+        "Use compare_funds output only. Bind schemes from **recent chat turns** first — "
+        "older mentions and stale stack compares weigh less (see entity TTL). "
+        "When the question names a category (e.g. aggressive hybrid), "
         "both funds must be from that category — not a conservative hybrid from an older compare."
     )
     existing = (plan.presentation_notes or "").strip()
@@ -419,9 +458,15 @@ def apply_planner_post_hooks(
     )
 
     reconcile_planner_intent(plan, question)
+    from news_rag.insight.fund_name_policy import enforce_user_authorized_funds_only
+
+    plan = enforce_user_authorized_funds_only(plan, memory, question)
     from news_rag.insight.general_concept import apply_pure_concept_plan
 
     plan = apply_pure_concept_plan(plan, question)
+    from news_rag.insight.category_plan import ensure_name_fund_type_plan
+
+    plan = ensure_name_fund_type_plan(question, plan, memory)
     from news_rag.fund_risk import reroute_single_fund_risk_plan
 
     reroute_single_fund_risk_plan(question, plan, memory)
@@ -448,6 +493,7 @@ def apply_planner_post_hooks(
     ensure_all_holdings_metrics_plan(plan, question, memory)
 
     seed_named_compare_funds_from_question(question, plan)
+    reconcile_planner_compare_fund_pair(plan, memory, question)
     ensure_unnamed_category_pair_compare_plan(question, plan, memory)
     ensure_random_same_category_pair_compare_plan(question, plan, memory)
     resolve_planner_subject_refs(plan, memory, question)
@@ -475,6 +521,7 @@ def apply_planner_post_hooks(
     plan = apply_bullion_metal_scope(question, plan)
     plan = apply_standalone_macro_scope(question, plan)
     ensure_catalog_tools_for_fund_news(plan, question)
+    plan = enforce_user_authorized_funds_only(plan, memory, question)
     ensure_compare_fund_pair(plan, memory, question)
     apply_category_scoped_compare_funds(question, plan, memory)
     apply_deictic_equity_compare_funds(question, plan, memory)

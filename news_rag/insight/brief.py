@@ -451,10 +451,14 @@ def _detect_funds(question: str) -> list[str]:
             except Exception:
                 pass
 
-    # 2. ISINs and phrases with explicit "fund" words
+    # 2. ISINs and explicit AMC+scheme phrases (not the whole question when it only says "fund")
     phrases = re.findall(r"\bINF[0-9A-Z]{9}\b", question or "", re.I)
     if _FUND_WORD_RE.search(question or ""):
-        phrases.append(question)
+        from news_rag.fund_search import _extract_amc_scheme_phrase
+
+        scheme = _extract_amc_scheme_phrase(question or "")
+        if scheme:
+            phrases.append(scheme)
     for phrase in phrases[:3]:
         try:
             detail, ambiguous, _close = lookup_extracted_fund(name=phrase)
@@ -480,7 +484,7 @@ def _detect_funds(question: str) -> list[str]:
                 low_tokens = [t.lower() for t in ngram_tokens]
                 if all(t in stopwords for t in low_tokens):
                     continue
-                if not any(t in _amc_token_set() for t in low_tokens):
+                if not any(t in _AMC_TOKENS for t in low_tokens):
                     continue
                 ngram = " ".join(ngram_tokens)
                 try:

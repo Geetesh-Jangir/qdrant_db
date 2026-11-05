@@ -174,11 +174,74 @@ def _label_in(question: str) -> str:
 _ASKS_NAME_FUND_RE = re.compile(
     r"\b(?:"
     r"name\s+(?:of\s+)?(?:a|an|one|any)|"
+    r"name\s+me\s+(?:a|an|one|any)|"
     r"tell\s+me\s+(?:the\s+)?name\s+of|"
     r"(?:give|tell)\s+me\s+(?:a|an|one|any)"
     r")\b",
     re.I,
 )
+
+
+def _fund_type_in_name_clause(question: str) -> str:
+    """Fund type the user asked us to name (ignore 'debt vs equity' education clauses)."""
+    q = question or ""
+    for pattern in (
+        r"\b(?:name|give|tell)\s+(?:me\s+)?(?:any|a|an|one|some)?\s*(?:random(?:ly)?\s*)?"
+        r"(debt|equity|hybrid|solution(?:\s+oriented)?|others)\s+funds?\b",
+        r"\brandom(?:ly)?\s+(debt|equity|hybrid)\s+funds?\b",
+        r"\b(?:any|a|an|one)\s+(?:random(?:ly)?\s+)?(debt|equity|hybrid)\s+funds?\b",
+    ):
+        m = re.search(pattern, q, re.I)
+        if not m:
+            continue
+        token = m.group(1).lower().strip()
+        if token.startswith("solution"):
+            return "solution_oriented"
+        return token
+    return ""
+
+
+def fund_type_name_spec(question: str) -> RatingScreenSpec | None:
+    """Name one fund when the user names only a fund type (e.g. debt fund) — random scheme category."""
+    q = question or ""
+    if _BUY_RE.search(q):
+        return None
+    from news_rag.insight.concept_asks import asks_wants_named_example
+
+    if not (_ASKS_NAME_FUND_RE.search(q) or asks_wants_named_example(q)):
+        return None
+    if _label_in(q) or _SCORE_RE.search(q):
+        return None
+    fund_type = _fund_type_in_name_clause(q)
+    if not fund_type:
+        match = match_scheme_category(q)
+        if not match or not match.fund_type:
+            return None
+        if match.locked and match.category:
+            return None
+        fund_type = match.fund_type
+    if not re.search(r"\b(?:equity|debt|hybrid|solution|others)\b", q, re.I):
+        return None
+    cats = list(categories_for(fund_type))
+    if not cats:
+        return None
+    category = random.choice(cats)
+    return RatingScreenSpec(
+        count=explicit_fund_count(q) or 1,
+        fund_type=fund_type,
+        category=category,
+        locked=True,
+        label="Best in category",
+        min_score=None,
+        highest_score=False,
+        return_window="",
+        return_direction="",
+        compare_category=False,
+        random_sample=False,
+        amc="",
+        suggestion="rated",
+        label_fallback="Recommended",
+    )
 
 
 def _category_fund_name_spec(question: str) -> RatingScreenSpec | None:
@@ -295,6 +358,9 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
     named_in_category = _category_fund_name_spec(q)
     if named_in_category is not None:
         return named_in_category
+    by_type = fund_type_name_spec(q)
+    if by_type is not None:
+        return by_type
     if not _looks_like_fund_list(q):
         return None
     from news_rag.tools import asks_funds_with_sector_exposure

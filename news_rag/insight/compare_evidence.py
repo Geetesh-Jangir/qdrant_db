@@ -83,6 +83,8 @@ def maybe_run_compare_funds_for_parties(state: Any) -> None:
     from news_rag.insight.capabilities.executor import execute_wave
 
     wave1 = list(getattr(state, "wave1_results", None) or [])
+    if any(r.get("tool") == "compare_funds" for r in wave1):
+        return
     if any(r.get("tool") == "compare_funds" and r.get("ok") for r in wave1):
         return
 

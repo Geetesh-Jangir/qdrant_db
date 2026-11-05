@@ -452,6 +452,219 @@ def comparison_fund_names(
     return []
 
 
+def question_asks_compare_both_in_chat(question: str) -> bool:
+    """Follow-up like 'compare both' — pair comes from chat, not planner invention."""
+    q = (question or "").lower()
+    if not re.search(r"\bcompare\b|\bcomparison\b", q):
+        return False
+    return bool(re.search(r"\bboth\b|\bthe two\b|\btwo of them\b|\bthem both\b", q))
+
+
+def _fund_name_from_user_text(text: str) -> str:
+    from news_rag.fund_rating_categories import match_scheme_category
+    from news_rag.fund_search import get_fund_index, prefer_resolved_fund_name, resolve_fund_for_query
+
+    detail, ambiguous, _ = resolve_fund_for_query(text or "")
+    if detail and not ambiguous:
+        shown = prefer_resolved_fund_name(detail, detail)
+        return str(shown.get("fund_name") or detail.get("fund_name") or "").strip()
+    match = match_scheme_category(text or "")
+    if match and match.category:
+        detail, ambiguous, _ = resolve_fund_for_query(f"{text} {match.category} fund")
+        if detail and not ambiguous:
+            shown = prefer_resolved_fund_name(detail, detail)
+            return str(shown.get("fund_name") or detail.get("fund_name") or "").strip()
+        idx = get_fund_index()
+        for token in re.findall(r"[a-z0-9]+", (text or "").lower()):
+            if token in ("absl", "hdfc", "icici", "sbi", "axis", "kotak", "nippon", "ppfas", "parag"):
+                detail, ambiguous, _ = idx.lookup_extracted_fund(
+                    name=f"{token} {match.category} fund"
+                )
+                if detail and not ambiguous:
+                    shown = prefer_resolved_fund_name(detail, detail)
+                    return str(shown.get("fund_name") or detail.get("fund_name") or "").strip()
+                break
+    return ""
+
+
+def compare_side_in_chat(name: str, memory: dict[str, Any] | None, question: str = "") -> bool:
+    from news_rag.insight.investor_subject import user_explicitly_named_scheme
+
+    if user_explicitly_named_scheme(question, name):
+        return True
+    if not isinstance(memory, dict):
+        return False
+    known = {n.lower() for n in memory_known_fund_names(memory)}
+    if name.lower() in known:
+        return True
+    for row in memory.get("chat_turns") or []:
+        if not isinstance(row, dict):
+            continue
+        user = str(row.get("user") or "")
+        if user_explicitly_named_scheme(user, name):
+            return True
+        resolved = _fund_name_from_user_text(user)
+        if resolved and resolved.lower() == name.lower():
+            return True
+    return False
+
+
+def implicit_compare_pair_from_chat(
+    memory: dict[str, Any] | None,
+    question: str = "",
+) -> list[str]:
+    """HDFC + ABSL-style pairs from focus and prior user turns."""
+    if not isinstance(memory, dict):
+        return []
+
+    if question_asks_compare_both_in_chat(question):
+        chat_pair = _compare_pair_from_chat_turns(memory)
+        if len(chat_pair) >= 2:
+            return chat_pair[:2]
+
+    pair = comparison_fund_names(memory)
+    if len(pair) >= 2:
+        if question:
+            pair = [n for n in pair if compare_side_in_chat(n, memory, question)]
+        if len(pair) >= 2:
+            return pair[:2]
+
+    chat_pair = _compare_pair_from_chat_turns(memory)
+    if len(chat_pair) >= 2:
+        return chat_pair[:2]
+    return []
+
+
+def _chat_fund_mention_recency(memory: dict[str, Any]) -> dict[str, int]:
+    """Map canonical fund name -> chat turn index; higher index = more recent user mention."""
+    from news_rag.insight.investor_subject import question_refers_deictic_fund
+
+    recency: dict[str, int] = {}
+    turns = list(memory.get("chat_turns") or [])
+    for idx, row in enumerate(turns):
+        if not isinstance(row, dict):
+            continue
+        user = str(row.get("user") or "").strip()
+        if not user or question_refers_deictic_fund(user):
+            continue
+        name = _fund_name_from_user_text(user)
+        if name:
+            recency[name] = idx
+    frame = memory.get("frame") if isinstance(memory.get("frame"), dict) else {}
+    focus = str(frame.get("last_fund_focus") or "").strip()
+    if focus:
+        recency[focus] = len(turns)
+    return recency
+
+
+def _canonical_chat_fund_name(memory: dict[str, Any], name: str) -> str:
+    key = str(name or "").strip().lower()
+    if not key:
+        return ""
+    for known in memory_known_fund_names(memory):
+        if known.lower() == key:
+            return known
+    if name and name != key:
+        return str(name).strip()
+    return str(name or "").strip()
+
+
+def _compare_pair_from_chat_turns(memory: dict[str, Any] | None) -> list[str]:
+    if not isinstance(memory, dict):
+        return []
+
+    recency = _chat_fund_mention_recency(memory)
+    if len(recency) >= 2:
+        ordered_names = sorted(recency.keys(), key=lambda n: recency[n], reverse=True)
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for name in ordered_names:
+            canonical = _canonical_chat_fund_name(memory, name)
+            key = canonical.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(canonical)
+
+        from news_rag.fund_rating_categories import match_scheme_category
+
+        anchor = deduped[0]
+        anchor_cat = match_scheme_category(anchor)
+        cat_slug = str(anchor_cat.category or "").strip().lower() if anchor_cat else ""
+        if cat_slug:
+            same_cat = [n for n in deduped if fund_name_matches_category(n, cat_slug)]
+            if len(same_cat) >= 2:
+                return same_cat[:2]
+
+        for primary in deduped:
+            cat_primary = match_scheme_category(primary)
+            if not cat_primary or not cat_primary.category:
+                continue
+            slug = cat_primary.category.lower()
+            partner = ""
+            partner_score = -1
+            for other in deduped:
+                if other.lower() == primary.lower():
+                    continue
+                if fund_name_matches_category(other, slug):
+                    score = recency.get(other, recency.get(_canonical_chat_fund_name(memory, other), -1))
+                    if score > partner_score:
+                        partner = other
+                        partner_score = score
+            if partner:
+                if recency.get(partner, 0) >= recency.get(primary, 0):
+                    return [partner, primary]
+                return [primary, partner]
+
+        if len(deduped) >= 2:
+            return deduped[:2]
+
+    primary = primary_fund_name(memory)
+    chat_funds: list[str] = []
+    for row in memory.get("chat_turns") or []:
+        if not isinstance(row, dict):
+            continue
+        user = str(row.get("user") or "").strip()
+        if not user:
+            continue
+        name = _fund_name_from_user_text(user)
+        if name and name not in chat_funds:
+            chat_funds.append(name)
+
+    if primary:
+        chat_funds = [primary] + [n for n in chat_funds if n.lower() != primary.lower()]
+
+    if primary:
+        from news_rag.fund_rating_categories import match_scheme_category
+
+        cat_primary = match_scheme_category(primary)
+        for other in reversed(chat_funds):
+            if other.lower() == primary.lower():
+                continue
+            cat_other = match_scheme_category(other)
+            if (
+                cat_primary
+                and cat_other
+                and cat_primary.category
+                and cat_other.category
+                and cat_primary.category.lower() == cat_other.category.lower()
+            ):
+                return [primary, other]
+
+    if len(chat_funds) >= 2:
+        return chat_funds[:2]
+
+    buckets = memory.get("category_funds_in_chat")
+    if isinstance(buckets, list):
+        for bucket in reversed(buckets):
+            if not isinstance(bucket, dict):
+                continue
+            names = [str(n).strip() for n in (bucket.get("fund_names") or []) if str(n).strip()]
+            if len(names) >= 2:
+                return names[:2]
+    return []
+
+
 def compare_payload_matches_funds(fund_names: list[str], data: dict[str, Any]) -> bool:
     """True when compare tool payload is for the same fund pair as requested."""
     if not isinstance(data, dict):

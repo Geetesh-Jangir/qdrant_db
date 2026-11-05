@@ -179,6 +179,19 @@ def amc_headers_for_hint(hint: str) -> list[str]:
     return out
 
 
+def all_amc_bare_names() -> list[str]:
+    """Official AMC brands from the catalog, in file order, duplicates removed."""
+    cat = get_amc_catalog()
+    if not cat:
+        return []
+    seen: list[str] = []
+    for header in cat.amc_headers:
+        bare = bare_amc_name(header)
+        if bare and bare not in seen:
+            seen.append(bare)
+    return seen
+
+
 def amc_planner_lines(hints: list[str]) -> list[str]:
     """Short catalog-backed AMC names for the planner when the user typed a brand token."""
     lines: list[str] = []

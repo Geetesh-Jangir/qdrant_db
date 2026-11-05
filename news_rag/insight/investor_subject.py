@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 from typing import Any
 
@@ -864,6 +865,15 @@ _SCHEME_NAME_MATCH_SKIP = frozenset(
 )
 
 
+def _amc_token_in_question(token: str, amc_tokens: set[str]) -> str:
+    if token in amc_tokens:
+        return token
+    if len(token) < 5:
+        return ""
+    hit = difflib.get_close_matches(token, list(amc_tokens), n=1, cutoff=0.8)
+    return hit[0] if hit else ""
+
+
 def user_explicitly_named_scheme(question: str, fund_name: str) -> bool:
     """True only when the user text actually names this scheme — not a token like 'minimum' alone."""
     from news_rag.insight.brief import _amc_token_set
@@ -873,7 +883,8 @@ def user_explicitly_named_scheme(question: str, fund_name: str) -> bool:
     if not text or not name_lower:
         return False
     q_tokens = set(re.findall(r"[a-z0-9]+", text))
-    amc_in_question = [t for t in q_tokens if t in _amc_token_set()]
+    amc_tokens = _amc_token_set()
+    amc_in_question = [canon for t in q_tokens if (canon := _amc_token_in_question(t, amc_tokens))]
     if amc_in_question:
         return any(re.search(rf"\b{re.escape(amc)}\b", name_lower) for amc in amc_in_question)
     fund_tokens = [
@@ -987,11 +998,17 @@ def enforce_deictic_and_memory_primary_fund(
     question: str = "",
 ) -> ExecutionPlan:
     """Drop planner-hallucinated funds on 'its' / memory_primary when the name is not in session memory."""
+    from news_rag.fund_rating_screen import fund_type_name_spec
     from news_rag.insight.memory.fund_context import (
         deictic_fund_context_active,
         memory_known_fund_names,
         primary_fund_name,
     )
+
+    if fund_type_name_spec(question):
+        plan.funds = []
+        plan.subject_ref = "none"
+        return plan
 
     ref = str(plan.subject_ref or "none").strip().lower()
     deictic = question_refers_deictic_fund(question)

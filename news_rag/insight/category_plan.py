@@ -950,3 +950,80 @@ def ensure_category_performance_plan(
     if note not in existing:
         plan.presentation_notes = f"{existing} {note}".strip()
     return plan
+
+
+def ensure_name_fund_type_plan(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None = None,
+) -> ExecutionPlan:
+    """Name one fund in a random scheme category for equity/debt/etc. via RS rating API."""
+    from news_rag.fund_rating_screen import fund_type_name_spec
+
+    spec = fund_type_name_spec(question)
+    if spec is None:
+        return plan
+
+    q = question or ""
+    sections: list[str] = []
+    if re.search(r"\bsector", q, re.I):
+        sections.append("sectors")
+    if re.search(r"\bholdings?\b|\ballocation\b|\bcomposition\b", q, re.I):
+        sections.append("holdings")
+    if not sections:
+        sections = ["sectors"]
+
+    category_phrase = str(spec.category or "").replace("-", " ").strip()
+    focus_question = f"{category_phrase} {spec.fund_type} fund".strip()
+
+    plan.funds = []
+    plan.subject_ref = "none"
+    plan.data_need = "none"
+    plan.intent = "lookup"
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    plan.requires_compose = True
+    plan.wave_2_policy = Wave2Policy(trigger="none")
+
+    tools: list[ToolCall] = [
+        ToolCall(
+            tool="screen_funds_by_exposure",
+            arguments={
+                "rating_screen": True,
+                "top_n": spec.count,
+                "focus_question": focus_question,
+            },
+            wave=1,
+            why=f"RS rating pick in {spec.fund_type}/{spec.category}/regular/growth",
+        ),
+        ToolCall(
+            tool="get_fund_data",
+            arguments={"modules": ["risk", "snapshot"]},
+            wave=1,
+        ),
+        ToolCall(
+            tool="get_portfolio_data",
+            arguments={"sections": sections, "top_n": 10 if sections == ["sectors"] else 5},
+            wave=1,
+        ),
+    ]
+    plan.tool_calls = tools
+    if re.search(r"\bdifference\b|\bdifferent\b", q, re.I) and re.search(
+        r"\bdebt\b", q, re.I
+    ) and re.search(r"\bequity\b", q, re.I):
+        plan.concept_brief = (
+            "**Equity funds** invest mainly in shares of listed companies. Returns follow the stock market; "
+            "risk is typically higher and there is no guarantee.\n"
+            "**Debt funds** invest mainly in bonds and other fixed-income securities. Returns are usually "
+            "more stable than equity, but they are not guaranteed either."
+        )
+        plan.max_words = max(int(plan.max_words or 0), 320)
+    note = (
+        f"User asked to **name one {spec.fund_type} fund** — use the RS rating screen for category "
+        f"**{spec.category}** (regular/growth). Do **not** reuse a fund from earlier chat unless it "
+        f"appears in screen rankings. Name the fund from screen output, then show "
+        f"{' and '.join(sections)} from portfolio data."
+    )
+    existing = (plan.presentation_notes or "").strip()
+    if note not in existing:
+        plan.presentation_notes = f"{existing} {note}".strip()
+    return plan
