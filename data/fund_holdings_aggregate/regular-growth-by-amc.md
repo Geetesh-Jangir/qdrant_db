@@ -4,12 +4,12 @@ Source: live Accord scheme browse, ISIN from the Accord scheme map, with AMFI us
 Universe: Regular Growth only. Direct, IDCW, Bonus, and unclaimed plans are omitted. A listed ETF is included when that is the published line.
 Generated: 2026-09-30
 
-- AMCs: 67
-- Funds: 2194
+- AMCs: 54
+- Funds: 2173
 - Skipped other plans: 8138
 - Accord rows with no Regular Growth ISIN: 104 (adjusted, unclaimed, and old plans)
 
-**AMC names:** every `##` header is an AMC (or SIF) brand in the catalog, including **Quant Mutual Fund** (AMC «Quant») and **Quantum Mutual Fund** (separate brand). Schemes named «Quant Fund» under other AMCs (e.g. Axis Quant Fund) are strategy names, not the Quant AMC.
+**AMC names:** every `##` header is an AMC brand in the catalog, including **Quant Mutual Fund** (AMC «Quant») and **Quantum Mutual Fund** (separate brand). Schemes named «Quant Fund» under other AMCs (e.g. Axis Quant Fund) are strategy names, not the Quant AMC.
 
 ## 360 ONE Mutual Fund
 
@@ -35,12 +35,6 @@ Generated: 2026-09-30
 - Abakkus Flexi Cap Fund - Regular Plan - Growth — `INF2JJD01169`
 - Abakkus Liquid Fund - Regular Plan - Growth — `INF2JJD01078`
 - Abakkus Small Cap Fund - Regular Plan - Growth — `INF2JJD01185`
-
-## Aditya Birla APEX SIF
-
-1 funds
-
-- Apex Hybrid Long-Short Fund - Regular Plan - Growth — `INF209K30040`
 
 ## Aditya Birla Sun Life Mutual Fund
 
@@ -313,13 +307,6 @@ Generated: 2026-09-30
 - Bajaj Finserv Overnight Fund - Regular Plan - Growth — `INF0QA701250`
 - Bajaj Finserv Small Cap Fund - Regular Plan - Growth — `INF0QA701BK8`
 - Bajaj Finserv Ultra Short to Short Term Fund - Regular Plan - Growth — `INF0QA701CC3`
-
-## Bandhan Arudha SIF
-
-2 funds
-
-- Arudha Equity Long-Short Fund - Regular Plan - Growth — `INF194K30358`
-- Arudha Hybrid Long-Short Fund - Regular Plan - Growth — `INF194K30010`
 
 ## Bandhan Mutual Fund
 
@@ -641,12 +628,6 @@ Generated: 2026-09-30
 - DSP World Gold Mining Overseas Equity Omni FoF - Regular Plan - Growth — `INF740K01250`
 - DSP World Mining Overseas Equity Omni FoF - Regular Plan - Growth — `INF740K01730`
 
-## Edelweiss Altiva SIF
-
-1 funds
-
-- Altiva Hybrid Long-Short Fund - Regular Plan - Growth — `INF754K30052`
-
 ## Edelweiss Mutual Fund
 
 81 funds
@@ -732,12 +713,6 @@ Generated: 2026-09-30
 - Edelweiss Ultra Short to Short term Fund - Regular Plan - Growth — `INF754K01UT0`
 - Edelweiss US Technology Equity Fund of Fund - Regular Plan - Growth — `INF754K01LC5`
 - Edelweiss US Value Equity Offshore Fund - Regular Plan - Growth — `INF843K01ED9`
-
-## Franklin Sapphire SIF
-
-1 funds
-
-- Sapphire Equity Long-Short SIF - Regular Plan - Growth — `INF090I30014`
 
 ## Franklin Templeton Mutual Fund
 
@@ -1033,20 +1008,6 @@ Generated: 2026-09-30
 - HSBC Ultra Short to Short Term Fund - Regular Plan - Growth — `INF677K01452`
 - HSBC Value Fund - Regular Plan - Growth — `INF677K01023`
 
-## HSBC RedHex SIF
-
-1 funds
-
-- RedHex Hybrid Long-Short Fund - Regular Plan - Growth — `INF336L30015`
-
-## ICICI Pru iSIF
-
-3 funds
-
-- iSIF Equity Ex-Top 100 Long-Short Fund - Regular Plan - Growth — `INF109K30034`
-- iSIF Equity Long-Short Fund - Regular Plan - Growth — `INF109K30075`
-- iSIF Hybrid Long-Short Fund - Regular Plan - Growth — `INF109K30018`
-
 ## ICICI Prudential Mutual Fund
 
 147 funds
@@ -1301,12 +1262,6 @@ Generated: 2026-09-30
 - JioBlackRock Sector Rotation Fund - Regular Plan - Growth — `INF22M001242`
 - JioBlackRock Short Term Fund - Regular Plan - Growth — `INF22M001226`
 - JioBlackRock Ultra Short to Short Term Fund - Regular Plan - Growth — `INF22M001234`
-
-## Jio BlackRock Prism SIF
-
-1 funds
-
-- Prism Hybrid Long-Short Fund - Regular Plan - Growth — `INF22M030019`
 
 ## JM Financial Mutual Fund
 
@@ -1637,12 +1592,6 @@ Generated: 2026-09-30
 - Mirae Asset Small Cap Fund - Regular Plan - Growth — `INF769K01NG0`
 - Mirae Asset Ultra Short to Short Term Fund - Regular Savings Plan - Growth — `INF769K01937`
 - Mirae Asset Ultra Short-Term Fund - Regular Plan - Growth — `INF769K01GH2`
-
-## Mirae Platinum SIF
-
-1 funds
-
-- Platinum Hybrid Long-Short Fund - Regular Plan - Growth — `INF769K30019`
 
 ## Monarch Mutual Fund
 
@@ -1987,15 +1936,6 @@ Generated: 2026-09-30
 - Quant Teck Fund - Regular Plan - Growth — `INF966L01CQ2`
 - Quant Value Fund - Regular Plan - Growth — `INF966L01AQ6`
 
-## Quant QSIF
-
-4 funds
-
-- Qsif Active Asset Allocator Long-Short Fund - Regular Plan - Growth — `INF966L30217`
-- Qsif Equity Long-Short Fund - Regular Plan - Growth — `INF966L30027`
-- Qsif Hybrid Long-Short Fund - Regular Plan - Growth — `INF966L30084`
-- Qsif Sector Rotation Long-Short Fund - Regular Plan - Growth — `INF966L30308`
-
 ## Quantum Mutual Fund
 
 15 funds
@@ -2033,12 +1973,6 @@ Generated: 2026-09-30
 - Samco Overnight Fund - Regular Plan - Growth — `INF0K1H01032`
 - Samco Small Cap Fund - Regular Plan - Growth — `INF0K1H01305`
 - Samco Special Opportunities Fund - Regular Plan - Growth — `INF0K1H01172`
-
-## SBI Magnum SIF
-
-1 funds
-
-- Magnum Hybrid Long Short Fund - Regular Plan - Growth — `INF200K30015`
 
 ## SBI Mutual Fund
 
@@ -2301,13 +2235,6 @@ Generated: 2026-09-30
 - Tata Ultra Short to Short Term Fund - Regular Plan - Growth — `INF277K01MA9`
 - Tata Value Fund - Growth — `INF277K01451`
 
-## Tata Titanium SIF
-
-2 funds
-
-- Titanium Equity Long-Short Fund - Regular Plan - Growth — `INF277K30070`
-- Titanium Hybrid Long-Short Fund - Regular Plan - Growth — `INF277K30013`
-
 ## Taurus Mutual Fund
 
 8 funds
@@ -2361,12 +2288,6 @@ Generated: 2026-09-30
 - Unifi Dynamic Asset Allocation Fund - Regular Plan - Growth — `INF1MIY01023`
 - Unifi Flexi Cap Fund - Regular Plan - Growth — `INF1MIY01049`
 - Unifi Liquid Fund - Regular Plan - Growth — `INF1MIY01064`
-
-## Union Arthaya SIF
-
-1 funds
-
-- Arthaya Equity Long Short Fund - Regular Plan - Growth — `INF582M30012`
 
 ## Union Mutual Fund
 
@@ -2492,13 +2413,6 @@ Generated: 2026-09-30
 - UTI Ultra Short Term Fund - Regular Plan - Growth — `INF789F01570`
 - UTI Ultra Short to Short Term Fund - Regular Plan - Growth — `INF789F01OT9`
 - UTI Value Fund - Regular Plan - Growth — `INF789F01AG5`
-
-## Wealth Company WSIF
-
-2 funds
-
-- WSIF Equity Ex-Top 100 Long-Short Fund - Regular Plan - Growth — `INF2F0030015`
-- WSIF Equity Long-Short Fund - Regular Plan - Growth — `INF2F0030072`
 
 ## WhiteOak Capital Mutual Fund
 

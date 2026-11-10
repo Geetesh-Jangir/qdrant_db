@@ -213,4 +213,7 @@ def finish_portfolio_plan_bind(
     memory: dict[str, Any] | None = None,
 ) -> ExecutionPlan:
     plan = bind_cached_portfolio(question, plan, memory)
-    return ensure_tools_for_data_question(question, plan)
+    plan = ensure_tools_for_data_question(question, plan)
+    from news_rag.insight.plan_enforce import bind_shown_list_followup
+
+    return bind_shown_list_followup(question, plan, memory)

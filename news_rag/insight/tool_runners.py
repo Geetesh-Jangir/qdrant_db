@@ -50,10 +50,7 @@ def _resolve_fund_detail(ctx: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _insight_body_char_limit() -> int:
-    from news_rag.config import get_settings
-
-    s = get_settings()
-    return max(int(getattr(s, "insight_llm_article_chars", 3500)), int(s.snippet_chars))
+    return 0
 
 
 def run_layered_news_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
@@ -618,7 +615,7 @@ def run_compare_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         data["shared_count"] = overlap["overlap_count"]
         data["shared_holdings"] = [row["stock"] for row in overlap["rows"][:20]]
         windows = _compare_return_windows(str(ctx.get("question") or ""))
-        data["fund_briefs"] = [_enrich_compare_brief(detail, windows) for detail in details]
+        data["fund_briefs"] = _measure_briefs(details, windows)
         data["return_windows"] = windows
         from news_rag.fund_drawdown import periods_for_question
 
@@ -664,20 +661,33 @@ def _fund_compare_brief(detail: dict[str, Any]) -> dict[str, Any]:
 
 
 def _compare_return_windows(question: str) -> list[str]:
-    """1, 3 and 5 years unless the question names a period."""
+    """The period the user named. 1, 3 and 5 years only when they named none."""
     from news_rag.fund_rupeestop_metrics import periods_requested_in_question
+    from news_rag.insight.return_windows import windows_named_in_question
 
-    named = periods_requested_in_question(question or "")
+    named = windows_named_in_question(question or "") or periods_requested_in_question(question or "")
     return named or ["1Y", "3Y", "5Y"]
 
 
 def _enrich_compare_brief(detail: dict[str, Any], windows: list[str]) -> dict[str, Any]:
     """Keep the named return windows and attach benchmark, category, and the public rating."""
     brief = _fund_compare_brief(detail)
-    returns = brief.get("returns") if isinstance(brief.get("returns"), dict) else {}
+    returns = dict(brief.get("returns") or {}) if isinstance(brief.get("returns"), dict) else {}
+    missing = [code for code in windows if returns.get(code) is None]
+    isin = str(brief.get("isin") or "")
+    if missing and isin:
+        from news_rag.insight.return_windows import returns_for_windows
+
+        measured, limits = returns_for_windows(
+            isin,
+            missing,
+            inception_date=str(detail.get("inception_date") or ""),
+        )
+        returns.update(measured)
+        if limits:
+            brief["unavailable_returns"] = limits
     brief["returns"] = {code: returns[code] for code in windows if returns.get(code) is not None}
     brief["return_windows"] = list(windows)
-    isin = str(brief.get("isin") or "")
     try:
         from news_rag.fund_rupeestop_metrics import build_comparison_periods, fetch_vs_benchmark
 
@@ -704,6 +714,16 @@ def _enrich_compare_brief(detail: dict[str, Any], windows: list[str]) -> dict[st
     if riskometer:
         brief["riskometer"] = riskometer
     return brief
+
+
+def _measure_briefs(details: list[dict[str, Any]], windows: list[str]) -> list[dict[str, Any]]:
+    """Return percentage for each fund at once. One fund stays on this thread."""
+    if len(details) <= 1:
+        return [_enrich_compare_brief(detail, windows) for detail in details]
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=min(8, len(details))) as pool:
+        return list(pool.map(lambda detail: _enrich_compare_brief(detail, windows), details))
 
 
 # ---------------------------------------------------------------------------

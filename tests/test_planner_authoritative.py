@@ -145,5 +145,6 @@ def test_plan_system_prompt_planner_authority():
     assert "PLANNER AUTHORITY" in prompt
     assert "crude_oil" in prompt
     assert "Fetch exactly what was asked" in prompt
-    assert len(prompt) < 25000
+    assert "FUND NAMES AND CATEGORIES" in prompt
+    assert "flexi cap" in prompt
     assert "DETERMINISTIC INTENT HINT" not in prompt

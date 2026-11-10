@@ -142,7 +142,10 @@ def run_compare_funds(
             out["category"] = out.get("category") or detail.get("category")
             out["scheme_type"] = out.get("scheme_type") or detail.get("scheme_type")
         if out["return_pct"] is None and item["isin"]:
-            hist = get_fund_nav_history(item["isin"])
+            try:
+                hist = get_fund_nav_history(item["isin"])
+            except Exception:
+                hist = {}
             stats = (hist.get("stats") or {}) if hist.get("success") else {}
             block = stats.get(window) or {}
             if block.get("change_pct") is not None:

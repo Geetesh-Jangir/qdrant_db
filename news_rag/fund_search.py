@@ -145,7 +145,9 @@ def _amc_hints_from_tokens(tokens: list[str]) -> list[str]:
     for key, needles in _AMC_HINT_TOKENS.items():
         if key in hints:
             continue
-        if key in tokens or any(n in joined for n in needles):
+        if key in tokens or any(
+            re.search(rf"(?<![a-z0-9]){re.escape(n)}(?![a-z0-9])", joined) for n in needles
+        ):
             hints.append(key)
     known = set(cat.hint_tokens) if cat and cat.hint_tokens else set(_AMC_HINT_TOKENS)
     for tok in tokens:
@@ -388,6 +390,16 @@ def _is_bullion_phrase_not_scheme(phrase: str) -> bool:
     return False
 
 
+def _attach_trailing_product(question: str, phrase: str) -> str:
+    """Keep a product word that sits immediately after the captured scheme, such as ETF."""
+    phrase = (phrase or "").strip()
+    if not phrase or re.search(r"\betfs?\b", phrase, re.I):
+        return phrase
+    if re.search(rf"\b{re.escape(phrase)}\s+etfs?\b", question or "", re.I):
+        return f"{phrase} ETF"
+    return phrase
+
+
 def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
     """Best-effort scheme name / ISIN from natural-language question (no LLM)."""
     q = (question or "").strip()
@@ -407,9 +419,9 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
         topic_tail = _clean_fund_phrase(topic_m.group(1))
     if topic_tail and _is_plausible_scheme_phrase(topic_tail):
         if not amc_phrase or _phrase_specificity_score(topic_tail) >= _phrase_specificity_score(amc_phrase):
-            return isin, topic_tail
+            return isin, _attach_trailing_product(q, topic_tail)
     if amc_phrase:
-        return isin, amc_phrase
+        return isin, _attach_trailing_product(q, amc_phrase)
 
     patterns = [
         r"\binvested\s+in\s+(?:the\s+)?(.+?)(?:\s+fund)?(?:\s*,|\?|$)",
@@ -434,6 +446,7 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
         if m:
             fund_name = _clean_fund_phrase(m.group(1))
             if len(fund_name) >= 3 and _is_plausible_scheme_phrase(fund_name):
+                fund_name = _attach_trailing_product(q, fund_name)
                 break
             fund_name = ""
     if not fund_name and not isin:
@@ -447,11 +460,11 @@ def extract_fund_phrase_from_question(question: str) -> tuple[str, str]:
             candidate = _clean_fund_phrase(m.group(1))
             norm = _normalize_fund_text(candidate)
             if _is_plausible_scheme_phrase(candidate):
-                fund_name = candidate
+                fund_name = _attach_trailing_product(q, candidate)
     if not fund_name and not isin:
         late_amc = _extract_amc_scheme_phrase(q)
         if late_amc:
-            fund_name = late_amc
+            fund_name = _attach_trailing_product(q, late_amc)
     return isin, fund_name
 
 
@@ -1068,9 +1081,14 @@ class FundIndex:
         self._ensure_loaded()
         pool = [e for e in self._entries if e.get("fund_name")]
         words = [w for w in re.split(r"\s+", (name_contains or "").lower().strip()) if w]
+        metal_hint = any(w in {"gold", "silver"} for w in words)
         if words:
             hinted = [e for e in pool if all(w in str(e.get("fund_name")).lower() for w in words)]
-            if len(hinted) >= max(1, n):
+            if metal_hint:
+                # A gold or silver hint must not fall through to unrelated equity names.
+                pool = hinted
+                words = ["_hinted_"]
+            elif len(hinted) >= max(1, n):
                 pool = hinted
                 words = ["_hinted_"]
             else:
@@ -1511,6 +1529,17 @@ class FundIndex:
             pool = [e for e in pool if _entry_matches_amc(e, amc_hints)]
             if not pool:
                 return None, False, []
+
+        exact = [
+            entry
+            for entry in pool
+            if _normalize_fund_text(str(entry.get("fund_name") or entry.get("fund_short_name") or ""))
+            == norm_name
+        ]
+        if len(exact) == 1:
+            detail = self.get_fund_detail(str(exact[0]["isin"]))
+            if detail:
+                return detail, False, []
 
         settings = get_settings()
         from news_rag.fund_match import (

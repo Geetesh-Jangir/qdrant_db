@@ -2,8 +2,8 @@
   "sector_label": "Pharmaceuticals & Biotechnology",
   "benchmark_label": "Pharmaceuticals & Biotechnology",
   "yfinance_ticker": "^CNXPHARMA",
-  "return_pct": 3.31,
+  "return_pct": 2.15,
   "window_days": 7,
   "substituted_broad_index": false,
-  "cached_at": 1793866553.9475036
+  "cached_at": 1793944763.7588015
 }

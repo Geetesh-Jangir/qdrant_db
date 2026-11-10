@@ -62,6 +62,10 @@ def ensure_compare_fund_pair(
         return
     category = _compare_category_slug(question, plan)
     pair = comparison_fund_names(memory, category=category)
+    if len(pair) < 2:
+        from news_rag.insight.memory.fund_context import implicit_compare_pair_from_chat
+
+        pair = implicit_compare_pair_from_chat(memory, question)
     if pair:
         _merge_fund_names(plan, pair)
 
@@ -284,9 +288,17 @@ def resolve_planner_subject_refs(
     elif ref == "memory_stack" and memory:
         from news_rag.insight.memory.fund_context import (
             asks_these_equity_funds,
+            compare_side_in_chat,
             recent_equity_fund_pair_in_chat,
         )
 
+        stacked = [str(f).strip() for f in (plan.funds or []) if str(f).strip()]
+        if (
+            plan_wants_fund_compare(plan)
+            and len(stacked) >= 2
+            and all(compare_side_in_chat(f, memory, question) for f in stacked[:2])
+        ):
+            return
         if plan_wants_fund_compare(plan) and asks_these_equity_funds(question) and not category:
             equity_pair = recent_equity_fund_pair_in_chat(memory)
             if len(equity_pair) >= 2:
@@ -433,6 +445,95 @@ def repair_data_need_tools(plan: ExecutionPlan) -> ExecutionPlan:
     return plan
 
 
+def bind_shown_list_followup(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+) -> ExecutionPlan:
+    """Point 'the top 2 / the second / any two above' at that list, then the tool for the ask."""
+    import re
+
+    from news_rag.insight.memory.fund_context import funds_from_shown_list
+    from news_rag.insight.multi_fact import requested_fund_facts
+    from news_rag.insight.return_windows import windows_named_in_question
+
+    names = funds_from_shown_list(question, memory)
+    if not names:
+        return plan
+    plan.funds = list(names)
+    plan.subject_ref = "list_cursor"
+    plan.fund_pick = "none"
+    q = question or ""
+    if re.search(r"\b(?:compare|comparison|versus|vs\.?)\b", q, re.I) and len(names) >= 2:
+        plan.intent = "compare"
+        plan.data_need = "none"
+        plan.requires_compose = True
+        plan.tool_calls = [ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1)]
+        return plan
+    facts = requested_fund_facts(q)
+    windows = windows_named_in_question(q)
+    calls: list[ToolCall] = []
+    if "sectors" in facts or "holdings" in facts:
+        sections: list[str] = []
+        if "sectors" in facts:
+            sections.append("sectors")
+        if "holdings" in facts:
+            sections.append("holdings")
+        top_n = 5
+        for label in sections:
+            match = re.search(rf"\btop\s+(\d+)\s+{label}", q, re.I)
+            if match:
+                top_n = max(1, min(20, int(match.group(1))))
+        calls.append(
+            ToolCall(
+                tool="get_portfolio_data",
+                arguments={"sections": sections, "top_n": top_n},
+                wave=1,
+            )
+        )
+    if windows or (facts & {"returns", "nav", "aum", "expense"}):
+        arguments: dict[str, Any] = {"modules": ["snapshot"]}
+        if windows:
+            arguments["windows"] = windows
+        calls.append(ToolCall(tool="get_fund_data", arguments=arguments, wave=1))
+    if calls:
+        plan.intent = "lookup"
+        plan.data_need = "none"
+        plan.tool_calls = calls
+        return plan
+    plan.tool_calls = [call for call in (plan.tool_calls or []) if call.tool != "screen_funds_by_exposure"]
+    if not any(call.tool in ("get_fund_data", "get_portfolio_data", "compare_funds") for call in plan.tool_calls):
+        plan.tool_calls = [ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1)]
+    return plan
+
+
+def _keep_picked_shown_fund(question: str, plan: ExecutionPlan, memory: dict[str, Any] | None) -> None:
+    """A 'pick one from above' follow-up stays on that scheme and its fund lookup."""
+    from news_rag.insight.memory.fund_context import fund_picked_from_prior_answer
+
+    picked = fund_picked_from_prior_answer(question, memory)
+    if not picked:
+        return
+    plan.funds = [picked]
+    plan.subject_ref = "user_named"
+    plan.tool_calls = [
+        call
+        for call in (plan.tool_calls or [])
+        if not (
+            call.tool == "screen_funds_by_exposure" and (call.arguments or {}).get("rating_screen")
+        )
+    ]
+    if not any(call.tool == "get_fund_data" for call in plan.tool_calls):
+        plan.tool_calls = [
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["snapshot", "rating"]},
+                wave=1,
+            ),
+            *plan.tool_calls,
+        ]
+
+
 def apply_planner_post_hooks(
     question: str,
     plan: ExecutionPlan,
@@ -458,8 +559,16 @@ def apply_planner_post_hooks(
     )
 
     reconcile_planner_intent(plan, question)
+    from news_rag.insight.investor_subject import reconcile_planner_invented_fund_name
     from news_rag.insight.fund_name_policy import enforce_user_authorized_funds_only
 
+    reconcile_planner_invented_fund_name(plan, memory, question)
+    from news_rag.insight.memory.fund_context import fund_picked_from_prior_answer
+
+    picked = fund_picked_from_prior_answer(question, memory)
+    if picked:
+        plan.funds = [picked]
+        plan.subject_ref = "user_named"
     plan = enforce_user_authorized_funds_only(plan, memory, question)
     from news_rag.insight.general_concept import apply_pure_concept_plan
 
@@ -532,22 +641,26 @@ def apply_planner_post_hooks(
 
     if plan_wants_unnamed_category_pair_compare(question, plan, memory):
         plan.requires_compose = True
+        _keep_picked_shown_fund(question, plan, memory)
         return finish_portfolio_plan_bind(question, plan, memory)
 
     if plan_wants_fund_compare(plan):
         finalize_fund_compare_plan(question, plan)
+        _keep_picked_shown_fund(question, plan, memory)
         return finish_portfolio_plan_bind(question, plan, memory)
 
     if plan_wants_compare_categories(plan):
         ensure_cross_category_compare_plan(question, plan)
         plan.intent = "compare"
         plan.requires_compose = True
+        _keep_picked_shown_fund(question, plan, memory)
         return finish_portfolio_plan_bind(question, plan, memory)
 
     ensure_alternate_category_fund_plan(question, plan, memory)
     ensure_better_rated_category_fund_plan(question, plan, memory)
     if plan_wants_alternate_in_category(plan):
         plan.requires_compose = True
+        _keep_picked_shown_fund(question, plan, memory)
         return finish_portfolio_plan_bind(question, plan, memory)
 
     repair_data_need_tools(plan)
@@ -577,6 +690,10 @@ def apply_planner_post_hooks(
 
         ensure_planner_fund_fact_modules(question, plan)
         ensure_fund_concentration_plan(question, plan)
+        from news_rag.fund_rating_screen import ensure_quality_fund_list
+
+        ensure_quality_fund_list(question, plan)
+        _keep_picked_shown_fund(question, plan, memory)
         return finish_portfolio_plan_bind(question, plan, memory)
 
     ensure_category_performance_plan(question, plan, memory)
@@ -600,4 +717,5 @@ def apply_planner_post_hooks(
     ensure_category_composition_plan(question, plan, memory)
     ensure_fund_holdings_followup_plan(question, plan, memory)
     ensure_alternate_category_fund_plan(question, plan, memory)
+    _keep_picked_shown_fund(question, plan, memory)
     return finish_portfolio_plan_bind(question, plan, memory)

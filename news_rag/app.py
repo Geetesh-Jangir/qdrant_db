@@ -25,7 +25,7 @@ from news_rag.llm_client import (
     missing_llm_key_message,
     reset_llm_request_state,
 )
-from news_rag.query_log import new_fund_brief_logger, new_query_logger
+from news_rag.query_log import new_fund_brief_logger, new_query_logger, read_query_log
 from news_rag.fund_brief import generate_fund_brief
 from news_rag.ask_engine import run_ask_engine, stream_ask_engine
 from news_rag.backfill_job import snapshot as backfill_snapshot
@@ -198,6 +198,11 @@ def memory_stored_page() -> FileResponse:
     return _html_page("memory.html")
 
 
+@app.get("/log")
+def query_log_page() -> FileResponse:
+    return _html_page("log.html")
+
+
 @app.get("/api/ask/memory/{query_id}")
 def ask_memory(
     query_id: str,
@@ -211,6 +216,19 @@ def ask_memory(
     if record is None:
         return {"query_id": query_id, "passed": None, "stored": None}
     return record
+
+
+@app.get("/api/ask/log/{query_id}")
+def ask_query_log(
+    query_id: str,
+    authorization: str | None = Header(default=None),
+    x_app_token: str | None = Header(default=None),
+) -> dict:
+    _check_token(authorization, x_app_token)
+    payload = read_query_log(query_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Query log not found")
+    return payload
 
 
 @app.get("/api/ask/sources/{query_id}")

@@ -18,7 +18,7 @@ class NewsTarget:
     window_days: int = 30
     direction: str | None = None
     limit: int = 2
-    chars: int = 500
+    chars: int = 0
     required: bool = True
     articles: list[dict[str, str]] = field(default_factory=list)
 
@@ -30,7 +30,10 @@ def _body(row: dict[str, Any], chars: int) -> str:
     title = str(row.get("title") or "").strip()
     if title and text.lower().startswith(title.lower()[: min(40, len(title))]):
         text = text[len(title):].lstrip(" :-")
-    return " ".join(text.split())[:chars]
+    text = " ".join(text.split())
+    if chars > 0:
+        return text[:chars]
+    return text
 
 
 def search_targets(targets: list[NewsTarget]) -> None:

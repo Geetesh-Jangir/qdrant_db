@@ -66,7 +66,22 @@ def fund_authorized_for_question(
         return False
     if user_explicitly_named_scheme(question, name):
         return True
+    if _named_in_chat_turns(name, memory):
+        return True
     return compare_side_in_chat(name, memory, question)
+
+
+def _named_in_chat_turns(fund_name: str, memory: dict[str, Any] | None) -> bool:
+    name = str(fund_name or "").strip().lower()
+    if not name or not isinstance(memory, dict):
+        return False
+    parts: list[str] = []
+    for row in memory.get("chat_turns") or []:
+        if not isinstance(row, dict):
+            continue
+        parts.append(str(row.get("user") or ""))
+        parts.append(str(row.get("assistant") or ""))
+    return name in " ".join(parts).lower()
 
 
 def enforce_user_authorized_funds_only(

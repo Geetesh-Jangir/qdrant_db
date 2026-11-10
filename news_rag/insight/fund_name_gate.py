@@ -28,7 +28,15 @@ def _bound_fund_name(plan: ExecutionPlan, memory: dict | None, question: str) ->
         resolve_user_named_fund_in_memory,
         user_explicitly_named_scheme,
     )
-    from news_rag.insight.memory.fund_context import memory_known_fund_names, primary_fund_name
+    from news_rag.insight.memory.fund_context import (
+        fund_picked_from_prior_answer,
+        memory_known_fund_names,
+        primary_fund_name,
+    )
+
+    picked = fund_picked_from_prior_answer(question, memory)
+    if picked:
+        return picked
 
     named = resolve_user_named_fund_in_memory(question, memory)
     if named:
@@ -62,6 +70,10 @@ def _bound_fund_name(plan: ExecutionPlan, memory: dict | None, question: str) ->
 
     if len(funds) >= 2:
         if all(user_explicitly_named_scheme(question, f) for f in funds[:2]):
+            return funds[0]
+        from news_rag.insight.fund_name_policy import fund_authorized_for_question
+
+        if all(fund_authorized_for_question(f, question, memory) for f in funds):
             return funds[0]
     return ""
 
@@ -105,7 +117,10 @@ def clarify_plan_if_fund_unknown(
     if str(plan.holding_scope or "") == "all_holdings":
         return plan
 
-    if _bound_fund_name(plan, memory, question):
+    bound = _bound_fund_name(plan, memory, question)
+    if bound:
+        if not [str(f).strip() for f in (plan.funds or []) if str(f).strip()]:
+            plan.funds = [bound]
         return plan
 
     plan.scope_kind = ScopeKind.NEEDS_CLARIFICATION

@@ -49,6 +49,20 @@ def test_macro_scope_injects_news_when_planner_sent_no_tools():
     assert any(c.tool == "get_market_snapshot" for c in out.tool_calls)
 
 
+def test_market_overview_does_not_invent_rupee_search():
+    plan = ExecutionPlan(
+        intent="overview",
+        answer_mode=AnswerMode.NEWS_ONLY,
+        window_days=7,
+        tool_calls=[
+            ToolCall(tool="get_market_snapshot", arguments={"modules": ["index_return"]}, wave=1),
+            ToolCall(tool="get_macro_news", arguments={}, wave=1),
+        ],
+    )
+    out = apply_standalone_macro_scope("whats happening in the market right now", plan)
+    assert not any(c.tool == "search_financial_news" for c in out.tool_calls)
+
+
 def test_macro_scope_strips_fund_tools():
     plan = ExecutionPlan(
         funds=["DSP India T.I.G.E.R. Fund - Regular Plan - Growth"],

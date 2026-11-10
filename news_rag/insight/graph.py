@@ -200,8 +200,17 @@ def node_route(state: GraphState) -> str | None:
     from news_rag.insight.greeting import greeting_reply, identity_reply
     from news_rag.insight.guardrails import guard_reply
 
+    _load_planner_memory(state)
+    has_history = bool(
+        (state.memory or {}).get("chat_turns")
+        or ((state.memory_passed_view or {}).get("turns") if isinstance(state.memory_passed_view, dict) else None)
+    )
     guarded = (
-        guard_reply(state.question or "", portfolio_enabled=bool(get_settings().portfolio_enabled))
+        guard_reply(
+            state.question or "",
+            portfolio_enabled=bool(get_settings().portfolio_enabled),
+            has_history=has_history,
+        )
         if not greeting_reply(state.question or "")
         else None
     )
@@ -1847,10 +1856,33 @@ def node_compose(state: GraphState) -> str | None:
         if gold_table not in polished_text:
             polished_text = f"{polished_text}\n\n{gold_table}".strip()
     polished_text = strip_news_roundup(polished_text)
+    grouped_news: dict[str, Any] = {}
+    for row in wave_results:
+        if row.get("tool") != "search_financial_news" or not row.get("ok"):
+            continue
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        grouped = data.get("grouped") if isinstance(data.get("grouped"), dict) else {}
+        grouped_news.update(grouped)
+    if grouped_news:
+        from news_rag.insight.fund_display import append_news_section
+
+        polished_text = re.sub(r"(?im)^.*no recent news.*$\n?", "", polished_text).strip()
+        polished_text = append_news_section(polished_text, grouped_news)
     polished_text = _strip_unasked_closers(
         polished_text,
         keep_summary=_wants_end_summary(plan, state.question or ""),
     )
+    from news_rag.fund_risk import pending_rating_line
+
+    for row in wave_results:
+        data = row.get("data") if isinstance(row.get("data"), dict) else {}
+        rating = data.get("rs_rating") if isinstance(data.get("rs_rating"), dict) else {}
+        if not rating.get("rating_pending"):
+            continue
+        fund = str(data.get("fund_name") or row.get("fund") or "").strip()
+        line = pending_rating_line(fund)
+        if line.lower() not in polished_text.lower():
+            polished_text = f"{polished_text}\n\n{line}".strip()
     if state.query_log and raw_text:
         state.query_log.write(
             f"COMPOSE_POST chars={len(polished_text)} measured={measured} "

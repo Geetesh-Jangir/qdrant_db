@@ -147,6 +147,7 @@ def _search_macro_parameters(
             window_days=window_days,
             ignore_question_time_hints=True,
             vector_limit=12,
+            body_char_limit=0,
         )
         unique: list[dict[str, Any]] = []
         seen: set[str] = set()
@@ -188,7 +189,7 @@ def _article_text(art: dict[str, Any]) -> str:
     source = art
     if not (art.get("scraped_text") or art.get("body") or art.get("snippet")):
         source = {**art, "snippet": art.get("summary") or art.get("text") or ""}
-    return article_body_for_llm(source, limit=2500)
+    return article_body_for_llm(source, limit=0)
 
 
 def _slim_clusters(clusters: list[dict[str, Any]]) -> list[dict[str, Any]]:

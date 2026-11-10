@@ -440,7 +440,8 @@ def build_evidence_pack(
                                     "title": a.get("title") or a.get("headline", ""),
                                     "summary": a.get("summary")
                                     or a.get("snippet")
-                                    or str(a.get("text", ""))[:400],
+                                    or a.get("text")
+                                    or "",
                                     "source": a.get("source", ""),
                                     "url": a.get("url", ""),
                                     "date": a.get("published_at")
@@ -468,7 +469,7 @@ def build_evidence_pack(
                                         bucket.append({
                                             "theme": str(entity_name or ""),
                                             "title": a.get("title") or a.get("headline", ""),
-                                            "summary": a.get("summary") or a.get("snippet") or a.get("text", "")[:400],
+                                            "summary": a.get("summary") or a.get("snippet") or a.get("text") or "",
                                             "source": a.get("source", ""),
                                             "url": a.get("url", ""),
                                             "date": a.get("published_at") or a.get("published_date") or a.get("date", ""),
@@ -482,7 +483,7 @@ def build_evidence_pack(
                             if isinstance(a, dict):
                                 bucket.append({
                                     "title": a.get("title") or a.get("headline", ""),
-                                    "summary": a.get("summary") or a.get("snippet") or a.get("text", "")[:400],
+                                    "summary": a.get("summary") or a.get("snippet") or a.get("text") or "",
                                     "source": a.get("source", ""),
                                     "url": a.get("url", ""),
                                     "date": a.get("published_at") or a.get("published_date") or a.get("date", ""),
@@ -498,7 +499,7 @@ def build_evidence_pack(
                     news_grouped[scope] = [
                         {
                             "title": a.get("title") or a.get("headline", ""),
-                            "summary": a.get("summary") or a.get("snippet") or a.get("text", "")[:400],
+                            "summary": a.get("summary") or a.get("snippet") or a.get("text") or "",
                             "source": a.get("source", ""),
                             "url": a.get("url", ""),
                             "date": a.get("published_at") or a.get("published_date") or a.get("date", ""),

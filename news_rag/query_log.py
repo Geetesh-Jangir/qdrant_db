@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import threading
 import time
@@ -883,9 +884,73 @@ class QueryLogger:
         }
 
 
+_QUERY_ID_RE = re.compile(r"^[0-9]{8}T[0-9]{6}Z_[0-9a-f]{6}$")
+_LOG_READ_MAX_CHARS = 1_500_000
+
+
+def query_log_page_href(query_id: str) -> str:
+    """Relative page that shows this query's log. Empty when the id is not a real log id."""
+    if not _QUERY_ID_RE.fullmatch(query_id or ""):
+        return ""
+    return f"log?query_id={query_id}"
+
+
+def find_query_log_file(query_id: str, log_dir: Path | None = None) -> Path | None:
+    """Return the ask/fund-brief log for this id, only if it sits inside the log directory."""
+    if not _QUERY_ID_RE.fullmatch(query_id or ""):
+        return None
+    root = (log_dir if log_dir is not None else get_settings().rag_query_log_path()).resolve()
+    if not root.is_dir():
+        return None
+    matches: list[Path] = []
+    for prefix in ("ask_", "fund_brief_"):
+        for path in root.glob(f"{prefix}{query_id}*.log"):
+            resolved = path.resolve()
+            if resolved.parent != root or not resolved.is_file():
+                continue
+            stem = resolved.stem
+            expected = f"{prefix}{query_id}"
+            if stem != expected and not stem.startswith(expected + "_"):
+                continue
+            matches.append(resolved)
+    if not matches:
+        return None
+    return max(matches, key=lambda path: path.stat().st_mtime)
+
+
+def read_query_log(query_id: str, log_dir: Path | None = None) -> dict[str, Any] | None:
+    """Text of the log file written for this query, plus its JSON sidecar when present."""
+    log_path = find_query_log_file(query_id, log_dir)
+    if log_path is None:
+        return None
+    text = log_path.read_text(encoding="utf-8", errors="replace")
+    truncated = False
+    if len(text) > _LOG_READ_MAX_CHARS:
+        text = text[:_LOG_READ_MAX_CHARS]
+        truncated = True
+    summary = ""
+    summary_name = ""
+    json_path = log_path.with_suffix(".json")
+    if json_path.is_file() and json_path.resolve().parent == log_path.parent:
+        summary = json_path.read_text(encoding="utf-8", errors="replace")
+        if len(summary) > _LOG_READ_MAX_CHARS:
+            summary = summary[:_LOG_READ_MAX_CHARS]
+            truncated = True
+        summary_name = json_path.name
+    return {
+        "query_id": query_id,
+        "filename": log_path.name,
+        "text": text,
+        "summary_filename": summary_name,
+        "summary": summary,
+        "truncated": truncated,
+    }
+
+
 def attach_query_log_meta(result: dict[str, Any], meta: dict[str, Any]) -> None:
     result["query_log_id"] = meta["query_id"]
     result["query_log_file"] = meta["log_file"]
+    result["query_log_href"] = query_log_page_href(str(meta.get("query_id") or ""))
     result["query_summary_json"] = meta.get("summary_json") or ""
     result["llm_provider"] = meta.get("llm_provider") or ""
     result["llm_calls"] = meta["llm_calls"]

@@ -23,6 +23,10 @@ def test_planner_gets_every_amc_and_typo_counts_as_named() -> None:
         "tell me how the tauras large cap fund is doing",
         "Taurus Large Cap Fund",
     )
+    assert user_explicitly_named_scheme(
+        "tell me absl gold etf",
+        "Aditya Birla Sun Life Gold ETF",
+    )
 
 
 def test_quantum_amc_separate_from_quant() -> None:

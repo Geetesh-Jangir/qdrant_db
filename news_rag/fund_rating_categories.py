@@ -51,11 +51,27 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "etfs",
         "gold etf",
         "silver etf",
+        "fund of funds-domestic-gold",
+        "fund of funds-domestic-silver",
+        "fund of funds-domestic-gold and silver",
         "fund of funds-hybrid",
         "fund of funds-domestic-equity",
-        "fund of funds-domestic-gold",
+        "fund of funds-domestic-debt",
+        "fund of funds-domestic-hybrid",
     ),
 }
+
+# Bullion products on the category rating URL. Generic "etfs" and "index" are not metal funds.
+GOLD_SCHEME_CATEGORIES: tuple[str, ...] = (
+    "gold etf",
+    "fund of funds-domestic-gold",
+    "fund of funds-domestic-gold and silver",
+)
+SILVER_SCHEME_CATEGORIES: tuple[str, ...] = (
+    "silver etf",
+    "fund of funds-domestic-silver",
+    "fund of funds-domestic-gold and silver",
+)
 
 # Subset used when the user asks for random equity compares (same-category pair).
 RANDOM_EQUITY_COMPARE_CATEGORIES: tuple[str, ...] = (
@@ -89,6 +105,10 @@ _CATEGORY_ALIASES: tuple[tuple[str, str, str], ...] = tuple(
 ) + (
     ("gold fof", "others", "fund of funds-domestic-gold"),
     ("gold fund of funds", "others", "fund of funds-domestic-gold"),
+    ("gold fund of fund", "others", "fund of funds-domestic-gold"),
+    ("silver fof", "others", "fund of funds-domestic-silver"),
+    ("silver fund of funds", "others", "fund of funds-domestic-silver"),
+    ("silver fund of fund", "others", "fund of funds-domestic-silver"),
     ("balanced advantage", "hybrid", "dynamic asset allocation"),
     ("business cycle", "equity", ""),
     ("contra", "equity", ""),
@@ -207,6 +227,17 @@ def match_all_scheme_categories(question: str) -> list[str]:
 
 def categories_for(fund_type: str) -> tuple[str, ...]:
     return CATEGORIES.get(fund_type or "equity", ())
+
+
+def metal_scheme_categories(*metals: str) -> tuple[str, ...]:
+    """Published gold/silver scheme categories, ETF before fund-of-funds."""
+    chosen: list[str] = []
+    pools = {"gold": GOLD_SCHEME_CATEGORIES, "silver": SILVER_SCHEME_CATEGORIES}
+    for metal in metals:
+        for category in pools.get(metal, ()):
+            if category not in chosen:
+                chosen.append(category)
+    return tuple(chosen)
 
 
 def asks_taxonomy(question: str) -> bool:

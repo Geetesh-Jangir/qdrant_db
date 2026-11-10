@@ -63,6 +63,13 @@ def test_extract_nav_without_fund_word() -> None:
     assert "PPFAS" in short_name or "Parag Parikh" in short_name
 
 
+def test_absl_gold_etf_is_the_etf_not_a_gold_fund_list() -> None:
+    detail, ambiguous, _ = resolve_fund_for_query("tell me absl gold etf")
+    assert not ambiguous
+    assert detail is not None
+    assert detail.get("isin") == "INF209KB18D3"
+
+
 def test_absl_nifty_50_etf_not_momentum_200() -> None:
     for question, expected_isin in (
         ("what are the top 5 sectors of absl nifty 50 etf", "INF209KB19D1"),
@@ -149,6 +156,16 @@ def test_quant_small_cap_is_quant_amc_not_quantum_or_axis_quant() -> None:
     assert not ambiguous
     assert detail is not None
     assert detail.get("isin") in ("INF966L01051", "INF966L01AA0")
+
+
+def test_quantum_gold_etf_is_quantum_not_quant() -> None:
+    detail, ambiguous, _ = lookup_extracted_fund(name="Quantum Gold ETF")
+    assert not ambiguous
+    assert detail is not None
+    assert detail.get("isin") == "INF082J01010"
+    name = (detail.get("fund_short_name") or detail.get("fund_name") or "").lower()
+    assert name.startswith("quantum gold etf")
+    assert "fof" not in name
 
 
 def test_axis_quant_is_not_quant_amc() -> None:

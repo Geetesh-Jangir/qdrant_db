@@ -67,7 +67,8 @@ def test_hydrate_memory_from_ui_prior_turns():
     view = chat_history_view(state)
     assert len(view["turns"]) == 1
     frame = state.get("frame") or {}
-    assert "HDFC" in str(frame.get("last_fund_focus") or "")
+    assert not str(frame.get("last_fund_focus") or "").strip()
+    assert "HDFC Large Cap Fund" in view["turns"][0]["user"]
 
 
 def test_load_planner_memory_hydrates_from_prior_context():

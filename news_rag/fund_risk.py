@@ -248,6 +248,24 @@ def include_drawdown_with_risk(question: str) -> bool:
     return bool(_FALL_RE.search(question or ""))
 
 
+RATING_PENDING = "We will provide ratings about {fund} soon."
+
+
+def rating_api_data_is_null(payload: dict[str, Any] | None) -> bool:
+    """True only when the rating API included data and set it to null or none."""
+    if not isinstance(payload, dict) or "data" not in payload:
+        return False
+    data = payload.get("data")
+    if data is None:
+        return True
+    return isinstance(data, str) and data.strip().lower() in {"null", "none"}
+
+
+def pending_rating_line(fund_name: str = "") -> str:
+    fund = (fund_name or "").strip() or "this fund"
+    return RATING_PENDING.format(fund=fund)
+
+
 def normalize_rating(payload: dict[str, Any] | None) -> dict[str, Any] | None:
     """Keep fund type, score, max score, and the API label. Drop pillars and inputs."""
     if not isinstance(payload, dict):
@@ -311,19 +329,22 @@ def rating_needs_pillars(args: dict[str, Any] | None) -> bool:
 
 def rating_for_request(detail: dict[str, Any] | None, args: dict[str, Any] | None) -> dict[str, Any] | None:
     headline = headline_rating(detail)
-    if not rating_needs_pillars(args):
-        return headline
     isin = str((detail or {}).get("isin") or "").strip()
-    full = fetch_public_rating(isin) if isin else None
-    if not full:
-        return headline
-    full.pop("computed_at", None)
-    if headline:
-        if full.get("final_score") is None and headline.get("final_score") is not None:
-            full["final_score"] = headline["final_score"]
-        if not str(full.get("label") or "").strip():
-            full["label"] = headline.get("label") or ""
-    return full
+    modules = {str(name).lower() for name in ((args or {}).get("modules") or [])}
+    if rating_needs_pillars(args) or ("rating" in modules and not headline):
+        full = fetch_public_rating(isin) if isin else None
+        if isinstance(full, dict) and full.get("rating_pending"):
+            return full
+        if not full:
+            return headline
+        full.pop("computed_at", None)
+        if headline:
+            if full.get("final_score") is None and headline.get("final_score") is not None:
+                full["final_score"] = headline["final_score"]
+            if not str(full.get("label") or "").strip():
+                full["label"] = headline.get("label") or ""
+        return full
+    return headline
 
 
 def _pillar_maximum(block: dict[str, Any], default_max: int) -> int:
@@ -558,6 +579,10 @@ def fetch_public_rating(isin: str, *, timeout: float = 12.0) -> dict[str, Any] |
     except Exception as exc:
         logger.warning("rs-rating failed for %s: %s", key, exc)
         return None
+    if isinstance(payload, dict) and rating_api_data_is_null(payload):
+        pending = {"rating_pending": True}
+        _cache[key] = (now, dict(pending))
+        return dict(pending)
     public = normalize_rating(payload if isinstance(payload, dict) else None)
     if public:
         _cache[key] = (now, dict(public))

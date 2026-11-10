@@ -533,3 +533,21 @@ def test_reroute_investor_risk_to_fund_data_for_deictic_risk():
     fund_call = next(c for c in plan.tool_calls if c.tool == "get_fund_data")
     mods = {str(m).lower() for m in (fund_call.arguments or {}).get("modules") or []}
     assert "risk" in mods and "drawdown" in mods
+
+
+def test_null_rating_data_is_a_pending_rating(monkeypatch) -> None:
+    from news_rag.fund_risk import pending_rating_line, rating_api_data_is_null, rating_for_request
+
+    assert rating_api_data_is_null({"data": None})
+    assert rating_api_data_is_null({"data": "none"})
+    assert not rating_api_data_is_null({"data": {"finalScore": 70, "label": "Good Choice"}})
+    assert not rating_api_data_is_null({})
+    monkeypatch.setattr(
+        "news_rag.fund_risk.fetch_public_rating",
+        lambda isin: {"rating_pending": True},
+    )
+    rating = rating_for_request({"isin": "INF179KC1HX2"}, {"modules": ["rating"]})
+    assert rating == {"rating_pending": True}
+    assert pending_rating_line("HDFC BSE Sensex ETF") == (
+        "We will provide ratings about HDFC BSE Sensex ETF soon."
+    )

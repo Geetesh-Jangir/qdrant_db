@@ -90,6 +90,10 @@ def entity_candidates(question: str, memory: dict[str, Any] | None = None) -> di
 
 def candidates_block(question: str, memory: dict[str, Any] | None = None) -> str:
     """Text for the planner message. Empty when there is nothing to offer."""
+    from news_rag.insight.memory.fund_context import question_asks_compare_both_in_chat
+
+    if question_asks_compare_both_in_chat(question):
+        return ""
     got = entity_candidates(question, memory)
     lines: list[str] = []
     for f in got["funds"]:
@@ -103,6 +107,7 @@ def candidates_block(question: str, memory: dict[str, Any] | None = None) -> str
     if not lines:
         return ""
     return (
-        "CANDIDATES (catalog-checked names for typos and short forms; pick or correct them, never invent others):\n"
+        "CANDIDATES (catalog aliases). Copy a fund line into entities.funds. "
+        "An AMC token is that house's official name, not a different scheme:\n"
         + "\n".join(lines)
     )

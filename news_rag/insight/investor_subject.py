@@ -886,7 +886,15 @@ def user_explicitly_named_scheme(question: str, fund_name: str) -> bool:
     amc_tokens = _amc_token_set()
     amc_in_question = [canon for t in q_tokens if (canon := _amc_token_in_question(t, amc_tokens))]
     if amc_in_question:
-        return any(re.search(rf"\b{re.escape(amc)}\b", name_lower) for amc in amc_in_question)
+        from news_rag.fund_search import _needles_for_amc_hint
+
+        for amc in amc_in_question:
+            if re.search(rf"\b{re.escape(amc)}\b", name_lower):
+                return True
+            for needle in _needles_for_amc_hint(amc):
+                if needle and needle.lower() in name_lower:
+                    return True
+        return False
     fund_tokens = [
         w
         for w in re.findall(r"[a-z0-9]+", name_lower)
@@ -1008,6 +1016,16 @@ def enforce_deictic_and_memory_primary_fund(
     if fund_type_name_spec(question):
         plan.funds = []
         plan.subject_ref = "none"
+        return plan
+
+    from news_rag.insight.memory.fund_context import question_asks_compare_both_in_chat
+    from news_rag.insight.plan_intent import plan_wants_fund_compare
+
+    if (
+        plan_wants_fund_compare(plan)
+        and question_asks_compare_both_in_chat(question)
+        and len([f for f in (plan.funds or []) if str(f).strip()]) >= 2
+    ):
         return plan
 
     ref = str(plan.subject_ref or "none").strip().lower()

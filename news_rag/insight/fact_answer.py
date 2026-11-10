@@ -386,6 +386,10 @@ def _fund_line(
             return f"The SEBI riskometer of {fund} is {first}."
     if name == "rs_rating":
         rating = block.get("rs_rating") if isinstance(block.get("rs_rating"), dict) else {}
+        if rating.get("rating_pending"):
+            from news_rag.fund_risk import pending_rating_line
+
+            return pending_rating_line(fund)
         label = str(rating.get("label") or rating.get("rs_label") or "").strip()
         score = rating.get("final_score")
         if score is None:

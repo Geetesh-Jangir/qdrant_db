@@ -85,7 +85,7 @@ def article_body_for_llm(article: dict, limit: int = 1000) -> str:
         or ""
     )
     text = clean_scraped_snippet(raw)
-    if len(text) <= limit:
+    if limit <= 0 or len(text) <= limit:
         return text
     cut = text[:limit]
     if " " in cut:

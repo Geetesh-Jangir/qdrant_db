@@ -19,7 +19,7 @@ def _macro_news_topics(question: str) -> list[str]:
         topics.append("dollar")
     if re.search(r"\byield|treasury|\bfed\b", q):
         topics.append("US Fed yields")
-    return topics or ["rupee"]
+    return topics
 
 
 def apply_standalone_macro_scope(question: str, plan: ExecutionPlan) -> ExecutionPlan:
@@ -39,13 +39,14 @@ def apply_standalone_macro_scope(question: str, plan: ExecutionPlan) -> Executio
     ]
 
     window_days = min(max(int(plan.window_days or 14), 7), 30)
-    if not any(c.tool == "search_financial_news" for c in (plan.tool_calls or [])):
+    topics = _macro_news_topics(question)
+    if topics and not any(c.tool == "search_financial_news" for c in (plan.tool_calls or [])):
         plan.tool_calls.append(
             ToolCall(
                 tool="search_financial_news",
                 arguments={
                     "scope": "macro",
-                    "topics": _macro_news_topics(question),
+                    "topics": topics,
                     "top_n": 8,
                     "window_days": window_days,
                     "direction": "any",

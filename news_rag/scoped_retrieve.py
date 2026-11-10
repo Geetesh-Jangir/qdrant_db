@@ -201,8 +201,8 @@ def retrieve_scoped_news(
         if scope.news_topics and mode == "event_only" and not _topic_match(row, scope.news_topics):
             continue
         raw_text = str(row.get("scraped_text") or row.get("snippet") or "")
-        char_cap = int(body_char_limit or 0) or int(settings.snippet_chars)
-        snippet = _trim_snippet(raw_text, char_cap)
+        char_cap = int(settings.snippet_chars) if body_char_limit is None else int(body_char_limit)
+        snippet = raw_text if char_cap <= 0 else _trim_snippet(raw_text, char_cap)
         article_entities = {str(n).lower() for n in (row.get("entity_names") or [])}
         title_lower = str(row.get("title") or "").lower()
         exact_entity_match = bool(entity_set & article_entities) or any(n in title_lower for n in entity_set)
@@ -239,8 +239,8 @@ def retrieve_scoped_news(
     reader.hydrate_bodies(final)
     for item in final:
         raw_text = str(item.get("scraped_text") or item.get("snippet") or "")
-        char_cap = int(body_char_limit or 0) or int(settings.snippet_chars)
-        snippet = _trim_snippet(raw_text, char_cap)
+        char_cap = int(settings.snippet_chars) if body_char_limit is None else int(body_char_limit)
+        snippet = raw_text if char_cap <= 0 else _trim_snippet(raw_text, char_cap)
         item["snippet"] = snippet
         item["scraped_text"] = snippet
 

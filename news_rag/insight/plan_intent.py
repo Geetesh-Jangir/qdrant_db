@@ -83,9 +83,12 @@ def plan_wants_compare_categories(plan: ExecutionPlan) -> bool:
 
 
 def plan_wants_fund_compare(plan: ExecutionPlan) -> bool:
+    if any(call.tool == "compare_funds" for call in plan.tool_calls or []):
+        return True
     if str(plan.intent or "").strip().lower() != "compare":
         return False
-    return any(call.tool == "compare_funds" for call in plan.tool_calls or [])
+    pick = str(getattr(plan, "fund_pick", "") or "none").strip().lower()
+    return pick in ("", "none", "single")
 
 
 def named_compare_funds_in_question(question: str) -> list[str]:

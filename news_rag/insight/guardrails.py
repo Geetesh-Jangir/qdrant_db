@@ -74,6 +74,8 @@ _FUND_WORDS = {
     "50", "100", "200", "250", "500", "mutual", "my", "the", "a", "an", "this", "that", "which", "what", "any",
     "best", "good", "better", "all", "some", "other", "another", "same", "one", "two", "of", "in", "on", "for",
     "and", "or", "is", "are", "to", "me", "show", "tell", "about", "give", "list", "compare", "vs", "versus",
+    "above", "these", "those", "them", "both", "previous", "earlier", "mentioned", "listed", "following",
+    "suggested", "recommended", "said",
     "how", "does", "do", "has", "have", "with", "from", "fund", "funds", "scheme", "schemes", "your", "our",
     "performing", "performance", "returns", "return", "nav", "holding", "holdings", "invested", "investing",
     "category", "type", "types", "open", "ended", "close", "closed", "bank", "banks", "psu", "capital",
@@ -160,7 +162,12 @@ SIGN_IN_REPLY = "Please sign in to see your own portfolio. Meanwhile I can answe
 _OWN_BOOK_RE = re.compile(r"\bmy\s+(?:portfolio|funds?|holdings?|sips?|stps?|xirr|investments?|mutual\s+funds?)\b", re.I)
 
 
-def guard_reply(question: str, *, portfolio_enabled: bool = True) -> tuple[str, str] | None:
+def guard_reply(
+    question: str,
+    *,
+    portfolio_enabled: bool = True,
+    has_history: bool = False,
+) -> tuple[str, str] | None:
     """Return (kind, reply) for a question that must not reach the planner, else None."""
     if not portfolio_enabled and _OWN_BOOK_RE.search(question or ""):
         return "sign_in", SIGN_IN_REPLY
@@ -170,6 +177,8 @@ def guard_reply(question: str, *, portfolio_enabled: bool = True) -> tuple[str, 
         return "advice", APP_RECOMMENDATION_REPLY
     if looks_like_gibberish(question):
         return "gibberish", GIBBERISH_REPLY
+    if has_history:
+        return None
     phrase = unknown_fund_phrase(question)
     if phrase:
         return "unknown_fund", UNKNOWN_FUND_REPLY.format(phrase=phrase)

@@ -37,7 +37,15 @@ def test_signed_out_own_book_asks_for_sign_in():
         "should I buy gold, and what is its return",
         "hdfc larg cap fund nav",
         "why did my portfolio fall",
+        "compare the above funds",
+        "compare these two funds",
+        "compare those funds",
     ],
 )
 def test_guard_passes(question):
     assert guard_reply(question) is None
+
+
+def test_unknown_fund_skipped_when_chat_has_history():
+    assert guard_reply("pizza fund", has_history=True) is None
+    assert guard_reply("pizza fund", has_history=False) is not None

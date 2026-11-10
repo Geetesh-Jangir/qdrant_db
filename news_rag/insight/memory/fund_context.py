@@ -76,6 +76,14 @@ def merge_fund_isins_map(
         isin = str(row.get("isin") or "").strip().upper()
         if row.get("name") and isin.startswith("INF"):
             out[row["name"].lower()] = isin
+    cursor = memory.get("list_cursor") if isinstance(memory, dict) and isinstance(memory.get("list_cursor"), dict) else {}
+    for row in cursor.get("rows") or []:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or "").strip()
+        isin = str(row.get("id") or row.get("isin") or "").strip().upper()
+        if name and isin.startswith("INF"):
+            out[name.lower()] = isin
     return out
 
 
@@ -170,6 +178,201 @@ def memory_known_fund_names(memory: dict[str, Any] | None) -> list[str]:
     if focus:
         _add(focus)
     return out
+
+
+_LIST_COUNT_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+}
+_ORDINAL_INDEX = {
+    "first": 1,
+    "1st": 1,
+    "second": 2,
+    "2nd": 2,
+    "third": 3,
+    "3rd": 3,
+    "fourth": 4,
+    "4th": 4,
+    "fifth": 5,
+    "5th": 5,
+    "sixth": 6,
+    "seventh": 7,
+    "eighth": 8,
+    "ninth": 9,
+    "tenth": 10,
+}
+
+
+def _list_question(question: str) -> str:
+    text = question or ""
+    text = re.sub(r"\babov+\w*\b", "above", text, flags=re.I)
+    return re.sub(r"\babve\b", "above", text, flags=re.I)
+
+
+def question_refers_to_shown_list(question: str) -> bool:
+    """The user is pointing at the last shown list, not asking for a new screen."""
+    q = _list_question(question)
+    if re.search(
+        r"\b(?:above|earlier|previous|prior|you showed|you listed|the list)\b",
+        q,
+        re.I,
+    ):
+        return True
+    if re.search(r"\b(?:pick|choose)\b", q, re.I) and re.search(
+        r"\b(?:above|earlier|previous|them|those|these|the list)\b",
+        q,
+        re.I,
+    ):
+        return True
+    if re.search(r"\b(?:these|those|them|their)\b", q, re.I) and re.search(
+        r"\b(?:funds?|ones?|schemes?|etfs?|compare|returns?|sectors?|holdings?)\b",
+        q,
+        re.I,
+    ):
+        return True
+    if re.search(r"\bthe\s+(?:first|second|third|fourth|fifth|middle|bottom|last)\b", q, re.I):
+        return True
+    if re.search(r"\b(?:first|second|third|fourth|fifth)\s+one\b", q, re.I):
+        return True
+    return False
+
+
+def shown_list_names(memory: dict[str, Any] | None) -> list[str]:
+    """Ordered names from the last screen, else schemes written in the last reply."""
+    if not isinstance(memory, dict):
+        return []
+    cursor = memory.get("list_cursor") if isinstance(memory.get("list_cursor"), dict) else {}
+    rows = [row for row in (cursor.get("rows") or []) if isinstance(row, dict) and row.get("name")]
+    rows.sort(key=lambda row: int(row.get("n") or 0))
+    names: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        name = str(row.get("name") or "").strip()
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            names.append(name)
+    if names:
+        return names
+    turns = [row for row in (memory.get("chat_turns") or []) if isinstance(row, dict)]
+    if not turns:
+        return []
+    return _scheme_names_in_prose(str(turns[-1].get("assistant") or ""))
+
+
+def _list_count(token: str) -> int:
+    raw = str(token or "").strip().lower()
+    if raw.isdigit():
+        return max(1, min(10, int(raw)))
+    return _LIST_COUNT_WORDS.get(raw, 0)
+
+
+def _slice_shown_names(question: str, names: list[str]) -> list[str] | None:
+    """A position in the list, or None when the question does not name one."""
+    q = _list_question(question)
+    count_words = "|".join(_LIST_COUNT_WORDS)
+    not_a_column = r"(?!\s+(?:sectors?|holdings?|stocks?|shares?))"
+    if re.search(r"\bmiddle\b", q, re.I):
+        return [names[len(names) // 2]] if names else []
+    match = re.search(rf"\b(?:bottom|last)\s+(\d+|{count_words})\b{not_a_column}", q, re.I)
+    if match:
+        count = _list_count(match.group(1))
+        return names[-count:] if count else []
+    if re.search(r"\b(?:bottom|last)\s+(?:one|fund)\b", q, re.I):
+        return names[-1:]
+    match = re.search(rf"\b(?:top|first|any)\s+(\d+|{count_words})\b{not_a_column}", q, re.I)
+    if match:
+        count = _list_count(match.group(1))
+        return names[:count] if count else []
+    if re.search(r"\b(?:top|first)\s+(?:one|fund)\b", q, re.I):
+        return names[:1]
+    for word, index in _ORDINAL_INDEX.items():
+        if re.search(rf"\bthe\s+{word}\b|\b{word}\s+one\b", q, re.I):
+            return [names[index - 1]] if 1 <= index <= len(names) else []
+    return None
+
+
+def funds_from_shown_list(question: str, memory: dict[str, Any] | None) -> list[str]:
+    """Funds the user pointed at in the last list: top 2, the second, any two above."""
+    if not question_refers_to_shown_list(question):
+        return []
+    names = shown_list_names(memory)
+    if not names:
+        return []
+    sliced = _slice_shown_names(question, names)
+    if sliced is not None:
+        return sliced
+    q = _list_question(question)
+    if re.search(r"\bcompare\b|\bcomparison\b", q, re.I):
+        return names[:2]
+    if re.search(r"\b(?:one|single)\b", q, re.I) and not re.search(r"\b(?:two|three|both)\b", q, re.I):
+        return names[:1]
+    if re.search(r"\b(?:their|them|these|those|above)\b", q, re.I):
+        return names[:5]
+    return names[:1]
+
+
+def question_picks_one_shown_fund(question: str) -> bool:
+    """'Pick one of the funds from above' is one scheme from the last answer, not a new list."""
+    if _slice_shown_names(question, ["a", "b", "c"]) not in (None, ["a"]):
+        return False
+    q = _list_question(question)
+    if not re.search(r"\b(?:above|earlier|previous|you (?:showed|suggested|listed)|the list)\b", q, re.I):
+        return False
+    return bool(re.search(r"\b(?:pick|choose|any|one)\b", q, re.I))
+
+
+def fund_picked_from_prior_answer(question: str, memory: dict[str, Any] | None) -> str:
+    """One scheme from the last list. Empty when the user pointed at more than one."""
+    picked = funds_from_shown_list(question, memory)
+    if len(picked) > 1:
+        return ""
+    if len(picked) == 1:
+        return picked[0]
+    if not question_picks_one_shown_fund(question) or not isinstance(memory, dict):
+        return ""
+    turns = [row for row in (memory.get("chat_turns") or []) if isinstance(row, dict)]
+    if not turns:
+        return ""
+    text = str(turns[-1].get("assistant") or "")
+    names = _scheme_names_in_prose(text)
+    metal = "silver" if re.search(r"\bsilver\b", question or "", re.I) else ""
+    if not metal and re.search(r"\bgold\b", question or "", re.I):
+        metal = "gold"
+    if metal:
+        narrowed = [name for name in names if metal in name.lower()]
+        if narrowed:
+            names = narrowed
+    return names[0] if names else ""
+
+
+def _scheme_names_in_prose(text: str) -> list[str]:
+    from news_rag.fund_search import lookup_extracted_fund
+
+    found: list[str] = []
+    seen: set[str] = set()
+    for chunk in re.split(r"[\n|]", text or ""):
+        cleaned = re.sub(r"[*_`]+", "", chunk).strip(" \t-:")
+        cleaned = re.split(r"\s{2,}|\s+[-+]?\d", cleaned, maxsplit=1)[0].strip()
+        if len(cleaned) < 8 or not re.search(r"\b(?:etf|fund|fof)\b", cleaned, re.I):
+            continue
+        detail, ambiguous, _close = lookup_extracted_fund(name=cleaned)
+        if not detail or ambiguous:
+            continue
+        name = str(detail.get("fund_short_name") or detail.get("fund_name") or "").strip()
+        key = name.lower()
+        if name and key not in seen:
+            seen.add(key)
+            found.append(name)
+    return found
 
 
 def fund_name_mentioned_in_memory(question: str, memory: dict[str, Any] | None) -> str:
@@ -457,7 +660,13 @@ def question_asks_compare_both_in_chat(question: str) -> bool:
     q = (question or "").lower()
     if not re.search(r"\bcompare\b|\bcomparison\b", q):
         return False
-    return bool(re.search(r"\bboth\b|\bthe two\b|\btwo of them\b|\bthem both\b", q))
+    return bool(
+        re.search(
+            r"\bboth\b|\bthe two\b|\bthese two\b|\bthose two\b|\btwo of them\b|"
+            r"\bthem both\b|\bthese funds\b|\bthose funds\b|\bthe above\b|\babove funds\b",
+            q,
+        )
+    )
 
 
 def _fund_name_from_user_text(text: str) -> str:
@@ -501,7 +710,8 @@ def compare_side_in_chat(name: str, memory: dict[str, Any] | None, question: str
         if not isinstance(row, dict):
             continue
         user = str(row.get("user") or "")
-        if user_explicitly_named_scheme(user, name):
+        assistant = str(row.get("assistant") or "")
+        if user_explicitly_named_scheme(user, name) or user_explicitly_named_scheme(assistant, name):
             return True
         resolved = _fund_name_from_user_text(user)
         if resolved and resolved.lower() == name.lower():

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Query log</title>
+  <style>
+    :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; color: #1e293b; background: #f8fafc; }
+    body { max-width: 960px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .nav { display: flex; gap: 1rem; font-size: 0.9rem; margin-bottom: 1.5rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; }
+    .nav a { color: #2563eb; text-decoration: none; font-weight: 500; }
+    h1 { font-size: 1.4rem; margin: 0 0 0.5rem; }
+    .meta { color: #64748b; font-size: 0.85rem; margin: 0 0 0.75rem; }
+    .tabs { display: flex; gap: 0.5rem; margin: 0.75rem 0; }
+    .tabs button { border: 1px solid #cbd5e1; background: #fff; color: #0f172a; border-radius: 8px; padding: 0.35rem 0.7rem; cursor: pointer; }
+    .tabs button.active { background: #1d4ed8; color: #fff; border-color: #1d4ed8; }
+    pre {
+      white-space: pre-wrap; word-break: break-word;
+      background: #0f172a; color: #e2e8f0; border-radius: 10px;
+      padding: 1rem; font-size: 0.78rem; line-height: 1.45;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href=".">Ask a Question</a>
+    <a href="fund">Fund News Brief</a>
+    <a href="fund-search">Fund Search & Explorer</a>
+    <a href="backfill">Historical backfill</a>
+  </div>
+  <h1>Query log</h1>
+  <p id="status" class="meta">Loading…</p>
+  <div id="tabs" class="tabs" hidden>
+    <button type="button" id="show-log" class="active">Log</button>
+    <button type="button" id="show-json">JSON summary</button>
+  </div>
+  <pre id="body"></pre>
+  <script src="/static/rag-api.js?v=5"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const queryId = params.get("query_id") || "";
+    const statusEl = document.getElementById("status");
+    const bodyEl = document.getElementById("body");
+    const tabsEl = document.getElementById("tabs");
+    const showLog = document.getElementById("show-log");
+    const showJson = document.getElementById("show-json");
+    let logText = "";
+    let summaryText = "";
+
+    function show(which) {
+      bodyEl.textContent = which === "json" ? summaryText : logText;
+      showLog.classList.toggle("active", which !== "json");
+      showJson.classList.toggle("active", which === "json");
+    }
+
+    showLog.addEventListener("click", function () { show("log"); });
+    showJson.addEventListener("click", function () { show("json"); });
+
+    if (!queryId) {
+      statusEl.textContent = "This page needs a query id.";
+    } else {
+      fetch(ragUrl("api/ask/log/" + encodeURIComponent(queryId)), { headers: ragHeaders() })
+        .then((response) => parseRagJsonResponse(response))
+        .then((data) => {
+          logText = data.text || "";
+          summaryText = data.summary || "";
+          const name = data.filename || queryId;
+          statusEl.textContent = name + (data.truncated ? " (truncated)" : "");
+          if (summaryText) tabsEl.hidden = false;
+          show("log");
+        })
+        .catch((err) => {
+          statusEl.textContent = err.message || String(err);
+        });
+    }
+  </script>
+</body>
+</html>

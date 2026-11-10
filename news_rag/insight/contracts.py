@@ -212,14 +212,11 @@ class EvidencePack(BaseModel):
     missing: list[str] = Field(default_factory=list)
 
     def compact(self) -> dict[str, Any]:
-        """Serialise for the composer prompt, respecting the token budget."""
-        import json
-
+        """Serialise the full evidence pack for the composer prompt."""
         from news_rag.insight.pack_sanitize import (
             merge_holding_pp_into_performance,
             sanitize_data_pack_for_composer,
         )
-        from news_rag.insight.pack_trim import trim_news_grouped
 
         data_pack, pp_internal = sanitize_data_pack_for_composer(self.data_pack)
         performance = merge_holding_pp_into_performance(self.performance_digest, pp_internal)
@@ -245,16 +242,6 @@ class EvidencePack(BaseModel):
             out["COVERAGE"] = self.coverage
         if self.limitations:
             out["LIMITATIONS"] = self.limitations
-        text = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
-        budget_chars = self.token_budget * 4
-        if len(text) > budget_chars and "NEWS" in out:
-            for cap in (18, 12, 8):
-                out["NEWS"] = trim_news_grouped(news, max_articles=cap)
-                text = json.dumps(out, ensure_ascii=False, separators=(",", ":"))
-                if len(text) <= budget_chars:
-                    break
-            if len(text) > budget_chars:
-                out["NEWS"] = trim_news_grouped(news, max_articles=6)
         return out
 
 

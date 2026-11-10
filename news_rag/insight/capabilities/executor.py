@@ -478,9 +478,9 @@ def _group_layered_articles(articles: list[dict[str, Any]]) -> dict[str, dict[st
         scope = layer_map.get(str(row.get("_news_layer") or ""), "macro")
         entity = str(row.get("_news_source_label") or row.get("source") or "general").strip()
         title = str(row.get("title") or "").strip()
-        text = article_body_for_llm(row, limit=500)
+        text = article_body_for_llm(row, limit=0)
         if not text:
-            text = str(row.get("text") or row.get("summary") or "")[:500]
+            text = str(row.get("text") or row.get("summary") or "")
         grouped.setdefault(scope, {}).setdefault(entity, []).append(
             {
                 "title": title,
@@ -721,7 +721,7 @@ def _news_search_targets(
             window_days=window_days,
             direction=direction,
             limit=limit,
-            chars=2500,
+            chars=0,
             required=True,
         )
         for entity, query in entities
@@ -1042,6 +1042,15 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
                     ctx,
                 )
                 return {"ok": False, "data": result}
+            from news_rag.fund_rating_categories import match_scheme_category
+
+            # An empty rating list is not a license to name the highest-return index ETFs.
+            if match_scheme_category(spec_question) is None and match_scheme_category(question) is None:
+                result = _finalize_screen_payload(
+                    {**result, "rankings": [], "rating_list_empty": True},
+                    ctx,
+                )
+                return {"ok": True, "data": result}
             nav = _run_catalog_screen_fallback(args, ctx, spec_question)
             if nav.get("ok") and isinstance(nav.get("data"), dict):
                 nav_data = nav["data"]
@@ -1586,7 +1595,8 @@ def execute_capability(
         if not target_funds:
             return [{"ok": False, "tool": call.tool, "fund": "", "error": "no_funds_resolved", "data": {}, "elapsed_ms": 0}]
         skip_cache = bool(base_ctx.get("skip_tool_cache"))
-        for name in target_funds:
+
+        def _one_fund(name: str) -> dict[str, Any]:
             per_ctx = dict(base_ctx)
             per_isin = _isin_for_fund_name(name, base_ctx)
             if per_isin:
@@ -1600,12 +1610,11 @@ def execute_capability(
                     )
             remembered = None if skip_cache else _take_conversation_slice(per_ctx, name, call.tool, args)
             if remembered is not None:
-                results.append({
+                return {
                     "ok": True, "tool": call.tool, "fund": name,
                     "data": _trim_cached_to_ask(call.tool, args, remembered),
                     "elapsed_ms": 0, "cached": True, "cache_layer": "conversation",
-                })
-                continue
+                }
             cache_key = _capability_cache_key(call.tool, name, args, per_ctx)
             cached = None if skip_cache else cache.get(call.tool, cache_key)
             if cached is not None and (
@@ -1615,11 +1624,10 @@ def execute_capability(
                 cached = None
             if cached is not None:
                 _keep_conversation_slice(per_ctx, name, call.tool, args, cached, True)
-                results.append({
+                return {
                     "ok": True, "tool": call.tool, "fund": name, "data": cached,
                     "elapsed_ms": 0, "cached": True, "cache_layer": "capability",
-                })
-                continue
+                }
             t0 = time.perf_counter()
             attempts = 2 if call.tool == "get_fund_data" else 1
             out = {"ok": False, "error": "no_attempt", "data": {}}
@@ -1648,10 +1656,23 @@ def execute_capability(
             if row["ok"] and complete and _fund_payload_matches_fund(name, row["data"], per_ctx):
                 cache.set(call.tool, cache_key, row["data"])
                 _keep_conversation_slice(per_ctx, name, call.tool, args, row["data"], True)
+            return row
+
+        if len(target_funds) > 1:
+            with ThreadPoolExecutor(max_workers=min(8, len(target_funds))) as pool:
+                rows = list(pool.map(_one_fund, target_funds))
+        else:
+            rows = [_one_fund(name) for name in target_funds]
+        for row in rows:
             results.append(row)
-            if telemetry:
-                telemetry.add_tool(call.tool, wave=call.wave, ok=row["ok"],
-                                   duration_ms=elapsed, fund=name)
+            if telemetry and not row.get("cached"):
+                telemetry.add_tool(
+                    call.tool,
+                    wave=call.wave,
+                    ok=bool(row.get("ok")),
+                    duration_ms=float(row.get("elapsed_ms") or 0),
+                    fund=str(row.get("fund") or ""),
+                )
     else:
         label = call.tool
         if call.tool == "compare_funds":

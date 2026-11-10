@@ -37,6 +37,49 @@ _PUBLISHED_RETURN_KEYS = {
 }
 
 
+_COUNT_WORDS = {
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+}
+
+
+def windows_named_in_question(question: str) -> list[str]:
+    """Period codes the user actually said. Empty when they named none."""
+    q = question or ""
+    found: list[str] = []
+
+    def _add(code: str) -> None:
+        cleaned = normalize_window_code(code)
+        if cleaned and cleaned not in found:
+            found.append(cleaned)
+
+    if re.search(r"\bytd\b|year[\s-]*to[\s-]*date", q, re.I):
+        _add("YTD")
+    if re.search(r"\bsince\s+inception\b", q, re.I):
+        _add("INCEPTION")
+    words = "|".join(_COUNT_WORDS)
+    for match in re.finditer(
+        rf"\b(\d+|{words})\s*-?\s*(day|week|month|year)s?\b",
+        q,
+        re.I,
+    ):
+        raw_n = match.group(1).lower()
+        count = int(raw_n) if raw_n.isdigit() else _COUNT_WORDS[raw_n]
+        unit = {"day": "D", "week": "W", "month": "M", "year": "Y"}[match.group(2).lower()]
+        _add(f"{count}{unit}")
+    return found
+
+
 def normalize_window_code(raw: str) -> str:
     text = re.sub(r"[^A-Z0-9]", "", str(raw or "").upper())
     if text in ("YTD", "YEARTILLDATE", "YEARTONOW"):

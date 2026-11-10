@@ -24,6 +24,7 @@ from news_rag.fund_rating_categories import (
     asks_taxonomy,
     categories_for,
     match_scheme_category,
+    metal_scheme_categories,
 )
 from news_rag.tools import explicit_fund_count
 
@@ -111,6 +112,8 @@ class RatingScreenSpec:
     amc: str
     suggestion: str = ""
     label_fallback: str = ""
+    walk_categories: tuple[str, ...] = ()
+    spread_categories: bool = False
 
     @property
     def walks(self) -> bool:
@@ -344,7 +347,114 @@ def _suggestion_spec(question: str) -> RatingScreenSpec | None:
     )
     if random_sample and not named_label:
         spec = replace(spec, label="", label_fallback="")
+    # One category call. Walking every equity category is the slow path.
+    if spec.random_sample and not spec.locked and spec.suggestion == "rated" and not spec.category:
+        cats = [name for name in categories_for(spec.fund_type) if name and name != "unknown"]
+        if cats:
+            spec = replace(spec, category=random.choice(cats), locked=True, highest_score=False)
     return spec
+
+
+_METAL_WORD_RE = re.compile(r"\b(gold|silver)\b", re.I)
+
+
+def _question_names_amc_scheme(question: str) -> bool:
+    """True when the catalog's AMC aliases appear in the question (ABSL, PPFAS, a new house, and so on)."""
+    from news_rag.fund_search import _amc_hints_from_tokens
+
+    tokens = re.findall(r"\b[a-z0-9]+\b", (question or "").lower())
+    return bool(_amc_hints_from_tokens(tokens))
+
+
+def _metal_fund_categories(question: str) -> tuple[str, ...]:
+    """Gold/silver scheme categories for an unnamed fund list. Empty for a spot-price or one named scheme."""
+    q = question or ""
+    if not _METAL_WORD_RE.search(q):
+        return ()
+    if not re.search(r"\b(?:funds?|etfs?|fo[fF]s?|schemes?|fund of funds?)\b", q, re.I):
+        return ()
+    product = re.search(
+        r"\b(?:gold|silver)\s+(?:etfs?|funds?|fo[fF]s?|schemes?|fund of funds?)\b|"
+        r"\b(?:etfs?|funds?|fo[fF]s?|schemes?|fund of funds?)\b(?:\s+\w+){0,3}\s+(?:gold|silver)\b",
+        q,
+        re.I,
+    )
+    from news_rag.insight.brief import question_is_bullion_metal_price_question
+
+    if not product and question_is_bullion_metal_price_question(q):
+        return ()
+    if re.search(r"\bwhat(?:'s| is| are)\b", q, re.I) and not re.search(
+        r"\b(?:names?|list|show|which|random|\d+)\b", q, re.I
+    ):
+        return ()
+    list_ask = bool(
+        explicit_fund_count(q)
+        or re.search(
+            r"\b(?:random|names? of|list|show|which|suggest|recommend|best|top|any|some)\b",
+            q,
+            re.I,
+        )
+        or re.search(r"\b(?:gold|silver)\s+(?:funds?|etfs?|fo[fF]s?|schemes?)\b", q, re.I)
+    )
+    if not list_ask:
+        return ()
+    from news_rag.insight.memory.fund_context import (
+        question_picks_one_shown_fund,
+        question_refers_to_shown_list,
+    )
+
+    if question_picks_one_shown_fund(q) or question_refers_to_shown_list(q):
+        return ()
+    if _question_names_amc_scheme(q) and not re.search(r"\b(?:random|names? of|list of)\b", q, re.I):
+        if not explicit_fund_count(q) or explicit_fund_count(q) == 1:
+            return ()
+    metals: list[str] = []
+    if re.search(r"\bgold\b", q, re.I):
+        metals.append("gold")
+    if re.search(r"\bsilver\b", q, re.I):
+        metals.append("silver")
+    etf_only = bool(re.search(r"\betfs?\b", q, re.I)) and not re.search(
+        r"\bfunds?\b|\bfof\b|fund of fund", q, re.I
+    )
+    fof_only = bool(re.search(r"\bfof\b|fund of fund", q, re.I)) and not re.search(
+        r"\betfs?\b|\bfunds?\b", q, re.I
+    )
+    chosen = metal_scheme_categories(*metals)
+    if etf_only:
+        chosen = tuple(name for name in chosen if name.endswith("etf"))
+    elif fof_only:
+        chosen = tuple(name for name in chosen if "fund of funds" in name)
+        if len(metals) == 1 and not re.search(r"\bgold and silver\b|\bsilver and gold\b", q, re.I):
+            metal = metals[0]
+            chosen = tuple(name for name in chosen if name.endswith(metal) or name == f"fund of funds-domestic-{metal}")
+    return chosen
+
+
+def _metal_fund_spec(question: str) -> RatingScreenSpec | None:
+    categories = _metal_fund_categories(question)
+    if not categories:
+        return None
+    q = question or ""
+    count = explicit_fund_count(q) or 3
+    random_sample = bool(re.search(r"\brandom\b", q, re.I))
+    return RatingScreenSpec(
+        count=count,
+        fund_type="others",
+        category=categories[0],
+        locked=False,
+        label="",
+        min_score=None,
+        highest_score=False,
+        return_window="",
+        return_direction="",
+        compare_category=False,
+        random_sample=random_sample,
+        amc="",
+        suggestion="rated",
+        label_fallback="",
+        walk_categories=categories,
+        spread_categories=True,
+    )
 
 
 def parse_rating_screen(question: str) -> RatingScreenSpec | None:
@@ -352,6 +462,9 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
     q = question or ""
     if asks_taxonomy(q):
         return None
+    metal = _metal_fund_spec(q)
+    if metal is not None:
+        return metal
     suggested = _suggestion_spec(q)
     if suggested is not None:
         return suggested
@@ -1034,13 +1147,102 @@ def run_rating_list(
     return result
 
 
+def _load_category_payloads(
+    loader: Callable[[str, str], dict[str, Any]],
+    fund_type: str,
+    names: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Fetch a small category set together. One category stays on the calling thread."""
+    if len(names) <= 1:
+        return {name: loader(fund_type, name) for name in names}
+    from concurrent.futures import ThreadPoolExecutor
+
+    out: dict[str, dict[str, Any]] = {}
+    workers = min(4, len(names))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(loader, fund_type, name): name for name in names}
+        for future, name in futures.items():
+            try:
+                payload = future.result()
+            except Exception:
+                logger.info("category rating skipped %s/%s", fund_type, name, exc_info=True)
+                payload = {}
+            out[name] = payload if isinstance(payload, dict) else {}
+    return out
+
+
+_QUALITY_LABELS = ("Best in category", "Recommended", "Good Choice")
+
+
+def _spread_quality(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[dict[str, Any]]:
+    """Take higher rating tiers first, and rotate categories so ETF and fund-of-funds both appear."""
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    order = list(spec.walk_categories) or []
+    for row in rows:
+        category = str(row.get("category") or "")
+        grouped.setdefault(category, []).append(row)
+        if category and category not in order:
+            order.append(category)
+    for category, bucket in grouped.items():
+        if spec.random_sample and len(bucket) > 1:
+            random.shuffle(bucket)
+        else:
+            bucket.sort(key=lambda item: float(item.get("final_score") or -1), reverse=True)
+    picked: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def _take(label: str) -> None:
+        pending = {
+            category: [row for row in grouped.get(category, []) if str(row.get("rs_label") or "") == label]
+            for category in order
+        }
+        moved = True
+        while moved and len(picked) < spec.count:
+            moved = False
+            for category in order:
+                bucket = pending.get(category) or []
+                while bucket:
+                    row = bucket.pop(0)
+                    isin = str(row.get("isin") or "")
+                    if not isin or isin in seen:
+                        continue
+                    seen.add(isin)
+                    picked.append(row)
+                    moved = True
+                    break
+                if len(picked) >= spec.count:
+                    return
+
+    for label in _QUALITY_LABELS:
+        if len(picked) >= spec.count:
+            break
+        _take(label)
+    if len(picked) < spec.count:
+        rest = [row for row in rows if str(row.get("isin") or "") not in seen]
+        if spec.random_sample:
+            random.shuffle(rest)
+        else:
+            rest.sort(key=lambda item: float(item.get("final_score") or -1), reverse=True)
+        for row in rest:
+            isin = str(row.get("isin") or "")
+            if not isin or isin in seen:
+                continue
+            seen.add(isin)
+            picked.append(row)
+            if len(picked) >= spec.count:
+                break
+    return picked[: spec.count]
+
+
 def _execute_rating_list(
     spec: RatingScreenSpec,
     question: str,
     loader: Callable[[str, str], dict[str, Any]],
     pricer: Callable[[list[dict[str, Any]], str], list[dict[str, Any]]],
 ) -> dict[str, Any]:
-    if spec.locked:
+    if spec.walk_categories:
+        names = list(spec.walk_categories)
+    elif spec.locked:
         names = [spec.category] if spec.category else []
     elif spec.walks:
         names = list(categories_for(spec.fund_type))
@@ -1050,9 +1252,12 @@ def _execute_rating_list(
     seen: set[str] = set()
     called: list[str] = []
     priced: list[str] = []
+    payloads = _load_category_payloads(loader, spec.fund_type, names) if spec.spread_categories else {}
 
     for category in names:
-        payload = loader(spec.fund_type, category)
+        payload = payloads.get(category) if spec.spread_categories else loader(spec.fund_type, category)
+        if payload is None:
+            payload = {}
         called.append(category)
         skip_label = _uses_label_cascade(spec)
         rows = [
@@ -1077,23 +1282,30 @@ def _execute_rating_list(
             rows = pricer(short, spec.return_window)
             if spec.return_direction == "positive":
                 rows = [row for row in rows if row.get("_return") is not None and float(row["_return"]) > 0]
-        ordered = _order(rows, spec)
+        ordered = rows if spec.spread_categories else _order(rows, spec)
         for row in ordered:
             isin = str(row.get("isin") or "")
             if not isin or isin in seen:
                 continue
             seen.add(isin)
             picked.append(row)
+            if spec.spread_categories:
+                continue
             if not spec.walks and not spec.highest_score and spec.return_direction not in {"highest", "lowest"}:
                 if len(picked) >= spec.count:
                     break
+        if spec.spread_categories:
+            continue
         if spec.locked:
             break
         if spec.walks and spec.return_direction not in {"highest", "lowest"} and not spec.highest_score:
             if len(picked) >= spec.count:
                 break
 
-    picked = _order(picked, spec)[: spec.count]
+    if spec.spread_categories:
+        picked = _spread_quality(picked, spec)
+    else:
+        picked = _order(picked, spec)[: spec.count]
     public = [_strip(row) for row in picked]
     if spec.return_window and not spec.return_direction:
         public = [_strip(row) for row in pricer(public, spec.return_window)]
@@ -1464,6 +1676,72 @@ def _apply_category_difference(question: str, plan) -> None:
     if (plan.max_words or 0) < 220:
         plan.max_words = 220
     note = "Name the funds from the screen when it has them. Then explain the difference from the concept brief."
+    if note not in (plan.presentation_notes or ""):
+        plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
+
+
+def ensure_quality_fund_list(question: str, plan) -> None:
+    """Unnamed random or gold/silver lists use the category rating API, not a sector scan."""
+    from news_rag.insight.contracts import AnswerMode, ToolCall
+
+    if any(call.tool == "compare_funds" for call in plan.tool_calls or []):
+        return
+    if any((call.arguments or {}).get("compare_pair") for call in plan.tool_calls or []):
+        return
+    spec = parse_rating_screen(question)
+    if spec is None or spec.suggestion == "period":
+        return
+    if not spec.walk_categories and not spec.random_sample:
+        return
+    screen = next((call for call in plan.tool_calls or [] if call.tool == "screen_funds_by_exposure"), None)
+    if screen is None and not spec.walk_categories:
+        return
+    if spec.walk_categories:
+        plan.funds = []
+        plan.sectors = []
+        plan.tool_calls = [
+            call
+            for call in (plan.tool_calls or [])
+            if call.tool not in ("get_market_snapshot", "get_fund_data", "screen_funds_by_exposure")
+        ]
+    elif screen is None:
+        plan.tool_calls = list(plan.tool_calls or [])
+    else:
+        plan.tool_calls = [call for call in plan.tool_calls if call.tool != "screen_funds_by_exposure"]
+    plan.random_fund_count = 0
+    plan.random_fund_name_contains = ""
+    plan.tool_calls = [
+        ToolCall(
+            tool="screen_funds_by_exposure",
+            arguments={
+                "rating_screen": True,
+                "top_n": spec.count,
+                "focus_question": " ".join((question or "").split())[:180],
+                "random_sample": bool(spec.random_sample),
+                "sector": "",
+                "driver": "",
+            },
+            why="Category RS rating list for an unnamed fund ask.",
+            required=True,
+        ),
+        *plan.tool_calls,
+    ]
+    plan.direct_reply = ""
+    plan.requires_compose = True
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    if spec.walk_categories:
+        listed = ", ".join(spec.walk_categories)
+        note = (
+            f"Name funds only from these scheme categories: {listed}. "
+            "They are gold or silver ETFs and fund-of-funds, including ETF fund of funds. "
+            "Prefer Best in category, then Recommended, then Good Choice. "
+            "Do not name an equity fund, a generic index ETF, or the metal's spot price."
+        )
+    else:
+        note = (
+            "Name the funds from the RupeeStop rating screen. "
+            "Prefer Best in category, then Recommended, then Good Choice."
+        )
     if note not in (plan.presentation_notes or ""):
         plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
 

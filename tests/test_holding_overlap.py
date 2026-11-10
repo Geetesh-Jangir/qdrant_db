@@ -247,3 +247,38 @@ def test_a_comparison_keeps_one_three_and_five_years_plus_benchmark_and_rating()
     assert "category_avg=-8.0" in text
     assert "riskometer=Very High" in text
     assert "pillars=Risk 15.5/25" in text
+
+
+def test_unnamed_catalog_periods_are_measured_together(monkeypatch) -> None:
+    import threading
+    import time
+
+    from news_rag.insight.tool_runners import _compare_return_windows, _measure_briefs
+
+    assert _compare_return_windows("compare their 8 month returns") == ["8M"]
+    assert _compare_return_windows("two year return of the top 2") == ["2Y"]
+    state = {"open": 0, "max": 0}
+    lock = threading.Lock()
+
+    def _calc(isin, windows, inception_date=""):
+        del inception_date
+        with lock:
+            state["open"] += 1
+            state["max"] = max(state["max"], state["open"])
+        time.sleep(0.05)
+        with lock:
+            state["open"] -= 1
+        return {windows[0]: 4.2}, []
+
+    monkeypatch.setattr("news_rag.insight.return_windows.returns_for_windows", _calc)
+    monkeypatch.setattr("news_rag.fund_rupeestop_metrics.fetch_vs_benchmark", lambda isin: None)
+    monkeypatch.setattr("news_rag.fund_risk.headline_rating", lambda detail: None)
+    briefs = _measure_briefs(
+        [
+            {"fund_name": "A", "isin": "INF000000001", "returns": {}},
+            {"fund_name": "B", "isin": "INF000000002", "returns": {}},
+        ],
+        ["8M"],
+    )
+    assert state["max"] == 2
+    assert [row["returns"]["8M"] for row in briefs] == [4.2, 4.2]

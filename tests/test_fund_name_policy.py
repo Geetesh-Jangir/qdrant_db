@@ -30,6 +30,33 @@ def test_random_compare_allows_server_pick():
     assert plan_allows_server_fund_pick(q, plan, None) is True
 
 
+def test_prior_answer_names_are_authorized():
+    memory = {
+        "chat_turns": [
+            {
+                "user": "which funds",
+                "assistant": "HDFC BSE Sensex ETF and Bandhan BSE Sensex ETF",
+            }
+        ]
+    }
+    assert fund_authorized_for_question("HDFC BSE Sensex ETF", "tell me about those funds", memory)
+    assert not fund_authorized_for_question("Axis NIFTY IT ETF", "tell me about those funds", memory)
+
+
+def test_compare_these_two_funds_binds_chat_pair():
+    memory = {
+        "chat_turns": [
+            {"user": "what is hdfc large cap fund", "assistant": "HDFC Large Cap Fund - Growth is a large cap scheme."},
+            {"user": "what is absl large cap", "assistant": "Aditya Birla Sun Life Large Cap Fund is a large cap scheme."},
+        ],
+        "frame": {"last_fund_focus": "Aditya Birla Sun Life Large Cap Fund"},
+    }
+    plan = ExecutionPlan(routed_by="planner", intent="compare", tool_calls=[], funds=[])
+    out = apply_planner_post_hooks("compare these two funds", plan, memory)
+    assert any(c.tool == "compare_funds" for c in out.tool_calls)
+    assert len(out.funds) >= 2
+
+
 def test_user_named_fund_kept():
     memory = {}
     name = "HDFC Large Cap Fund - Growth"
