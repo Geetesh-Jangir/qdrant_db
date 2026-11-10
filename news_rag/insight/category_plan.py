@@ -958,13 +958,35 @@ def ensure_name_fund_type_plan(
     memory: dict[str, Any] | None = None,
 ) -> ExecutionPlan:
     """Name one fund in a random scheme category for equity/debt/etc. via RS rating API."""
-    from news_rag.fund_rating_screen import fund_type_name_spec
+    from news_rag.fund_rating_screen import fund_naming_clause, fund_type_name_spec
 
-    spec = fund_type_name_spec(question)
+    clause = fund_naming_clause(question) or question
+    spec = fund_type_name_spec(clause)
     if spec is None:
         return plan
 
     q = question or ""
+    existing = next((c for c in plan.tool_calls or [] if c.tool == "screen_funds_by_exposure"), None)
+    if existing and (existing.arguments or {}).get("rating_screen") and (plan.routed_by or "") == "planner":
+        args = dict(existing.arguments or {})
+        args["rating_screen"] = True
+        args["top_n"] = max(int(spec.count), int(args.get("top_n") or 0))
+        args["focus_question"] = clause[:180]
+        if spec.suggestion == "period" and spec.return_window:
+            args["return_window"] = spec.return_window
+        existing.arguments = args
+        if re.search(r"\bdifference\b|\bdifferent\b", q, re.I) and re.search(r"\bdebt\b", q, re.I) and re.search(
+            r"\bequity\b", q, re.I
+        ):
+            plan.concept_brief = (
+                "**Equity funds** invest mainly in shares of listed companies. Returns follow the stock market; "
+                "risk is typically higher and there is no guarantee.\n"
+                "**Debt funds** invest mainly in bonds and other fixed-income securities. Returns are usually "
+                "more stable than equity, but they are not guaranteed either."
+            )
+            plan.max_words = max(int(plan.max_words or 0), 320)
+            plan.requires_compose = True
+        return plan
     sections: list[str] = []
     if re.search(r"\bsector", q, re.I):
         sections.append("sectors")
@@ -973,8 +995,7 @@ def ensure_name_fund_type_plan(
     if not sections:
         sections = ["sectors"]
 
-    category_phrase = str(spec.category or "").replace("-", " ").strip()
-    focus_question = f"{category_phrase} {spec.fund_type} fund".strip()
+    focus_question = clause[:180]
 
     plan.funds = []
     plan.subject_ref = "none"
@@ -989,8 +1010,13 @@ def ensure_name_fund_type_plan(
             tool="screen_funds_by_exposure",
             arguments={
                 "rating_screen": True,
-                "top_n": spec.count,
+                "top_n": max(int(spec.count), int((existing.arguments or {}).get("top_n") if existing else 0) or 0),
                 "focus_question": focus_question,
+                **(
+                    {"return_window": spec.return_window}
+                    if spec.suggestion == "period" and spec.return_window
+                    else {}
+                ),
             },
             wave=1,
             why=f"RS rating pick in {spec.fund_type}/{spec.category}/regular/growth",

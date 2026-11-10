@@ -105,13 +105,13 @@ def test_preload_failure_returns_false(monkeypatch):
 
 
 def test_compare_binds_cached_large_cap(monkeypatch):
-    from news_rag.config import get_settings
     from news_rag.insight.portfolio_bind import bind_cached_portfolio
-    from news_rag.portfolio.cache import clear_cache_for_tests, seed_portfolio_cache_for_tests
+    from news_rag.portfolio.cache import clear_cache_for_tests, seed_portfolio_cache_for_tests, set_active_crn
 
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-bind")
+    set_active_crn("CRN-bind")
     clear_cache_for_tests()
-    seed_portfolio_cache_for_tests(get_settings().client_ref_no, _doc())
+    seed_portfolio_cache_for_tests("CRN-bind", _doc())
     plan = ExecutionPlan(
         intent="compare",
         routed_by="planner",
@@ -152,7 +152,10 @@ def test_one_fund_compare_drops_compare_tool(monkeypatch):
     from news_rag.insight.portfolio_bind import bind_cached_portfolio
     from news_rag.portfolio.cache import clear_cache_for_tests
 
+    from news_rag.portfolio.cache import set_active_crn
+
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-one")
+    set_active_crn("CRN-one")
     clear_cache_for_tests()
     plan = ExecutionPlan(
         intent="compare",
@@ -170,6 +173,9 @@ def test_one_fund_compare_drops_compare_tool(monkeypatch):
 def test_empty_tool_list_is_overridden_for_the_book(monkeypatch):
     from news_rag.insight.portfolio_bind import ensure_tools_for_data_question
 
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn("CRN-empty")
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-empty")
     plan = ExecutionPlan(intent="overview", data_need="investor_summary", portfolio_scope="investor", tool_calls=[])
     plan = ensure_tools_for_data_question("how is my portfolio", plan)

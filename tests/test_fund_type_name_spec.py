@@ -6,8 +6,8 @@ def test_name_me_debt_fund_gets_rating_spec():
     spec = fund_type_name_spec(q)
     assert spec is not None
     assert spec.fund_type == "debt"
-    assert spec.category
-    assert spec.locked is True
+    assert spec.count == 1
+    assert not spec.locked
     parsed = parse_rating_screen(q)
     assert parsed is not None
     assert parsed.fund_type == "debt"

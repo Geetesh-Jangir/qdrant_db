@@ -33,9 +33,9 @@ def portfolio_health_snapshot(*, max_age_sec: float = 60.0) -> dict[str, Any]:
     ok = False
     detail = ""
     try:
-        from news_rag.portfolio.cache import get_normalized_portfolio
+        from news_rag.portfolio.cache import get_active_crn, get_normalized_portfolio
 
-        crn = settings.client_ref_no
+        crn = get_active_crn()
         _, stats = get_normalized_portfolio(crn)
         ok = True
         detail = f"cache={'hit' if stats.get('from_cache') else 'miss'}"

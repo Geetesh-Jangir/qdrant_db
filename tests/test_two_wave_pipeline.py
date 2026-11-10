@@ -11,7 +11,7 @@ from news_rag.insight.contracts import (
 )
 from news_rag.insight.slot_router import slot_route
 from news_rag.insight.capabilities import CAPABILITIES, execute_wave, get_capability_cache
-from news_rag.insight.bridge import evaluate_wave2
+from news_rag.insight.bridge import evaluate_wave2, market_affected_fund_calls
 from news_rag.insight.evidence_pack import build_evidence_pack, render_data_only_template
 from news_rag.insight.grounding import cores_in_text, strip_ungrounded_numbers
 from news_rag.insight.graph import GraphState, build_result, run_graph_pipeline
@@ -37,6 +37,39 @@ def test_slot_router_holdings_lookup():
     assert "get_portfolio_data" in plan.tool_names
     call = next(c for c in plan.tool_calls if c.tool == "get_portfolio_data")
     assert call.arguments.get("top_n") == 10
+
+
+def test_market_affected_funds_question_schedules_a_screen():
+    calls = market_affected_fund_calls(
+        "whats happening in the market and which funds are affected and why",
+        [],
+    )
+    assert [call.tool for call in calls] == ["screen_funds_by_exposure"]
+    assert calls[0].wave == 2
+
+
+def test_bridge_runs_planned_wave2_when_trigger_is_none():
+    """A scheduled wave-2 tool still runs when the planner did not set a trigger."""
+    plan = ExecutionPlan(
+        answer_mode=AnswerMode.INSIGHT_FUSION,
+        wave_2_policy=Wave2Policy(trigger="none"),
+        tool_calls=[
+            ToolCall(tool="screen_funds_by_exposure", arguments={"top_n": 5}, wave=2),
+        ],
+    )
+    calls = evaluate_wave2(plan, [], deadline_remaining_ms=10000)
+    assert [call.tool for call in calls] == ["screen_funds_by_exposure"]
+
+
+def test_parallel_wave_does_not_reuse_one_context():
+    """Two tools in one wave must not fail with 'context is already entered'."""
+    calls = [
+        ToolCall(tool="not_a_tool_a", arguments={}, wave=1),
+        ToolCall(tool="not_a_tool_b", arguments={}, wave=1),
+    ]
+    rows = execute_wave(calls, deadline_ms=5000)
+    assert len(rows) == 2
+    assert all("already entered" not in str(row.get("error") or "") for row in rows)
 
 
 def test_bridge_skips_wave2_for_data_only():

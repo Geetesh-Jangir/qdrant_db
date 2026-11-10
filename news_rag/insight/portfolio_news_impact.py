@@ -225,11 +225,12 @@ def build_portfolio_news_impact_dossier(
         return None
 
     from news_rag.config import get_settings
+    from news_rag.portfolio.cache import get_active_crn
     from news_rag.portfolio.concentration import fetch_top_holdings
     from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
 
     idx = get_sector_fund_ranking_index()
-    crn = str(get_settings().client_ref_no or "").strip()
+    crn = get_active_crn()
     raw_holdings = fetch_top_holdings(crn)
     portfolio_sectors = _portfolio_sector_weights(raw_holdings, idx)
     portfolio_weight_by_key = {

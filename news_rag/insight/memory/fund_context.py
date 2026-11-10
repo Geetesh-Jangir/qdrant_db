@@ -245,6 +245,32 @@ def question_refers_to_shown_list(question: str) -> bool:
     return False
 
 
+def resolve_amc_fund_from_recent_chat(question: str, memory: dict[str, Any] | None) -> str:
+    """When the user says 'the ICICI fund', pick the matching name from the last shown list."""
+    from news_rag.insight.brief import _amc_token_set
+    from news_rag.insight.investor_subject import _amc_token_in_question
+
+    q_tokens = set(re.findall(r"[a-z0-9]+", (question or "").lower()))
+    amc_tokens = _amc_token_set()
+    hits = [canon for t in q_tokens if (canon := _amc_token_in_question(t, amc_tokens))]
+    if not hits:
+        return ""
+    names = shown_list_names(memory)
+    if not names:
+        return ""
+    for amc in hits:
+        for name in names:
+            low = name.lower()
+            if re.search(rf"\b{re.escape(amc)}\b", low):
+                return name
+            from news_rag.fund_search import _needles_for_amc_hint
+
+            for needle in _needles_for_amc_hint(amc):
+                if needle and needle.lower() in low:
+                    return name
+    return ""
+
+
 def shown_list_names(memory: dict[str, Any] | None) -> list[str]:
     """Ordered names from the last screen, else schemes written in the last reply."""
     if not isinstance(memory, dict):

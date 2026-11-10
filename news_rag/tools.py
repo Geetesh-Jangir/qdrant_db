@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import date
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Callable, Literal, TYPE_CHECKING
 
 from historical_data.gold_service import get_gold_snapshot, get_silver_snapshot
 from historical_data.nav_service import get_fund_nav_history
@@ -289,10 +289,52 @@ def explicit_return_window(question: str) -> str:
     return ""
 
 
+def _macro_exposure_direction_ask(question: str) -> bool:
+    """Positive/negative meaning beneficiaries from news or drivers, not NAV return sign."""
+    q = question or ""
+    if not re.search(r"\b(?:positive|negative|positively|negatively)\b", q, re.I):
+        return False
+    if not re.search(r"\b(?:affect|impact|benefit|hurt|help|harm)\w*\b", q, re.I):
+        return False
+    return not re.search(r"\b(?:return|perform)", q, re.I)
+
+
+def question_wants_performance_ranking(question: str) -> bool:
+    """True when fund lists should be ordered by a return window rather than RS rating."""
+    q = question or ""
+    if _macro_exposure_direction_ask(q):
+        return False
+    if re.search(
+        r"\b(?:best in category|good choice|underperformer|recommended|average)\b",
+        q,
+        re.I,
+    ):
+        return False
+    if explicit_return_window(q):
+        return True
+    if _PERFORMANCE_QUESTION_RE.search(q):
+        return True
+    if re.search(
+        r"\b(?:perform(?:ing|ed|s)?|doing)\b.{0,40}\b(?:well|good|poorly|badly)\b|"
+        r"\b(?:well|good|poorly|badly)\b.{0,24}\bperform",
+        q,
+        re.I,
+    ):
+        return True
+    if re.search(r"\bpositive\s+returns?\b|\bshowing\s+(?:a\s+)?positive\b", q, re.I):
+        return True
+    return False
+
+
 def infer_return_window(question: str, explicit: str | None = None) -> str:
     if explicit:
         return normalize_return_window(explicit)
-    return explicit_return_window(question) or "1M"
+    named = explicit_return_window(question)
+    if named:
+        return named
+    if question_wants_performance_ranking(question):
+        return "3Y"
+    return "3Y"
 
 
 def _window_field(window: str) -> str:
@@ -300,14 +342,26 @@ def _window_field(window: str) -> str:
 
 
 _PERFORMANCE_QUESTION_RE = re.compile(
-    r"\b(best|top|highest|outperform|performed\s+best|performing\s+best|working\s+well|"
+    r"\b(highest|outperform|performed\s+best|performing\s+best|working\s+well|"
+    r"doing\s+well|doing\s+good|performing\s+well|"
     r"last\s+month|1\s*[- ]?month|one\s+month)\b",
     re.I,
 )
 
 
+def _rs_rating_sort_key(row: dict[str, Any]) -> float:
+    for key in ("final_score", "rs_score", "score"):
+        raw = row.get(key)
+        if raw is not None:
+            try:
+                return float(raw)
+            except (TypeError, ValueError):
+                continue
+    return -1.0
+
+
 _FUND_COUNT_RE = re.compile(
-    r"\b(\d{1,2})\b(?:\s+\w+){0,4}\s+(?:mutual\s+)?(?:funds?|schemes?)\b",
+    r"\b(\d{1,2})\b(?:\s+\w+){0,4}\s+(?:mutual\s+)?(?:funds?|fudns?|schemes?)\b",
     re.I,
 )
 _WORD_FUND_COUNTS = {
@@ -334,9 +388,71 @@ def explicit_fund_count(question: str) -> int | None:
         except ValueError:
             return None
     for word, n in _WORD_FUND_COUNTS.items():
-        if re.search(rf"\b{word}\s+(?:mutual\s+)?(?:funds?|schemes?)\b", q, re.I):
+        if re.search(rf"\b{word}\s+(?:mutual\s+)?(?:funds?|fudns?|schemes?)\b", q, re.I):
             return n
     return None
+
+
+def _row_primary_sector(row: dict[str, Any]) -> str:
+    sector = str(row.get("affected_sector") or "").strip()
+    if sector:
+        return sector
+    matched = row.get("matched_sectors") or []
+    if matched:
+        return str(matched[0])
+    breakdown = row.get("sector_breakdown") or {}
+    if isinstance(breakdown, dict) and breakdown:
+        best = max(breakdown.items(), key=lambda item: float(item[1] or 0))
+        return str(best[0])
+    return ""
+
+
+def pick_diverse_sector_quota(
+    rows: list[dict[str, Any]],
+    *,
+    top_n: int,
+    sort_key: Callable[[dict[str, Any]], float],
+    first_sector_cap: int = 3,
+    other_cap: int = 1,
+) -> list[dict[str, Any]]:
+    """First sector up to three names; each other sector one, until top_n."""
+    if not rows or top_n <= 0:
+        return []
+    by_sector: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        sector = _row_primary_sector(row) or "__unknown__"
+        by_sector.setdefault(sector, []).append(row)
+    for pool in by_sector.values():
+        pool.sort(key=sort_key, reverse=True)
+    ordered_sectors = sorted(
+        by_sector,
+        key=lambda name: sort_key(by_sector[name][0]) if by_sector[name] else -1.0,
+        reverse=True,
+    )
+    picked: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, sector in enumerate(ordered_sectors):
+        cap = first_sector_cap if index == 0 else other_cap
+        for row in by_sector[sector][:cap]:
+            isin = str(row.get("isin") or "")
+            if isin and isin in seen:
+                continue
+            if isin:
+                seen.add(isin)
+            picked.append(row)
+            if len(picked) >= top_n:
+                return picked
+    for sector in ordered_sectors:
+        for row in by_sector[sector]:
+            isin = str(row.get("isin") or "")
+            if isin and isin in seen:
+                continue
+            if isin:
+                seen.add(isin)
+            picked.append(row)
+            if len(picked) >= top_n:
+                return picked
+    return picked
 
 
 def _active_sector_equity(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -438,6 +554,7 @@ def select_funds_by_nav(
     count_explicit: bool,
     return_window: str = "1M",
     sort_by: Literal["performance", "exposure"] = "performance",
+    sort_by_rating: bool = False,
 ) -> tuple[list[dict[str, Any]], bool, str]:
     """
     Sort by the requested NAV window.
@@ -457,7 +574,10 @@ def select_funds_by_nav(
         )
     )
     if sort_by == "exposure":
-        ordered.sort(key=lambda row: float(row.get("sector_weight_pct") or 0), reverse=True)
+        if sort_by_rating:
+            ordered.sort(key=_rs_rating_sort_key, reverse=True)
+        else:
+            ordered.sort(key=lambda row: float(row.get("sector_weight_pct") or 0), reverse=True)
         dir_clean = str(direction or "any").strip().lower()
         if dir_clean == "positive":
             ordered = [row for row in ordered if row.get(field) is not None and float(row[field]) > 0]
@@ -465,7 +585,12 @@ def select_funds_by_nav(
             ordered = [row for row in ordered if row.get(field) is not None and float(row[field]) < 0]
         if not ordered and dir_clean in ("positive", "negative"):
             return [], True, f"No screened funds are both heavy in the sector and {dir_clean} on {window}."
-        picked = [_round_fund_row(row) for row in ordered[:top_n]]
+        key = _rs_rating_sort_key if sort_by_rating else lambda row: float(row.get("sector_weight_pct") or 0)
+        sectors = {s for s in (_row_primary_sector(row) for row in ordered) if s}
+        if len(sectors) > 1:
+            picked = [_round_fund_row(row) for row in pick_diverse_sector_quota(ordered, top_n=top_n, sort_key=key)]
+        else:
+            picked = [_round_fund_row(row) for row in ordered[:top_n]]
         note = "Funds with the heaviest weight in the named sector."
         if dir_clean in ("positive", "negative"):
             note = f"Funds with a heavy sector weight and a {dir_clean} {window} return."
@@ -803,7 +928,7 @@ def run_sector_funds(
         re.search(r"\b(?:invested|investment|holdings?|allocation|exposure)\b", question or "", re.I)
     )
     if weight_ask and not performance_query:
-        final_rankings = pool[:top_n]
+        final_rankings = sorted(pool, key=_rs_rating_sort_key, reverse=True)[:top_n]
         _attach_screen_facts(final_rankings, question)
         elapsed = (time.perf_counter() - started) * 1000
         return _ok(
@@ -821,15 +946,25 @@ def run_sector_funds(
             },
             elapsed,
         )
+    nav_direction = rank_direction
+    if _macro_exposure_direction_ask(question or text):
+        nav_direction = "any"
+    elif rank_direction in ("positive", "negative") and not performance_query:
+        nav_direction = "any"
+    sort_by = "performance" if performance_query else "exposure"
+    sort_rating = not performance_query
     final_rankings, all_drawdown, ranking_note = select_funds_by_nav(
         pool,
-        direction=rank_direction,
+        direction=nav_direction,
         top_n=top_n,
         count_explicit=count_explicit,
         return_window=window,
+        sort_by=sort_by,
+        sort_by_rating=sort_rating,
     )
     _attach_screen_facts(final_rankings, question)
     elapsed = (time.perf_counter() - started) * 1000
+    basis = f"{window}_NAV_direction_filter" if performance_query else "sector_exposure_rs_rating"
     return _ok(
         {
             "sector_keys": ranked.get("sector_keys"),
@@ -838,7 +973,7 @@ def run_sector_funds(
             "query": text,
             "direction": rank_direction,
             "return_window": window,
-            "ranking_basis": f"{window}_NAV_direction_filter",
+            "ranking_basis": basis,
             "ranking_note": ranking_note,
             "all_drawdown": all_drawdown,
             "performance_query": performance_query,
@@ -1881,6 +2016,8 @@ def run_screen_funds(
     ):
         pool = _filter_equity_scheme_rows(broad) or broad
     pick_n = min(len(pool), 250) if random_sample and asked == "positive" else n
+    perf_rank = question_wants_performance_ranking(question or "")
+    by_rating = exposure and not perf_rank
     rankings, all_drawdown, ranking_note = select_funds_by_nav(
         pool,
         direction=asked,
@@ -1888,6 +2025,7 @@ def run_screen_funds(
         count_explicit=True,
         return_window=window,
         sort_by="exposure" if exposure else "performance",
+        sort_by_rating=by_rating,
     )
     if exposure and asked in ("positive", "negative") and not rankings and pool is not broad:
         rankings, all_drawdown, ranking_note = select_funds_by_nav(
@@ -1897,6 +2035,7 @@ def run_screen_funds(
             count_explicit=True,
             return_window=window,
             sort_by="exposure",
+            sort_by_rating=by_rating,
         )
     if (asked == "positive" or require_positive_1y) and len(rankings) < n:
         extra, _, _ = select_funds_by_nav(
@@ -1937,12 +2076,7 @@ def run_screen_funds(
                 f"No fund in this screen has a positive {window} return. "
                 "These are the strongest returns in that window."
             )
-    if random_sample and rankings:
-        import random
-
-        random.shuffle(rankings)
-        rankings = rankings[:n]
-    elif len(rankings) > n:
+    if len(rankings) > n:
         rankings = rankings[:n]
     if scan_note and not rankings:
         ranking_note = f"{ranking_note} {scan_note}".strip()

@@ -55,6 +55,9 @@ def test_project_holdings_fields(normalized_doc):
 def test_enforce_portfolio_scope_strips_tool(monkeypatch):
     from news_rag.insight.contracts import ExecutionPlan, ToolCall
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn("CRN-test")
 
     plan = ExecutionPlan(
         portfolio_scope="none",
@@ -71,7 +74,10 @@ def test_enforce_portfolio_scope_strips_tool(monkeypatch):
 
 
 def test_executor_with_fixture(monkeypatch):
+    from news_rag.portfolio.cache import set_active_crn
+
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-test")
+    set_active_crn("CRN-test")
     monkeypatch.setenv("PORTFOLIO_FIXTURE_PATH", "data/workspace_sample.json")
     monkeypatch.delenv("RUPEESTOP_ADMIN_TOKEN", raising=False)
 
@@ -93,29 +99,33 @@ def test_executor_with_fixture(monkeypatch):
     assert rows[0]["data"].get("summary")
 
 
-def test_executor_uses_workspace_sample_without_token(monkeypatch):
-    monkeypatch.setenv("CLIENT_REF_NO", "CRN-local-no-token")
+def test_unknown_crn_is_not_served_from_the_sample(monkeypatch):
+    from news_rag.portfolio.cache import clear_cache_for_tests, set_active_crn
+    from news_rag.portfolio.errors import InvalidCRN
+
     monkeypatch.delenv("PORTFOLIO_FIXTURE_PATH", raising=False)
-    monkeypatch.delenv("RUPEESTOP_ADMIN_TOKEN", raising=False)
-
-    from news_rag.portfolio.cache import clear_cache_for_tests
-
     clear_cache_for_tests()
+    set_active_crn("CRN-local-no-token")
+
+    def reject(_crn: str) -> dict:
+        raise InvalidCRN("wrong CRN")
+
+    monkeypatch.setattr("news_rag.portfolio.cache.fetch_workspace_raw", reject)
 
     from news_rag.insight.capabilities.executor import execute_capability
     from news_rag.insight.contracts import ToolCall
 
-    call = ToolCall(
-        tool="get_investor_portfolio",
-        arguments={"modules": ["summary"]},
-        wave=1,
-    )
-    rows = execute_capability(call, ctx={"portfolio_enabled": True})
-    assert rows[0]["ok"]
-    assert rows[0]["data"].get("summary")
+    call = ToolCall(tool="get_investor_portfolio", arguments={"modules": ["summary"]}, wave=1)
+    rows = execute_capability(call, ctx={})
+    assert rows[0]["ok"] is False
+    set_active_crn("")
+    clear_cache_for_tests()
 
 
 def test_repair_empty_investor_tool_calls(monkeypatch):
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn("CRN-test")
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-test")
     from news_rag.insight.contracts import ExecutionPlan
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
@@ -290,6 +300,9 @@ def test_returns_table_for_investor_pnl():
 
 
 def test_enforce_returns_questions_use_holdings_not_xirr_only(monkeypatch):
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn("CRN-test")
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-test")
     from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
@@ -315,6 +328,9 @@ def test_enforce_returns_questions_use_holdings_not_xirr_only(monkeypatch):
 
 
 def test_concentration_question_loads_stock_and_sector_data(monkeypatch):
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn("CRN-test")
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-test")
     from news_rag.insight.contracts import ExecutionPlan
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
@@ -340,6 +356,9 @@ def test_validate_capability_requires_modules():
 
 
 def test_investor_drawback_strips_hallucinated_catalog_fund(monkeypatch):
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn("CRN-test")
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-test")
     from news_rag.insight.contracts import AnswerMode, ExecutionPlan, ToolCall
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
@@ -369,3 +388,58 @@ def test_investor_drawback_strips_hallucinated_catalog_fund(monkeypatch):
     assert all(c.tool != "get_fund_data" for c in plan.tool_calls)
     modules = plan.tool_calls[0].arguments.get("modules") or []
     assert "holdings" in modules
+
+
+def test_switch_evicts_the_previous_crn(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from news_rag.app import app
+    from news_rag.config import get_settings
+    from news_rag.portfolio.cache import clear_cache_for_tests, peek_portfolio, set_active_crn
+    from news_rag.portfolio.errors import InvalidCRN
+
+    clear_cache_for_tests()
+
+    def fake(crn: str) -> dict:
+        if str(crn).startswith("BAD"):
+            raise InvalidCRN("wrong CRN")
+        return {"sections": {"live": {"data": {"schemes": [{"schemeName": "Fund " + crn}]}}}}
+
+    monkeypatch.setattr("news_rag.portfolio.cache.fetch_workspace_raw", fake)
+    client = TestClient(app)
+
+    first = client.post("/api/portfolio/select", json={"conversation_id": "conv-a", "crn": "CRN-aaaa"})
+    assert first.status_code == 200
+    assert peek_portfolio("CRN-aaaa") is not None
+
+    bad = client.post(
+        "/api/portfolio/select",
+        json={"conversation_id": "conv-b", "previous_conversation_id": "conv-a", "crn": "BADCRN"},
+    )
+    assert bad.status_code == 404
+    assert peek_portfolio("CRN-aaaa") is not None
+
+    second = client.post(
+        "/api/portfolio/select",
+        json={"conversation_id": "conv-b", "previous_conversation_id": "conv-a", "crn": "CRN-bbbb"},
+    )
+    assert second.status_code == 200
+    assert peek_portfolio("CRN-aaaa") is None
+    assert peek_portfolio("CRN-bbbb")["holdings"][0]["scheme_name"] == "Fund CRN-bbbb"
+
+    set_active_crn("")
+    assert get_settings().portfolio_enabled is False
+    clear_cache_for_tests()
+
+
+def test_active_crn_reaches_a_worker_thread():
+    import contextvars
+    from concurrent.futures import ThreadPoolExecutor
+
+    from news_rag.portfolio.cache import get_active_crn, set_active_crn
+
+    set_active_crn("CRN-ctx")
+    parent = contextvars.copy_context()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        assert pool.submit(parent.run, get_active_crn).result() == "CRN-ctx"
+    set_active_crn("")

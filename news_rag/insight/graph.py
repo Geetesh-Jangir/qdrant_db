@@ -27,7 +27,7 @@ from typing import Any, Callable
 from news_rag.article_pool import sources_from_articles
 from news_rag.config import get_settings
 from news_rag.guardrails import ADVICE_NOTE
-from news_rag.insight.bridge import evaluate_wave2
+from news_rag.insight.bridge import evaluate_wave2, market_affected_fund_calls
 from news_rag.insight.capabilities import execute_wave
 from news_rag.insight.contracts import (
     AnswerMode,
@@ -963,12 +963,17 @@ def node_bridge(state: GraphState) -> str | None:
             return "wave2"
 
     remaining_ms = state.remaining_deadline_ms()
+    from news_rag.insight.bridge import market_affected_fund_calls
+
     wave2_calls = evaluate_wave2(
         plan,
         state.wave1_results,
         deadline_remaining_ms=remaining_ms,
         question=state.question or "",
     )
+    for call in market_affected_fund_calls(state.question or "", state.wave1_results):
+        if call not in wave2_calls:
+            wave2_calls.append(call)
 
     if wave2_calls and remaining_ms >= 2000.0:
         state.route_reason = f"bridge triggered {len(wave2_calls)} Wave 2 call(s)"
@@ -1142,6 +1147,10 @@ _COMPOSE_HINTS: tuple[tuple[str, str], ...] = (
     ("investor_portfolio_overview", "Whole-book answer: title `## Your portfolio`; totals and XIRR first; one table for schemes (scheme, category, current value, invested, gain, XIRR) and, if allocation exists, one for categories. Use gain on invested, not absolute_return_pct."),
     ("portfolio_news_impact_answer", "Explain how the news affects the user's own book from `portfolio_news_impact` (sector_impact_analysis, fund_sector_exposure). The server appends the sector and fund tables; do not repeat them. Only holdings in the book count."),
     ("concept_brief", "Explain `concept_brief` first in 1-3 sentences, then use EVIDENCE for the example fund."),
+    (
+        "list_fund_ratings",
+        "Every fund you list must include its rs_label and final_score from EVIDENCE on the same line. Quote the return for the screen return_window only (3Y unless the user named another period).",
+    ),
     ("fund_pick", "When fund_pick is alternate_in_category and one fund is shown, that fund is the answer: name it with its RupeeStop score, label and key returns."),
 )
 
@@ -1608,6 +1617,10 @@ def node_compose(state: GraphState) -> str | None:
     fetched = _facts_from_plan(plan)
     if fetched:
         wants["data_available"] = fetched
+    pack_data = evidence_dict.get("data_pack") if isinstance(evidence_dict.get("data_pack"), dict) else {}
+    screen = pack_data.get("screen") if isinstance(pack_data.get("screen"), dict) else {}
+    if screen.get("rankings") or screen.get("funds"):
+        wants["list_fund_ratings"] = True
 
     # The planner's max_words is the user's length; defaults apply only when it gave none.
     if glossary_only:
@@ -1864,10 +1877,8 @@ def node_compose(state: GraphState) -> str | None:
         grouped = data.get("grouped") if isinstance(data.get("grouped"), dict) else {}
         grouped_news.update(grouped)
     if grouped_news:
-        from news_rag.insight.fund_display import append_news_section
-
         polished_text = re.sub(r"(?im)^.*no recent news.*$\n?", "", polished_text).strip()
-        polished_text = append_news_section(polished_text, grouped_news)
+        polished_text = strip_news_roundup(polished_text)
     polished_text = _strip_unasked_closers(
         polished_text,
         keep_summary=_wants_end_summary(plan, state.question or ""),

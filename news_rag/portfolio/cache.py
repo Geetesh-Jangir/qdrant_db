@@ -7,6 +7,7 @@ once a snapshot exists.
 
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import logging
 import threading
@@ -16,7 +17,7 @@ from typing import Any
 
 from news_rag.config import get_settings
 from news_rag.portfolio.client import fetch_workspace_raw
-from news_rag.portfolio.errors import PortfolioError, PortfolioNotConfigured
+from news_rag.portfolio.errors import InvalidCRN, PortfolioError, PortfolioNotConfigured
 from news_rag.portfolio.normalize import normalize_workspace
 from news_rag.portfolio.views import build_derived_views
 
@@ -46,6 +47,51 @@ _breakers: dict[str, _BreakerState] = {}
 _last_fetch_ms: dict[str, float] = {}
 _refreshing: set[str] = set()
 _refresh_thread_started = False
+_sessions: dict[str, str] = {}
+_active_crn: contextvars.ContextVar[str] = contextvars.ContextVar("active_crn", default="")
+
+
+def get_active_crn() -> str:
+    return str(_active_crn.get() or "").strip()
+
+
+def set_active_crn(crn: str) -> contextvars.Token:
+    return _active_crn.set(str(crn or "").strip())
+
+
+def bind_session(conversation_id: str, crn: str) -> str:
+    """Point this chat at crn. Returns the previous CRN for this chat (may be empty)."""
+    key = str(conversation_id or "").strip()
+    crn = str(crn or "").strip()
+    with _lock:
+        previous = _sessions.get(key, "")
+        if crn:
+            _sessions[key] = crn
+        else:
+            _sessions.pop(key, None)
+        return previous
+
+
+def session_crn(conversation_id: str) -> str:
+    key = str(conversation_id or "").strip()
+    if not key:
+        return ""
+    with _lock:
+        return _sessions.get(key, "")
+
+
+def evict_crn(crn: str) -> None:
+    """Drop a snapshot when no chat still uses it."""
+    crn = str(crn or "").strip()
+    if not crn:
+        return
+    with _lock:
+        if crn in _sessions.values():
+            return
+        _cache.pop(crn, None)
+        _breakers.pop(crn, None)
+        _last_fetch_ms.pop(crn, None)
+        _refreshing.discard(crn)
 
 
 def crn_log_id(crn: str) -> str:
@@ -84,6 +130,8 @@ def _fetch_and_store(crn: str) -> tuple[dict[str, Any], dict[str, Any]]:
     try:
         raw = fetch_workspace_raw(crn)
         doc = normalize_workspace(raw)
+        if not (doc.get("holdings") or []):
+            raise InvalidCRN(f"wrong CRN: {crn}")
         fetch_ms = round((time.perf_counter() - t0) * 1000, 1)
         _remember(crn, doc, now, ttl, fetch_ms)
         stats = _stats(crn, from_cache=False)
@@ -152,7 +200,7 @@ def get_normalized_portfolio(crn: str) -> tuple[dict[str, Any], dict[str, Any]]:
 
 def peek_portfolio(crn: str | None = None) -> dict[str, Any] | None:
     """In-memory snapshot only. Never fetches."""
-    crn = str(crn or get_settings().client_ref_no or "").strip()
+    crn = str(crn or get_active_crn() or "").strip()
     if not crn:
         return None
     with _lock:
@@ -161,7 +209,7 @@ def peek_portfolio(crn: str | None = None) -> dict[str, Any] | None:
 
 
 def peek_derived(crn: str | None = None) -> dict[str, Any]:
-    crn = str(crn or get_settings().client_ref_no or "").strip()
+    crn = str(crn or get_active_crn() or "").strip()
     if not crn:
         return {}
     with _lock:
@@ -265,7 +313,7 @@ def preload_configured_portfolio(timeout_sec: float | None = None) -> bool:
 
 
 def start_background_refresh() -> None:
-    """Refresh the configured book on the TTL interval. Does not block requests."""
+    """Refresh cached books on the TTL interval. Does not block requests."""
     global _refresh_thread_started
     with _lock:
         if _refresh_thread_started:
@@ -277,13 +325,13 @@ def start_background_refresh() -> None:
             settings = get_settings()
             interval = max(60.0, float(getattr(settings, "portfolio_ttl_sec", 900) or 900))
             time.sleep(interval)
-            crn = str(settings.client_ref_no or "").strip()
-            if not crn or crn not in _cache:
-                continue
-            try:
-                _fetch_and_store(crn)
-            except Exception:
-                logger.warning("portfolio background refresh failed crn_id=%s", crn_log_id(crn))
+            with _lock:
+                crns = [crn for crn in set(_sessions.values()) if crn in _cache]
+            for crn in crns:
+                try:
+                    _fetch_and_store(crn)
+                except Exception:
+                    logger.warning("portfolio background refresh failed crn_id=%s", crn_log_id(crn))
 
     threading.Thread(target=_loop, name="portfolio-refresh", daemon=True).start()
 
@@ -294,3 +342,4 @@ def clear_cache_for_tests() -> None:
         _breakers.clear()
         _last_fetch_ms.clear()
         _refreshing.clear()
+        _sessions.clear()

@@ -224,33 +224,45 @@ def run_screen_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
 
 def _rule_sector_picks(ctx: dict[str, Any]) -> list[dict[str, str]]:
     """Sectors the macro rule table expects to gain/lose for the named driver and direction."""
-    from news_rag.macro_impact_map import macro_impact_entry
+    from news_rag.macro_impact_map import (
+        canonical_direction_for_driver,
+        macro_impact_entry,
+        normalize_driver,
+    )
     from news_rag.sector_fund_ranking import get_sector_fund_ranking_index
 
     idx = get_sector_fund_ranking_index()
     picks: list[dict[str, str]] = []
-    from news_rag.macro_impact_map import canonical_direction_for_driver, normalize_driver
+    seen: set[tuple[str, str]] = set()
 
     move = _s(ctx, "driver_direction")
     for driver in ctx.get("drivers") or []:
         driver_key = normalize_driver(driver.get("id") if isinstance(driver, dict) else driver)
         dir_for_map = canonical_direction_for_driver(driver_key, move or None)
-        entry = macro_impact_entry(driver_key, direction=dir_for_map or None)
-        for row in (entry or {}).get("sectors") or []:
-            sign = row.get("expected_sign")
-            if sign not in ("positive", "negative") or row.get("impact_type") == "indirect":
-                continue
-            keys = idx.resolve_sector_keys([str(row.get("sector") or "")])
-            if not keys:
-                continue
-            picks.append(
-                {
-                    "name": keys[0],
-                    "direction": sign,
-                    "reason": str(row.get("transmission") or "").strip(),
-                    "source": "rule_table",
-                }
-            )
+        base = macro_impact_entry(driver_key)
+        directions = [dir_for_map] if dir_for_map else list((base or {}).get("directions") or [])
+        for dir_use in directions:
+            entry = macro_impact_entry(driver_key, direction=dir_use)
+            for row in (entry or {}).get("sectors") or []:
+                sign = row.get("expected_sign")
+                if sign not in ("positive", "negative") or row.get("impact_type") == "indirect":
+                    continue
+                keys = idx.resolve_sector_keys([str(row.get("sector") or "")])
+                if not keys:
+                    continue
+                name = keys[0]
+                dedupe = (name, sign)
+                if dedupe in seen:
+                    continue
+                seen.add(dedupe)
+                picks.append(
+                    {
+                        "name": name,
+                        "direction": sign,
+                        "reason": str(row.get("transmission") or "").strip(),
+                        "source": "rule_table",
+                    }
+                )
     return picks
 
 
@@ -450,12 +462,23 @@ def run_driver_affected_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
     for row in sorted(rows_by_isin.values(), key=lambda r: -float(r.get("sector_weight_pct") or 0)):
         by_side.setdefault(row.get("affected_direction") or "positive", []).append(row)
     per_side = 3 if asked == "any" else 6
-    ranked = sorted(
-        by_side["negative"][:per_side] + by_side["positive"][:per_side],
-        key=lambda r: -float(r.get("sector_weight_pct") or 0),
-    )
+    from news_rag.tools import _rs_rating_sort_key, pick_diverse_sector_quota, question_wants_performance_ranking
+
+    merged = by_side["negative"][:per_side] + by_side["positive"][:per_side]
+    if question_wants_performance_ranking(q):
+        sort_key = lambda row: float(row.get("sector_weight_pct") or 0)
+    else:
+        sort_key = _rs_rating_sort_key
+    merged.sort(key=sort_key, reverse=True)
     cap = int(ctx.get("top_n") or 6)
-    rw = _s(ctx, "return_window") or "1M"
+    sectors = {str(row.get("affected_sector") or "").strip() for row in merged if row.get("affected_sector")}
+    if len(sectors) > 1:
+        ranked = pick_diverse_sector_quota(merged, top_n=cap, sort_key=sort_key)
+    else:
+        ranked = merged[:cap]
+    from news_rag.tools import infer_return_window
+
+    rw = _s(ctx, "return_window") or infer_return_window(q)
     if ctx.get("require_positive_1y"):
         from news_rag.tools import _window_field, normalize_return_window
 
@@ -720,10 +743,12 @@ def _measure_briefs(details: list[dict[str, Any]], windows: list[str]) -> list[d
     """Return percentage for each fund at once. One fund stays on this thread."""
     if len(details) <= 1:
         return [_enrich_compare_brief(detail, windows) for detail in details]
+    import contextvars
     from concurrent.futures import ThreadPoolExecutor
 
+    jobs = [(contextvars.copy_context(), detail) for detail in details]
     with ThreadPoolExecutor(max_workers=min(8, len(details))) as pool:
-        return list(pool.map(lambda detail: _enrich_compare_brief(detail, windows), details))
+        return list(pool.map(lambda job: job[0].run(_enrich_compare_brief, job[1], windows), jobs))
 
 
 # ---------------------------------------------------------------------------

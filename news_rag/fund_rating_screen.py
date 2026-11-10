@@ -23,8 +23,11 @@ from news_rag.rupeestop_auth import rupeestop_admin_request_headers
 from news_rag.fund_rating_categories import (
     asks_taxonomy,
     categories_for,
+    match_all_fund_types,
+    match_all_scheme_categories,
     match_scheme_category,
     metal_scheme_categories,
+    rating_scope_pairs,
 )
 from news_rag.tools import explicit_fund_count
 
@@ -66,7 +69,7 @@ _ABOVE_RE = re.compile(
     r"\b(?:above|over|greater than|more than|at least|>=)\s*(\d{1,3}(?:\.\d+)?)\b",
     re.I,
 )
-_LIST_RE = re.compile(r"\bfunds?\b", re.I)
+_LIST_RE = re.compile(r"\b(?:funds?|fudns?)\b", re.I)
 _RANK_WORD_RE = re.compile(r"\b(?:highest|best|top|lowest|worst|random)\b", re.I)
 _BUY_RE = re.compile(r"\bshould\s+i\s+(?:buy|sell|hold|invest)\b", re.I)
 _SUGGEST_RE = re.compile(
@@ -89,7 +92,7 @@ def _looks_like_fund_list(question: str) -> bool:
     """A list of funds, including one fund asked for as the best or the highest."""
     if explicit_fund_count(question) is not None:
         return True
-    if re.search(r"\bfunds\b", question or "", re.I):
+    if re.search(r"\b(?:funds?|fudns?)\b", question or "", re.I):
         return True
     if _LIST_RE.search(question or "") and _RANK_WORD_RE.search(question or ""):
         return True
@@ -113,7 +116,9 @@ class RatingScreenSpec:
     suggestion: str = ""
     label_fallback: str = ""
     walk_categories: tuple[str, ...] = ()
+    walk_category_pairs: tuple[tuple[str, str], ...] = ()
     spread_categories: bool = False
+    mix_note: str = ""
 
     @property
     def walks(self) -> bool:
@@ -189,10 +194,10 @@ def _fund_type_in_name_clause(question: str) -> str:
     """Fund type the user asked us to name (ignore 'debt vs equity' education clauses)."""
     q = question or ""
     for pattern in (
-        r"\b(?:name|give|tell)\s+(?:me\s+)?(?:any|a|an|one|some)?\s*(?:random(?:ly)?\s*)?"
+        r"\b(?:name|give|tell|show)\s+(?:me\s+)?(?:any\s+)?(?:\d+\s+)?(?:random(?:ly)?\s+)?"
         r"(debt|equity|hybrid|solution(?:\s+oriented)?|others)\s+funds?\b",
         r"\brandom(?:ly)?\s+(debt|equity|hybrid)\s+funds?\b",
-        r"\b(?:any|a|an|one)\s+(?:random(?:ly)?\s+)?(debt|equity|hybrid)\s+funds?\b",
+        r"\b(?:any\s+)?(?:\d+\s+)?(?:random(?:ly)?\s+)?(debt|equity|hybrid)\s+funds?\b",
     ):
         m = re.search(pattern, q, re.I)
         if not m:
@@ -217,23 +222,56 @@ def fund_type_name_spec(question: str) -> RatingScreenSpec | None:
         return None
     fund_type = _fund_type_in_name_clause(q)
     if not fund_type:
-        match = match_scheme_category(q)
-        if not match or not match.fund_type:
-            return None
-        if match.locked and match.category:
-            return None
-        fund_type = match.fund_type
+        types_named = match_all_fund_types(q)
+        if len(types_named) == 1:
+            fund_type = types_named[0]
+        else:
+            match = match_scheme_category(q)
+            if not match or not match.fund_type:
+                return None
+            if match.locked and match.category:
+                return None
+            fund_type = match.fund_type
     if not re.search(r"\b(?:equity|debt|hybrid|solution|others)\b", q, re.I):
         return None
-    cats = list(categories_for(fund_type))
-    if not cats:
+    if not categories_for(fund_type):
         return None
-    category = random.choice(cats)
+    count = explicit_fund_count(q) or 1
+    match = match_scheme_category(q)
+    locked = bool(match and match.locked and match.category)
+    from news_rag.tools import question_wants_performance_ranking
+
+    if question_wants_performance_ranking(q):
+        window = _return_window(q) or "3Y"
+        wants_positive = bool(_POSITIVE_RETURN_RE.search(q))
+        if wants_positive:
+            direction = "positive"
+        elif _POOR_RE.search(q):
+            direction = "lowest"
+        else:
+            direction = "highest"
+        return RatingScreenSpec(
+            count=count,
+            fund_type=fund_type,
+            category=match.category if locked else "",
+            locked=locked,
+            label="",
+            min_score=None,
+            highest_score=False,
+            return_window=window,
+            return_direction=direction,
+            compare_category=False,
+            random_sample=False,
+            amc="",
+            suggestion="period",
+            label_fallback="Recommended",
+            spread_categories=count > 1 and not locked,
+        )
     return RatingScreenSpec(
-        count=explicit_fund_count(q) or 1,
+        count=count,
         fund_type=fund_type,
-        category=category,
-        locked=True,
+        category=match.category if locked else "",
+        locked=locked,
         label="Best in category",
         min_score=None,
         highest_score=False,
@@ -244,6 +282,7 @@ def fund_type_name_spec(question: str) -> RatingScreenSpec | None:
         amc="",
         suggestion="rated",
         label_fallback="Recommended",
+        spread_categories=count > 1 and not locked,
     )
 
 
@@ -294,21 +333,22 @@ def _suggestion_spec(question: str) -> RatingScreenSpec | None:
     window = _return_window(q)
     wants_positive = bool(_POSITIVE_RETURN_RE.search(q))
     wants_period = bool(_PERFORM_RE.search(q) or wants_positive or _POOR_RE.search(q))
-    if wants_period and window:
+    if wants_period:
+        window = window or "3Y"
         match = match_scheme_category(q)
         named = bool(match and match.locked and match.category)
+        count = explicit_fund_count(q) or 5
         if wants_positive:
             direction = "positive"
         elif _POOR_RE.search(q):
             direction = "lowest"
         else:
             direction = "highest"
-        search_one = named or direction != "positive"
         return RatingScreenSpec(
-            count=1,
+            count=count,
             fund_type=(match.fund_type if match and match.fund_type else "equity"),
-            category=match.category if named else ("large cap" if search_one else ""),
-            locked=search_one,
+            category=match.category if named else "",
+            locked=named,
             label="",
             min_score=None,
             highest_score=False,
@@ -319,6 +359,7 @@ def _suggestion_spec(question: str) -> RatingScreenSpec | None:
             amc="",
             suggestion="period",
             label_fallback="Recommended",
+            spread_categories=count > 1 and not named,
         )
     if explicit_fund_count(q) and window:
         return None
@@ -347,11 +388,6 @@ def _suggestion_spec(question: str) -> RatingScreenSpec | None:
     )
     if random_sample and not named_label:
         spec = replace(spec, label="", label_fallback="")
-    # One category call. Walking every equity category is the slow path.
-    if spec.random_sample and not spec.locked and spec.suggestion == "rated" and not spec.category:
-        cats = [name for name in categories_for(spec.fund_type) if name and name != "unknown"]
-        if cats:
-            spec = replace(spec, category=random.choice(cats), locked=True, highest_score=False)
     return spec
 
 
@@ -430,6 +466,54 @@ def _metal_fund_categories(question: str) -> tuple[str, ...]:
     return chosen
 
 
+def _allocation_mix_spec(question: str) -> RatingScreenSpec | None:
+    """One rated fund per equity/debt/gold sleeve when the user gives a percentage mix."""
+    q = question or ""
+    weights: dict[str, int] = {}
+    for match in re.finditer(r"(\d{1,3})\s*%\s*(equity|debt|gold)\b", q, re.I):
+        weights[match.group(2).lower()] = int(match.group(1))
+    for match in re.finditer(r"\b(equity|debt|gold)\s*(?:at\s*)?(\d{1,3})\s*%", q, re.I):
+        weights[match.group(1).lower()] = int(match.group(2))
+    if len(weights) < 2:
+        return None
+    if not any(name in weights for name in ("equity", "debt", "gold")):
+        return None
+    pairs: list[tuple[str, str]] = []
+    equity_cats = categories_for("equity")
+    if "equity" in weights and equity_cats:
+        pairs.append(("equity", equity_cats[0]))
+    debt_cats = categories_for("debt")
+    if "debt" in weights and debt_cats:
+        pairs.append(("debt", debt_cats[0]))
+    gold_cats = metal_scheme_categories("gold")
+    if "gold" in weights and gold_cats:
+        pairs.append(("others", gold_cats[0]))
+    if len(pairs) < 2:
+        return None
+    mix_note = "User mix: " + ", ".join(
+        f"{weights[name]}% {name}" for name in ("equity", "debt", "gold") if name in weights
+    )
+    return RatingScreenSpec(
+        count=len(pairs),
+        fund_type=pairs[0][0],
+        category="",
+        locked=False,
+        label="Best in category",
+        min_score=None,
+        highest_score=False,
+        return_window="",
+        return_direction="",
+        compare_category=False,
+        random_sample=False,
+        amc="",
+        suggestion="rated",
+        label_fallback="Recommended",
+        walk_category_pairs=tuple(pairs),
+        spread_categories=True,
+        mix_note=mix_note,
+    )
+
+
 def _metal_fund_spec(question: str) -> RatingScreenSpec | None:
     categories = _metal_fund_categories(question)
     if not categories:
@@ -462,6 +546,9 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
     q = question or ""
     if asks_taxonomy(q):
         return None
+    mix = _allocation_mix_spec(q)
+    if mix is not None:
+        return mix
     metal = _metal_fund_spec(q)
     if metal is not None:
         return metal
@@ -474,6 +561,8 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
     by_type = fund_type_name_spec(q)
     if by_type is not None:
         return by_type
+    if re.search(r"\bwhy\b", q, re.I):
+        return None
     if not _looks_like_fund_list(q):
         return None
     from news_rag.tools import asks_funds_with_sector_exposure
@@ -489,9 +578,22 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
     min_score = float(above.group(1)) if above and _SCORE_RE.search(q) else None
     highest_score = bool(_SCORE_RE.search(q) and _HIGHEST_RE.search(q) and not window)
     amc = _amc_outside_label(q, label)
+    types_named = match_all_fund_types(q)
+    cats_named = match_all_scheme_categories(q)
+    multi_scope = False
+    if re.search(r"\bor\b", q, re.I):
+        multi_scope = (
+            len(types_named) > 1
+            or len(cats_named) > 1
+            or (bool(types_named) and bool(cats_named))
+        )
     fund_type = match.fund_type if match else ""
     category = match.category if match else ""
     locked = bool(match and match.locked)
+    if multi_scope:
+        locked = False
+        category = ""
+        fund_type = types_named[0] if types_named else (fund_type or "equity")
     has_rating_filter = bool(label or min_score is not None or highest_score or window)
     if not explicit_fund_count(q) and not re.search(r"\brandom\b", q, re.I) and not has_rating_filter:
         return None
@@ -506,6 +608,24 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
         count = 1
     if count is None:
         count = 1 if (highest_score or direction in {"highest", "lowest"}) else 5
+    walk_cats = ()
+    walk_pairs: tuple[tuple[str, str], ...] = ()
+    spread = False
+    if multi_scope:
+        scope_pairs = rating_scope_pairs(q)
+        spread = bool(scope_pairs)
+        walk_pairs = scope_pairs
+        walk_cats = tuple(dict.fromkeys(cat for _ft, cat in scope_pairs))
+    elif (
+        not locked
+        and count > 1
+        and not category
+        and not label
+        and not window
+        and not highest_score
+        and min_score is None
+    ):
+        spread = True
     return RatingScreenSpec(
         count=count,
         fund_type=fund_type,
@@ -519,11 +639,15 @@ def parse_rating_screen(question: str) -> RatingScreenSpec | None:
         compare_category=bool(re.search(r"\bcategory\s+averages?\b|\bcompare\b", q, re.I)),
         random_sample=bool(re.search(r"\brandom\b", q, re.I)),
         amc=amc,
+        walk_categories=walk_cats,
+        walk_category_pairs=walk_pairs,
+        spread_categories=spread,
     )
 
 
 def asks_rating_list(question: str) -> bool:
-    return parse_rating_screen(question) is not None
+    spec = parse_rating_screen(question)
+    return spec is not None and spec.suggestion != "period"
 
 
 def _public_row(raw: dict[str, Any], *, fund_type: str, category: str) -> dict[str, Any] | None:
@@ -587,8 +711,39 @@ def _amc_matches(isin: str, amc: str) -> bool:
     return amc.lower() in name
 
 
+def fund_naming_clause(question: str) -> str:
+    """The phrase that asked for fund names, not a later debt-vs-equity education clause."""
+    m = re.search(
+        r"(?:\btell\s+me\b|\bshow\s+me\b|\bname\b|\bgive\s+me\b).{0,80}?"
+        r"(?:\d+\s+)?(?:debt|equity|hybrid)\s+funds?\b",
+        question or "",
+        re.I,
+    )
+    return m.group(0).strip() if m else ""
+
+
+def rating_screen_question(user_question: str, focus_question: str) -> str:
+    """Prefer the fund-naming clause when planner focus picked the wrong type."""
+    user = (user_question or "").strip()
+    focus = (focus_question or "").strip()
+    clause = fund_naming_clause(user)
+    if clause:
+        return clause
+    if not focus:
+        return user
+    user_types = match_all_fund_types(user)
+    focus_types = match_all_fund_types(focus)
+    if user_types and focus_types and user_types != focus_types:
+        return user
+    if explicit_fund_count(user) and user_types and not match_scheme_category(focus):
+        return user
+    return focus or user
+
+
 def fetch_category_ratings(fund_type: str, category: str) -> dict[str, Any]:
     """One category. A failed call returns an empty payload so the walk can continue."""
+    if not str(category or "").strip():
+        return {"_error": "missing_category", "data": {"ratings": []}}
     key = (fund_type, category)
     now = time.time()
     with _cache_lock:
@@ -596,14 +751,31 @@ def fetch_category_ratings(fund_type: str, category: str) -> dict[str, Any]:
         if hit and now - hit[0] < _CACHE_TTL_SEC:
             return deepcopy(hit[1])
     url = _RATING_URL.format(fund_type=quote(fund_type, safe=""), category=quote(category, safe=""))
-    try:
-        headers = rupeestop_admin_request_headers(url)
-        response = httpx.get(url, headers=headers, timeout=_HTTP_TIMEOUT)
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as exc:
-        logger.info("category rating skipped %s/%s: %s", fund_type, category, exc)
-        return {}
+    payload: dict[str, Any] = {}
+    for attempt in range(2):
+        try:
+            from news_rag.rupeestop_auth import refresh_rupeestop_bearer_force
+
+            headers = rupeestop_admin_request_headers(url)
+            response = httpx.get(url, headers=headers, timeout=_HTTP_TIMEOUT)
+            if response.status_code in (401, 403) and attempt == 0:
+                body = (response.text or "").lower()
+                if "expired" in body or "invalid" in body or response.status_code == 401:
+                    refresh_rupeestop_bearer_force()
+                    continue
+            response.raise_for_status()
+            payload = response.json()
+            break
+        except Exception as exc:
+            logger.info("category rating skipped %s/%s: %s", fund_type, category, exc)
+            if attempt == 0 and "403" in str(exc):
+                from news_rag.rupeestop_auth import refresh_rupeestop_bearer_force
+
+                refresh_rupeestop_bearer_force()
+                continue
+            return {"_error": str(type(exc).__name__), "data": {"ratings": []}}
+    else:
+        return {"_error": "auth", "data": {"ratings": []}}
     if not isinstance(payload, dict):
         return {}
     with _cache_lock:
@@ -702,7 +874,7 @@ def _order(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[dict[str,
             spec.count,
             start_label=start,
             max_tier=max_tier,
-            random_within_tier=spec.random_sample,
+            random_within_tier=False,
         )
         if picked:
             return picked
@@ -1184,10 +1356,7 @@ def _spread_quality(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[
         if category and category not in order:
             order.append(category)
     for category, bucket in grouped.items():
-        if spec.random_sample and len(bucket) > 1:
-            random.shuffle(bucket)
-        else:
-            bucket.sort(key=lambda item: float(item.get("final_score") or -1), reverse=True)
+        bucket.sort(key=lambda item: float(item.get("final_score") or -1), reverse=True)
     picked: list[dict[str, Any]] = []
     seen: set[str] = set()
 
@@ -1219,10 +1388,7 @@ def _spread_quality(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[
         _take(label)
     if len(picked) < spec.count:
         rest = [row for row in rows if str(row.get("isin") or "") not in seen]
-        if spec.random_sample:
-            random.shuffle(rest)
-        else:
-            rest.sort(key=lambda item: float(item.get("final_score") or -1), reverse=True)
+        rest.sort(key=lambda item: float(item.get("final_score") or -1), reverse=True)
         for row in rest:
             isin = str(row.get("isin") or "")
             if not isin or isin in seen:
@@ -1240,29 +1406,36 @@ def _execute_rating_list(
     loader: Callable[[str, str], dict[str, Any]],
     pricer: Callable[[list[dict[str, Any]], str], list[dict[str, Any]]],
 ) -> dict[str, Any]:
-    if spec.walk_categories:
-        names = list(spec.walk_categories)
+    if spec.walk_category_pairs:
+        steps: list[tuple[str, str]] = list(spec.walk_category_pairs)
+    elif spec.walk_categories:
+        steps = [(spec.fund_type, name) for name in spec.walk_categories]
     elif spec.locked:
-        names = [spec.category] if spec.category else []
+        steps = [(spec.fund_type, spec.category)] if spec.category else []
     elif spec.walks:
-        names = list(categories_for(spec.fund_type))
+        steps = [(spec.fund_type, name) for name in categories_for(spec.fund_type)]
     else:
-        names = list(categories_for(spec.fund_type)[:1])
+        single = categories_for(spec.fund_type)[:1]
+        steps = [(spec.fund_type, single[0])] if single else []
     picked: list[dict[str, Any]] = []
     seen: set[str] = set()
     called: list[str] = []
     priced: list[str] = []
-    payloads = _load_category_payloads(loader, spec.fund_type, names) if spec.spread_categories else {}
+    spread = spec.spread_categories or bool(spec.walk_category_pairs)
+    payloads: dict[tuple[str, str], dict[str, Any]] = {}
+    if spread:
+        for fund_type, category in steps:
+            payloads[(fund_type, category)] = loader(fund_type, category)
 
-    for category in names:
-        payload = payloads.get(category) if spec.spread_categories else loader(spec.fund_type, category)
+    for fund_type, category in steps:
+        payload = payloads.get((fund_type, category), {}) if spread else loader(fund_type, category)
         if payload is None:
             payload = {}
         called.append(category)
         skip_label = _uses_label_cascade(spec)
         rows = [
             row
-            for row in _rows_from_payload(payload, fund_type=spec.fund_type, category=category)
+            for row in _rows_from_payload(payload, fund_type=fund_type, category=category)
             if _keep(row, spec, skip_label=skip_label)
         ]
         if spec.return_window and spec.return_direction:
@@ -1390,6 +1563,8 @@ def _note(spec: RatingScreenSpec, found: int) -> str:
             f"The {spec.return_window} return is the fund's own NAV return. "
             "Category avg is that category's average. vs category is the difference."
         )
+    if (spec.mix_note or "").strip():
+        parts.append(spec.mix_note.strip())
     return " ".join(parts)
 
 
@@ -1753,6 +1928,20 @@ def ensure_rating_screen(question: str, plan) -> None:
     from news_rag.insight.planner_policy import planner_owns
 
     if planner_owns(plan):
+        spec = parse_rating_screen(question)
+        if spec is not None and spec.suggestion:
+            _install_suggestion_screen(plan, spec, question)
+            return
+        _apply_category_difference(question, plan)
+        spec = parse_rating_screen(question)
+        if spec is None:
+            return
+        for call in plan.tool_calls:
+            if call.tool == "screen_funds_by_exposure":
+                call.arguments["rating_screen"] = True
+                call.arguments["top_n"] = spec.count
+                if spec.random_sample:
+                    call.arguments["random_sample"] = False
         return
     if plan_wants_alternate_in_category(plan):
         return

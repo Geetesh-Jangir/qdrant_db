@@ -103,6 +103,35 @@ def _extract_top_entities_from_results(results: list[dict[str, Any]]) -> dict[st
     }
 
 
+def market_affected_fund_calls(question: str, wave1_results: list[dict[str, Any]] | None = None) -> list[ToolCall]:
+    """Screen the catalog when the user asked which funds a market move affects."""
+    from news_rag.affected_sectors import question_needs_affected_sectors
+
+    if not question_needs_affected_sectors(question or ""):
+        return []
+    if any(
+        isinstance(row, dict) and row.get("tool") == "screen_funds_by_exposure" and row.get("ok")
+        for row in wave1_results or []
+    ):
+        return []
+    return [
+        ToolCall(
+            tool="screen_funds_by_exposure",
+            arguments={"sector": "", "driver": "", "direction": "any", "top_n": 5},
+            wave=2,
+            why="Name the funds affected by this market move",
+        )
+    ]
+
+
+def ensure_affected_fund_screen(plan: ExecutionPlan, question: str) -> ExecutionPlan:
+    """A market question that asks which funds are affected must screen the catalog."""
+    if any(call.tool == "screen_funds_by_exposure" for call in plan.tool_calls or []):
+        return plan
+    plan.tool_calls.extend(market_affected_fund_calls(question))
+    return plan
+
+
 def evaluate_wave2(
     plan: ExecutionPlan,
     wave1_results: list[dict[str, Any]],
@@ -137,8 +166,11 @@ def evaluate_wave2(
     trigger = (policy.trigger or "none").lower()
     max_calls = min(2, max(1, policy.max_calls))
 
-    # Pre-planned wave 2 calls from plan
+    # Pre-planned wave 2 calls from plan. A trigger of "none" means
+    # "do not invent a call", not "drop the call the planner already scheduled".
     planned_wave2 = plan.wave2_calls
+    if planned_wave2 and trigger == "none":
+        return planned_wave2[:max_calls]
 
     try:
         from news_rag.tools import asks_fund_related_news

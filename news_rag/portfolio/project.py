@@ -145,12 +145,12 @@ def project_modules(doc: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]
         out["profile_risk"] = copy.deepcopy(doc.get("profile_risk") or {})
 
     if "concentration" in modules:
-        from news_rag.config import get_settings
+        from news_rag.portfolio.cache import get_active_crn
         from news_rag.portfolio.concentration import fetch_top_holdings, project_concentration
 
         raw = doc.get("concentration_raw") if isinstance(doc.get("concentration_raw"), dict) else {}
         if not raw:
-            raw = fetch_top_holdings(get_settings().client_ref_no)
+            raw = fetch_top_holdings(get_active_crn())
         projected = project_concentration(raw, top_n=int(args.get("concentration_top_n") or 6))
         allocation = doc.get("allocation") if isinstance(doc.get("allocation"), dict) else {}
         projected["aum_by_scheme_type"] = allocation.get("aumBySchemeType") or {}

@@ -103,6 +103,7 @@ _CATEGORY_ALIASES: tuple[tuple[str, str, str], ...] = tuple(
         reverse=True,
     )
 ) + (
+    ("short term", "debt", "short duration"),
     ("gold fof", "others", "fund of funds-domestic-gold"),
     ("gold fund of funds", "others", "fund of funds-domestic-gold"),
     ("gold fund of fund", "others", "fund of funds-domestic-gold"),
@@ -200,6 +201,58 @@ def match_scheme_category(question: str) -> CategoryMatch | None:
         if re.search(rf"\b{re.escape(phrase)}\b", low):
             return CategoryMatch(fund_type, "", False)
     return None
+
+
+def fund_type_for_category(category: str) -> str:
+    for phrase, fund_type, cat in _CATEGORY_ALIASES:
+        if cat == category:
+            return fund_type
+    return ""
+
+
+def match_all_fund_types(question: str) -> list[str]:
+    """Every fund type token named in the question (order of appearance)."""
+    text = _spaced_category_words(question or "")
+    low = text.lower()
+    hits: list[tuple[int, str, int]] = []
+    for phrase, fund_type in _TYPE_WORDS:
+        for match in re.finditer(rf"\b{re.escape(phrase)}\b", low):
+            hits.append((match.start(), fund_type, len(phrase)))
+    hits.sort(key=lambda item: (item[0], -item[2]))
+    out: list[str] = []
+    seen: set[str] = set()
+    for _pos, fund_type, _length in hits:
+        if fund_type in seen:
+            continue
+        seen.add(fund_type)
+        out.append(fund_type)
+    return out
+
+
+def rating_scope_pairs(question: str) -> tuple[tuple[str, str], ...]:
+    """Union of named scheme categories and every category under each named fund type."""
+    q = _spaced_category_words(question or "")
+    types = match_all_fund_types(q)
+    cats = match_all_scheme_categories(q)
+    pairs: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(ft: str, category: str) -> None:
+        if not ft or not category:
+            return
+        key = (ft, category)
+        if key in seen:
+            return
+        seen.add(key)
+        pairs.append(key)
+
+    for category in cats:
+        ft = fund_type_for_category(category) or "equity"
+        add(ft, category)
+    for ft in types:
+        for category in categories_for(ft):
+            add(ft, category)
+    return tuple(pairs)
 
 
 def match_all_scheme_categories(question: str) -> list[str]:

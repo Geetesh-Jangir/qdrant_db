@@ -675,3 +675,123 @@ def test_a_named_large_cap_positive_year_stays_in_large_cap():
         "screen_funds_by_exposure",
         {"focus_question": month, "top_n": 1, "return_window": "1M", "rating_screen": True},
     )
+
+
+def test_performing_well_defaults_to_3y_window():
+    from news_rag.tools import infer_return_window
+
+    assert infer_return_window("which equity funds are performing well") == "3Y"
+    assert infer_return_window("funds doing good lately") == "3Y"
+    assert infer_return_window("performing well in the last one month") == "1M"
+    assert infer_return_window("performing well in last 1 year") == "1Y"
+
+
+def test_name_any_equity_funds_use_rating_not_performance_window():
+    spec = parse_rating_screen("name any 5 equity funds")
+    assert spec is not None
+    assert spec.count == 5
+    assert spec.suggestion == "rated"
+    assert spec.return_window == ""
+    assert spec.locked is False
+    assert spec.spread_categories is True
+
+
+def test_fudns_typo_keeps_count_and_performance_spread():
+    from news_rag.tools import explicit_fund_count
+
+    q = "NAME ANY 5 EQUITY FUDNS WHICH ARE PERFORMING WELL IN LAST 1 YEAR"
+    assert explicit_fund_count(q) == 5
+    spec = parse_rating_screen(q)
+    assert spec is not None
+    assert spec.count == 5
+    assert spec.return_window == "1Y"
+    assert spec.suggestion == "period"
+    assert spec.spread_categories is True
+    assert spec.locked is False
+
+
+def test_allocation_mix_one_fund_per_sleeve():
+    spec = parse_rating_screen("portfolio mix 60% equity, 30% debt and 10% gold funds to buy")
+    assert spec is not None
+    assert spec.count == 3
+    assert len(spec.walk_category_pairs) == 3
+    assert "60% equity" in spec.mix_note
+
+
+def test_crude_positive_affects_is_exposure_not_1m_performance():
+    from news_rag.tools import infer_return_window, question_wants_performance_ranking
+
+    q = "DUE TO CRUDE NEWS WHICH FUNDS ARE GETTING POSITIVE AFFECTS"
+    assert question_wants_performance_ranking(q) is False
+    assert infer_return_window(q) == "3Y"
+
+
+def test_sector_quota_three_plus_one():
+    from news_rag.tools import _rs_rating_sort_key, pick_diverse_sector_quota
+
+    rows = [
+        {"isin": "1", "affected_sector": "Banks", "final_score": 90},
+        {"isin": "2", "affected_sector": "Banks", "final_score": 85},
+        {"isin": "3", "affected_sector": "Banks", "final_score": 80},
+        {"isin": "4", "affected_sector": "Banks", "final_score": 75},
+        {"isin": "5", "affected_sector": "IT", "final_score": 70},
+        {"isin": "6", "affected_sector": "FMCG", "final_score": 65},
+    ]
+    picked = pick_diverse_sector_quota(rows, top_n=5, sort_key=_rs_rating_sort_key)
+    assert len(picked) == 5
+    assert len([r for r in picked if r["affected_sector"] == "Banks"]) == 3
+    assert {r["affected_sector"] for r in picked} == {"Banks", "IT", "FMCG"}
+
+
+def test_multi_scope_good_choice_union():
+    from news_rag.fund_rating_categories import match_all_fund_types
+
+    q = "show me 5 equity or debt or short term or large cap funds which are in good choice category"
+    spec = parse_rating_screen(q)
+    assert spec is not None
+    assert spec.count == 5
+    assert spec.label == "Good Choice"
+    assert spec.spread_categories is True
+    assert "large cap" in spec.walk_categories
+    assert "short duration" in spec.walk_categories
+    assert set(match_all_fund_types(q)) == {"equity", "debt"}
+    assert len(spec.walk_category_pairs) > 2
+
+
+def test_exposure_screen_sorts_by_rating_when_not_performance():
+    from news_rag.tools import select_funds_by_nav
+
+    rows = [
+        {"isin": "A", "sector_weight_pct": 20, "final_score": 50},
+        {"isin": "B", "sector_weight_pct": 5, "final_score": 90},
+    ]
+    picked, _, _ = select_funds_by_nav(
+        rows,
+        direction="any",
+        top_n=2,
+        count_explicit=True,
+        sort_by="exposure",
+        sort_by_rating=True,
+    )
+    assert picked[0]["isin"] == "B"
+
+
+def test_debt_fund_type_not_confused_by_equity_education_clause():
+    from news_rag.fund_rating_screen import fund_naming_clause, fund_type_name_spec, rating_screen_question
+
+    q = "tell me any 4 debt funds and also tell me how debt funds are different from equity funds"
+    clause = fund_naming_clause(q)
+    assert "debt" in clause.lower()
+    spec = fund_type_name_spec(clause)
+    assert spec is not None
+    assert spec.fund_type == "debt"
+    assert spec.count == 4
+    assert rating_screen_question(q, "equity fund").lower().startswith("tell")
+
+
+def test_suggestion_period_without_named_window_uses_3y():
+    spec = parse_rating_screen("suggest 5 funds which are performing well")
+    assert spec is not None
+    assert spec.suggestion == "period"
+    assert spec.return_window == "3Y"
+    assert spec.count == 5

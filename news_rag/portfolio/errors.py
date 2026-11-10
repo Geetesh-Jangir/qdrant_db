@@ -22,3 +22,7 @@ class PortfolioUnavailable(PortfolioError):
 
 class PortfolioUpstreamError(PortfolioError):
     code = "upstream_error"
+
+
+class InvalidCRN(PortfolioError):
+    code = "invalid_crn"

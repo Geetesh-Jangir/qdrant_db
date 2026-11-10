@@ -209,6 +209,18 @@ def test_random_five_positive_1y_funds_screen():
         assert float(row.get("return_1y_pct") or 0) > 0
 
 
+def test_rbi_repo_any_direction_still_resolves_sector_picks():
+    from news_rag.insight.tool_runners import _rule_sector_picks
+
+    q = "due to rbi repo rate which sectors and funds are affected in positive or negative manner"
+    picks = _rule_sector_picks(
+        {"drivers": ["rbi_repo"], "driver_direction": "", "direction": "any", "question": q}
+    )
+    assert len(picks) >= 8
+    signs = {p["direction"] for p in picks}
+    assert signs == {"positive", "negative"}
+
+
 def test_rbi_repo_increase_screens_negatively_affected_funds():
     q = (
         "why the rbi repo rate has increased? and which sectors are affected? "

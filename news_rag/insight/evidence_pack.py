@@ -206,22 +206,47 @@ def _attach_rs_ratings_to_screen(
     question: str,
     plan: ExecutionPlan,
 ) -> None:
-    if not isinstance(screen, dict) or not _wants_fund_ratings(question, plan):
+    """Ratings sit on every screened fund, including performance lists."""
+    del question, plan
+    if not isinstance(screen, dict):
         return
+    from concurrent.futures import ThreadPoolExecutor
+
     from news_rag.fund_risk import fetch_public_rating
 
+    rows: list[dict[str, Any]] = []
+    seen: set[int] = set()
     for key in ("rankings", "funds"):
         for row in list(screen.get(key) or []):
-            if not isinstance(row, dict):
+            if not isinstance(row, dict) or id(row) in seen:
                 continue
-            isin = str(row.get("isin") or "").strip().upper()
-            if not isin:
-                continue
-            rating = fetch_public_rating(isin)
-            if not rating:
-                continue
+            seen.add(id(row))
+            if str(row.get("isin") or "").strip():
+                rows.append(row)
+    if not rows:
+        return
+
+    def _one(row: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        isin = str(row.get("isin") or "").strip().upper()
+        if row.get("rs_label") and (row.get("final_score") is not None or row.get("rs_score") is not None):
+            return row, {
+                "label": row.get("rs_label"),
+                "final_score": row.get("final_score") if row.get("final_score") is not None else row.get("rs_score"),
+            }
+        return row, fetch_public_rating(isin)
+
+    workers = min(8, len(rows))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        fetched = list(pool.map(_one, rows))
+    for row, rating in fetched:
+        if not rating or rating.get("rating_pending"):
+            continue
+        if rating.get("final_score") is not None:
             row["rs_score"] = rating.get("final_score")
+            row["final_score"] = rating.get("final_score")
+        if rating.get("label"):
             row["rs_label"] = rating.get("label")
+        if rating.get("pillars"):
             row["pillars"] = rating.get("pillars")
 
 

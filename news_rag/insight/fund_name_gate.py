@@ -55,9 +55,18 @@ def _bound_fund_name(plan: ExecutionPlan, memory: dict | None, question: str) ->
         if deictic:
             return deictic
 
+    from news_rag.insight.fund_name_policy import fund_authorized_for_question
+    from news_rag.insight.memory.fund_context import resolve_amc_fund_from_recent_chat
+
+    amc_pick = resolve_amc_fund_from_recent_chat(question, memory)
+    if amc_pick:
+        return amc_pick
+
     funds = [str(f).strip() for f in (plan.funds or []) if str(f).strip()]
     if len(funds) == 1:
         fund = funds[0]
+        if fund_authorized_for_question(fund, question, memory):
+            return fund
         if user_explicitly_named_scheme(question, fund):
             return fund
         known = {n.lower() for n in memory_known_fund_names(memory)}
@@ -83,9 +92,14 @@ def clarify_plan_if_fund_unknown(
     memory: dict | None,
     question: str,
 ) -> ExecutionPlan:
-    if plan.scope_kind in (ScopeKind.OUT_OF_SCOPE, ScopeKind.NEEDS_CLARIFICATION):
+    if plan.scope_kind == ScopeKind.OUT_OF_SCOPE:
         return plan
     if not _plan_uses_fund_scoped_tools(plan):
+        if plan.scope_kind == ScopeKind.NEEDS_CLARIFICATION and (plan.direct_reply or "").strip():
+            plan.tool_calls = []
+            plan.funds = []
+            plan.requires_compose = False
+            plan.can_answer_directly = True
         return plan
 
     from news_rag.insight.general_concept import question_is_pure_general_concept
@@ -121,6 +135,18 @@ def clarify_plan_if_fund_unknown(
     if bound:
         if not [str(f).strip() for f in (plan.funds or []) if str(f).strip()]:
             plan.funds = [bound]
+        elif str((plan.funds or [""])[0]).strip().lower() != bound.lower():
+            plan.funds = [bound]
+        plan.scope_kind = ScopeKind.IN_SCOPE
+        plan.direct_reply = ""
+        plan.can_answer_directly = False
+        return plan
+
+    if plan.scope_kind == ScopeKind.NEEDS_CLARIFICATION and (plan.direct_reply or "").strip():
+        plan.tool_calls = []
+        plan.funds = []
+        plan.requires_compose = False
+        plan.can_answer_directly = True
         return plan
 
     plan.scope_kind = ScopeKind.NEEDS_CLARIFICATION

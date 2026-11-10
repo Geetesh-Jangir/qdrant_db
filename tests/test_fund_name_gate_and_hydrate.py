@@ -25,6 +25,28 @@ def test_clarify_generic_limits_without_fund_name():
     assert "Which mutual fund" in (out.direct_reply or "")
 
 
+def test_planner_needs_clarification_cleared_when_icici_fund_bound_from_chat():
+    q = "TELL ME ABOUT THE ICICI FUND AND WHAT IS ITS OVERALL PERFORMANCE AND ITS FUND MANAGERS"
+    assistant = (
+        "Four debt funds:\n"
+        "- **ICICI Prudential Liquid Fund - Growth**\n"
+        "- Axis Liquid Fund - Regular Plan - Growth"
+    )
+    memory = {"chat_turns": [{"user": "name debt funds", "assistant": assistant}]}
+    plan = ExecutionPlan(
+        scope_kind=ScopeKind.NEEDS_CLARIFICATION,
+        direct_reply="Which ICICI scheme?",
+        funds=["ICICI Prudential Liquid Fund - Growth"],
+        subject_ref="user_named",
+        tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]})],
+    )
+    out = clarify_plan_if_fund_unknown(plan, memory, q)
+    assert out.scope_kind == ScopeKind.IN_SCOPE
+    assert out.tool_calls
+    assert out.funds == ["ICICI Prudential Liquid Fund - Growth"]
+    assert not (out.direct_reply or "").strip()
+
+
 def test_clarify_allows_explicit_fund_in_question():
     plan = ExecutionPlan(
         funds=["HDFC Large Cap Fund"],

@@ -568,12 +568,18 @@ def fetch_public_rating(isin: str, *, timeout: float = 12.0) -> dict[str, Any] |
     cached = _cache.get(key)
     now = time.time()
     if cached and now - cached[0] < _TTL_SEC:
-        return dict(cached[1])
+        stored = cached[1]
+        return dict(stored) if stored else None
     try:
         url = _RATING_URL.format(isin=key)
         headers = rupeestop_admin_request_headers(url)
         with httpx.Client(timeout=timeout) as client:
             resp = client.get(url, headers=headers)
+            if resp.status_code == 422:
+                # The rating service accepted the call and has no score for this scheme.
+                logger.info("rs-rating unavailable for %s", key)
+                _cache[key] = (now, None)
+                return None
             resp.raise_for_status()
             payload = resp.json()
     except Exception as exc:

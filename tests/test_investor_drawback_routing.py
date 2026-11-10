@@ -26,6 +26,9 @@ def test_pure_concentration_question():
 
 
 def test_enforce_drawback_strips_catalog_and_adds_modules(monkeypatch):
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn("CRN-test")
     monkeypatch.setenv("CLIENT_REF_NO", "CRN-test")
     plan = ExecutionPlan(
         answer_mode=AnswerMode.INSIGHT_FUSION,

@@ -135,6 +135,14 @@ class Settings(BaseSettings):
         default="",
         validation_alias=AliasChoices("CLIENT_REF_NO", "client_ref_no"),
     )
+    default_crn_ujjwal: str = Field(
+        default="",
+        validation_alias=AliasChoices("DEFAULT_CRN_UJJWAL", "default_crn_ujjwal"),
+    )
+    default_crn_mohit: str = Field(
+        default="",
+        validation_alias=AliasChoices("DEFAULT_CRN_MOHIT", "default_crn_mohit"),
+    )
     rupeestop_backend_base: str = Field(
         default="https://backend.rupeestop.com",
         validation_alias=AliasChoices("RUPEESTOP_BACKEND_BASE", "rupeestop_backend_base"),
@@ -146,6 +154,14 @@ class Settings(BaseSettings):
     rupeestop_admin_token: str = Field(
         default="",
         validation_alias=AliasChoices("RUPEESTOP_ADMIN_TOKEN", "rupeestop_admin_token"),
+    )
+    rupeestop_admin_username: str = Field(
+        default="",
+        validation_alias=AliasChoices("RUPEESTOP_ADMIN_USERNAME", "rupeestop_admin_username"),
+    )
+    rupeestop_admin_password: str = Field(
+        default="",
+        validation_alias=AliasChoices("RUPEESTOP_ADMIN_PASSWORD", "rupeestop_admin_password"),
     )
     gold_price_api_url: str = Field(
         default="https://backend.rupeestop.com/api/v1/app/market/gold-price",
@@ -160,7 +176,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("PORTFOLIO_TTL_SEC", "portfolio_ttl_sec"),
     )
     portfolio_http_timeout_sec: float = Field(
-        default=15.0,
+        default=120.0,
         validation_alias=AliasChoices("PORTFOLIO_HTTP_TIMEOUT_SEC", "portfolio_http_timeout_sec"),
     )
     portfolio_http_retries: int = Field(
@@ -384,7 +400,9 @@ class Settings(BaseSettings):
 
     @property
     def portfolio_enabled(self) -> bool:
-        return bool(str(self.client_ref_no or "").strip())
+        from news_rag.portfolio.cache import get_active_crn
+
+        return bool(get_active_crn())
 
 
 def get_settings() -> Settings:

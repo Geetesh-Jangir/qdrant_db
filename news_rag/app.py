@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from typing import Any
 from contextlib import asynccontextmanager
@@ -76,20 +77,9 @@ def _warmup_embeddings_background() -> None:
     threading.Thread(target=_run, name="embedding-warmup", daemon=True).start()
 
 
-def _preload_portfolio() -> None:
-    """Load the investor book before the first question. A failure falls back to lazy load."""
-    try:
-        from news_rag.portfolio.cache import preload_configured_portfolio
-
-        preload_configured_portfolio()
-    except Exception as exc:
-        logger.warning("portfolio preload failed: %s", exc)
-
-
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     _warmup_embeddings_background()
-    _preload_portfolio()
     yield
 
 
@@ -121,6 +111,19 @@ class BackfillRequest(BaseModel):
     holdings: int = Field(default=50, ge=1, le=2000)
     sectors: int = Field(default=10, ge=0, le=80)
     pause_sec: int = Field(default=600, ge=0, le=86400)
+
+
+_CRN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{2,63}$")
+
+
+class PortfolioSelectRequest(BaseModel):
+    conversation_id: str = Field(min_length=1, max_length=64)
+    previous_conversation_id: str | None = Field(default=None, max_length=64)
+    crn: str = Field(min_length=3, max_length=64)
+
+
+class PortfolioClearRequest(BaseModel):
+    conversation_id: str = Field(min_length=1, max_length=64)
 
 
 class AskRequest(BaseModel):
@@ -401,6 +404,82 @@ def health() -> dict:
     }
 
 
+def _release_session(conversation_id: str) -> None:
+    from news_rag.insight.memory.store import reset_memory
+    from news_rag.portfolio.cache import bind_session, evict_crn
+
+    previous_crn = bind_session(conversation_id, "")
+    if previous_crn:
+        evict_crn(previous_crn)
+    reset_memory(conversation_id)
+
+
+@app.get("/api/portfolio/defaults")
+def portfolio_defaults() -> dict:
+    settings = get_settings()
+    options = []
+    for label, crn in (
+        ("Ujjwal portfolio", settings.default_crn_ujjwal),
+        ("Mohit portfolio", settings.default_crn_mohit),
+    ):
+        crn = str(crn or "").strip()
+        if crn:
+            options.append({"label": label, "crn": crn})
+    return {"options": options}
+
+
+@app.post("/api/portfolio/select")
+def portfolio_select(body: PortfolioSelectRequest) -> dict:
+    from news_rag.insight.memory.store import reset_memory
+    from news_rag.portfolio.cache import (
+        bind_session,
+        evict_crn,
+        get_normalized_portfolio,
+        start_background_refresh,
+    )
+    from news_rag.portfolio.errors import InvalidCRN, PortfolioError
+
+    crn = body.crn.strip()
+    if not _CRN_RE.match(crn):
+        raise HTTPException(status_code=400, detail="Wrong CRN")
+    try:
+        doc, _stats = get_normalized_portfolio(crn)
+    except InvalidCRN as exc:
+        raise HTTPException(status_code=404, detail="Wrong CRN") from exc
+    except PortfolioError as exc:
+        text = str(exc)
+        status = 504 if "did not respond" in text or "timed out" in text.lower() else 502
+        raise HTTPException(status_code=status, detail=text[:200]) from exc
+    if not (doc.get("holdings") or []):
+        raise HTTPException(status_code=404, detail="Wrong CRN")
+
+    previous_id = str(body.previous_conversation_id or "").strip()
+    if previous_id and previous_id != body.conversation_id:
+        _release_session(previous_id)
+    old = bind_session(body.conversation_id, crn)
+    if old and old != crn:
+        evict_crn(old)
+    reset_memory(body.conversation_id)
+    start_background_refresh()
+    return {
+        "ok": True,
+        "crn": crn,
+        "holdings": len(doc.get("holdings") or []),
+    }
+
+
+@app.post("/api/portfolio/clear")
+def portfolio_clear(body: PortfolioClearRequest) -> dict:
+    _release_session(body.conversation_id)
+    return {"ok": True}
+
+
+def _crn_for_ask(conversation_id: str | None) -> str:
+    from news_rag.portfolio.cache import session_crn
+
+    return session_crn(conversation_id or "")
+
+
 @app.post("/api/ask")
 def ask(
     body: AskRequest,
@@ -414,6 +493,9 @@ def ask(
     if not settings.qdrant_api_key and "cloud.qdrant.io" in settings.qdrant_url:
         raise HTTPException(status_code=500, detail="QDRANT_API_KEY required for Cloud")
 
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn(_crn_for_ask(body.conversation_id))
     reset_llm_request_state()
     query_log = new_query_logger(question=body.question)
     configured_provider = llm_provider(settings)
@@ -509,6 +591,9 @@ def ask_stream(
     if not settings.qdrant_api_key and "cloud.qdrant.io" in settings.qdrant_url:
         raise HTTPException(status_code=500, detail="QDRANT_API_KEY required for Cloud")
 
+    from news_rag.portfolio.cache import set_active_crn
+
+    set_active_crn(_crn_for_ask(body.conversation_id))
     reset_llm_request_state()
     query_log = new_query_logger(question=body.question)
     configured_provider = llm_provider(settings)
@@ -542,8 +627,13 @@ def ask_stream(
         "turns": body.prior_turns,
     } if body.prior_turns or body.conversation_id else None
 
-    return StreamingResponse(
-        stream_ask_engine(
+    active = _crn_for_ask(body.conversation_id)
+
+    async def _events():
+        from news_rag.portfolio.cache import set_active_crn
+
+        set_active_crn(active)
+        async for packet in stream_ask_engine(
             body.question,
             date_from=body.date_from,
             date_to=body.date_to,
@@ -552,8 +642,9 @@ def ask_stream(
             direction=body.direction,
             query_log=query_log,
             prior_brief_context=prior_ctx,
-        ),
-        media_type="text/event-stream",
-    )
+        ):
+            yield packet
+
+    return StreamingResponse(_events(), media_type="text/event-stream")
 
 

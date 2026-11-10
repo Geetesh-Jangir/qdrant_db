@@ -6,6 +6,7 @@ The executor validates args, respects fan-out caps, and uses the TTL cache.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 import time
@@ -763,19 +764,24 @@ def _run_get_macro_news(args: dict[str, Any], ctx: dict[str, Any]) -> dict[str, 
 
 
 def _attach_rs_rating_to_screen_rows(rows: list[dict[str, Any]]) -> None:
-    from news_rag.fund_risk import fetch_public_rating
+    """RupeeStop label and score from GET /api/v1/app/fund/{isin}."""
+    from news_rag.fund_search import get_fund_index
 
+    index = get_fund_index()
     for row in rows:
-        if row.get("final_score") is not None or row.get("rs_label"):
+        if row.get("rs_label") and row.get("final_score") is not None:
             continue
         isin = str(row.get("isin") or "").strip()
         if not isin:
             continue
-        rating = fetch_public_rating(isin)
-        if not isinstance(rating, dict) or rating.get("final_score") is None:
-            continue
-        row["final_score"] = rating.get("final_score")
-        row["rs_label"] = rating.get("label") or rating.get("rs_label")
+        detail = index.get_fund_detail(isin) or {}
+        rating = detail.get("rupeestop_rating") if isinstance(detail.get("rupeestop_rating"), dict) else {}
+        label = str(rating.get("label") or "").strip()
+        score = rating.get("score")
+        if label:
+            row["rs_label"] = label
+        if score is not None:
+            row["final_score"] = score
 
 
 def _fill_returns_from_catalog(rows: list[dict[str, Any]]) -> None:
@@ -820,13 +826,16 @@ def _finalize_screen_payload(data: dict[str, Any], ctx: dict[str, Any]) -> dict[
     user_q = str(ctx.get("question") or "")
     from news_rag.tools import _attach_screen_facts, enrich_rankings_with_nav
 
-    if any(row.get("return_1y_pct") is None for row in rows):
+    from news_rag.tools import infer_return_window, question_wants_performance_ranking
+
+    enrich_window = infer_return_window(user_q) if question_wants_performance_ranking(user_q) else "3Y"
+    if any(row.get("return_3y_pct") is None and row.get("return_1y_pct") is None for row in rows):
         enriched = enrich_rankings_with_nav(
             rows,
             direction="any",
             top_n=len(rows),
             sort_by="exposure",
-            return_window="1M",
+            return_window=enrich_window,
         )
         if enriched:
             rows = enriched
@@ -918,8 +927,10 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
         )
 
         focus = str(args.get("focus_question") or "").strip()
-        if args.get("rating_screen") and focus:
-            spec_question = focus
+        from news_rag.fund_rating_screen import rating_screen_question
+
+        if args.get("rating_screen"):
+            spec_question = rating_screen_question(question, focus or rating_question)
         else:
             spec_question = rating_question or question
         want = int(args.get("top_n") or 1)
@@ -1013,7 +1024,7 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
                     max_tier=max_tier,
                     exclude_isins=args.get("exclude_isins") or [],
                     exclude_names=args.get("exclude_names") or [],
-                    random_within_tier=bool(args.get("random_sample")),
+                    random_within_tier=False,
                 )
                 cascaded = _filter_excluded_screen_rows(cascaded, args)[:want]
                 if len(cascaded) > len(rankings):
@@ -1044,14 +1055,31 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
                 return {"ok": False, "data": result}
             from news_rag.fund_rating_categories import match_scheme_category
 
-            # An empty rating list is not a license to name the highest-return index ETFs.
-            if match_scheme_category(spec_question) is None and match_scheme_category(question) is None:
+            def _named_scheme_category(text: str) -> bool:
+                match = match_scheme_category(text)
+                return bool(match and match.locked and match.category)
+
+            # An empty rating list is not a license to name random index ETFs by 1M NAV.
+            if not _named_scheme_category(spec_question) and not _named_scheme_category(question):
+                auth_note = (
+                    "RupeeStop category ratings could not be loaded (admin token missing or expired). "
+                    "Refresh RUPEESTOP_AUTH_TOKEN or set RUPEESTOP_ADMIN_USERNAME and RUPEESTOP_ADMIN_PASSWORD."
+                )
+                note = " ".join(
+                    part for part in (str(result.get("ranking_note") or "").strip(), auth_note) if part
+                ).strip()
                 result = _finalize_screen_payload(
-                    {**result, "rankings": [], "rating_list_empty": True},
+                    {
+                        **result,
+                        "rankings": [],
+                        "rating_list_empty": True,
+                        "ranking_note": note or auth_note,
+                        "screen_type": "rs_rating",
+                    },
                     ctx,
                 )
                 return {"ok": True, "data": result}
-            nav = _run_catalog_screen_fallback(args, ctx, spec_question)
+            nav = _run_catalog_screen_fallback(args, ctx, rating_screen_question(question, spec_question))
             if nav.get("ok") and isinstance(nav.get("data"), dict):
                 nav_data = nav["data"]
                 nav_rows = nav_data.get("rankings") or nav_data.get("funds") or []
@@ -1106,12 +1134,17 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
         if not plan_drivers:
             plan_drivers = [driver_id]
 
+        from news_rag.tools import explicit_return_window
+
+        question = str(ctx.get("question") or "")
+        # News lookback (often 30 days / 1M) is not a fund-return window.
         screen_ctx = {
             **ctx,
             "drivers": plan_drivers if isinstance(plan_drivers, list) else [driver_id],
             "driver_direction": str(ctx.get("driver_direction") or "").strip(),
             "direction": direction if direction in ("positive", "negative") else str(ctx.get("direction") or "any"),
             "top_n": args.get("top_n", 5),
+            "return_window": explicit_return_window(question) or "3Y",
         }
         # Allow planner/slot_router to pass macro move separately from exposure side.
         move_arg = str(args.get("driver_move") or args.get("driver_direction") or "").strip().lower()
@@ -1156,7 +1189,22 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
             }
 
         screen_ctx["_sector_picks"] = picks
-        return run_driver_affected_funds_adapter(screen_ctx)
+        result = run_driver_affected_funds_adapter(screen_ctx)
+        data = result.get("data") if isinstance(result.get("data"), dict) else None
+        if data:
+            rows = [row for row in (data.get("rankings") or []) if isinstance(row, dict)]
+            _attach_rs_rating_to_screen_rows(rows)
+            from news_rag.tools import _RETURN_FIELDS
+
+            window = str(screen_ctx.get("return_window") or "3Y")
+            keep = _RETURN_FIELDS.get(window, "return_3y_pct")
+            for row in rows:
+                for key in list(row):
+                    if str(key).startswith("return_") and key != keep:
+                        row.pop(key, None)
+            data["rankings"] = rows
+            data["return_window"] = window
+        return result
     if sector:
         from news_rag.tools import screen_hints_from_question
 
@@ -1248,7 +1296,7 @@ def _run_get_market_snapshot(args: dict[str, Any], ctx: dict[str, Any]) -> dict[
 
 def _run_get_investor_portfolio(args: dict[str, Any], ctx: dict[str, Any] | None) -> dict[str, Any]:
     from news_rag.config import get_settings
-    from news_rag.portfolio.cache import get_normalized_portfolio
+    from news_rag.portfolio.cache import get_active_crn, get_normalized_portfolio
     from news_rag.portfolio.errors import PortfolioError
     from news_rag.portfolio.project import project_modules
 
@@ -1259,7 +1307,7 @@ def _run_get_investor_portfolio(args: dict[str, Any], ctx: dict[str, Any] | None
     if not modules:
         return {"ok": False, "error": "modules_required", "data": {}}
 
-    crn = str(settings.client_ref_no or "").strip()
+    crn = get_active_crn()
     try:
         doc, stats = get_normalized_portfolio(crn)
     except PortfolioError as exc:
@@ -1659,8 +1707,9 @@ def execute_capability(
             return row
 
         if len(target_funds) > 1:
+            jobs = [(contextvars.copy_context(), name) for name in target_funds]
             with ThreadPoolExecutor(max_workers=min(8, len(target_funds))) as pool:
-                rows = list(pool.map(_one_fund, target_funds))
+                rows = list(pool.map(lambda job: job[0].run(_one_fund, job[1]), jobs))
         else:
             rows = [_one_fund(name) for name in target_funds]
         for row in rows:
@@ -1749,8 +1798,10 @@ def execute_wave(
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures: list[tuple[Future, ToolCall]] = []
         for call in calls:
+            # One copy per task. A shared context cannot be entered on two threads.
+            task_ctx = contextvars.copy_context()
             fut = pool.submit(
-                execute_capability, call,
+                task_ctx.run, execute_capability, call,
                 fund_names=fund_names, ctx=ctx, telemetry=telemetry,
             )
             futures.append((fut, call))
