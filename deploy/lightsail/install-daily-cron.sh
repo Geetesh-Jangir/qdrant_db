@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install daily news cron at 17:00 IST (5 PM) once per day.
+# Install daily news cron at 17:10 IST (5:10 PM) once per day.
 # Lightsail clocks are UTC, and Ubuntu cron rejects CRON_TZ, so the line below is UTC.
 set -euo pipefail
 
@@ -20,7 +20,7 @@ fi
 TMP="$(mktemp)"
 CRON_LOG="${NEWS_RAG_DIR}/data/news_runs_daily/cron/cron.log"
 cat > "${TMP}" <<EOF
-30 11 * * * /bin/bash ${SCRIPT} >> ${CRON_LOG} 2>&1
+40 11 * * * /bin/bash ${SCRIPT} >> ${CRON_LOG} 2>&1
 EOF
 
 if ! crontab -u "${SERVICE_USER}" "${TMP}"; then
@@ -31,5 +31,5 @@ if ! crontab -u "${SERVICE_USER}" "${TMP}"; then
 fi
 rm -f "${TMP}"
 
-echo "==> Daily cron for ${SERVICE_USER}: 11:30 UTC (= 17:00 IST / 5 PM)"
+echo "==> Daily cron for ${SERVICE_USER}: 11:40 UTC (= 17:10 IST / 5:10 PM)"
 crontab -u "${SERVICE_USER}" -l
