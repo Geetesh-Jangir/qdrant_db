@@ -26,3 +26,7 @@ fi
 
 git checkout -B "${BRANCH}" "${TARGET}"
 git reset --hard "${TARGET}"
+
+ROOT="$(git rev-parse --show-toplevel)"
+# git tracks deploy scripts as 644; cron and installers need +x after every hard reset
+chmod +x "${ROOT}"/deploy/lightsail/*.sh

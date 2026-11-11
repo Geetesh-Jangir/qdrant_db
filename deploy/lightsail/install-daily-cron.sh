@@ -20,7 +20,7 @@ fi
 TMP="$(mktemp)"
 CRON_LOG="${NEWS_RAG_DIR}/data/news_runs_daily/cron/cron.log"
 cat > "${TMP}" <<EOF
-30 11 * * * ${SCRIPT} >> ${CRON_LOG} 2>&1
+30 11 * * * /bin/bash ${SCRIPT} >> ${CRON_LOG} 2>&1
 EOF
 
 if ! crontab -u "${SERVICE_USER}" "${TMP}"; then

@@ -138,6 +138,9 @@ pip install -r requirements.txt -r news_rag/requirements.txt
 deactivate
 sudo systemctl restart news-rag
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1/backfill
+# Re-apply daily cron if deploy/lightsail/install-daily-cron.sh changed (uses /bin/bash; survives 644 checkout)
+sudo NEWS_RAG_DIR=/opt/news-rag bash deploy/lightsail/install-daily-cron.sh
+crontab -u ubuntu -l
 ```
 
 ---
