@@ -121,7 +121,12 @@ class ExecutionPlan(BaseModel):
     scheme_categories: list[str] = Field(default_factory=list)
     # Planner-normalized intent (authoritative when routed_by=planner).
     data_need: str = "none"
+    horizon_years: float | None = None
+    asset_preference: str = "unspecified"
+    include_gold: bool = False
     portfolio_scope: str = "none"
+    # Planner-named book question. none means a general or catalog question. See portfolio_intents.
+    portfolio_intent: str = "none"
     subject_ref: str = "none"
     rs_label: str = ""
     holding_scope: str = "none"

@@ -19,6 +19,8 @@ SECTOR_ALIAS_MAP: dict[str, tuple[str, ...]] = {
     "software technology": ("It - Software", "Software"),
     "technology sector": ("It - Software", "It - Services", "Technology Hardware & Equipment"),
     "technology": ("It - Software", "It - Services", "Technology Hardware & Equipment"),
+    "artificial intelligence": ("It - Software", "It - Services", "Technology Hardware & Equipment"),
+    "ai": ("It - Software", "It - Services", "Technology Hardware & Equipment"),
     "tech sector": ("It - Software", "It - Services"),
     "tech": ("It - Software", "It - Services"),
     "software": ("It - Software", "Software"),

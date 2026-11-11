@@ -2,8 +2,8 @@
   "sector_label": "Petroleum Products",
   "benchmark_label": "Petroleum Products",
   "yfinance_ticker": "^CNXENERGY",
-  "return_pct": 2.3,
+  "return_pct": 1.44,
   "window_days": 7,
   "substituted_broad_index": false,
-  "cached_at": 1794310109.5156012
+  "cached_at": 1794383449.6107244
 }

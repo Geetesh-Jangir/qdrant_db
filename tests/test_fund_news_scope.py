@@ -2,8 +2,13 @@ from news_rag.insight.fund_news_scope import infer_fund_news_layers
 from news_rag.tools import asks_fund_related_news
 
 
+def test_overview_news_is_holdings_and_sectors():
+    q = "tell me about quant small cap"
+    assert infer_fund_news_layers(q) == frozenset({"holdings", "sectors"})
+
+
 def test_infer_all_layers_when_unspecified():
-    q = "tell me about the news related to the hdfc large cap fund?"
+    q = "news related to the hdfc large cap fund"
     assert infer_fund_news_layers(q) == frozenset({"holdings", "sectors", "macro"})
 
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from news_rag.insight.contracts import ExecutionPlan, ScopeKind
 
 _FUND_NAME_PROMPT = (
@@ -129,6 +131,25 @@ def clarify_plan_if_fund_unknown(
     ):
         return plan
     if str(plan.holding_scope or "") == "all_holdings":
+        return plan
+
+    from news_rag.tools import asks_funds_with_sector_exposure
+
+    if asks_funds_with_sector_exposure(question):
+        plan.tool_calls = [
+            call for call in (plan.tool_calls or []) if call.tool not in _FUND_SCOPED_TOOLS
+        ]
+        plan.funds = []
+        plan.scope_kind = ScopeKind.IN_SCOPE
+        plan.direct_reply = ""
+        plan.can_answer_directly = False
+        if re.search(r"\b(?:ai|artificial intelligence)\b", question or "", re.I):
+            for call in plan.tool_calls:
+                if call.tool != "screen_funds_by_exposure":
+                    continue
+                args = dict(call.arguments or {})
+                args["sector"] = "technology"
+                call.arguments = args
         return plan
 
     bound = _bound_fund_name(plan, memory, question)

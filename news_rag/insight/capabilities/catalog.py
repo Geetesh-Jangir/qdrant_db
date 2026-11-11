@@ -434,6 +434,16 @@ def validate_capability_args(tool: str, args: dict[str, Any]) -> dict[str, Any]:
             out["exclude_names"] = ex_names[:20]
         if src.get("rating_fetch_n") is not None:
             out["rating_fetch_n"] = _clamp(src.get("rating_fetch_n"), 1, 25, 15)
+        pairs = []
+        for pair in src.get("allocation_pairs") or []:
+            if isinstance(pair, (list, tuple)) and len(pair) >= 2:
+                pairs.append([str(pair[0])[:40], str(pair[1])[:80]])
+        if pairs:
+            out["allocation_pairs"] = pairs[:12]
+            out["one_per_category"] = True
+        note = str(src.get("allocation_note") or "").strip()
+        if note:
+            out["allocation_note"] = note[:4000]
         return out
 
     if tool == "get_market_snapshot":

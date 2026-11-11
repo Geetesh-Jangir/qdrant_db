@@ -219,13 +219,38 @@ _PER_FUND_ASKED = frozenset(
 _PER_FUND_FIELDS = frozenset({"holding_rs_labels", "rs_rating", "nav", "returns"})
 
 
+def _single_fund_nav_from_holdings(plan: ExecutionPlan) -> bool:
+    if _holding_scope(plan) != "single" or len(plan.funds or []) != 1:
+        return False
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent
+
+    intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+    asked = {str(x).lower() for x in (plan.asked_facts or [])}
+    fields = {str(x).lower() for x in (plan.asked_fields or [])}
+    nav_only = intent == "nav_of_scheme" or asked <= {"nav"} or fields <= {"nav"}
+    if not nav_only:
+        return False
+    if asked & (_PER_FUND_ASKED - {"nav"}) or fields & (_PER_FUND_FIELDS - {"nav"}):
+        return False
+    return any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or [])
+
+
 def _investor_portfolio_covers_ask(plan: ExecutionPlan, question: str = "") -> bool:
     """Book summary/allocation from get_investor_portfolio — skip catalog fan-out."""
+    if _single_fund_nav_from_holdings(plan):
+        return True
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
+
+    book_intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+    if (
+        shape_for(book_intent) == "fact"
+        and any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or [])
+    ):
+        return True
     if _holding_scope(plan) != "all_holdings":
-        return False
+        if str(plan.data_need or "").lower().strip() not in ("investor_holding", "investor_summary"):
+            return False
     if not any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or []):
-        return False
-    if any(c.tool == "get_portfolio_data" for c in plan.tool_calls or []):
         return False
     if any(c.tool == "compare_funds" for c in plan.tool_calls or []):
         return False
@@ -300,7 +325,13 @@ def enforce_planner_catalog_plan(
     _bind_fund_list(plan, memory)
     investor_book_only = _investor_portfolio_covers_ask(plan, question)
     if investor_book_only:
-        plan.tool_calls = [c for c in (plan.tool_calls or []) if c.tool != "get_fund_data"]
+        from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
+
+        plan.tool_calls = [
+            c for c in (plan.tool_calls or []) if c.tool not in ("get_fund_data", "get_portfolio_data")
+        ]
+        if shape_for(normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))) == "fact":
+            plan.funds = []
     if planner_requested_catalog(plan) or _holding_scope(plan) in ("all_holdings", "single"):
         if not investor_book_only and book_involved:
             _ensure_get_fund_data_for_holdings(plan)
@@ -316,6 +347,11 @@ def enforce_planner_catalog_plan(
 
 def plan_targets_catalog_on_holdings(plan: ExecutionPlan) -> bool:
     """True when catalog tools must not be stripped for an investor-book ask."""
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
+
+    intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+    if shape_for(intent) == "fact" and any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or []):
+        return False
     if planner_requested_catalog(plan):
         return True
     if _holding_scope(plan) in ("all_holdings", "single") and plan.funds:

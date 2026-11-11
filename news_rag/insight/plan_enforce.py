@@ -354,7 +354,73 @@ def _prepend_tool(plan: ExecutionPlan, call: ToolCall) -> None:
     plan.tool_calls = [call, *[c for c in plan.tool_calls if c.tool != call.tool]]
 
 
-def repair_data_need_tools(plan: ExecutionPlan) -> ExecutionPlan:
+def maybe_install_balanced_portfolio_screen(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+) -> bool:
+    """Illustrative mix when the planner set portfolio_allocation. Missing years asks, it does not assume."""
+    del question, memory
+    if str(plan.data_need or "").lower() != "portfolio_allocation":
+        return False
+    from news_rag.insight.contracts import AnswerMode, ScopeKind, ToolCall
+    from news_rag.insight.portfolio_allocation import allocate
+
+    if plan.horizon_years is None:
+        plan.tool_calls = []
+        plan.funds = []
+        plan.requires_compose = False
+        plan.can_answer_directly = True
+        plan.scope_kind = ScopeKind.NEEDS_CLARIFICATION
+        plan.direct_reply = (
+            "How many years can you stay invested? "
+            "A mix for under a year is different from one for 10 years, so I need that number before naming funds."
+        )
+        return True
+
+    result = allocate(float(plan.horizon_years), plan.asset_preference, bool(plan.include_gold))
+    pairs = result.pairs()
+    plan.funds = []
+    plan.intent = "rank"
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    plan.requires_compose = True
+    plan.direct_reply = ""
+    plan.can_answer_directly = False
+    plan.asked_facts = sorted(set(plan.asked_facts or []) | {"rating"})
+    note = result.composer_note()
+    if note not in (plan.presentation_notes or ""):
+        plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
+    plan.tool_calls = [
+        ToolCall(
+            tool="screen_funds_by_exposure",
+            arguments={
+                "sector": "",
+                "driver": "",
+                "rating_screen": True,
+                "top_n": len(pairs),
+                "one_per_category": True,
+                "allocation_pairs": [[fund_type, category] for fund_type, category in pairs],
+                "allocation_note": note,
+            },
+            wave=1,
+            why="One top-rated fund per allocation category.",
+        )
+    ]
+    return True
+
+
+def drop_misclassified_category_composition(question: str, plan: ExecutionPlan) -> None:
+    """Ideal-portfolio / generic asks are not category_composition — do not fetch example funds."""
+    if str(plan.data_need or "none").lower() != "category_composition":
+        return
+    from news_rag.insight.category_plan import category_composition_plan_applies
+
+    if category_composition_plan_applies(question, plan):
+        return
+    plan.data_need = "none"
+
+
+def repair_data_need_tools(plan: ExecutionPlan, question: str = "") -> ExecutionPlan:
     """Add missing modules the planner's data_need implies; never delete planner tools."""
     from news_rag.insight.plan_intent import (
         plan_wants_alternate_in_category,
@@ -407,6 +473,10 @@ def repair_data_need_tools(plan: ExecutionPlan) -> ExecutionPlan:
                     )
                 )
     elif need == "category_composition":
+        from news_rag.insight.category_plan import category_composition_plan_applies
+
+        if not category_composition_plan_applies(question, plan):
+            return plan
         if not _has_modules(plan, "risk"):
             _prepend_tool(
                 plan,
@@ -541,6 +611,7 @@ def apply_planner_post_hooks(
 ) -> ExecutionPlan:
     """Planner-first: resolve subjects, targeted repairs, legacy hooks only for slot fallback."""
     from news_rag.insight.category_plan import (
+        category_composition_plan_applies,
         ensure_alternate_category_fund_plan,
         ensure_category_composition_plan,
         ensure_category_performance_plan,
@@ -610,6 +681,9 @@ def apply_planner_post_hooks(
     reconcile_planner_invented_fund_name(plan, memory, question)
     enforce_investor_holding_subject(plan, memory, question)
     enforce_deictic_and_memory_primary_fund(plan, memory, question)
+    from news_rag.insight.planner_policy import narrow_deictic_follow_up
+
+    plan = narrow_deictic_follow_up(question, plan, memory)
     from news_rag.insight.plan_catalog_bind import ensure_whole_book_catalog_scope
 
     ensure_whole_book_catalog_scope(plan, memory, question)
@@ -663,7 +737,10 @@ def apply_planner_post_hooks(
         _keep_picked_shown_fund(question, plan, memory)
         return finish_portfolio_plan_bind(question, plan, memory)
 
-    repair_data_need_tools(plan)
+    if maybe_install_balanced_portfolio_screen(question, plan, memory):
+        return finish_portfolio_plan_bind(question, plan, memory)
+    drop_misclassified_category_composition(question, plan)
+    repair_data_need_tools(plan, question)
 
     from news_rag.insight.fund_concentration import ensure_fund_concentration_plan
 
@@ -677,7 +754,7 @@ def apply_planner_post_hooks(
         need = str(plan.data_need or "none").lower()
         if need == "category_performance":
             ensure_category_performance_plan(question, plan, memory)
-        elif need == "category_composition":
+        elif need == "category_composition" and category_composition_plan_applies(question, plan):
             ensure_category_composition_plan(question, plan, memory)
         elif need == "fund_holdings_breakdown":
             ensure_fund_holdings_followup_plan(question, plan, memory)
@@ -690,9 +767,10 @@ def apply_planner_post_hooks(
 
         ensure_planner_fund_fact_modules(question, plan)
         ensure_fund_concentration_plan(question, plan)
-        from news_rag.fund_rating_screen import ensure_quality_fund_list
+        from news_rag.fund_rating_screen import ensure_quality_fund_list, ensure_rating_screen
 
         ensure_quality_fund_list(question, plan)
+        ensure_rating_screen(question, plan, memory)
         _keep_picked_shown_fund(question, plan, memory)
         return finish_portfolio_plan_bind(question, plan, memory)
 
@@ -713,7 +791,7 @@ def apply_planner_post_hooks(
     ensure_compare_template(plan, question)
     ensure_drawdown_tools(question, plan)
     ensure_risk_tools(question, plan)
-    ensure_rating_screen(question, plan)
+    ensure_rating_screen(question, plan, memory)
     ensure_category_composition_plan(question, plan, memory)
     ensure_fund_holdings_followup_plan(question, plan, memory)
     ensure_alternate_category_fund_plan(question, plan, memory)

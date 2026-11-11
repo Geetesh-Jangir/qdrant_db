@@ -118,6 +118,7 @@ class RatingScreenSpec:
     walk_categories: tuple[str, ...] = ()
     walk_category_pairs: tuple[tuple[str, str], ...] = ()
     spread_categories: bool = False
+    one_per_category: bool = False
     mix_note: str = ""
 
     @property
@@ -464,6 +465,118 @@ def _metal_fund_categories(question: str) -> tuple[str, ...]:
             metal = metals[0]
             chosen = tuple(name for name in chosen if name.endswith(metal) or name == f"fund of funds-domestic-{metal}")
     return chosen
+
+
+_BALANCED_PORTFOLIO_PAIRS: tuple[tuple[str, str], ...] = (
+    ("equity", "large cap"),
+    ("equity", "mid cap"),
+    ("equity", "small cap"),
+    ("equity", "flexi cap"),
+    ("debt", "corporate bond"),
+    ("hybrid", "conservative hybrid"),
+    ("others", "gold etf"),
+)
+
+_LONG_HORIZON_RE = re.compile(
+    r"\b(?:more\s+than|over|above|at\s+least)\s+(?:\d+|ten)\s+years?\b|"
+    r"\b(?:10|ten)\+?\s*years?\s*(?:horizon|investment|term)?\b|"
+    r"\bthinking?\s+for\s+(?:more\s+than\s+)?(?:10|ten)\s+years?\b",
+    re.I,
+)
+_FUND_NAMES_ASK_RE = re.compile(
+    r"\b(?:fund\s+names?|name\s+(?:me\s+)?(?:some\s+)?funds?|tell\s+me\s+some\s+fund|"
+    r"some\s+funds?\b|suggest\s+(?:some\s+)?funds?)\b",
+    re.I,
+)
+_IDEAL_PORTFOLIO_SHAPE_RE = re.compile(
+    r"\bideal\s+portfolio\b|\bportfolio\s+should\s+(?:look|hold)\b|\bwhat\s+categories\b",
+    re.I,
+)
+
+
+def _recent_portfolio_shape_chat(memory: dict[str, Any] | None) -> bool:
+    if not isinstance(memory, dict):
+        return False
+    parts: list[str] = []
+    for row in memory.get("chat_turns") or memory.get("turns") or []:
+        if not isinstance(row, dict):
+            continue
+        parts.append(str(row.get("user") or ""))
+    blob = " ".join(parts).lower()
+    return bool(
+        re.search(
+            r"\bideal\s+portfolio\b|\bcategories\s+and\s+assets\b|\bportfolio\s+should\s+hold\b",
+            blob,
+            re.I,
+        )
+    )
+
+
+def asks_ideal_portfolio_shape(question: str) -> bool:
+    q = question or ""
+    if not _IDEAL_PORTFOLIO_SHAPE_RE.search(q):
+        return False
+    return bool(re.search(r"\bcategor(?:y|ies)\b|\basset", q, re.I))
+
+
+def asks_balanced_long_horizon_fund_menu(question: str, memory: dict[str, Any] | None = None) -> bool:
+    q = question or ""
+    has_horizon = bool(_LONG_HORIZON_RE.search(q))
+    if not has_horizon and re.search(r"\bfor\s+it\b", q, re.I):
+        has_horizon = _recent_portfolio_shape_chat(memory)
+    if not has_horizon:
+        return False
+    if not (_FUND_NAMES_ASK_RE.search(q) or re.search(r"\bsome\s+funds?\b", q, re.I)):
+        return False
+    if match_scheme_category(q) and match_scheme_category(q).locked:
+        return False
+    if len(match_all_scheme_categories(q)) == 1:
+        return False
+    return True
+
+
+def _make_balanced_portfolio_spec(*, mix_note: str, return_window: str = "5Y") -> RatingScreenSpec:
+    pairs = _BALANCED_PORTFOLIO_PAIRS
+    return RatingScreenSpec(
+        count=len(pairs),
+        fund_type="equity",
+        category="",
+        locked=False,
+        label="Best in category",
+        min_score=None,
+        highest_score=False,
+        return_window=return_window,
+        return_direction="",
+        compare_category=False,
+        random_sample=False,
+        amc="",
+        suggestion="rated",
+        label_fallback="Recommended",
+        walk_category_pairs=pairs,
+        spread_categories=True,
+        mix_note=mix_note,
+    )
+
+
+def balanced_portfolio_examples_spec(
+    question: str,
+    memory: dict[str, Any] | None = None,
+) -> RatingScreenSpec | None:
+    """One top-rated fund per sleeve for diversification (long horizon or ideal portfolio shape)."""
+    q = question or ""
+    if asks_ideal_portfolio_shape(q):
+        note = (
+            "Ideal diversified portfolio: one RupeeStop top pick per sleeve — "
+            "equity across cap sizes, debt and conservative hybrid for stability, gold as a hedge."
+        )
+        return _make_balanced_portfolio_spec(mix_note=note, return_window="")
+    if asks_balanced_long_horizon_fund_menu(q, memory):
+        note = (
+            "10+ year horizon: balanced mix — equity (large/mid/small/flexi), "
+            "debt and conservative hybrid for stability, gold ETF for diversification."
+        )
+        return _make_balanced_portfolio_spec(mix_note=note, return_window="5Y")
+    return None
 
 
 def _allocation_mix_spec(question: str) -> RatingScreenSpec | None:
@@ -885,8 +998,17 @@ def _order(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[dict[str,
     return pool
 
 
-def rating_spec_for_forced_screen(question: str, *, top_n: int = 1) -> RatingScreenSpec | None:
+def rating_spec_for_forced_screen(
+    question: str,
+    *,
+    top_n: int = 1,
+    user_question: str = "",
+) -> RatingScreenSpec | None:
     """When rating_screen is set but the question is not a rating-list phrase (e.g. holdings ask)."""
+    full = (user_question or question or "").strip()
+    balanced = balanced_portfolio_examples_spec(full)
+    if balanced is not None:
+        return balanced
     spec = parse_rating_screen(question)
     if spec is not None:
         return spec
@@ -1400,6 +1522,18 @@ def _spread_quality(rows: list[dict[str, Any]], spec: RatingScreenSpec) -> list[
     return picked[: spec.count]
 
 
+def _best_rated_row(rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """One fund: Best in category, else Recommended, else Good Choice, else highest score."""
+    if not rows:
+        return None
+    order = ("Best in category", "Recommended", "Good Choice")
+    for label in order:
+        tier = [row for row in rows if str(row.get("rs_label") or "") == label]
+        if tier:
+            return max(tier, key=lambda row: float(row.get("final_score") or -1))
+    return max(rows, key=lambda row: float(row.get("final_score") or -1))
+
+
 def _execute_rating_list(
     spec: RatingScreenSpec,
     question: str,
@@ -1432,7 +1566,7 @@ def _execute_rating_list(
         if payload is None:
             payload = {}
         called.append(category)
-        skip_label = _uses_label_cascade(spec)
+        skip_label = spec.one_per_category or _uses_label_cascade(spec)
         rows = [
             row
             for row in _rows_from_payload(payload, fund_type=fund_type, category=category)
@@ -1456,6 +1590,14 @@ def _execute_rating_list(
             if spec.return_direction == "positive":
                 rows = [row for row in rows if row.get("_return") is not None and float(row["_return"]) > 0]
         ordered = rows if spec.spread_categories else _order(rows, spec)
+        if spec.one_per_category:
+            chosen = _best_rated_row(rows)
+            if chosen is not None:
+                isin = str(chosen.get("isin") or "")
+                if isin and isin not in seen:
+                    seen.add(isin)
+                    picked.append(chosen)
+            continue
         for row in ordered:
             isin = str(row.get("isin") or "")
             if not isin or isin in seen:
@@ -1475,7 +1617,9 @@ def _execute_rating_list(
             if len(picked) >= spec.count:
                 break
 
-    if spec.spread_categories:
+    if spec.one_per_category:
+        pass
+    elif spec.spread_categories:
         picked = _spread_quality(picked, spec)
     else:
         picked = _order(picked, spec)[: spec.count]
@@ -1921,11 +2065,14 @@ def ensure_quality_fund_list(question: str, plan) -> None:
         plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()
 
 
-def ensure_rating_screen(question: str, plan) -> None:
+def ensure_rating_screen(question: str, plan, memory: dict[str, Any] | None = None) -> None:
     """A rating list uses the category API. Later facts about that fund stay on the plan."""
     from news_rag.insight.contracts import AnswerMode
     from news_rag.insight.plan_intent import plan_wants_alternate_in_category
     from news_rag.insight.planner_policy import planner_owns
+
+    if str(getattr(plan, "data_need", "") or "") == "portfolio_allocation":
+        return
 
     if planner_owns(plan):
         spec = parse_rating_screen(question)
@@ -2020,6 +2167,16 @@ def _install_suggestion_screen(plan, spec: RatingScreenSpec, question: str = "")
             "Name the period performer and the rated fund in the same category. "
             "Call the rated fund the stronger rating only when its score is higher. "
             "Do not say you cannot recommend a fund. Do not tell the reader to buy."
+        )
+    elif spec.walk_category_pairs:
+        note = (
+            f"{(spec.mix_note or '').strip()} "
+            "List **one fund per category** from EVIDENCE only — never invent schemes. "
+            "For each fund: name, **RupeeStop score (out of 100)**, **RS label** "
+            "(Best in category / Recommended / Good Choice), and its **role** "
+            "(e.g. large-cap core, debt stability, gold hedge). "
+            "Open with **diversification** and **stability** (debt + conservative hybrid). "
+            "Use 5Y return only as context when present; the rating is why each name appears."
         )
     else:
         note = (

@@ -257,6 +257,19 @@ def test_user_explicitly_named_scheme_requires_amc_or_two_tokens():
     )
 
 
+def test_assets_in_portfolio_question_is_not_mirae_asset_fund():
+    from news_rag.insight.investor_subject import user_explicitly_named_scheme
+
+    q = (
+        "for a ideal portfolio show should it look like and what categories "
+        "and assets it should hold"
+    )
+    assert not user_explicitly_named_scheme(
+        q,
+        "Mirae Asset Nifty EV and New Age Automotive ETF",
+    )
+
+
 def test_deictic_uses_recent_fund_focus_not_planner_hallucination():
     from news_rag.insight.investor_subject import (
         enforce_deictic_and_memory_primary_fund,

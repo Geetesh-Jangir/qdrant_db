@@ -25,6 +25,25 @@ def test_clarify_generic_limits_without_fund_name():
     assert "Which mutual fund" in (out.direct_reply or "")
 
 
+def test_ai_means_technology_sector_not_a_missing_fund():
+    from news_rag.sector_fund_ranking import primary_sector_for_question
+
+    q = "can you tell me some funds which are more invested in ai"
+    _canon, keys = primary_sector_for_question(q)
+    assert "It - Software" in keys
+    plan = ExecutionPlan(
+        intent="rank",
+        tool_calls=[
+            ToolCall(tool="screen_funds_by_exposure", arguments={"sector": "AI", "top_n": 5}),
+            ToolCall(tool="get_portfolio_data", arguments={"sections": ["holdings"]}),
+        ],
+    )
+    out = clarify_plan_if_fund_unknown(plan, None, q)
+    assert out.scope_kind != ScopeKind.NEEDS_CLARIFICATION
+    assert [c.tool for c in out.tool_calls] == ["screen_funds_by_exposure"]
+    assert out.tool_calls[0].arguments["sector"] == "technology"
+
+
 def test_planner_needs_clarification_cleared_when_icici_fund_bound_from_chat():
     q = "TELL ME ABOUT THE ICICI FUND AND WHAT IS ITS OVERALL PERFORMANCE AND ITS FUND MANAGERS"
     assistant = (

@@ -50,6 +50,50 @@ def test_book_value_uses_investor_summary_only():
     assert plan.asked_fields == ["book_value"]
 
 
+def test_portfolio_xirr_field_keeps_summary_module_when_intent_xirr():
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        portfolio_scope="investor",
+        portfolio_intent="xirr",
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["summary", "xirr"], "include_meta": True},
+                wave=1,
+            )
+        ],
+    )
+    plan = bind_fields_to_tools("What is my portfolio XIRR?", plan)
+    call = next(item for item in plan.tool_calls if item.tool == "get_investor_portfolio")
+    assert "summary" in call.arguments["modules"]
+    assert "xirr" in call.arguments["modules"]
+
+
+def test_my_top_holdings_resolves_to_book_not_catalog():
+    fields = fields_from_question("What are my top holdings?")
+    assert fields == ["holdings_list"]
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        portfolio_scope="investor",
+        portfolio_intent="top_holdings",
+        data_need="investor_holding",
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["holdings"], "include_meta": True},
+                wave=1,
+            )
+        ],
+    )
+    plan = bind_fields_to_tools("What are my top holdings?", plan)
+    assert all(c.tool != "get_portfolio_data" for c in plan.tool_calls)
+    assert any(c.tool == "get_investor_portfolio" for c in plan.tool_calls)
+
+
 def test_compare_plan_is_not_pruned():
     plan = ExecutionPlan(
         routed_by="planner",

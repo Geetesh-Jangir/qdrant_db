@@ -318,3 +318,29 @@ def test_overview_puts_rating_and_tables_before_news():
     assert "64.55 out of 100" in out.split("### What stands out")[0]
     assert "Asset mix" not in out
     assert ": overview" not in out
+
+
+def test_overview_drops_repeated_title_and_nav_paragraph():
+    tables = {
+        "_title": "HDFC Large Cap Fund - Growth",
+        "fund_facts_table": "| Metric | Value |\n| --- | --- |\n| NAV | ₹1 |\n",
+        "_heading_fund_facts_table": "### The fund",
+    }
+    prose = (
+        "## HDFC Large Cap Fund - Growth\n\n"
+        "The NAV is ₹1,418 and AUM is ₹37,466 crore.\n\n"
+        "### How it has performed\n"
+        "- 1 year: 0.62% vs category 1.86%\n"
+    )
+    out = assemble_fund_overview_answer(prose, tables)
+    assert out.count("## HDFC Large Cap Fund - Growth") == 1
+    assert "₹1,418" not in out
+    assert "### How it has performed" in out
+
+
+def test_fund_overview_hint_keeps_news_and_forbids_repeat():
+    from news_rag.insight.graph import _compose_hints
+
+    text = _compose_hints({"fund_overview": True}, {"NEWS": {"holdings": [{"title": "x"}]}})
+    assert "What the news means" in text
+    assert "Do not repeat" in text

@@ -81,6 +81,133 @@ def planner_owns(plan: Any) -> bool:
     return (getattr(plan, "routed_by", "") or "") == "planner"
 
 
+_RISK_ASK_RE = re.compile(r"\b(?:riskometer|how risky|risk)\b", re.I)
+
+
+def drop_unasked_fund_modules(question: str, plan: ExecutionPlan) -> None:
+    """Managers and the risk module only when the question asks for them."""
+    from news_rag.insight.slot_router import _asks_fund_manager
+
+    wants_mgr = _asks_fund_manager(question)
+    wants_risk = bool(_RISK_ASK_RE.search(question or ""))
+    for call in plan.tool_calls or []:
+        if call.tool != "get_fund_data":
+            continue
+        args = dict(call.arguments or {})
+        modules = [str(m) for m in (args.get("modules") or [])]
+        if not wants_mgr:
+            modules = [m for m in modules if m.lower() != "managers"]
+        if not wants_risk:
+            modules = [m for m in modules if m.lower() != "risk"]
+        if not modules:
+            modules = ["snapshot"]
+        args["modules"] = modules
+        call.arguments = args
+    if not wants_mgr:
+        plan.asked_facts = [
+            fact
+            for fact in (plan.asked_facts or [])
+            if str(fact).lower() not in ("fund_manager", "managers")
+        ]
+
+
+def trim_named_fund_overview(question: str, plan: ExecutionPlan) -> ExecutionPlan:
+    """A 'tell me about this fund' ask is snapshot, rating, holdings and sectors."""
+    if str(plan.intent or "") != "overview" or len(plan.funds or []) != 1:
+        return plan
+    drop_unasked_fund_modules(question, plan)
+    for call in plan.tool_calls or []:
+        if call.tool != "get_fund_data":
+            continue
+        args = dict(call.arguments or {})
+        modules = [str(m).lower() for m in (args.get("modules") or [])]
+        for name in ("snapshot", "rating"):
+            if name not in modules:
+                modules.append(name)
+        args["modules"] = modules
+        call.arguments = args
+    return plan
+
+
+def narrow_deictic_follow_up(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+) -> ExecutionPlan:
+    """A follow-up on the last fund fetches only the new slice, or nothing if already answered."""
+    from news_rag.fund_rupeestop_metrics import periods_requested_in_question
+    from news_rag.insight.investor_subject import question_refers_deictic_fund
+
+    refers = question_refers_deictic_fund(question) or bool(
+        re.search(r"\b(?:it|its|that fund|this fund)\b", question or "", re.I)
+    )
+    if not refers or len(plan.funds or []) != 1:
+        return plan
+    drop_unasked_fund_modules(question, plan)
+    periods = periods_requested_in_question(question)
+    why = bool(re.search(r"\bwhy\b", question or "", re.I))
+    if why:
+        kept: list[ToolCall] = []
+        for call in plan.tool_calls or []:
+            if call.tool == "get_fund_data":
+                args = dict(call.arguments or {})
+                args["modules"] = ["snapshot"]
+                args["windows"] = periods or ["1M"]
+                call.arguments = args
+                kept.append(call)
+            elif call.tool in ("get_portfolio_data", "search_financial_news"):
+                kept.append(call)
+        if not any(call.tool == "search_financial_news" for call in kept):
+            kept.append(
+                ToolCall(
+                    tool="search_financial_news",
+                    arguments={"scope": "all", "top_n": 8, "window_days": 30},
+                    wave=1,
+                )
+            )
+        if not any(call.tool == "get_fund_data" for call in kept):
+            kept.insert(
+                0,
+                ToolCall(
+                    tool="get_fund_data",
+                    arguments={"modules": ["snapshot"], "windows": periods or ["1M"]},
+                    wave=1,
+                ),
+            )
+        plan.tool_calls = kept
+        plan.answer_mode = AnswerMode.INSIGHT_FUSION
+        return plan
+    if len(periods) != 1:
+        return plan
+    turns = (memory or {}).get("chat_turns") if isinstance(memory, dict) else None
+    last = ""
+    if isinstance(turns, list) and turns and isinstance(turns[-1], dict):
+        last = str(turns[-1].get("assistant") or "")
+    label = periods[0]
+    shown = {
+        "1Y": r"\b1\s*year\b|\b1Y\b",
+        "3Y": r"\b3\s*years?\b|\b3Y\b",
+        "5Y": r"\b5\s*years?\b|\b5Y\b",
+        "1M": r"\b1\s*month\b|\b1M\b",
+        "6M": r"\b6\s*months?\b|\b6M\b",
+    }.get(label, re.escape(label))
+    if last and re.search(shown, last, re.I):
+        plan.tool_calls = []
+        plan.answer_mode = AnswerMode.DATA_ONLY
+        plan.wave_2_policy = Wave2Policy(trigger="none")
+        return plan
+    plan.tool_calls = [
+        ToolCall(
+            tool="get_fund_data",
+            arguments={"modules": ["snapshot"], "windows": [label]},
+            wave=1,
+        )
+    ]
+    plan.answer_mode = AnswerMode.DATA_ONLY
+    plan.wave_2_policy = Wave2Policy(trigger="none")
+    return plan
+
+
 def finalize_planner_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     """Fill missing funds, and attach news when this is an overview of a named fund."""
     if (plan.routed_by or "") != "planner":
@@ -117,6 +244,7 @@ def finalize_planner_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     from news_rag.insight.return_windows import align_plan_windows
 
     align_plan_windows(plan)
+    plan = trim_named_fund_overview(question, plan)
     return apply_now_window(question, plan)
 
 

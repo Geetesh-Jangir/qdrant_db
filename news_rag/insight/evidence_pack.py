@@ -364,6 +364,14 @@ def build_evidence_pack(
                 notes = balance_verdicts_for_payload(data)
                 if notes:
                     data = {**data, "balance_verdicts": notes}
+                from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
+                from news_rag.portfolio.insights import insight_lines, insights_for_brief
+
+                brief_intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+                if shape_for(brief_intent) in ("brief", "insight_card"):
+                    lines = insight_lines(insights_for_brief(brief_intent, data))
+                    if lines:
+                        data = {**data, "portfolio_insights": lines}
             data_pack["investor_portfolio"] = data
             rows.append(EvidenceRow(
                 entity_id="investor",
@@ -1624,14 +1632,51 @@ def _render_investor_category_allocation_table(data: dict[str, Any]) -> str | No
     return f"### Allocation by category\n\n{table}"
 
 
+_SCHEME_SECTION = re.compile(
+    r"^#{2,3}\s+.*\b(?:holdings|schemes)\b",
+    re.I,
+)
+
+
+def strip_unasked_scheme_names(text: str) -> str:
+    """Drop scheme tables and holdings sections when the question did not ask for a fund."""
+    lines = (text or "").splitlines()
+    kept: list[str] = []
+    skipping = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if re.match(r"^#{1,3}\s+", line.strip()):
+            skipping = bool(_SCHEME_SECTION.match(line.strip()))
+            if skipping:
+                i += 1
+                continue
+        if skipping:
+            i += 1
+            continue
+        if line.strip().startswith("|") and re.search(r"\bScheme\b", line):
+            i += 1
+            while i < len(lines) and lines[i].strip().startswith("|"):
+                i += 1
+            continue
+        kept.append(line)
+        i += 1
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
+
+
 def append_investor_portfolio_overview_tables(
     prose: str,
     data: dict[str, Any],
     plan: ExecutionPlan,
     question: str = "",
 ) -> str:
-    """Append canonical scheme + category tables when the composer skipped them."""
+    """Append category tables. Scheme names only when the question asked for them."""
+    from news_rag.insight.investor_subject import question_wants_scheme_names
+
     text = (prose or "").strip()
+    show_schemes = question_wants_scheme_names(question, plan)
+    if not show_schemes:
+        text = strip_unasked_scheme_names(text)
     alloc = _render_investor_category_allocation_table(data)
     if alloc:
         text = re.sub(
@@ -1642,7 +1687,7 @@ def append_investor_portfolio_overview_tables(
             flags=re.S,
         ).strip()
     blocks: list[str] = []
-    if "### Your holdings" not in text and "### Returns by scheme" not in text:
+    if show_schemes and "### Your holdings" not in text and "### Returns by scheme" not in text:
         holdings_table = _render_investor_holdings_table(data, plan, "", question)
         if holdings_table:
             blocks.append(holdings_table)

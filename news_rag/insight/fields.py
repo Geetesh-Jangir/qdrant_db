@@ -204,13 +204,24 @@ def fields_from_question(question: str) -> list[str]:
         return []
     if _asks_book(q) and _book_fields(q):
         # "NAV of my HDFC fund" is still a fund fact. A whole-book ask is not.
-        if _WHOLE_BOOK_RE.search(q) or not re.search(
-            r"\b(?:nav|expense|exit\s+load|benchmark|holdings?|sectors?|manager)\b",
-            q,
-            re.I,
-        ):
-            book = _book_fields(q)
-            if book and not re.search(r"\b(?:of|for)\s+my\s+\w+\s+fund\b", q, re.I):
+        book = _book_fields(q)
+        if book and not re.search(r"\b(?:of|for)\s+my\s+\w+\s+fund\b", q, re.I):
+            if _WHOLE_BOOK_RE.search(q) or not re.search(
+                r"\b(?:nav|expense|exit\s+load|benchmark|sectors?|manager)\b",
+                q,
+                re.I,
+            ):
+                return book
+            if set(book) & {
+                "holdings_list",
+                "largest_holding",
+                "smallest_holding",
+                "book_value",
+                "invested",
+                "gain_abs",
+                "gain_pct",
+                "scheme_count",
+            }:
                 return book
     return _fund_fields(q)
 
@@ -229,6 +240,12 @@ def _book_fields(question: str) -> list[str]:
     if re.search(r"\bhow\s+many\s+(?:schemes|funds)\b|\bnumber\s+of\s+(?:schemes|funds)\b", q, re.I):
         found.append("scheme_count")
     if re.search(r"\b(?:list|show)\s+(?:all\s+)?my\s+(?:funds|holdings|schemes)\b|\bwhat\s+do\s+i\s+(?:own|hold)\b", q, re.I):
+        found.append("holdings_list")
+    if re.search(
+        r"\b(?:top|largest|biggest)\s+(?:\d+\s+)?(?:holdings?|funds?|schemes?)\b",
+        q,
+        re.I,
+    ):
         found.append("holdings_list")
     if re.search(r"\blargest\b", q, re.I):
         found.append("largest_holding")
@@ -476,6 +493,14 @@ def _leave_tools_alone(question: str, plan: ExecutionPlan) -> bool:
             return True
     except Exception:
         pass
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
+
+    intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+    if (
+        shape_for(intent) == "fact"
+        and any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or [])
+    ):
+        return True
     return False
 
 
@@ -616,6 +641,13 @@ def _set_portfolio_call(
 
 def _set_investor_call(plan: ExecutionPlan, modules: list[str], question: str) -> None:
     del question
+    from news_rag.insight.portfolio_intents import modules_for, normalize_portfolio_intent
+
+    intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+    if intent != "none":
+        for slot in modules_for(intent):
+            if slot not in modules:
+                modules.append(slot)
     call = next((item for item in plan.tool_calls if item.tool == "get_investor_portfolio"), None)
     if call is None:
         call = ToolCall(tool="get_investor_portfolio", arguments={}, wave=1)

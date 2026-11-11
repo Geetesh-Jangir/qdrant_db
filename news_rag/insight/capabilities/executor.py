@@ -545,6 +545,7 @@ def _run_search_financial_news(args: dict[str, Any], ctx: dict[str, Any]) -> dic
                 query_log=ctx.get("query_log"),
                 layers=layers,
             )
+            articles = list(articles or [])[:8]
             grouped = _group_layered_articles(articles)
             return {
                 "ok": bool(articles),
@@ -997,12 +998,45 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
                     result = _finalize_screen_payload(alt, ctx)
                     return {"ok": True, "data": result}
 
+        if args.get("allocation_pairs"):
+            from news_rag.fund_rating_screen import RatingScreenSpec
+
+            raw_pairs = args.get("allocation_pairs") or []
+            pairs = tuple(
+                (str(pair[0]), str(pair[1]))
+                for pair in raw_pairs
+                if isinstance(pair, (list, tuple)) and len(pair) >= 2
+            )
+            spec = RatingScreenSpec(
+                count=len(pairs),
+                fund_type=pairs[0][0] if pairs else "equity",
+                category="",
+                locked=False,
+                label="",
+                min_score=None,
+                highest_score=False,
+                return_window="",
+                return_direction="",
+                compare_category=False,
+                random_sample=False,
+                amc="",
+                suggestion="rated",
+                walk_category_pairs=pairs,
+                spread_categories=True,
+                one_per_category=True,
+                mix_note=str(args.get("allocation_note") or ""),
+            )
+            result = run_rating_list(question, spec=spec)
+            result = _finalize_screen_payload(result, ctx)
+            return {"ok": True, "data": result}
+
         fetch_n = int(args.get("rating_fetch_n") or want)
         if args.get("exclude_isins") or args.get("exclude_names"):
             fetch_n = max(fetch_n, 15)
         spec = rating_spec_for_forced_screen(
             spec_question,
             top_n=max(fetch_n, want),
+            user_question=question,
         )
         if spec is not None and rs_label:
             spec = replace(spec, label=rs_label, label_fallback="Recommended")
@@ -1379,6 +1413,12 @@ def _conversation_id(ctx: dict[str, Any] | None) -> str:
     return str((ctx or {}).get("conversation_id") or "").strip()
 
 
+def _positive_ms(started: float) -> float:
+    """A finished tool call has a duration. A cache hit still ran."""
+    elapsed = round((time.perf_counter() - started) * 1000, 1)
+    return elapsed if elapsed > 0 else 0.1
+
+
 def _conversation_turn(ctx: dict[str, Any] | None) -> int:
     try:
         return int((ctx or {}).get("conversation_turn") or 0)
@@ -1656,12 +1696,13 @@ def execute_capability(
                         "catalog bind: no ISIN for %r (ambiguous or unknown name)",
                         name[:80],
                     )
+            started = time.perf_counter()
             remembered = None if skip_cache else _take_conversation_slice(per_ctx, name, call.tool, args)
             if remembered is not None:
                 return {
                     "ok": True, "tool": call.tool, "fund": name,
                     "data": _trim_cached_to_ask(call.tool, args, remembered),
-                    "elapsed_ms": 0, "cached": True, "cache_layer": "conversation",
+                    "elapsed_ms": _positive_ms(started), "cached": True, "cache_layer": "conversation",
                 }
             cache_key = _capability_cache_key(call.tool, name, args, per_ctx)
             cached = None if skip_cache else cache.get(call.tool, cache_key)
@@ -1674,7 +1715,7 @@ def execute_capability(
                 _keep_conversation_slice(per_ctx, name, call.tool, args, cached, True)
                 return {
                     "ok": True, "tool": call.tool, "fund": name, "data": cached,
-                    "elapsed_ms": 0, "cached": True, "cache_layer": "capability",
+                    "elapsed_ms": _positive_ms(started), "cached": True, "cache_layer": "capability",
                 }
             t0 = time.perf_counter()
             attempts = 2 if call.tool == "get_fund_data" else 1
@@ -1726,6 +1767,14 @@ def execute_capability(
         label = call.tool
         if call.tool == "compare_funds":
             label = _compare_cache_label(fund_names or [])
+        elif call.tool == "search_financial_news":
+            names = sorted(
+                " ".join(str(name).lower().split())
+                for name in (fund_names or [])
+                if str(name).strip()
+            )
+            if names:
+                label = " | ".join(names)
         skip_cache = bool(base_ctx.get("skip_tool_cache")) or bool(
             args.get("exclude_isins")
             or args.get("exclude_names")
@@ -1733,17 +1782,19 @@ def execute_capability(
             or args.get("pick_rating_better")
             or args.get("compare_pair")
         )
+        started = time.perf_counter()
         remembered = None if skip_cache else _take_conversation_slice(base_ctx, label, call.tool, args)
         if remembered is not None and call.tool == "compare_funds":
             if not _compare_payload_matches_funds(fund_names or [], remembered):
                 remembered = None
         if remembered is not None:
+            elapsed = _positive_ms(started)
             results.append({
                 "ok": True, "tool": call.tool, "fund": "", "data": remembered,
-                "elapsed_ms": 0, "cached": True,
+                "elapsed_ms": elapsed, "cached": True,
             })
             if telemetry:
-                telemetry.add_tool(call.tool, wave=call.wave, ok=True, duration_ms=0)
+                telemetry.add_tool(call.tool, wave=call.wave, ok=True, duration_ms=elapsed)
             return results
         if call.tool == "compare_funds":
             t0 = time.perf_counter()

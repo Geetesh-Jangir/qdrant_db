@@ -104,15 +104,24 @@ def project_modules(doc: dict[str, Any], args: dict[str, Any]) -> dict[str, Any]
 
     if "pnl_scheme" in modules:
         scheme_filter = str(args.get("scheme_filter") or "").strip()
-        row = store.pnl_scheme(scheme_filter) if scheme_filter else None
-        if row:
-            limit = max(1, min(int(args.get("transaction_limit") or 5), 15))
-            slim = dict(row)
-            txns = list(slim.get("transactions") or [])[:limit]
-            slim["transactions"] = txns
-            out["pnl_scheme"] = slim
+        limit = max(1, min(int(args.get("transaction_limit") or 5), 15))
+        if scheme_filter:
+            row = store.pnl_scheme(scheme_filter)
+            if row:
+                slim = dict(row)
+                slim["transactions"] = list(slim.get("transactions") or [])[:limit]
+                out["pnl_scheme"] = slim
+            else:
+                out["pnl_scheme"] = {}
         else:
-            out["pnl_scheme"] = {}
+            schemes = []
+            for row in doc.get("pnl_schemes") or []:
+                if not isinstance(row, dict):
+                    continue
+                slim = dict(row)
+                slim["transactions"] = list(slim.get("transactions") or [])[:limit]
+                schemes.append(slim)
+            out["pnl_scheme"] = {"schemes": schemes} if schemes else {}
 
     if "sip" in modules:
         sip = copy.deepcopy(doc.get("sip") or {})

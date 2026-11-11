@@ -30,6 +30,23 @@ def test_strip_keeps_planner_get_portfolio_data():
     assert "get_portfolio_data" in tools
 
 
+def test_single_fund_nav_skips_catalog_get_fund_data():
+    plan = ExecutionPlan(
+        holding_scope="single",
+        portfolio_scope="investor",
+        portfolio_intent="nav_of_scheme",
+        funds=["Quant Small Cap Fund - Growth"],
+        asked_fields=["nav"],
+        data_need="investor_holding",
+        tool_calls=[
+            ToolCall(tool="get_investor_portfolio", arguments={"modules": ["holdings"]}, wave=1),
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"], "windows": ["1Y"]}, wave=1),
+        ],
+    )
+    plan = enforce_planner_catalog_plan(plan, _book(), "What's the NAV of my quant fund?")
+    assert not any(c.tool == "get_fund_data" for c in plan.tool_calls)
+
+
 def test_all_holdings_binds_funds_and_get_fund_data():
     plan = ExecutionPlan(
         holding_scope="all_holdings",

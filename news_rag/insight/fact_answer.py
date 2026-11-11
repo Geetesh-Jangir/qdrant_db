@@ -744,3 +744,220 @@ def _book_line(name: str, investor: dict[str, Any], question: str) -> str:
         if bits:
             return "RupeeStop ratings: " + "; ".join(bits) + "."
     return f"{label} is not available for your portfolio right now."
+
+
+_FACT_FOLLOWUP = {
+    "aum": "Want the fund-by-fund breakdown?",
+    "invested": "Want this split by fund?",
+    "overall_return": "Want the fund-by-fund breakdown?",
+    "xirr": "Want XIRR for each fund?",
+    "list_holdings": "Want one fund in more detail?",
+    "allocation": "Want this against your risk profile?",
+    "sip_list": "Want the next SIP date?",
+}
+
+
+def _as_of(data: dict[str, Any]) -> str:
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    raw = str(meta.get("as_of_date") or meta.get("as_of") or "").strip()
+    return f" as of {raw}" if raw else ""
+
+
+def _portfolio_xirr_pct(book: dict[str, Any]) -> Any:
+    summary = book.get("summary") if isinstance(book.get("summary"), dict) else {}
+    val = summary.get("portfolio_xirr_pct")
+    if val is not None:
+        return val
+    xirr = book.get("xirr") if isinstance(book.get("xirr"), dict) else {}
+    return xirr.get("portfolio_xirr_pct")
+
+
+def _table(headers: list[str], rows: list[list[str]]) -> str:
+    head = "| " + " | ".join(headers) + " |"
+    rule = "| " + " | ".join("---" for _ in headers) + " |"
+    body = ["| " + " | ".join(cell.replace("|", "/") for cell in row) + " |" for row in rows]
+    return "\n".join([head, rule, *body])
+
+
+def _holdings(data: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = data.get("holdings") if isinstance(data.get("holdings"), list) else []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def _holding_row_for_plan(book: dict[str, Any], plan: ExecutionPlan | None) -> dict[str, Any] | None:
+    rows = _holdings(book)
+    if not rows:
+        return None
+    hint = ""
+    if plan is not None:
+        if plan.funds:
+            hint = str(plan.funds[0] or "").strip()
+        if not hint:
+            for call in plan.tool_calls or []:
+                if call.tool != "get_investor_portfolio":
+                    continue
+                hint = str((call.arguments or {}).get("scheme_filter") or "").strip()
+                break
+    if not hint:
+        return rows[0]
+    from news_rag.portfolio.normalize import match_scheme_filter
+
+    for row in rows:
+        name = str(row.get("scheme_name") or "")
+        if match_scheme_filter(name, hint):
+            return row
+    return rows[0]
+
+
+def render_portfolio_fact(
+    intent: str,
+    data: dict[str, Any] | None,
+    *,
+    plan: ExecutionPlan | None = None,
+) -> str:
+    """One short answer for a planner fact intent. Empty string when intent is not a fact."""
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
+
+    name = normalize_portfolio_intent(intent)
+    if shape_for(name) != "fact":
+        return ""
+    book = data if isinstance(data, dict) else {}
+    summary = book.get("summary") if isinstance(book.get("summary"), dict) else {}
+    stamp = _as_of(book)
+    line = ""
+
+    if name == "aum":
+        line = f"Your portfolio is worth **{_inr(summary.get('aum_inr'))}**{stamp}." if summary.get("aum_inr") is not None else "Portfolio value is not available right now."
+    elif name == "invested":
+        line = f"You have invested **{_inr(summary.get('invested_inr'))}**{stamp}." if summary.get("invested_inr") is not None else "Invested amount is not available right now."
+    elif name == "overall_return":
+        abs_ret = summary.get("absolute_return_pct")
+        xirr = _portfolio_xirr_pct(book)
+        if abs_ret is None and xirr is None:
+            line = "Overall return is not available right now."
+        else:
+            bits = []
+            if abs_ret is not None:
+                bits.append(f"absolute return **{_pct(abs_ret)}**")
+            if xirr is not None:
+                bits.append(f"XIRR **{_pct(xirr)}**")
+            line = "Your overall return is " + " and ".join(bits) + f"{stamp}."
+    elif name == "xirr":
+        book_xirr = _portfolio_xirr_pct(book)
+        line = (
+            f"Your portfolio XIRR is **{_pct(book_xirr)}**{stamp}."
+            if book_xirr is not None
+            else "Portfolio XIRR is not available right now."
+        )
+    elif name == "scheme_count":
+        count = summary.get("scheme_count")
+        if count is None:
+            count = len(_holdings(book)) or None
+        line = f"You hold **{count}** funds{stamp}." if count else "Fund count is not available right now."
+    elif name == "nav_of_scheme":
+        row = _holding_row_for_plan(book, plan)
+        if not row:
+            line = "NAV is not available for that scheme right now."
+        else:
+            nav = row.get("current_nav")
+            when = row.get("nav_date") or ""
+            label = str(row.get("scheme_name") or "That scheme")
+            line = (
+                f"{label} NAV is {_inr(nav)}" + (f" as of {when}" if when else stamp) + "."
+                if nav is not None
+                else f"NAV is not available for {label} right now."
+            )
+    elif name in ("sip_list", "next_sip"):
+        sip = book.get("sip") if isinstance(book.get("sip"), dict) else {}
+        plans = [p for p in (sip.get("plans") or []) if isinstance(p, dict)]
+        if not plans:
+            line = "No live SIPs."
+        elif name == "next_sip":
+            dated = sorted(
+                plans,
+                key=lambda p: str(
+                    p.get("next_due_date") or p.get("next_date") or p.get("next_installment_date") or "9999"
+                ),
+            )
+            first = dated[0]
+            when = (
+                first.get("next_due_date")
+                or first.get("next_date")
+                or first.get("next_installment_date")
+                or "a date we don't have"
+            )
+            line = f"Next SIP is **{when}** for {first.get('scheme_name') or 'a fund'}."
+        else:
+            shown = plans[:8]
+            rows = [
+                [str(p.get("scheme_name") or "—")[:48], _inr(p.get("amount") or p.get("amount_inr")), str(p.get("frequency") or "—")]
+                for p in shown
+            ]
+            extra = f"\n\n{len(plans) - len(shown)} more." if len(plans) > len(shown) else ""
+            line = _table(["Fund", "Amount", "Frequency"], rows) + extra
+    elif name == "stp_list":
+        stp = book.get("stp") if isinstance(book.get("stp"), dict) else {}
+        plans = [p for p in (stp.get("plans") or []) if isinstance(p, dict)]
+        if not plans:
+            line = "No live STPs."
+        else:
+            shown = plans[:8]
+            rows = [
+                [str(p.get("from_scheme") or p.get("scheme_name") or "—")[:40], str(p.get("to_scheme") or "—")[:40], _inr(p.get("amount") or p.get("amount_inr"))]
+                for p in shown
+            ]
+            extra = f"\n\n{len(plans) - len(shown)} more." if len(plans) > len(shown) else ""
+            line = _table(["From", "To", "Amount"], rows) + extra
+    elif name == "dividends":
+        pnl = book.get("pnl_summary") if isinstance(book.get("pnl_summary"), dict) else {}
+        value = pnl.get("dividends_inr", pnl.get("dividends", pnl.get("divPayout")))
+        line = f"Dividends received: **{_inr(value)}**{stamp}." if value is not None else "Dividend total is not available right now."
+    elif name == "risk_profile":
+        profile = book.get("profile_risk") if isinstance(book.get("profile_risk"), dict) else {}
+        style = profile.get("investment_style") or profile.get("risk_profile") or profile.get("label")
+        line = f"Your risk profile is **{style}**." if style else "Risk profile is not available right now."
+    elif name == "st_vs_lt_gains":
+        pnl = book.get("pnl_summary") if isinstance(book.get("pnl_summary"), dict) else {}
+        short = pnl.get("short_term_gain_inr")
+        long = pnl.get("long_term_gain_inr")
+        if short is None and long is None:
+            from news_rag.portfolio.normalize import aggregate_term_gains
+
+            block = book.get("pnl_scheme") if isinstance(book.get("pnl_scheme"), dict) else {}
+            schemes = block.get("schemes") if isinstance(block.get("schemes"), list) else []
+            if not schemes and block.get("transactions"):
+                schemes = [block]
+            short, long = aggregate_term_gains([s for s in schemes if isinstance(s, dict)])
+        if short is None and long is None:
+            line = "Short-term and long-term gain split is not available right now."
+        else:
+            line = f"Short-term gains **{_inr(short or 0)}**, long-term gains **{_inr(long or 0)}**{stamp}."
+    elif name in ("list_holdings", "top_holdings"):
+        rows = sorted(_holdings(book), key=lambda r: float(r.get("aum_inr") or 0), reverse=True)
+        if name == "top_holdings":
+            rows = rows[:5]
+        if not rows:
+            line = "No holdings are available right now."
+        else:
+            shown = rows[:8]
+            table_rows = [
+                [str(r.get("scheme_name") or "—")[:48], str(r.get("scheme_category") or "—")[:24], _inr(r.get("aum_inr")), _pct(r.get("absolute_return_pct")) if r.get("absolute_return_pct") is not None else "—"]
+                for r in shown
+            ]
+            extra = f"\n\n{len(rows) - len(shown)} more." if len(rows) > len(shown) else ""
+            line = _table(["Fund", "Category", "Value", "Return"], table_rows) + extra
+    elif name == "allocation":
+        alloc = book.get("allocation") if isinstance(book.get("allocation"), dict) else {}
+        shares = alloc.get("categoryShare") or alloc.get("schemeTypeShare") or {}
+        if not isinstance(shares, dict) or not shares:
+            line = "Allocation is not available right now."
+        else:
+            ranked = sorted(shares.items(), key=lambda item: float(item[1] or 0), reverse=True)[:8]
+            line = _table(["Bucket", "Share"], [[str(k), _pct(v)] for k, v in ranked])
+    else:
+        return ""
+
+    offer = _FACT_FOLLOWUP.get(name)
+    if offer and "not available" not in line and not line.startswith("No "):
+        return f"{line}\n\n{offer}"
+    return line

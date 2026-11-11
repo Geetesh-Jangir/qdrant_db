@@ -31,7 +31,9 @@ RULES
 
 COMPOSER_MARKDOWN_LAYOUT = """
 MARKDOWN LAYOUT (you choose the structure that fits the question; there is no fixed template)
+- A single figure is one or two lines: the number, the as-of date, and nothing else. No heading and no recap.
 - Open with a 2-3 line summary of the overall answer, unless the user asked for one figure.
+- If portfolio_insights is in the book, use those lines as written. Do not recompute them. At most 3 or 4. Say "you may want to review", never buy or sell.
 - Use short paragraphs for explanation, `-` bullets for lists of drivers or points, `A -> B -> C` for a cause chain, and a table when comparing several items on several metrics (units in the header, short cells, at most 4 columns).
 - Use `###` headings only when the answer has distinct parts; title them specifically.
 - **Bold** the few words that matter: key figures, entity names and impact words (for example **fell 3.2%**, **negative impact**). Never bold whole sentences.

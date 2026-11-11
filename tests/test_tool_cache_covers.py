@@ -82,6 +82,20 @@ def test_investor_slice_keys_differ_by_modules():
     assert a != b
 
 
+def test_cache_hit_duration_is_not_zero():
+    from news_rag.insight.capabilities.executor import _positive_ms
+    import time
+
+    assert _positive_ms(time.perf_counter()) > 0
+    from news_rag.insight.memory.evidence import slice_key
+
+    args = {"scope": "all", "window_days": 30, "topics": []}
+    hdfc = slice_key("hdfc large cap fund - growth", "search_financial_news", args)
+    quant = slice_key("quant small cap fund - growth", "search_financial_news", args)
+    assert hdfc != quant
+    assert "hdfc" in hdfc and "quant" in quant
+
+
 def test_market_snapshot_slice_keys_differ_by_window_days():
     from news_rag.insight.memory.evidence import slice_slot
 

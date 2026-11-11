@@ -54,6 +54,21 @@ def _state(question="q"):
     return graph_mod.GraphState(question=question)
 
 
+def test_short_fact_answer_uses_insight_only_not_duplicate_headline():
+    from news_rag.insight.graph import _insight_headline_narrative, build_result
+
+    answer = "Quant Small Cap Fund - Growth NAV is 282.72 as of 2026-11-09."
+    headline, narrative = _insight_headline_narrative(answer)
+    assert headline == ""
+    assert narrative == ""
+    state = graph_mod.GraphState(question="nav?", answer=answer)
+    state.plan = ExecutionPlan()
+    out = build_result(state)
+    assert out["insight"] == answer
+    assert out["insight_headline"] == ""
+    assert out["insight_narrative"] == ""
+
+
 def test_out_of_scope_question_ends_after_the_planner(monkeypatch):
     monkeypatch.setattr(
         graph_mod,

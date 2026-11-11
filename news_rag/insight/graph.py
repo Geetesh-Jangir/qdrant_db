@@ -303,6 +303,7 @@ def node_route(state: GraphState) -> str | None:
     from news_rag.insight.plan_intent import plan_wants_fund_compare
 
     plan = bind_fields_to_tools(state.question or "", plan)
+    plan = enforce_planner_catalog_plan(plan, state.memory, state.question or "")
     if plan_wants_fund_compare(plan):
         finalize_fund_compare_plan(state.question or "", plan)
     plan = enforce_catalog_fund_list_scope(plan, state.memory, state.question or "")
@@ -681,6 +682,25 @@ def _maybe_enrich_picked_fund_from_screen(state: GraphState) -> None:
     state.resolved_funds = [fund]
 
 
+def _catalog_fanout_fund_names(
+    plan: ExecutionPlan,
+    holding_names: list[str],
+    resolved_funds: list[str],
+    question: str,
+) -> list[str]:
+    """Catalog tools fan out over these fund names after investor holdings load."""
+    scope = str(plan.holding_scope or "").strip().lower()
+    if scope == "single" and plan.funds:
+        return list(plan.funds)
+    from news_rag.insight.investor_subject import question_asks_whole_investor_portfolio
+
+    if scope == "all_holdings" or question_asks_whole_investor_portfolio(question, plan):
+        return holding_names or list(resolved_funds or [])
+    if plan.funds:
+        return list(plan.funds)
+    return list(resolved_funds or []) or holding_names
+
+
 def node_wave1(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
@@ -819,7 +839,13 @@ def node_wave1(state: GraphState) -> str | None:
             fanout_tools = {"get_fund_data", "get_portfolio_data", "compare_funds"}
             fanout_calls = [c for c in catalog_calls if c.tool in fanout_tools]
             other_calls = [c for c in catalog_calls if c.tool not in fanout_tools]
-            fund_count = len(holding_names or state.resolved_funds or [])
+            catalog_funds = _catalog_fanout_fund_names(
+                plan,
+                holding_names,
+                state.resolved_funds,
+                state.question or "",
+            )
+            fund_count = len(catalog_funds or [])
             run_fanout = bool(fanout_calls) and rest_budget >= 8000 and fund_count <= 8
             rest_calls = other_calls + (fanout_calls if run_fanout else [])
             if fanout_calls and not run_fanout and state.query_log is not None:
@@ -831,7 +857,7 @@ def node_wave1(state: GraphState) -> str | None:
                 rest_results = execute_wave(
                     rest_calls,
                     context,
-                    fund_names=holding_names or state.resolved_funds,
+                    fund_names=catalog_funds,
                     telemetry=state.telemetry,
                     deadline_ms=max(rest_budget, 8000.0),
                     query_log=state.query_log,
@@ -1144,7 +1170,7 @@ You get QUESTION, WHAT THE USER WANTS and EVIDENCE (fetched data, optional news 
 # Short extra rules, added only when the evidence or the ask needs them.
 _COMPOSE_HINTS: tuple[tuple[str, str], ...] = (
     ("answer_subject", "Start with `## {answer_subject}` (exact scheme name from EVIDENCE) and answer about that scheme only."),
-    ("investor_portfolio_overview", "Whole-book answer: title `## Your portfolio`; totals and XIRR first; one table for schemes (scheme, category, current value, invested, gain, XIRR) and, if allocation exists, one for categories. Use gain on invested, not absolute_return_pct."),
+    ("investor_portfolio_overview", "Whole-book answer: title `## Your portfolio`; totals and XIRR first; one category table if allocation exists. Do not name any scheme and do not add a holdings or scheme table unless the question asks for holdings, schemes, or one particular fund. Use gain on invested, not absolute_return_pct."),
     ("portfolio_news_impact_answer", "Explain how the news affects the user's own book from `portfolio_news_impact` (sector_impact_analysis, fund_sector_exposure). The server appends the sector and fund tables; do not repeat them. Only holdings in the book count."),
     ("concept_brief", "Explain `concept_brief` first in 1-3 sentences, then use EVIDENCE for the example fund."),
     (
@@ -1152,6 +1178,16 @@ _COMPOSE_HINTS: tuple[tuple[str, str], ...] = (
         "Every fund you list must include its rs_label and final_score from EVIDENCE on the same line. Quote the return for the screen return_window only (3Y unless the user named another period).",
     ),
     ("fund_pick", "When fund_pick is alternate_in_category and one fund is shown, that fund is the answer: name it with its RupeeStop score, label and key returns."),
+    (
+        "fund_overview",
+        "Whole-fund overview. The server already prints `##` the scheme name, the RupeeStop rating line, and ### The fund table "
+        "(NAV, 1 month, expense, AUM, exit load, category, benchmark). Do not repeat that title or any of those figures. "
+        "Write only these headings, bullets under each, nothing else: "
+        "`### How it has performed` (one line each for 1 year, 3 years, 5 years versus the category), "
+        "`### What it holds` (one line for top sectors, one line for top holdings with weights), "
+        "`### What the news means` (two or three dated lines that name a holding or sector above; omit this heading when NEWS is empty), "
+        "`### Summary` (two sentences, no figure that already appeared).",
+    ),
 )
 
 
@@ -1171,11 +1207,12 @@ def _compose_hints(wants: dict[str, Any], evidence: dict[str, Any]) -> str:
             "The server appends the fund tables after your text, so write the insight in prose. If your own "
             "table already covers them, end with `<!-- TABLES_APPEND: none -->` (or `default` to keep them all)."
         )
-    if evidence.get("NEWS"):
+    if evidence.get("NEWS") and not wants.get("fund_overview"):
         lines.append(
             "Open with 2-3 plain prose lines (no heading), not `### The short answer`. Then use `###` for "
-            "substantive sections only. For each material event or price level, state the calendar date from "
-            "that row's `published_at` / `date`, then the figure and how it affects the subject."
+            "substantive sections only. Use two or three NEWS rows that name a holding or sector of this fund: "
+            "state the calendar date from `published_at`, the move, and how it affects the fund. "
+            "Do not add a news-list section and do not cite unrelated market stories."
         )
     data_text = json.dumps(evidence.get("DATA") or "", default=str)
     if "metals_spot" in data_text or "gold" in data_text.lower()[:4000]:
@@ -1209,11 +1246,13 @@ def strip_meta_opening_heading(text: str) -> str:
 
 def _clean_answer(text: str) -> str:
     from news_rag.indian_format import normalize_rupee_commas_in_text
+    from news_rag.insight.answer_markdown import normalize_answer_markdown
 
     text = normalize_user_facing_text(re.sub(r"```(?:json|markdown)?", "", text or "").strip())
     text = normalize_rupee_commas_in_text(text)
     text = strip_meta_opening_heading(text)
-    return strip_context_disclaimer(text)
+    text = strip_context_disclaimer(text)
+    return normalize_answer_markdown(text)
 
 
 def _answer_stream_chunks(answer: str) -> list[str]:
@@ -1388,6 +1427,24 @@ def node_compose(state: GraphState) -> str | None:
         render_investor_rs_ratings_table,
     )
     from news_rag.insight.fields import wants_comparison_table
+
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
+
+    if pack is not None and shape_for(normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))) == "fact":
+        from news_rag.insight.fact_answer import render_portfolio_fact
+
+        book = (pack.data_pack or {}).get("investor_portfolio") if isinstance(pack.data_pack, dict) else None
+        fact_line = render_portfolio_fact(
+            plan.portfolio_intent,
+            book if isinstance(book, dict) else {},
+            plan=plan,
+        )
+        if fact_line:
+            state.answer = _clean_answer(fact_line)
+            state.route_reason = "portfolio fact"
+            if state.query_log is not None:
+                state.query_log.write(f"COMPOSE portfolio_fact intent={plan.portfolio_intent}")
+            return None
 
     compose_always = bool(getattr(get_settings(), "insight_compose_always", True))
     if compose_always:
@@ -1565,6 +1622,8 @@ def node_compose(state: GraphState) -> str | None:
         wants["presentation_notes"] = " ".join(
             filter(None, [str(wants.get("presentation_notes") or "").strip(), overview_notes])
         ).strip()
+    elif subject and str(plan.intent or "") == "overview" and len(plan.funds or []) == 1:
+        wants["fund_overview"] = True
     elif subject:
         wants["answer_subject"] = subject
     if pack and isinstance(pack.data_pack.get("portfolio_news_impact"), dict):
@@ -2093,6 +2152,18 @@ def _store_turn_memory(state: GraphState, sources: list[dict[str, Any]] | None) 
     return {"planner": planner_tokens, "composer": composer_tokens}
 
 
+def _insight_headline_narrative(insight: str) -> tuple[str, str]:
+    """One short block belongs in insight only — not headline plus full narrative."""
+    text = (insight or "").strip()
+    if not text:
+        return "", ""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) <= 1 and len(text) < 600:
+        return "", ""
+    headline = next((ln.strip(" #*") for ln in lines), text[:120])
+    return headline, text
+
+
 def build_result(state: GraphState) -> dict[str, Any]:
     plan = state.plan
     pack = state.evidence_pack
@@ -2104,9 +2175,9 @@ def build_result(state: GraphState) -> dict[str, Any]:
                 if isinstance(art, dict):
                     sources.append(art)
 
-    insight = state.answer
+    insight = (state.answer or "").strip()
     refused = state.reply_kind in ("out_of_scope", "clarify")
-    headline = next((ln.strip(" #*") for ln in insight.splitlines() if ln.strip()), insight[:120])
+    headline, narrative = _insight_headline_narrative(insight)
     terms = list(dict.fromkeys((state.resolved_funds + (plan.sectors if plan else []))))[:8]
 
     tool_runs = [
@@ -2148,7 +2219,7 @@ def build_result(state: GraphState) -> dict[str, Any]:
         "fund_managers": fund_managers,
         "insight_summary": headline,
         "insight_headline": headline,
-        "insight_narrative": insight,
+        "insight_narrative": narrative,
         "insight_closing_summary": "",
         "insight_bullets": [],
         "highlight_terms": terms,

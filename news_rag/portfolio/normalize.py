@@ -183,6 +183,31 @@ def _pnl_summary_row(raw: dict[str, Any] | None) -> dict[str, Any]:
     return out
 
 
+def aggregate_term_gains(schemes: list[dict[str, Any]]) -> tuple[float | None, float | None]:
+    """Sum unrealised gain_loss by holding period from scheme transaction rows."""
+    short = 0.0
+    long = 0.0
+    seen = False
+    for scheme in schemes:
+        if not isinstance(scheme, dict):
+            continue
+        for txn in scheme.get("transactions") or []:
+            if not isinstance(txn, dict):
+                continue
+            gain = _num(txn.get("gain_loss"))
+            term = txn.get("term")
+            if gain is None or term not in ("short_term", "long_term"):
+                continue
+            seen = True
+            if term == "long_term":
+                long += gain
+            else:
+                short += gain
+    if not seen:
+        return None, None
+    return round(short, 2), round(long, 2)
+
+
 def _sip_plan(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "scheme_name": _str(row.get("schemeName")),
@@ -347,13 +372,20 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
     sip_plans = [_sip_plan(p) for p in (sip.get("plans") or []) if isinstance(p, dict)]
     stp_plans = [_sip_plan(p) for p in (stp.get("plans") or []) if isinstance(p, dict)]
 
+    pnl_summary = _pnl_summary_row(pnl.get("summary") if isinstance(pnl.get("summary"), dict) else {})
+    st_gain, lt_gain = aggregate_term_gains(pnl_schemes)
+    if st_gain is not None:
+        pnl_summary["short_term_gain_inr"] = st_gain
+    if lt_gain is not None:
+        pnl_summary["long_term_gain_inr"] = lt_gain
+
     doc = {
         "meta": meta,
         "profile_risk": profile_risk,
         "summary": summary,
         "allocation": _allocation_block(book_total.get("allocation") if isinstance(book_total.get("allocation"), dict) else {}),
         "holdings": holdings,
-        "pnl_summary": _pnl_summary_row(pnl.get("summary") if isinstance(pnl.get("summary"), dict) else {}),
+        "pnl_summary": pnl_summary,
         "pnl_schemes": pnl_schemes,
         "sip": {
             "summary": sip.get("summary") if isinstance(sip.get("summary"), dict) else {},

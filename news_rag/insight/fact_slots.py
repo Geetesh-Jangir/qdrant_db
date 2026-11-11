@@ -108,6 +108,15 @@ def render_asked_facts(slots: list[str], results: list[dict[str, Any]] | None) -
 
 
 def missing_slots(slots: list[str], results: list[dict[str, Any]] | None) -> list[str]:
+    slots = list(slots)
+    if "holdings" in slots:
+        for row in results or []:
+            if row.get("tool") != "get_investor_portfolio" or not row.get("ok"):
+                continue
+            data = row.get("data") if isinstance(row.get("data"), dict) else {}
+            if data.get("holdings"):
+                slots = [s for s in slots if s != "holdings"]
+                break
     block = render_asked_facts(slots, results)
     return [
         slot

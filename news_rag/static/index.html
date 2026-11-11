@@ -752,6 +752,7 @@
       );
       formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong class="emph">$1</strong>');
       formatted = formatted.replace(/(^|[^*])\*(.+?)\*(?!\*)/g, "$1<em>$2</em>");
+      formatted = formatted.replace(/`([^`]+)`/g, "<code>$1</code>");
       return formatted;
     }
 
@@ -823,10 +824,11 @@
     function insightLooksLikeMarkdown(text) {
       const t = String(text || "");
       return (
+        t.includes("**") ||
         t.includes("###") ||
         t.includes("|") ||
         /^[-*•]\s+/m.test(t) ||
-        t.length > 320
+        /^#{1,4}\s+/m.test(t)
       );
     }
 
@@ -851,10 +853,11 @@
       while (i < lines.length) {
         const raw = lines[i];
         const line = raw.trim();
-        if (line.startsWith("|")) {
+        const pipeCount = (line.match(/\|/g) || []).length;
+        if (pipeCount >= 2) {
           flushList();
           const rows = [];
-          while (i < lines.length && lines[i].trim().startsWith("|")) {
+          while (i < lines.length && ((lines[i].match(/\|/g) || []).length >= 2)) {
             rows.push(lines[i].trim());
             i += 1;
           }
@@ -864,6 +867,11 @@
         i += 1;
         if (!line) {
           flushList();
+          continue;
+        }
+        if (/^---+$/.test(line)) {
+          flushList();
+          root.appendChild(document.createElement("hr"));
           continue;
         }
         const heading = line.match(/^(#{1,4})\s+(.*)$/);
@@ -883,7 +891,7 @@
           root.appendChild(el);
           continue;
         }
-        const bullet = line.match(/^[-*•]\s+(.*)$/);
+        const bullet = line.match(/^[-*•]\s+(.*)$/) || raw.match(/^\s{2,}[-*•]\s+(.*)$/);
         const numbered = line.match(/^\d+[.)]\s+(.*)$/);
         if (bullet || numbered) {
           const kind = bullet ? "ul" : "ol";

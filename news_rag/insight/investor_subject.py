@@ -198,6 +198,31 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
     return False
 
 
+def question_wants_scheme_names(question: str, plan: ExecutionPlan | None = None) -> bool:
+    """Scheme names only when the user asked for a fund or a holdings list."""
+    if plan is not None and (plan.funds or []):
+        return True
+    if question_asks_all_schemes_in_answer(question, plan):
+        return True
+    q = (question or "").lower()
+    markers = (
+        "holding",
+        "which fund",
+        "which scheme",
+        "what fund",
+        "what scheme",
+        "list my",
+        "name the fund",
+        "name my fund",
+        "top fund",
+        "largest holding",
+        "my schemes",
+        "my funds",
+        "scheme name",
+    )
+    return any(marker in q for marker in markers)
+
+
 def question_asks_all_schemes_in_answer(question: str, plan: ExecutionPlan | None = None) -> bool:
     """User wants every scheme listed — not the default top-8 table."""
     del plan
@@ -865,13 +890,33 @@ _SCHEME_NAME_MATCH_SKIP = frozenset(
 )
 
 
+# English portfolio words must not fuzzy-match AMC tokens (e.g. assets → Mirae Asset).
+_AMC_FUZZY_BLOCK = frozenset(
+    {
+        "assets",
+        "asset",
+        "categories",
+        "category",
+        "portfolio",
+        "portfolios",
+        "allocation",
+        "holdings",
+        "holding",
+    }
+)
+
+
 def _amc_token_in_question(token: str, amc_tokens: set[str]) -> str:
+    if token in _AMC_FUZZY_BLOCK:
+        return ""
     if token in amc_tokens:
         return token
     if len(token) < 5:
         return ""
     hit = difflib.get_close_matches(token, list(amc_tokens), n=1, cutoff=0.8)
-    return hit[0] if hit else ""
+    if hit and hit in _AMC_FUZZY_BLOCK:
+        return ""
+    return hit if hit else ""
 
 
 def user_explicitly_named_scheme(question: str, fund_name: str) -> bool:

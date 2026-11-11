@@ -49,6 +49,16 @@ _CATEGORY_COMPOSITION_BRIEF: dict[str, str] = {
 }
 
 
+def category_composition_plan_applies(question: str, plan: ExecutionPlan) -> bool:
+    """Planner category_composition is valid only for a named SEBI category ask or follow-up."""
+    if asks_category_composition(question):
+        return True
+    cat = str(plan.scheme_category or "").strip()
+    if cat and match_scheme_category(cat):
+        return True
+    return False
+
+
 def asks_category_composition(question: str) -> bool:
     """What a category holds (cap mix), not a named scheme's stock list."""
     q = question or ""

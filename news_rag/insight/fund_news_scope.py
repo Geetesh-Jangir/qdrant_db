@@ -57,6 +57,9 @@ def infer_fund_news_layers(question: str) -> frozenset[str]:
     if picked:
         return frozenset(picked)
 
+    # A fund overview is holdings and sectors. Macro only when the question names it.
+    if re.search(r"\btell me about\b|\boverview of\b|\bhow is\b", q, re.I):
+        return frozenset({_LAYER_HOLDINGS, _LAYER_SECTORS})
     return _ALL
 
 

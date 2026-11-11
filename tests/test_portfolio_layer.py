@@ -19,6 +19,22 @@ def normalized_doc():
     return normalize_workspace(raw)
 
 
+def test_normalize_pnl_summary_includes_term_gains(normalized_doc):
+    pnl = normalized_doc.get("pnl_summary") or {}
+    assert pnl.get("short_term_gain_inr") is not None
+    assert pnl.get("long_term_gain_inr") is not None
+
+
+def test_project_pnl_scheme_without_filter_returns_schemes(normalized_doc):
+    from news_rag.portfolio.project import project_modules
+
+    out = project_modules(normalized_doc, {"modules": ["pnl_scheme"]})
+    block = out["data"].get("pnl_scheme") or {}
+    schemes = block.get("schemes") or []
+    assert len(schemes) >= 1
+    assert isinstance(schemes[0].get("transactions"), list)
+
+
 def test_normalize_strips_pii(normalized_doc):
     blob = json.dumps(normalized_doc).lower()
     assert "pan" not in blob or '"pan"' not in blob

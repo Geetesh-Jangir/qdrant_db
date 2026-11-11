@@ -847,6 +847,24 @@ def _strip_overview_prose_block(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
 
 
+def _drop_repeated_fund_heading(text: str, name: str) -> str:
+    """The fact table already has the title and NAV, AUM, expense, and exit load."""
+    lines = (text or "").splitlines()
+    title = f"## {name}".strip().lower() if name else ""
+    while title and lines and lines[0].strip().lower() == title:
+        lines.pop(0)
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        para: list[str] = []
+        while lines and not lines[0].strip().startswith("#"):
+            para.append(lines.pop(0))
+        blob = " ".join(para).lower()
+        if not any(word in blob for word in ("nav", "aum", "expense", "exit load", "crore")):
+            lines = para + lines
+            break
+    return "\n".join(lines).strip()
+
+
 def assemble_fund_overview_answer(
     prose: str,
     tables: dict[str, str],
@@ -884,6 +902,7 @@ def assemble_fund_overview_answer(
         subset,
     )
     cleaned = _strip_overview_prose_block(cleaned)
+    cleaned = _drop_repeated_fund_heading(cleaned, name)
     if not cleaned:
         return header
     return f"{header}\n\n{cleaned}".strip()

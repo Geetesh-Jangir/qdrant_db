@@ -34,6 +34,37 @@ def test_weakest_by_gain_not_xirr():
     assert ordered[0]["scheme_name"] == "A"
 
 
+def test_portfolio_overview_omits_scheme_names():
+    from news_rag.insight.evidence_pack import append_investor_portfolio_overview_tables
+    from news_rag.insight.investor_subject import question_wants_scheme_names
+
+    assert question_wants_scheme_names("tell me about my portfolio") is False
+    assert question_wants_scheme_names("show my holdings") is True
+
+    class _Plan:
+        funds = []
+        data_need = "investor_summary"
+        response_shape = "prose"
+
+    prose = (
+        "## Your portfolio\n"
+        "Worth **₹100**.\n"
+        "### Largest holdings\n\n"
+        "| Scheme | Current value |\n|---|---|\n| Kotak Contra Fund | ₹10 |\n"
+        "### Summary\n"
+        "Most of it sits in mid cap."
+    )
+    data = {
+        "holdings": [{"scheme_name": "Kotak Contra Fund", "scheme_category": "contra", "aum_inr": 10}],
+        "allocation": {"categoryShare": []},
+        "summary": {"aum_inr": 100, "invested_inr": 80},
+    }
+    out = append_investor_portfolio_overview_tables(prose, data, _Plan(), "tell me about my portfolio")
+    assert "Kotak" not in out
+    assert "Your holdings" not in out
+    assert "Most of it sits in mid cap." in out
+
+
 def test_display_caps_at_eight_unless_whole_book():
     holdings = [{"scheme_name": f"F{i}", "aum_inr": i} for i in range(12)]
     rows, total, truncated = investor_holdings_for_display(

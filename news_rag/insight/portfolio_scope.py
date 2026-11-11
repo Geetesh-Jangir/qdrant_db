@@ -71,6 +71,16 @@ def plan_wants_concentration(plan: ExecutionPlan, question: str = "") -> bool:
 
 def _modules_for_investor_plan(plan: ExecutionPlan, question: str = "") -> list[str]:
     from news_rag.insight.investor_drawback import plan_wants_portfolio_drawback
+    from news_rag.insight.portfolio_intents import modules_for
+
+    bundled = modules_for(getattr(plan, "portfolio_intent", ""))
+    if bundled:
+        modules = list(bundled)
+        if plan_wants_portfolio_drawback(plan, question) or plan_wants_concentration(plan, question):
+            for extra in ("holdings", "allocation", "concentration"):
+                if extra not in modules:
+                    modules.append(extra)
+        return [name for name in modules if name != "meta"]
 
     need = str(plan.data_need or "").lower().strip()
     intent = str(plan.intent or "").lower().strip()
@@ -212,6 +222,9 @@ def enforce_portfolio_scope(
     question: str = "",
 ) -> ExecutionPlan:
     from news_rag.insight.investor_drawback import plan_wants_portfolio_drawback, question_signals_investor_book
+    from news_rag.insight.portfolio_intents import apply_portfolio_intent
+
+    plan = apply_portfolio_intent(plan)
 
     if question_signals_investor_book(question):
         if str(plan.portfolio_scope or "").lower().strip() in ("none", "", "catalog"):

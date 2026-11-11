@@ -353,6 +353,9 @@ def _strip_book_concentration_tables(text: str) -> str:
     return (text or "").strip()
 
 
+_NO_DRIVER = "No major news lines up with this. It looks like a broader market move."
+
+
 def render_portfolio_news_impact_markdown(dossier: dict[str, Any]) -> str:
     """Deterministic sector + fund impact tables (replaces concentration + screen rankings)."""
     parts: list[str] = []
@@ -402,4 +405,7 @@ def render_portfolio_news_impact_markdown(dossier: dict[str, Any]) -> str:
                     why=str(row.get("sector_reason") or "").replace("|", " ")[:120],
                 )
             )
-    return "\n".join(parts).strip()
+    text = "\n".join(parts).strip()
+    if not text:
+        return _NO_DRIVER
+    return text
