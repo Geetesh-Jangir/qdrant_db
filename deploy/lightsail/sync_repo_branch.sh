@@ -5,6 +5,9 @@ set -euo pipefail
 
 BRANCH="${1:?usage: sync_repo_branch.sh <branch>}"
 
+# Deploy servers often drift (chmod, index cache, edited scripts). Untracked .env is kept.
+git restore . 2>/dev/null || git checkout -- .
+
 # Shallow clones often leave only FETCH_HEAD unless we fetch the ref explicitly.
 git fetch origin \
   "+refs/heads/${BRANCH}:refs/remotes/origin/${BRANCH}" \
