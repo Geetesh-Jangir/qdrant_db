@@ -631,10 +631,28 @@
       if (timelineEl) timelineEl.classList.add("hidden");
     }
 
-    document.getElementById("newChat").addEventListener("click", () => {
-      conversationId = "conv_" + Math.random().toString(36).substring(2, 9);
+    document.getElementById("newChat").addEventListener("click", async () => {
+      const saved = sessionStorage.getItem("rag_active_crn") || "";
+      const previousId = conversationId;
+      conversationId = newConversationId();
       sessionStorage.setItem("rag_conversation_id", conversationId);
       resetChatScreen();
+      if (!saved) {
+        return;
+      }
+      try {
+        await fetch(ragUrl("api/portfolio/select"), {
+          method: "POST",
+          headers: ragHeaders({ "Content-Type": "application/json" }),
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            previous_conversation_id: previousId,
+            crn: saved,
+          }),
+        });
+      } catch (_) {
+        /* portfolio bind best-effort */
+      }
     });
 
     function resetTimeline() {
@@ -1702,10 +1720,12 @@
       const priorTurns = collectPriorTurns();
       beginBubble(q);
       document.getElementById("question").value = "";
+      const activeCrn = sessionStorage.getItem("rag_active_crn") || "";
       const body = {
         question: q,
         conversation_id: conversationId,
         prior_turns: priorTurns,
+        portfolio_crn: activeCrn || undefined,
       };
 
       let streamedText = "";

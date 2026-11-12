@@ -142,6 +142,33 @@ def test_one_rated_fund_per_category_does_not_fill_with_gold():
     del names
 
 
+def test_my_portfolio_allocation_uses_book_not_ideal_screen(monkeypatch):
+    monkeypatch.setattr(
+        "news_rag.config.get_settings",
+        lambda: type("S", (), {"portfolio_enabled": True})(),
+    )
+    from news_rag.insight.contracts import ExecutionPlan, ToolCall
+    from news_rag.insight.plan_enforce import apply_planner_post_hooks
+
+    plan = ExecutionPlan(
+        routed_by="planner",
+        data_need="portfolio_allocation",
+        horizon_years=None,
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["allocation", "summary"]},
+                wave=1,
+            )
+        ],
+    )
+    out = apply_planner_post_hooks("Show my portfolio allocation", plan, None)
+    assert out.portfolio_intent == "allocation"
+    assert any(c.tool == "get_investor_portfolio" for c in out.tool_calls)
+    assert not any(c.tool == "screen_funds_by_exposure" for c in out.tool_calls)
+    assert "years" not in (out.direct_reply or "").lower()
+
+
 def test_missing_horizon_asks_and_does_not_call_tools():
     plan = ExecutionPlan(routed_by="planner", data_need="portfolio_allocation", horizon_years=None)
     out = apply_planner_post_hooks("what should be the ideal portfolio", plan, None)

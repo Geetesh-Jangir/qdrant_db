@@ -130,6 +130,10 @@ class ExecutionPlan(BaseModel):
     subject_ref: str = "none"
     rs_label: str = ""
     holding_scope: str = "none"
+    # Planner compare sides: chat_memory | my_holding | named. Not inferred by regex.
+    compare_sides: list[dict[str, str]] = Field(default_factory=list)
+    # Planner task list: subjects, facts, operation. Code binds and fetches; it does not re-read the question.
+    tasks: list[dict[str, Any]] = Field(default_factory=list)
 
     # Conversation pointers the planner names. Python resolves them. They are not regex.
     turn_relation: str = ""

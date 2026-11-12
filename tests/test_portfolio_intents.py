@@ -7,9 +7,18 @@ from news_rag.insight.portfolio_intents import (
     data_need_for,
     modules_for,
     normalize_portfolio_intent,
+    portfolio_intent_from_question,
     shape_for,
     should_attach_news,
 )
+
+
+def test_question_infers_fy_summary_intent():
+    assert portfolio_intent_from_question("FY summary of my portfolio") == "fy_summary"
+    plan = ExecutionPlan(portfolio_intent="none", portfolio_scope="none")
+    apply_portfolio_intent(plan, "FY summary of my portfolio")
+    assert plan.portfolio_intent == "fy_summary"
+    assert plan.portfolio_scope == "investor"
 
 
 def test_unknown_intent_is_none():
@@ -104,6 +113,24 @@ def test_next_sip_uses_normalized_next_due_date():
     assert "don't have" not in text.lower()
 
 
+def test_allocation_fact_uses_category_share_list():
+    from news_rag.insight.fact_answer import render_portfolio_fact
+
+    book = {
+        "meta": {"as_of_date": "2026-11-11"},
+        "allocation": {
+            "categoryShare": [
+                {"name": "large & mid cap", "aum_inr": 28760.0, "aum_pct": 41.2},
+                {"name": "small cap", "aum_inr": 14075.0, "aum_pct": 20.16},
+            ],
+        },
+    }
+    text = render_portfolio_fact("allocation", book)
+    assert "large & mid cap" in text
+    assert "41.2" in text
+    assert "not available" not in text.lower()
+
+
 def test_nav_of_scheme_picks_planned_fund_not_first_holding():
     from news_rag.insight.contracts import ExecutionPlan
     from news_rag.insight.fact_answer import render_portfolio_fact
@@ -120,3 +147,64 @@ def test_nav_of_scheme_picks_planned_fund_not_first_holding():
     assert "Quant Small Cap" in text
     assert "282.72" in text
     assert "Invesco" not in text
+
+
+def test_compose_always_uses_composer_for_largest_holding(monkeypatch):
+    from types import SimpleNamespace
+
+    from news_rag.insight.contracts import EvidencePack
+    from news_rag.insight.graph import GraphState, node_compose
+    from news_rag.insight import graph as graph_mod
+    from news_rag.insight.plan import parse_plan
+
+    plan = parse_plan(
+        {
+            "scope": {"kind": "in_scope"},
+            "understanding": {
+                "goal": "Largest holding",
+                "intent": "lookup",
+                "answer_mode": "DATA_ONLY",
+                "portfolio_intent": "top_holdings",
+            },
+            "tool_calls": [{"tool": "get_investor_portfolio", "arguments": {"modules": ["holdings"]}, "wave": 1}],
+        }
+    )
+    seen: dict[str, int] = {"calls": 0}
+
+    def fake_llm(**kwargs):
+        seen["calls"] += 1
+        seen["user"] = kwargs.get("user_content") or ""
+        return SimpleNamespace(
+            raw_text="Your largest holding is **Invesco India Large & Mid Cap Fund** at **Rs 29,175**.",
+            provider="anthropic",
+            model="test",
+            input_tokens=1,
+            output_tokens=20,
+        )
+
+    monkeypatch.setattr(graph_mod, "call_insight_llm", fake_llm)
+    monkeypatch.setattr(graph_mod, "llm_api_key_configured", lambda *_a, **_k: True)
+    monkeypatch.setattr(graph_mod, "composer_model", lambda *_a, **_k: "test")
+    monkeypatch.setattr(
+        graph_mod,
+        "get_settings",
+        lambda: SimpleNamespace(insight_compose_always=True, llm_provider="anthropic"),
+    )
+
+    state = GraphState(question="which is the largest holding", plan=plan)
+    state.evidence_pack = EvidencePack(
+        data_pack={
+            "investor_portfolio": {
+                "meta": {"as_of_date": "2026-11-12"},
+                "holdings": [
+                    {"scheme_name": "Invesco India Large & Mid Cap Fund - Regular Plan - Growth", "aum_inr": 29174.614},
+                    {"scheme_name": "Quant Small Cap Fund - Growth", "aum_inr": 15226.4891},
+                ],
+            }
+        }
+    )
+    node_compose(state)
+    assert seen["calls"] == 1
+    assert "largest holding" in (state.answer or "").lower()
+    assert "Invesco" in (state.answer or "")
+    assert "Quant Small Cap" not in (state.answer or "")

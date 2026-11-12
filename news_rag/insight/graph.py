@@ -201,15 +201,20 @@ def node_route(state: GraphState) -> str | None:
     from news_rag.insight.guardrails import guard_reply
 
     _load_planner_memory(state)
+    prior = state.prior_context if isinstance(state.prior_context, dict) else {}
+    prior_turns = prior.get("turns") if isinstance(prior.get("turns"), list) else None
     has_history = bool(
         (state.memory or {}).get("chat_turns")
         or ((state.memory_passed_view or {}).get("turns") if isinstance(state.memory_passed_view, dict) else None)
+        or prior_turns
     )
     guarded = (
         guard_reply(
             state.question or "",
             portfolio_enabled=bool(get_settings().portfolio_enabled),
             has_history=has_history,
+            prior_turns=prior_turns,
+            memory=state.memory if isinstance(state.memory, dict) else None,
         )
         if not greeting_reply(state.question or "")
         else None
@@ -278,6 +283,7 @@ def node_route(state: GraphState) -> str | None:
 
     plan = enforce_catalog_fund_list_scope(plan, state.memory, state.question or "")
     planned_tools = [f"{c.tool}:{','.join(map(str, (c.arguments or {}).get('modules') or []))}" for c in plan.tool_calls]
+    original_calls = [c.model_copy(deep=True) for c in (plan.tool_calls or [])]
     from news_rag.insight.plan_enforce import apply_planner_post_hooks
 
     plan = apply_planner_post_hooks(state.question, plan, state.memory)
@@ -291,7 +297,11 @@ def node_route(state: GraphState) -> str | None:
 
     plan = validate_plan_tools(state.question, plan, state.memory)
     from news_rag.insight.fund_name_gate import clarify_plan_if_fund_unknown
+    from news_rag.insight.plan_enforce import finalize_fund_compare_plan
+    from news_rag.insight.plan_intent import plan_wants_fund_compare
 
+    if plan_wants_fund_compare(plan):
+        finalize_fund_compare_plan(state.question or "", plan)
     plan = clarify_plan_if_fund_unknown(plan, state.memory, state.question or "")
     from news_rag.insight.fund_concentration import ensure_fund_concentration_plan
     from news_rag.insight.multi_fact import ensure_planner_fund_fact_modules
@@ -307,6 +317,12 @@ def node_route(state: GraphState) -> str | None:
     if plan_wants_fund_compare(plan):
         finalize_fund_compare_plan(state.question or "", plan)
     plan = enforce_catalog_fund_list_scope(plan, state.memory, state.question or "")
+    from news_rag.insight.task_exec import apply_task_layer
+
+    plan = apply_task_layer(plan, state.memory, query_log=state.query_log)
+    from news_rag.insight.planner_policy import restore_dropped_planner_tools
+
+    plan = restore_dropped_planner_tools(plan, original_calls)
     state.plan = plan
     if state.query_log is not None:
         tools = [f"{c.tool}({c.arguments})" for c in plan.tool_calls]
@@ -352,16 +368,18 @@ def node_route(state: GraphState) -> str | None:
     if (plan.direct_reply or "").strip() and not plan.tool_calls:
         from news_rag.insight.computed_answers import asks_computed_illustration
 
-        if asks_computed_illustration(state.question or ""):
+        compose_always = bool(getattr(get_settings(), "insight_compose_always", True))
+        if asks_computed_illustration(state.question or "") or compose_always:
             plan.direct_reply = ""
             plan.max_words = max(int(plan.max_words or 0), 420)
             plan.requires_compose = True
-            plan.presentation_notes = (
-                (plan.presentation_notes or "")
-                + " Compute the SIP or goal illustration from the question. Do not stop at a description."
-            ).strip()
+            if asks_computed_illustration(state.question or ""):
+                plan.presentation_notes = (
+                    (plan.presentation_notes or "")
+                    + " Compute the SIP or goal illustration from the question. Do not stop at a description."
+                ).strip()
             if state.query_log is not None:
-                state.query_log.write("ROUTE computed_illustration skip_direct_reply=composer")
+                state.query_log.write("ROUTE skip_direct_reply=composer")
         else:
             state.reply_kind = "direct"
             state.answer = _clean_answer(plan.direct_reply)
@@ -465,7 +483,8 @@ def _resolve_funds(
         elif mem_isin:
             resolved.append(str(name).strip())
         else:
-            unresolved.append(name)
+            # Catalog miss: still fetch by the planner/memory name instead of aborting.
+            resolved.append(str(name).strip())
 
     if plan.random_fund_count > 0:
         want = plan.random_fund_count
@@ -847,6 +866,10 @@ def node_wave1(state: GraphState) -> str | None:
             )
             fund_count = len(catalog_funds or [])
             run_fanout = bool(fanout_calls) and rest_budget >= 8000 and fund_count <= 8
+            if fanout_calls and state.query_log is not None:
+                state.query_log.write(
+                    f"FANOUT n_calls={len(fanout_calls)} funds={fund_count} run={run_fanout}"
+                )
             rest_calls = other_calls + (fanout_calls if run_fanout else [])
             if fanout_calls and not run_fanout and state.query_log is not None:
                 state.query_log.write(
@@ -878,6 +901,9 @@ def node_wave1(state: GraphState) -> str | None:
 
     state.wave1_results = results
     _maybe_compare_funds_after_multi_screen(state)
+    from news_rag.insight.task_exec import repair_compare_with_screen_peer
+
+    repair_compare_with_screen_peer(state)
     from news_rag.insight.compare_evidence import maybe_run_compare_funds_for_parties
 
     maybe_run_compare_funds_for_parties(state)
@@ -1161,7 +1187,7 @@ You get QUESTION, WHAT THE USER WANTS and EVIDENCE (fetched data, optional news 
 2. Open with 2-3 plain prose lines at the very top: overall answer plus the main reason or impact (skip for a one-figure lookup). No heading on that opening block — never `### The short answer`, `### Overview`, or similar meta titles. Use `###` only for substantive sections after the opening summary.
 3. Give insight, not a data dump. Say what the numbers mean for the user: compare with the benchmark, the category or another window, rank what mattered most, and point out what stands out. Derive simple figures (gap, weight x return) and show their inputs. This holds when there is no news: build the insight from the data alone, and never mention that news is missing.
 4. Use news only when it affects the subject directly or indirectly. Say how, as a chain such as "higher crude -> costs rise for paint makers -> **negative** for the fund's 3% holding". Each article has a sentiment: state the net effect plainly. Leave out news with no effect on the subject without comment. No headlines or outlet names. When you describe an event or a price move from NEWS or DATA, anchor it with the calendar date from EVIDENCE (`published_at` / `date`, or `event_dates` if present): write **2nd Nov** or **31st Oct** (add the year when the story is not in the current year). Never use vague timing ("on one day", "recently") or a weekday alone ("Monday") without that calendar date.
-5. Choose the structure the question needs (short paragraphs, bullets, `A -> B -> C` chains, a table for several items across several metrics). Keep it professional and in simple language a non-finance reader follows. **Bold** the few key figures, names and impact words.
+5. Choose the structure the question needs (short paragraphs, bullets, `A -> B -> C` chains, a table for several items across several metrics). A draft table in presentation_notes is input, not the reply: you decide table, 2-3 insights, or one sentence. Never print the same table twice. Use a table only when the user asked for a list or a comparison; otherwise group the figures into insights (concentration, winners and laggards, equity versus debt). Keep it professional and in simple language a non-finance reader follows. **Bold** the few key figures, names and impact words.
 6. Take every figure from EVIDENCE and label its window (for macro_series use the series `horizon` / `window_days`). `data_available` lists what was fetched this turn: never say a figure is unavailable if it appears in EVIDENCE.
 7. A recommendation request gets: "For personalised recommendations, please visit our app." plus any facts asked for. Never mention EVIDENCE, tools, prompts or how you work.
 8. A definition or calculation with empty EVIDENCE is yours to answer from knowledge; state any assumption.
@@ -1343,10 +1369,18 @@ def node_compose(state: GraphState) -> str | None:
     plan = state.plan
     assert plan is not None
     pack = state.evidence_pack
+    compose_always = bool(getattr(get_settings(), "insight_compose_always", True))
+    if compose_always:
+        plan.requires_compose = True
 
     from news_rag.fund_risk import asks_pillar_mark, asks_sebi_riskometer, rating_lead
 
-    if plan.answer_mode == AnswerMode.DATA_ONLY and pack and asks_pillar_mark(state.question or ""):
+    if (
+        not compose_always
+        and plan.answer_mode == AnswerMode.DATA_ONLY
+        and pack
+        and asks_pillar_mark(state.question or "")
+    ):
         from news_rag.fund_risk import pillar_focus, render_pillar_marks_table
 
         fund = next(
@@ -1366,7 +1400,8 @@ def node_compose(state: GraphState) -> str | None:
                 return None
 
     if (
-        plan.answer_mode == AnswerMode.DATA_ONLY
+        not compose_always
+        and plan.answer_mode == AnswerMode.DATA_ONLY
         and pack
         and asks_sebi_riskometer(state.question or "")
     ):
@@ -1391,7 +1426,7 @@ def node_compose(state: GraphState) -> str | None:
             render_portfolio_drawback_answer,
         )
 
-        if plan_wants_portfolio_drawback(plan, state.question or ""):
+        if not compose_always and plan_wants_portfolio_drawback(plan, state.question or ""):
             drawback_answer = render_portfolio_drawback_answer(pack, plan, state.question or "")
             if drawback_answer:
                 state.answer = _clean_answer(drawback_answer)
@@ -1400,8 +1435,10 @@ def node_compose(state: GraphState) -> str | None:
 
         from news_rag.insight.evidence_pack import render_fund_concentration_answer
 
-        fund_concentration = render_fund_concentration_answer(
-            pack, plan, state.question or ""
+        fund_concentration = (
+            ""
+            if compose_always
+            else render_fund_concentration_answer(pack, plan, state.question or "")
         )
         if fund_concentration:
             state.answer = _clean_answer(fund_concentration)
@@ -1410,13 +1447,29 @@ def node_compose(state: GraphState) -> str | None:
 
         from news_rag.insight.evidence_pack import render_investor_concentration_answer
 
-        concentration_answer = render_investor_concentration_answer(
-            pack, plan, state.question or ""
+        concentration_answer = (
+            ""
+            if compose_always
+            else render_investor_concentration_answer(pack, plan, state.question or "")
         )
         if concentration_answer:
             state.answer = _clean_answer(concentration_answer)
             state.route_reason = "portfolio concentration template"
             return None
+
+    if pack is not None and plan.tasks:
+        from news_rag.insight.task_exec import coverage_line, render_task_answer
+
+        task_text = render_task_answer(plan, pack.data_pack if isinstance(pack.data_pack, dict) else {})
+        if task_text:
+            state.draft_answer = task_text
+            plan.presentation_notes = (
+                f"{plan.presentation_notes}\nDraft table (choose table, insight or sentence; do not print it twice):\n{task_text}"
+            ).strip()
+            plan.requires_compose = True
+            if state.query_log is not None:
+                state.query_log.write(coverage_line(plan, pack.data_pack if isinstance(pack.data_pack, dict) else {}))
+                state.query_log.write("COMPOSE draft_task_table")
 
     from news_rag.insight.fact_answer import (
         FIELD_TEMPLATE_COMPOSER_MIN_HOLDINGS,
@@ -1430,7 +1483,11 @@ def node_compose(state: GraphState) -> str | None:
 
     from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
 
-    if pack is not None and shape_for(normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))) == "fact":
+    if (
+        not compose_always
+        and pack is not None
+        and shape_for(normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))) == "fact"
+    ):
         from news_rag.insight.fact_answer import render_portfolio_fact
 
         book = (pack.data_pack or {}).get("investor_portfolio") if isinstance(pack.data_pack, dict) else None
@@ -1445,10 +1502,6 @@ def node_compose(state: GraphState) -> str | None:
             if state.query_log is not None:
                 state.query_log.write(f"COMPOSE portfolio_fact intent={plan.portfolio_intent}")
             return None
-
-    compose_always = bool(getattr(get_settings(), "insight_compose_always", True))
-    if compose_always:
-        plan.requires_compose = True
 
     if not compose_always and pack is not None and wants_comparison_table(state.question or "", plan):
         table_answer = render_benchmark_comparison_table(pack, plan, state.question or "")
@@ -1502,8 +1555,9 @@ def node_compose(state: GraphState) -> str | None:
     # DATA_ONLY is a fetch choice, not a finished dump. The composer writes the answer.
     settings = get_settings()
     if not llm_api_key_configured(settings):
-        if template_answer:
-            state.answer = _clean_answer(template_answer)
+        fallback = template_answer or getattr(state, "draft_answer", "")
+        if fallback:
+            state.answer = _clean_answer(fallback)
             state.route_reason = "DATA_ONLY template (no composer key)"
             return None
         if pack:
@@ -1621,6 +1675,27 @@ def node_compose(state: GraphState) -> str | None:
         )
         wants["presentation_notes"] = " ".join(
             filter(None, [str(wants.get("presentation_notes") or "").strip(), overview_notes])
+        ).strip()
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent
+
+    book_intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+    if book_intent == "fy_summary":
+        wants["investor_portfolio_overview"] = True
+        inv_for_notes = (pack.data_pack.get("investor_portfolio") if pack and isinstance(pack.data_pack, dict) else {}) or {}
+        meta = inv_for_notes.get("meta") if isinstance(inv_for_notes.get("meta"), dict) else {}
+        fy_label = str(meta.get("financial_year") or "").strip() or "the current financial year"
+        from news_rag.insight.fact_answer import render_portfolio_fact
+
+        gain_line = render_portfolio_fact("st_vs_lt_gains", inv_for_notes, plan=plan)
+        fy_notes = (
+            f"Financial-year summary ({fy_label}). Use investor_portfolio.pnl_summary for FY inflows, "
+            f"gain and tax split; quote short_term_gain_inr and long_term_gain_inr. "
+            f"Measured gain split: {gain_line}" if gain_line else
+            f"Financial-year summary ({fy_label}). Use investor_portfolio.pnl_summary for FY figures."
+        )
+        fy_notes += " Do not say the FY opening value is missing when pnl_summary is in EVIDENCE."
+        wants["presentation_notes"] = " ".join(
+            filter(None, [str(wants.get("presentation_notes") or "").strip(), fy_notes])
         ).strip()
     elif subject and str(plan.intent or "") == "overview" and len(plan.funds or []) == 1:
         wants["fund_overview"] = True
@@ -1740,8 +1815,9 @@ def node_compose(state: GraphState) -> str | None:
         state.query_log.write(f"COMPOSE_RAW chars={len(raw_text)} output_tokens={getattr(res, 'output_tokens', 0) or 0}")
     if not raw_text:
         state.pipeline_errors.append({"stage": "compose", "tool": "", "message": "empty response"})
-        if template_answer:
-            state.answer = _clean_answer(template_answer)
+        fallback = template_answer or getattr(state, "draft_answer", "")
+        if fallback:
+            state.answer = _clean_answer(fallback)
             state.route_reason = "composer empty; template fallback"
             return None
         if pack and pack.data_pack:
@@ -1834,17 +1910,10 @@ def node_compose(state: GraphState) -> str | None:
     investor = {}
     if pack and isinstance(pack.data_pack, dict):
         investor = pack.data_pack.get("investor_portfolio") if isinstance(pack.data_pack.get("investor_portfolio"), dict) else {}
-    from news_rag.insight.evidence_pack import (
-        _concentration_markdown,
-        append_investor_portfolio_overview_tables,
-    )
+    from news_rag.insight.evidence_pack import _concentration_markdown
     from news_rag.fund_risk import asks_fund_risk
 
-    if question_asks_whole_investor_portfolio(state.question or "", plan) and investor:
-        if not (pack and isinstance(pack.data_pack.get("portfolio_news_impact"), dict)):
-            polished_text = append_investor_portfolio_overview_tables(
-                polished_text, investor, plan, state.question or ""
-            )
+    # Category and holdings tables stay in the evidence. The composer decides whether to show them.
 
     from news_rag.insight.portfolio_news_impact import (
         question_is_portfolio_news_impact,
@@ -1969,6 +2038,15 @@ def node_compose(state: GraphState) -> str | None:
         )
         if "can't get that data" not in polished_text.lower():
             polished_text = f"{polished_text.rstrip()}\n\nWe can't get that data right now.".strip()
+    from news_rag.insight.investor_subject import (
+        ensure_portfolio_opening_heading,
+        fix_unasked_scheme_opening_heading,
+    )
+
+    polished_text = fix_unasked_scheme_opening_heading(
+        polished_text, state.question or "", plan, state.memory
+    )
+    polished_text = ensure_portfolio_opening_heading(polished_text, state.question or "", plan)
     state.answer = _clean_answer(polished_text)
 
     # Jev judge is paused for ask. The score was recorded and the answer was still returned.

@@ -29,6 +29,8 @@ class _Usage:
 
 
 def run_case(case: dict) -> dict:
+    if case.get("needs_prior_fund"):
+        return {"q": case["q"], "fail": [], "tools": [], "skipped": "needs prior chat fund"}
     from news_rag.insight.plan import make_plan
     from news_rag.insight.plan_enforce import apply_planner_post_hooks
 

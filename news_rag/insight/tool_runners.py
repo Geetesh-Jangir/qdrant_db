@@ -604,6 +604,35 @@ def run_sector_alignment_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
     return res
 
 
+def _top_live_holdings(limit: int = 2) -> list[dict[str, Any]]:
+    """Largest live holdings, different categories first. Used when the user did not name two funds."""
+    from news_rag.portfolio.cache import peek_portfolio
+
+    doc = peek_portfolio() or {}
+    rows = [
+        row for row in (doc.get("holdings") or [])
+        if isinstance(row, dict) and float(row.get("aum_inr") or 0) > 0 and row.get("scheme_name")
+    ]
+    rows.sort(key=lambda row: -float(row.get("aum_inr") or 0))
+    picked: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        cat = str(row.get("scheme_category") or "")
+        if cat and cat in seen:
+            continue
+        picked.append(row)
+        if cat:
+            seen.add(cat)
+        if len(picked) >= limit:
+            return picked
+    for row in rows:
+        if row not in picked:
+            picked.append(row)
+        if len(picked) >= limit:
+            break
+    return picked
+
+
 def run_compare_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
     from news_rag.fund_search import get_fund_index
     from news_rag.tools import run_compare_funds
@@ -614,6 +643,15 @@ def run_compare_funds_adapter(ctx: dict[str, Any]) -> dict[str, Any]:
         d, _ambiguous, _close = idx.lookup_extracted_fund(name=str(name))
         if d:
             details.append(d)
+    if len(details) < 2:
+        for hit in _top_live_holdings(2):
+            peer, _ambiguous, _close = idx.lookup_extracted_fund(name=str(hit.get("scheme_name") or ""))
+            peer_isin = str((peer or {}).get("isin") or "")
+            have = {str((row or {}).get("isin") or "") for row in details}
+            if peer and peer_isin not in have:
+                details.append(peer)
+            if len(details) >= 2:
+                break
     if len(details) < 2:
         from news_rag.portfolio.cache import find_cached_holdings
 

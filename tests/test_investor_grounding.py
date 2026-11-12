@@ -36,11 +36,31 @@ def _sample_book():
     }
 
 
+def test_investor_book_cores_includes_pnl_term_gains():
+    book = {
+        **(_sample_book()),
+        "pnl_summary": {"short_term_gain_inr": 4019.23, "long_term_gain_inr": 783.85},
+    }
+    cores = investor_book_cores(book)
+    assert "4019.23" in cores or "4019.2" in cores
+    assert "783.85" in cores or "783.8" in cores
+
+
 def test_investor_book_cores_includes_rounded_allocation_pct():
     pack, _ = sanitize_data_pack_for_composer({"investor_portfolio": _sample_book()})
     inv = pack["investor_portfolio"]
     cores = investor_book_cores(inv)
     assert "41" in cores or "40.53" in cores or any(c.startswith("40") for c in cores)
+
+
+def test_repair_fills_empty_term_gain_bullets():
+    book = {
+        "pnl_summary": {"short_term_gain_inr": 4019.23, "long_term_gain_inr": 783.85},
+    }
+    raw = "### Gain split by type\n- **Short-term gain:**\n- **Long-term gain:**"
+    fixed = repair_investor_insight_prose(raw, book)
+    assert "4,019" in fixed or "4019" in fixed
+    assert "783" in fixed
 
 
 def test_repair_fills_hollow_allocation_and_holding_bullets():

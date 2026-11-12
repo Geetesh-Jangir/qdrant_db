@@ -159,6 +159,19 @@ def test_repair_empty_investor_tool_calls(monkeypatch):
     assert "holdings" in mods
 
 
+def test_zero_aum_holdings_are_dropped():
+    from news_rag.portfolio.normalize import _drop_sold, match_scheme_filter
+
+    live, sold = _drop_sold([
+        {"scheme_name": "Live", "aum_inr": 10, "units": 1},
+        {"scheme_name": "Sold", "aum_inr": 0, "units": 0},
+        {"scheme_name": "Also sold", "aum_inr": 0, "units": 4},
+    ])
+    assert sold == 2
+    assert [row["scheme_name"] for row in live] == ["Live"]
+    assert match_scheme_filter("Nippon India Liquid Fund", "any") is True
+
+
 def test_current_value_and_nonzero_xirr():
     from news_rag.portfolio.normalize import normalize_workspace
 

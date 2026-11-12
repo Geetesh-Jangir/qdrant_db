@@ -21,7 +21,7 @@ _BRIEF_KINDS = {
     "risk_alignment": ("risk_alignment",),
     "sip_review": ("sip", "performance"),
     "period_change": ("performance", "laggards", "as_of"),
-    "fy_summary": ("performance", "sip", "as_of"),
+    "fy_summary": ("performance", "sip", "as_of", "gains_split"),
     "where_losing": ("laggards",),
 }
 

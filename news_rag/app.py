@@ -136,6 +136,7 @@ class AskRequest(BaseModel):
     direction: str | None = Field(default=None, max_length=20)
     conversation_id: str | None = Field(default=None, max_length=64)
     prior_turns: list[dict[str, Any]] | None = Field(default=None)
+    portfolio_crn: str | None = Field(default=None, max_length=64)
 
 
 def _attach_llm_meta(result: dict, meta: dict) -> None:
@@ -480,6 +481,19 @@ def _crn_for_ask(conversation_id: str | None) -> str:
     return session_crn(conversation_id or "")
 
 
+def _attach_portfolio_to_ask(conversation_id: str | None, crn_hint: str | None = None) -> str:
+    """Restore per-chat CRN binding and set the request context."""
+    from news_rag.portfolio.cache import bind_session, session_crn, set_active_crn
+
+    cid = str(conversation_id or "").strip()
+    hint = str(crn_hint or "").strip()
+    if hint and _CRN_RE.match(hint) and cid and session_crn(cid) != hint:
+        bind_session(cid, hint)
+    active = session_crn(cid) if cid else ""
+    set_active_crn(active)
+    return active
+
+
 @app.post("/api/ask")
 def ask(
     body: AskRequest,
@@ -493,9 +507,7 @@ def ask(
     if not settings.qdrant_api_key and "cloud.qdrant.io" in settings.qdrant_url:
         raise HTTPException(status_code=500, detail="QDRANT_API_KEY required for Cloud")
 
-    from news_rag.portfolio.cache import set_active_crn
-
-    set_active_crn(_crn_for_ask(body.conversation_id))
+    active_crn = _attach_portfolio_to_ask(body.conversation_id, body.portfolio_crn)
     reset_llm_request_state()
     query_log = new_query_logger(question=body.question)
     configured_provider = llm_provider(settings)
@@ -503,6 +515,8 @@ def ask(
         f"config llm_provider={configured_provider} llm_model={llm_model(settings)} "
         f"collection={settings.qdrant_collection}"
     )
+    if active_crn:
+        query_log.write(f"PORTFOLIO_SESSION crn_bound=yes")
     query_log.note("request_start", llm_provider=configured_provider, llm_model=llm_model(settings))
     query_log.log_request(
         {
@@ -591,9 +605,7 @@ def ask_stream(
     if not settings.qdrant_api_key and "cloud.qdrant.io" in settings.qdrant_url:
         raise HTTPException(status_code=500, detail="QDRANT_API_KEY required for Cloud")
 
-    from news_rag.portfolio.cache import set_active_crn
-
-    set_active_crn(_crn_for_ask(body.conversation_id))
+    active_crn = _attach_portfolio_to_ask(body.conversation_id, body.portfolio_crn)
     reset_llm_request_state()
     query_log = new_query_logger(question=body.question)
     configured_provider = llm_provider(settings)
@@ -627,12 +639,10 @@ def ask_stream(
         "turns": body.prior_turns,
     } if body.prior_turns or body.conversation_id else None
 
-    active = _crn_for_ask(body.conversation_id)
+    stream_crn = active_crn
 
     async def _events():
-        from news_rag.portfolio.cache import set_active_crn
-
-        set_active_crn(active)
+        _attach_portfolio_to_ask(body.conversation_id, body.portfolio_crn or stream_crn or None)
         async for packet in stream_ask_engine(
             body.question,
             date_from=body.date_from,

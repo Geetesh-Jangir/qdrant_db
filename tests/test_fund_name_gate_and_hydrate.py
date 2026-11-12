@@ -66,6 +66,44 @@ def test_planner_needs_clarification_cleared_when_icici_fund_bound_from_chat():
     assert not (out.direct_reply or "").strip()
 
 
+def test_compare_sides_holding_does_not_clarify():
+    q = "Compare this with the large cap in my portfolio"
+    plan = ExecutionPlan(
+        intent="compare",
+        funds=["Parag Parikh Flexi Cap Fund"],
+        compare_sides=[
+            {"source": "chat_memory", "name": "Parag Parikh Flexi Cap Fund"},
+            {"source": "my_holding", "category": "large cap"},
+        ],
+        tool_calls=[ToolCall(tool="compare_funds", arguments={"mode": "both"})],
+    )
+    memory = {
+        "chat_turns": [
+            {
+                "user": "Tell me about Parag Parikh Flexi Cap Fund",
+                "assistant": "## Parag Parikh Flexi Cap Fund\nOverview.",
+            }
+        ]
+    }
+    out = clarify_plan_if_fund_unknown(plan, memory, q)
+    assert out.scope_kind == ScopeKind.IN_SCOPE
+    assert out.tool_calls
+
+
+def test_unresolved_chat_memory_side_still_clarifies():
+    plan = ExecutionPlan(
+        intent="compare",
+        compare_sides=[
+            {"source": "chat_memory", "name": ""},
+            {"source": "my_holding", "category": "large cap"},
+        ],
+        tool_calls=[ToolCall(tool="compare_funds", arguments={"mode": "both"})],
+    )
+    out = clarify_plan_if_fund_unknown(plan, {}, "Compare this with the large cap in my portfolio")
+    assert out.scope_kind == ScopeKind.NEEDS_CLARIFICATION
+    assert not out.tool_calls
+
+
 def test_clarify_allows_explicit_fund_in_question():
     plan = ExecutionPlan(
         funds=["HDFC Large Cap Fund"],

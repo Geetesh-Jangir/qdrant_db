@@ -271,6 +271,10 @@ def test_compare_this_with_portfolio_large_cap_fetches_holding():
         intent="compare",
         subject_ref="memory_primary",
         funds=["Bandhan Large Cap Fund - Regular Plan - Growth"],
+        compare_sides=[
+            {"source": "chat_memory", "name": "Bandhan Large Cap Fund - Regular Plan - Growth"},
+            {"source": "my_holding", "category": "large cap"},
+        ],
         tool_calls=[
             ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1),
             ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1),

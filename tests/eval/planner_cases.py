@@ -46,4 +46,6 @@ CASES: list[dict] = [
     {"q": "tell me hdfc flexi cap fund?", "tools_include": ["get_fund_data"], "scope": ["none", "catalog"]},
     {"q": "why did hdfc large cap fall in the last month", "tools_include": ["get_fund_data"], "scope": ["none", "catalog"]},
     {"q": "compare any two large cap funds which are performing well in last 1 year?", "tools_exclude": ["get_investor_portfolio"]},
+    # Needs a prior contra turn in memory; live eval without that history is not meaningful.
+    {"q": "Compare this with the large cap in my portfolio", "tools_include": ["compare_funds", "get_investor_portfolio"], "needs_prior_fund": True},
 ]

@@ -15,6 +15,40 @@ _FUND_NAME_PROMPT = (
 _FUND_SCOPED_TOOLS = frozenset({"get_fund_data", "get_portfolio_data", "compare_funds"})
 
 
+def _compare_sides_resolvable(
+    plan: ExecutionPlan,
+    memory: dict | None,
+    question: str,
+) -> bool:
+    """Planner named both sides. A holding is resolved by get_investor_portfolio, not by asking for a name."""
+    from news_rag.insight.fund_name_policy import fund_authorized_for_question
+    from news_rag.insight.memory.fund_context import memory_known_fund_names, primary_fund_name
+    from news_rag.insight.plan_intent import plan_wants_fund_compare
+
+    sides = list(plan.compare_sides or [])
+    if not plan_wants_fund_compare(plan) or len(sides) < 2:
+        return False
+    known = {n.lower() for n in memory_known_fund_names(memory)}
+    focus = (primary_fund_name(memory) or "").strip()
+    for side in sides:
+        source = str(side.get("source") or "")
+        name = str(side.get("name") or "").strip()
+        if source == "my_holding":
+            if str(side.get("category") or "").strip():
+                continue
+            return False
+        if source == "named" and name:
+            continue
+        if source == "chat_memory":
+            if name and (name.lower() in known or fund_authorized_for_question(name, question, memory)):
+                continue
+            if focus:
+                continue
+            return False
+        return False
+    return True
+
+
 def _plan_uses_fund_scoped_tools(plan: ExecutionPlan) -> bool:
     for call in plan.tool_calls or []:
         if call.tool in _FUND_SCOPED_TOOLS:
@@ -115,6 +149,8 @@ def clarify_plan_if_fund_unknown(
     if question_is_pure_general_concept(question) and not _plan_uses_fund_scoped_tools(plan):
         return plan
     if plan_wants_fund_compare(plan) and len(plan.funds or []) >= 2:
+        return plan
+    if _compare_sides_resolvable(plan, memory, question):
         return plan
     if plan_wants_compare_categories(plan) or plan_wants_alternate_in_category(plan):
         return plan

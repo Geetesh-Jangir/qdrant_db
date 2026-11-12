@@ -5,6 +5,8 @@ Does not read the question. Unknown values are none.
 
 from __future__ import annotations
 
+import re
+
 from news_rag.insight.contracts import AnswerMode, ExecutionPlan
 
 FACT = frozenset({
@@ -112,6 +114,27 @@ def normalize_portfolio_intent(raw: str | None) -> str:
     return value if value in PORTFOLIO_INTENTS else "none"
 
 
+def portfolio_intent_from_question(question: str) -> str:
+    """Book-level intents the planner sometimes leaves as none."""
+    q = (question or "").strip().lower()
+    if not q:
+        return "none"
+    has_book = "portfolio" in q or " my " in f" {q} " or q.startswith("my ")
+    if not has_book:
+        return "none"
+    if re.search(r"\b(?:fy|financial\s+year)\b", q):
+        return "fy_summary"
+    if re.search(r"health\s+check", q):
+        return "health_check"
+    if re.search(r"\bsips?\b", q) and re.search(r"\breview\b|\bstatus\b", q):
+        return "sip_review"
+    if re.search(r"risk\s+profile|aligned", q):
+        return "risk_alignment"
+    if re.search(r"how\s+did\b.*\bchange\b|this\s+year\b|\bytd\b", q):
+        return "period_change"
+    return "none"
+
+
 def shape_for(intent: str) -> str:
     name = normalize_portfolio_intent(intent)
     if name in FACT:
@@ -145,9 +168,13 @@ def should_attach_news(intent: str, *, planner_intent: str = "", answer_mode: st
     return False
 
 
-def apply_portfolio_intent(plan: ExecutionPlan) -> ExecutionPlan:
+def apply_portfolio_intent(plan: ExecutionPlan, question: str = "") -> ExecutionPlan:
     """Seed scope, modules are applied later. Fact intents skip the composer and news."""
     intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+    if intent == "none" and question:
+        inferred = portfolio_intent_from_question(question)
+        if inferred != "none":
+            intent = inferred
     plan.portfolio_intent = intent
     if intent == "none":
         return plan

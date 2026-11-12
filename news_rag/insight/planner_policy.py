@@ -81,6 +81,46 @@ def planner_owns(plan: Any) -> bool:
     return (getattr(plan, "routed_by", "") or "") == "planner"
 
 
+def restore_dropped_planner_tools(plan: ExecutionPlan, original: list[ToolCall]) -> ExecutionPlan:
+    """Hooks may add tools; they must not drop ones the planner already chose."""
+    from news_rag.insight.contracts import ScopeKind
+
+    if not planner_owns(plan) or not original:
+        return plan
+    if plan.scope_kind in (ScopeKind.NEEDS_CLARIFICATION, ScopeKind.OUT_OF_SCOPE):
+        return plan
+    if not plan.tool_calls:
+        plan.tool_calls = [call.model_copy(deep=True) for call in original]
+        return plan
+    have = {call.tool: i for i, call in enumerate(plan.tool_calls)}
+    for call in original:
+        idx = have.get(call.tool)
+        if idx is None:
+            plan.tool_calls.append(call.model_copy(deep=True))
+            have[call.tool] = len(plan.tool_calls) - 1
+            continue
+        if call.tool != "get_fund_data":
+            continue
+        cur = plan.tool_calls[idx]
+        args = dict(cur.arguments or {})
+        mods = [str(m).lower() for m in (args.get("modules") or [])]
+        for mod in (call.arguments or {}).get("modules") or []:
+            name = str(mod).lower()
+            if name and name not in mods:
+                mods.append(name)
+        if mods:
+            args["modules"] = mods
+        windows = [str(w) for w in (args.get("windows") or [])]
+        for window in (call.arguments or {}).get("windows") or []:
+            label = str(window)
+            if label and label not in windows:
+                windows.append(label)
+        if windows:
+            args["windows"] = windows
+        cur.arguments = args
+    return plan
+
+
 _RISK_ASK_RE = re.compile(r"\b(?:riskometer|how risky|risk)\b", re.I)
 
 
@@ -178,6 +218,19 @@ def narrow_deictic_follow_up(
         plan.answer_mode = AnswerMode.INSIGHT_FUSION
         return plan
     if len(periods) != 1:
+        return plan
+    # "tell me more about it and its 1M" is still an overview, not a single-figure follow-up.
+    if re.search(
+        r"\b(?:tell me more|more about|overview|also)\b|\band\s+(?:its|the|about)\b",
+        question or "",
+        re.I,
+    ):
+        for call in plan.tool_calls or []:
+            if call.tool != "get_fund_data":
+                continue
+            args = dict(call.arguments or {})
+            args["windows"] = periods
+            call.arguments = args
         return plan
     turns = (memory or {}).get("chat_turns") if isinstance(memory, dict) else None
     last = ""

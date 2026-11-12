@@ -44,6 +44,37 @@ def test_ensure_rating_screen_does_not_rewrite_from_question_text():
     assert plan.tool_calls[0].arguments["focus_question"] == "large cap"
 
 
+def test_misclassified_allocation_with_investor_tool_never_clears_tools():
+    plan = ExecutionPlan(
+        routed_by="planner",
+        data_need="portfolio_allocation",
+        horizon_years=None,
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["allocation"]},
+                wave=1,
+            )
+        ],
+    )
+    assert not maybe_install_balanced_portfolio_screen("Show my portfolio allocation", plan, None)
+    assert any(c.tool == "get_investor_portfolio" for c in plan.tool_calls)
+    assert plan.data_need == "investor_summary"
+    assert (plan.direct_reply or "") == ""
+
+
+def test_portfolio_allocation_without_screen_signals_does_not_clarify_horizon():
+    plan = ExecutionPlan(
+        routed_by="planner",
+        data_need="portfolio_allocation",
+        horizon_years=None,
+        tool_calls=[],
+    )
+    assert not maybe_install_balanced_portfolio_screen("latest market news", plan, None)
+    assert plan.tool_calls == []
+    assert (plan.direct_reply or "") == ""
+
+
 def test_ideal_portfolio_without_planner_allocation_does_not_install_a_screen():
     q = "for a ideal portfolio show should it look like and what categories and assets it should hold"
     plan = ExecutionPlan(

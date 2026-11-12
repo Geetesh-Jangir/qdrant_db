@@ -16,6 +16,29 @@ def question_refers_to_investor_holding(question: str) -> bool:
     return " my " in f" {q} "
 
 
+def question_asks_current_book_allocation(question: str) -> bool:
+    """Category mix the user already holds — not an ideal portfolio screen."""
+    from news_rag.insight.investor_drawback import question_signals_investor_book
+
+    if not question_signals_investor_book(question):
+        return False
+    q = (question or "").lower()
+    if not re.search(
+        r"\ballocation\b|\bcategory\s+mix\b|\basset\s+mix\b|\bhow\s+(?:is|am)\s+i\s+allocated\b",
+        q,
+        re.I,
+    ):
+        return False
+    if re.search(
+        r"\b(?:ideal|recommend|suggest|should\s+i|what\s+should|how\s+should|"
+        r"\d+\s*years?\b|year\s+horizon|stay\s+invested|for\s+\d+\s*years?)\b",
+        q,
+        re.I,
+    ):
+        return False
+    return True
+
+
 def _category_slug_from_question(question: str) -> str:
     from news_rag.fund_rating_categories import match_scheme_category
     from news_rag.insight.category_plan import _categories_equivalent
@@ -158,6 +181,19 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
         "my portfolio allocation",
     )
     has_book_phrase = any(p in q for p in book_phrases)
+    portfolio_health = "portfolio" in q and re.search(r"\bhealth\s+check\b", q)
+    portfolio_about = (
+        "portfolio" in q
+        and not question_refers_deictic_fund(question)
+        and (
+            question_refers_to_investor_holding(question)
+            or "about" in q
+            or "tell me" in q
+            or portfolio_health
+        )
+    )
+    if portfolio_health and not _category_slug_from_question(question):
+        return True
     if plan is not None:
         need = str(plan.data_need or "").lower().strip()
         if need == "investor_summary":
@@ -185,16 +221,22 @@ def question_asks_whole_investor_portfolio(question: str, plan: ExecutionPlan | 
         if str(plan.holding_scope or "") == "all_holdings" and any(
             c.tool == "get_fund_data" for c in plan.tool_calls or []
         ):
-            return False
+            intent = str(plan.intent or "").lower().strip()
+            scope = str(plan.portfolio_scope or "").lower().strip()
+            if not (
+                intent == "overview"
+                and scope in ("investor", "both")
+                and (has_book_phrase or portfolio_about or portfolio_health)
+            ):
+                return False
         intent = str(plan.intent or "").lower().strip()
         scope = str(plan.portfolio_scope or "").lower().strip()
         if intent == "overview" and scope in ("investor", "both") and not (plan.funds or []):
             return True
     if has_book_phrase:
         return True
-    if "portfolio" in q and not question_refers_deictic_fund(question):
-        if question_refers_to_investor_holding(question) or "about" in q or "tell me" in q:
-            return True
+    if portfolio_about:
+        return True
     return False
 
 
@@ -549,13 +591,26 @@ def resolve_answer_subject(
 ) -> str:
     if question_asks_catalog_fund_list(question, plan):
         return ""
-    subject = str((plan.funds or [""])[0] or "").strip()
-    if subject:
-        return subject
+    if question_asks_whole_investor_portfolio(question, plan):
+        return ""
     from news_rag.insight.brief import question_is_standalone_macro
 
     if question_is_standalone_macro(question):
         return ""
+
+    explicit = resolve_user_named_fund_in_memory(question, memory)
+    if explicit:
+        return explicit
+
+    funds = [str(f).strip() for f in (plan.funds or []) if str(f).strip()]
+    for name in funds:
+        if user_explicitly_named_scheme(question, name):
+            return name
+    if len(funds) == 1:
+        return funds[0]
+    if len(funds) > 1:
+        return ""
+
     subject = resolve_investor_holding_fund_name(question, memory)
     if subject:
         return subject
@@ -575,16 +630,67 @@ def resolve_answer_subject(
 
     if question_asks_portfolio_level_drawdown(question, plan):
         return ""
-    if question_asks_whole_investor_portfolio(question, plan):
-        return ""
     if question_refers_deictic_fund(question) and question_asks_fund_measured_return(question):
         return ""
-    for row in holdings:
-        if isinstance(row, dict) and row.get("scheme_name"):
-            return str(row["scheme_name"]).strip()
-        if isinstance(row, dict) and row.get("name"):
-            return str(row["name"]).strip()
+    if len(holdings) == 1:
+        row = holdings[0]
+        if isinstance(row, dict):
+            return str(row.get("scheme_name") or row.get("name") or "").strip()
     return ""
+
+
+def _heading_matches_scheme(heading: str, scheme: str) -> bool:
+    h = (heading or "").strip().lower()
+    s = (scheme or "").strip().lower()
+    if not h or not s:
+        return False
+    return h == s or h in s or s in h
+
+
+def fix_unasked_scheme_opening_heading(
+    text: str,
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None = None,
+) -> str:
+    """Do not lead with a scheme the user did not ask about."""
+    lines = (text or "").splitlines()
+    if not lines:
+        return text or ""
+    m = re.match(r"^##\s+(.+?)\s*$", lines[0].strip())
+    if not m:
+        return text
+    heading = m.group(1).strip()
+    if "your portfolio" in heading.lower():
+        return text
+
+    subject = resolve_answer_subject(question, plan, memory)
+    if subject and _heading_matches_scheme(heading, subject):
+        return text
+
+    funds = [str(f).strip() for f in (plan.funds or []) if str(f).strip()]
+    if not any(_heading_matches_scheme(heading, f) for f in funds):
+        return text
+
+    if any(user_explicitly_named_scheme(question, f) and _heading_matches_scheme(heading, f) for f in funds):
+        return text
+
+    if question_asks_whole_investor_portfolio(question, plan):
+        lines[0] = "## Your portfolio"
+        return "\n".join(lines)
+
+    if len(funds) > 1:
+        return "\n".join(lines[1:]).lstrip()
+    return text
+
+
+def ensure_portfolio_opening_heading(text: str, question: str, plan: ExecutionPlan) -> str:
+    body = (text or "").strip()
+    if not body or not question_asks_whole_investor_portfolio(question, plan):
+        return text
+    if body.startswith("##"):
+        return text
+    return f"## Your portfolio\n\n{body}"
 
 
 def question_refers_deictic_fund(question: str) -> bool:
@@ -913,10 +1019,13 @@ def _amc_token_in_question(token: str, amc_tokens: set[str]) -> str:
         return token
     if len(token) < 5:
         return ""
-    hit = difflib.get_close_matches(token, list(amc_tokens), n=1, cutoff=0.8)
-    if hit and hit in _AMC_FUZZY_BLOCK:
+    hits = difflib.get_close_matches(token, list(amc_tokens), n=1, cutoff=0.8)
+    if not hits:
         return ""
-    return hit if hit else ""
+    match = hits[0]
+    if match in _AMC_FUZZY_BLOCK:
+        return ""
+    return match
 
 
 def user_explicitly_named_scheme(question: str, fund_name: str) -> bool:

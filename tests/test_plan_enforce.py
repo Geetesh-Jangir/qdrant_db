@@ -387,3 +387,37 @@ def test_planner_pillars_in_rating_fetches_full_rating():
     assert any(c.tool == "get_fund_data" for c in out.tool_calls)
     call = next(c for c in out.tool_calls if c.tool == "get_fund_data")
     assert call.arguments.get("pillars") is True
+
+
+def test_compare_drops_fund_not_in_chat_or_holdings():
+    from news_rag.insight.plan_enforce import reconcile_planner_compare_fund_pair
+
+    memory = {
+        "frame": {
+            "subject_kind": "comparison",
+            "subjects": [
+                {"name": "DSP India T.I.G.E.R. Fund - Regular Plan - Growth", "role": "primary"},
+                {"name": "Baroda BNP Paribas Short Term Fund - Segregated Portfolio 1 - Growth", "role": "primary"},
+            ],
+        },
+        "chat_turns": [
+            {
+                "user": "name each of them",
+                "assistant": "| Kotak Contra Fund - Regular Plan - Growth | contra |",
+            }
+        ],
+    }
+    plan = ExecutionPlan(
+        intent="compare",
+        funds=[
+            "Kotak Contra Fund - Regular Plan - Growth",
+            "Edelweiss Large Cap Fund - Plan C",
+        ],
+        planner_reading="Compare Kotak Contra Fund with Edelweiss Large Cap Fund - Plan C",
+        tool_calls=[ToolCall(tool="compare_funds", arguments={"mode": "both"})],
+    )
+    reconcile_planner_compare_fund_pair(
+        plan, memory, "compare the contra fund with the large cap fund"
+    )
+    assert plan.funds == ["Kotak Contra Fund - Regular Plan - Growth"]
+    assert "Edelweiss" not in plan.planner_reading

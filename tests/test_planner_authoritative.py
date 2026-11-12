@@ -104,6 +104,53 @@ def test_deictic_return_reuses_last_answer():
     assert out.tool_calls == []
 
 
+def test_deictic_tell_me_more_keeps_planner_tools():
+    from news_rag.insight.planner_policy import narrow_deictic_follow_up
+
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="overview",
+        funds=["Invesco India Large & Mid Cap Fund - Regular Plan - Growth"],
+        answer_mode=AnswerMode.INSIGHT_FUSION,
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot", "rating"]}, wave=1),
+            ToolCall(tool="get_portfolio_data", arguments={}, wave=1),
+            ToolCall(tool="search_financial_news", arguments={"scope": "all", "top_n": 8}, wave=1),
+        ],
+        wave_2_policy=Wave2Policy(trigger="none"),
+    )
+    out = narrow_deictic_follow_up(
+        "tell me more about it and its last 1 month performance",
+        plan,
+        {"chat_turns": [], "turn_count": 1},
+    )
+    assert out.tool_names == ["get_fund_data", "get_portfolio_data", "search_financial_news"]
+    assert out.answer_mode == AnswerMode.INSIGHT_FUSION
+    assert out.tool_calls[0].arguments.get("windows") == ["1M"]
+
+
+def test_restore_dropped_planner_tools_puts_news_and_rating_back():
+    from news_rag.insight.planner_policy import restore_dropped_planner_tools
+
+    original = [
+        ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot", "rating"], "windows": ["1M"]}),
+        ToolCall(tool="get_portfolio_data", arguments={}),
+        ToolCall(tool="search_financial_news", arguments={"scope": "all", "top_n": 8}),
+    ]
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="overview",
+        answer_mode=AnswerMode.DATA_ONLY,
+        funds=["Invesco India Large & Mid Cap Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"], "windows": ["1M"]}),
+        ],
+    )
+    out = restore_dropped_planner_tools(plan, original)
+    assert out.tool_names == ["get_fund_data", "get_portfolio_data", "search_financial_news"]
+    assert "rating" in out.tool_calls[0].arguments["modules"]
+
+
 def test_planner_overview_is_not_rewritten_into_a_news_call():
     q = "tell me about hdfc large cap fund"
     plan = ExecutionPlan(

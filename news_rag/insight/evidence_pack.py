@@ -1923,9 +1923,19 @@ def repair_investor_insight_prose(text: str, investor: dict[str, Any]) -> str:
     allocation = computed.get("allocation_by_category") if isinstance(computed.get("allocation_by_category"), list) else []
     summary = investor.get("summary") if isinstance(investor.get("summary"), dict) else {}
     total = computed.get("total_value_inr") or summary.get("aum_inr")
+    pnl = investor.get("pnl_summary") if isinstance(investor.get("pnl_summary"), dict) else {}
+    short_gain = pnl.get("short_term_gain_inr")
+    long_gain = pnl.get("long_term_gain_inr")
+
     lines_out: list[str] = []
     for line in text.splitlines():
         low = line.lower()
+        if short_gain is not None and re.match(r"^-\s+\*\*short[- ]term gain:\*\*\s*$", line.strip(), re.I):
+            lines_out.append(f"- **Short-term gain:** {_fmt_inr(short_gain)}")
+            continue
+        if long_gain is not None and re.match(r"^-\s+\*\*long[- ]term gain:\*\*\s*$", line.strip(), re.I):
+            lines_out.append(f"- **Long-term gain:** {_fmt_inr(long_gain)}")
+            continue
         if allocation and "spread across" in low and re.search(r"about\s*\)|about\s*,|\(\s*\)", line):
             parts = []
             for row in allocation:

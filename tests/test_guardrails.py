@@ -27,6 +27,38 @@ def test_signed_out_own_book_asks_for_sign_in():
     assert guard_reply("one month return of my funds", portfolio_enabled=True) is None
 
 
+def test_sign_in_skipped_when_chat_already_showed_holdings():
+    prior = [
+        {
+            "user": "show me my holdings",
+            "assistant": "| Fund | Category | Value | Return |\n| Invesco | large & mid cap | Rs 28,759.62 | +10.62% |",
+        }
+    ]
+    got = guard_reply(
+        "how are my funds performing",
+        portfolio_enabled=False,
+        prior_turns=prior,
+    )
+    assert got is None
+
+
+def test_attach_portfolio_hint_rebinds_conversation():
+    from news_rag.app import _attach_portfolio_to_ask
+    from news_rag.config import get_settings
+    from news_rag.portfolio.cache import bind_session, clear_cache_for_tests, session_crn, set_active_crn
+
+    clear_cache_for_tests()
+    cid = "conv_guard_test"
+    _attach_portfolio_to_ask(cid, None)
+    assert not get_settings().portfolio_enabled
+    _attach_portfolio_to_ask(cid, "CRN-hint")
+    assert session_crn(cid) == "CRN-hint"
+    assert get_settings().portfolio_enabled
+    bind_session(cid, "")
+    set_active_crn("")
+    clear_cache_for_tests()
+
+
 @pytest.mark.parametrize(
     "question",
     [

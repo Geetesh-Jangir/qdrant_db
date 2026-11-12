@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import difflib
 import re
+from typing import Any
 
 from news_rag.insight.greeting import CAPABILITIES_REPLY
 
@@ -159,7 +160,39 @@ def unknown_fund_phrase(question: str) -> str:
 
 
 SIGN_IN_REPLY = "Please sign in to see your own portfolio. Meanwhile I can answer questions about any fund, a sector, or market news."
-_OWN_BOOK_RE = re.compile(r"\bmy\s+(?:portfolio|funds?|holdings?|sips?|stps?|xirr|investments?|mutual\s+funds?)\b", re.I)
+_OWN_BOOK_RE = re.compile(
+    r"\bmy\s+(?:portfolio|funds?|holdings?|sips?|stps?|xirr|investments?|mutual\s+funds?)\b|"
+    r"\bhow\s+(?:are|is)\s+my\s+(?:portfolio|funds?)\b",
+    re.I,
+)
+_BOOK_ANSWER_RE = re.compile(
+    r"(?:Rs\b|₹|\+\d+\.\d+%|XIRR|Fund\s*\|)",
+    re.I,
+)
+
+
+def memory_shows_investor_book(
+    memory: dict[str, Any] | None = None,
+    prior_turns: list[dict[str, Any]] | None = None,
+) -> bool:
+    """Prior turns already showed this user's book — do not refuse sign-in at the guard."""
+    rows: list[dict[str, Any]] = []
+    if isinstance(memory, dict):
+        for key in ("chat_turns", "turns"):
+            block = memory.get(key)
+            if isinstance(block, list):
+                rows.extend(row for row in block if isinstance(row, dict))
+    if isinstance(prior_turns, list):
+        rows.extend(row for row in prior_turns if isinstance(row, dict))
+    for row in rows:
+        user = str(row.get("user") or "")
+        assistant = str(row.get("assistant") or "")
+        if not assistant or not _OWN_BOOK_RE.search(user):
+            if not re.search(r"\b(?:show\s+(?:me\s+)?)?my\s+(?:holdings|portfolio|allocation)\b", user, re.I):
+                continue
+        if _BOOK_ANSWER_RE.search(assistant) or "Want one fund in more detail" in assistant:
+            return True
+    return False
 
 
 def guard_reply(
@@ -167,9 +200,13 @@ def guard_reply(
     *,
     portfolio_enabled: bool = True,
     has_history: bool = False,
+    prior_turns: list[dict[str, Any]] | None = None,
+    memory: dict[str, Any] | None = None,
 ) -> tuple[str, str] | None:
     """Return (kind, reply) for a question that must not reach the planner, else None."""
     if not portfolio_enabled and _OWN_BOOK_RE.search(question or ""):
+        if memory_shows_investor_book(memory, prior_turns):
+            return None
         return "sign_in", SIGN_IN_REPLY
     if asks_internals(question):
         return "internals", INTERNALS_REPLY

@@ -4,6 +4,7 @@ from news_rag.insight.investor_subject import (
     enforce_investor_holding_subject,
     ensure_catalog_tools_for_fund_news,
     ensure_my_category_fund_investor_plan,
+    fix_unasked_scheme_opening_heading,
     question_asks_whole_investor_portfolio,
     resolve_answer_subject,
     resolve_investor_holding_fund_name,
@@ -244,6 +245,19 @@ def test_minimum_redemption_uses_hdfc_in_memory_not_planner_hallucination():
     assert out.subject_ref == "memory_primary"
 
 
+def test_portfolio_health_check_does_not_crash_fund_name_match():
+    from news_rag.insight.plan_enforce import apply_planner_post_hooks
+
+    memory = {
+        "holdings_in_chat": [
+            {"name": "Invesco India Large & Mid Cap Fund - Regular Plan - Growth", "category": "large & mid cap"},
+        ],
+    }
+    plan = ExecutionPlan(intent="overview", data_need="investor_hybrid", portfolio_scope="investor", window_days=365)
+    out = apply_planner_post_hooks("give me a portfolio health check", plan, memory)
+    assert out is plan
+
+
 def test_user_explicitly_named_scheme_requires_amc_or_two_tokens():
     from news_rag.insight.investor_subject import user_explicitly_named_scheme
 
@@ -317,6 +331,50 @@ def test_memory_primary_rejects_fund_not_in_session():
     )
     resolve_planner_subject_refs(plan, memory, "do its risk analysis")
     assert plan.funds == ["Kotak Contra Fund - Regular Plan - Growth"]
+
+
+def test_fix_opening_heading_for_unasked_scheme_on_portfolio_overview():
+    plan = ExecutionPlan(
+        funds=[
+            "Invesco India Large & Mid Cap Fund - Regular Plan - Growth",
+            "Quant Small Cap Fund - Growth",
+        ],
+        intent="overview",
+        holding_scope="all_holdings",
+        portfolio_scope="both",
+        data_need="investor_hybrid",
+        tool_calls=[
+            ToolCall(tool="get_investor_portfolio", arguments={}, wave=1),
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1),
+        ],
+    )
+    raw = (
+        "## Invesco India Large & Mid Cap Fund - Regular Plan - Growth\n"
+        "Your portfolio is worth **₹69,803**."
+    )
+    out = fix_unasked_scheme_opening_heading(raw, "Tell me about my portfolio", plan, {})
+    assert out.startswith("## Your portfolio")
+    assert "Invesco" not in out.splitlines()[0]
+
+
+def test_portfolio_overview_with_holdings_catalog_fanout_is_whole_book():
+    plan = ExecutionPlan(
+        funds=[
+            "Invesco India Large & Mid Cap Fund - Regular Plan - Growth",
+            "Quant Small Cap Fund - Growth",
+        ],
+        intent="overview",
+        holding_scope="all_holdings",
+        portfolio_scope="both",
+        data_need="investor_hybrid",
+        tool_calls=[
+            ToolCall(tool="get_investor_portfolio", arguments={}, wave=1),
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1),
+        ],
+    )
+    question = "Tell me about my portfolio"
+    assert question_asks_whole_investor_portfolio(question, plan)
+    assert resolve_answer_subject(question, plan, {}) == ""
 
 
 def test_whole_portfolio_question_has_no_answer_subject():

@@ -108,6 +108,8 @@ def _modules_for_investor_plan(plan: ExecutionPlan, question: str = "") -> list[
                 modules.append(extra)
     if not modules and _data_need_is_investor(plan):
         modules = ["summary"]
+    if "stock" in _planner_text(plan) and "concentration" not in modules:
+        modules.append("concentration")
     return modules
 
 
@@ -224,7 +226,7 @@ def enforce_portfolio_scope(
     from news_rag.insight.investor_drawback import plan_wants_portfolio_drawback, question_signals_investor_book
     from news_rag.insight.portfolio_intents import apply_portfolio_intent
 
-    plan = apply_portfolio_intent(plan)
+    plan = apply_portfolio_intent(plan, question)
 
     if question_signals_investor_book(question):
         if str(plan.portfolio_scope or "").lower().strip() in ("none", "", "catalog"):

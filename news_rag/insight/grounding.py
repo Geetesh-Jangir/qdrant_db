@@ -290,6 +290,31 @@ def investor_book_cores(investor: dict[str, Any]) -> set[str]:
             if val is not None:
                 cores |= cores_for_float(float(val))
 
+    pnl = investor.get("pnl_summary") if isinstance(investor.get("pnl_summary"), dict) else {}
+    for key in (
+        "short_term_gain_inr",
+        "long_term_gain_inr",
+        "purchase",
+        "netInvestment",
+        "inflow",
+        "currentValue",
+        "gainLoss",
+        "gainLossRounded",
+        "absoluteReturnPercent",
+        "portfolioXirrPercent",
+        "xirrPercent",
+    ):
+        val = pnl.get(key)
+        if val is not None:
+            cores |= cores_for_float(float(val))
+
+    sip = investor.get("sip") if isinstance(investor.get("sip"), dict) else {}
+    sip_summary = sip.get("summary") if isinstance(sip.get("summary"), dict) else {}
+    for key in ("totalSipAmount", "totalSipMonthlyAmount", "count", "liveCount"):
+        val = sip_summary.get(key)
+        if val is not None:
+            cores |= cores_for_float(float(val))
+
     return cores
 
 

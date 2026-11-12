@@ -671,20 +671,28 @@ def _book_line(name: str, investor: dict[str, Any], question: str) -> str:
             return "You invest with: " + ", ".join(names) + "."
     if name == "categories":
         alloc = investor.get("allocation") if isinstance(investor.get("allocation"), dict) else {}
-        rows = alloc.get("aumByCategory") if isinstance(alloc.get("aumByCategory"), dict) else {}
-        if rows:
-            bits = [f"{key} {_inr(value)}" for key, value in list(rows.items())[:8]]
+        ranked = _allocation_bucket_rows(alloc, by="category")
+        if ranked:
+            bits = []
+            for bucket, amt, pct in ranked[:8]:
+                bit = f"{bucket} {_pct(pct)}" if pct is not None else f"{bucket} {_inr(amt)}"
+                bits.append(bit)
             return "Allocation by category: " + "; ".join(bits) + "."
     if name == "asset_mix":
         alloc = investor.get("allocation") if isinstance(investor.get("allocation"), dict) else {}
-        rows = alloc.get("aumBySchemeType") if isinstance(alloc.get("aumBySchemeType"), dict) else {}
-        if rows:
-            bits = [f"{key} {_inr(value)}" for key, value in rows.items()]
+        ranked = _allocation_bucket_rows(alloc, by="scheme_type")
+        if ranked:
+            bits = []
+            for bucket, amt, pct in ranked:
+                bit = f"{bucket} {_pct(pct)}" if pct is not None else f"{bucket} {_inr(amt)}"
+                bits.append(bit)
             return "Asset mix: " + "; ".join(bits) + "."
     if name in ("book_xirr", "holding_xirr"):
         xirr = investor.get("xirr") if isinstance(investor.get("xirr"), dict) else {}
-        if name == "book_xirr" and xirr.get("portfolio_xirr_pct") is not None:
-            return f"Your portfolio XIRR is {_pct(xirr.get('portfolio_xirr_pct'))}."
+        if name == "book_xirr":
+            book_xirr = _portfolio_xirr_pct(investor)
+            if book_xirr is not None:
+                return f"Your portfolio XIRR is {_pct(book_xirr)}."
         schemes = xirr.get("schemes") if isinstance(xirr.get("schemes"), list) else []
         if schemes:
             bits = [
@@ -777,6 +785,71 @@ def _table(headers: list[str], rows: list[list[str]]) -> str:
     rule = "| " + " | ".join("---" for _ in headers) + " |"
     body = ["| " + " | ".join(cell.replace("|", "/") for cell in row) + " |" for row in rows]
     return "\n".join([head, rule, *body])
+
+
+def _float_or_none(val: Any) -> float | None:
+    try:
+        if val is None or val == "":
+            return None
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _share_rows_from_list(rows: Any) -> list[tuple[str, float | None, float | None]]:
+    if not isinstance(rows, list):
+        return []
+    out: list[tuple[str, float | None, float | None]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("name") or row.get("category") or row.get("schemeType") or "").strip()
+        if not name:
+            continue
+        amt = _float_or_none(
+            row.get("aum_inr")
+            if row.get("aum_inr") is not None
+            else row.get("aumInr", row.get("marketValue"))
+        )
+        pct = _float_or_none(
+            row.get("aum_pct")
+            if row.get("aum_pct") is not None
+            else row.get("aumPct", row.get("percentage", row.get("weight_pct")))
+        )
+        out.append((name, amt, pct))
+    return out
+
+
+def _share_rows_from_map(mapping: Any) -> list[tuple[str, float | None, float | None]]:
+    if not isinstance(mapping, dict) or not mapping:
+        return []
+    total = sum(_float_or_none(v) or 0.0 for v in mapping.values())
+    out: list[tuple[str, float | None, float | None]] = []
+    for label, value in mapping.items():
+        amt = _float_or_none(value)
+        pct = round(100.0 * amt / total, 2) if amt is not None and total else None
+        out.append((str(label), amt, pct))
+    out.sort(key=lambda item: float(item[2] or item[1] or 0), reverse=True)
+    return out
+
+
+def _allocation_bucket_rows(alloc: dict[str, Any], *, by: str = "category") -> list[tuple[str, float | None, float | None]]:
+    """categoryShare / schemeTypeShare lists or legacy amount maps from the investor API."""
+    if by == "scheme_type":
+        order = ("schemeTypeShare", "aumBySchemeType", "investedBySchemeType")
+    else:
+        order = ("categoryShare", "aumByCategory", "investedByCategory")
+    for key in order:
+        block = alloc.get(key)
+        if key.endswith("Share"):
+            rows = _share_rows_from_list(block)
+        else:
+            rows = _share_rows_from_map(block)
+        if rows:
+            if key.endswith("Share"):
+                rows.sort(key=lambda item: float(item[2] or item[1] or 0), reverse=True)
+            return rows
+    return []
 
 
 def _holdings(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -948,12 +1021,21 @@ def render_portfolio_fact(
             line = _table(["Fund", "Category", "Value", "Return"], table_rows) + extra
     elif name == "allocation":
         alloc = book.get("allocation") if isinstance(book.get("allocation"), dict) else {}
-        shares = alloc.get("categoryShare") or alloc.get("schemeTypeShare") or {}
-        if not isinstance(shares, dict) or not shares:
+        ranked = _allocation_bucket_rows(alloc, by="category")
+        if not ranked:
+            ranked = _allocation_bucket_rows(alloc, by="scheme_type")
+        if not ranked:
             line = "Allocation is not available right now."
         else:
-            ranked = sorted(shares.items(), key=lambda item: float(item[1] or 0), reverse=True)[:8]
-            line = _table(["Bucket", "Share"], [[str(k), _pct(v)] for k, v in ranked])
+            table_rows = [
+                [
+                    bucket,
+                    _inr(amt) if amt is not None else "—",
+                    _pct(pct) if pct is not None else "—",
+                ]
+                for bucket, amt, pct in ranked[:12]
+            ]
+            line = _table(["Bucket", "Value", "Share"], table_rows)
     else:
         return ""
 

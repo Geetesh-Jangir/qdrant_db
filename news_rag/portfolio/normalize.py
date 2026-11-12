@@ -347,8 +347,10 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
         })
 
     _apply_holding_values(holdings, xirr_rows)
+    holdings, sold_count = _drop_sold(holdings)
 
     meta = {
+        "sold_scheme_count": sold_count,
         "as_of_date": _str(_first(meta_in.get("asOfDate"), live.get("asOfDate"), ps.get("asOfDate"))),
         "financial_year": _str(meta_in.get("financialYear")),
         "generated_at": _str(meta_in.get("generatedAt")),
@@ -402,10 +404,23 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
     return doc
 
 
+def _drop_sold(holdings: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    """A holding with no current value has been sold. Totals stay on the API summary."""
+    live: list[dict[str, Any]] = []
+    sold = 0
+    for row in holdings:
+        aum = row.get("aum_inr")
+        if aum is None or float(aum) == 0:
+            sold += 1
+            continue
+        live.append(row)
+    return live, sold
+
+
 def match_scheme_filter(name: str, scheme_filter: str) -> bool:
     """Case-insensitive substring match for planner-provided scheme_filter."""
     needle = " ".join(str(scheme_filter or "").lower().split())
-    if not needle:
+    if needle in ("", "any", "all", "none", "*"):
         return True
     hay = " ".join(str(name or "").lower().split())
     if needle in hay:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from news_rag.insight.contracts import ExecutionPlan, ToolCall
@@ -102,15 +103,88 @@ def reconcile_planner_compare_fund_pair(
     if not rebind and len(funds) < 2:
         return
     pair = implicit_compare_pair_from_chat(memory, question)
+    if not question_asks_compare_both_in_chat(question):
+        pair = [n for n in pair if _scheme_written_in_chat(n, memory)]
     if len(pair) >= 2:
         plan.funds = pair[:2]
+        return
+    kept = [n for n in funds if _scheme_written_in_chat(n, memory)]
+    if kept != funds:
+        plan.funds = kept
+        plan.planner_reading = (
+            "Compare only schemes named in this chat or in the user's holdings."
+        )
 
 
-def _compare_against_portfolio_holding(question: str) -> bool:
-    import re
+def _scheme_written_in_chat(name: str, memory: dict[str, Any] | None) -> bool:
+    """True when this scheme is in the conversation text or the holdings list. Not the catalog."""
+    key = str(name or "").strip().lower()
+    if not key or not isinstance(memory, dict):
+        return False
+    parts: list[str] = []
+    for row in memory.get("chat_turns") or []:
+        if isinstance(row, dict):
+            parts.append(str(row.get("user") or ""))
+            parts.append(str(row.get("assistant") or ""))
+    if key in " ".join(parts).lower():
+        return True
+    for row in memory.get("holdings_in_chat") or []:
+        held = str(row.get("name") if isinstance(row, dict) else row or "").strip().lower()
+        if held and (held == key or key in held or held in key):
+            return True
+    return False
 
-    q = question or ""
-    return bool(re.search(r"\bmy portfolio\b|\bmy book\b|\bi hold\b|\bin my portfolio\b", q, re.I))
+
+def _holding_categories(plan: ExecutionPlan) -> list[str]:
+    cats: list[str] = []
+    for side in plan.compare_sides or []:
+        if str(side.get("source") or "") != "my_holding":
+            continue
+        cat = str(side.get("category") or "").strip().lower()
+        if cat and cat not in cats:
+            cats.append(cat)
+    return cats
+
+
+def bind_compare_sides(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+    question: str = "",
+) -> None:
+    """Fill fund names from planner compare_sides. Holdings without a cached name stay for the portfolio tool."""
+    if not plan.compare_sides:
+        return
+    from news_rag.insight.fund_name_policy import fund_authorized_for_question
+    from news_rag.insight.investor_subject import investor_holding_for_category
+    from news_rag.insight.memory.fund_context import memory_known_fund_names, primary_fund_name
+
+    known = {n.lower(): n for n in memory_known_fund_names(memory)}
+    names: list[str] = []
+    for side in plan.compare_sides:
+        source = str(side.get("source") or "")
+        name = str(side.get("name") or "").strip()
+        if source == "my_holding":
+            row = investor_holding_for_category(memory, str(side.get("category") or ""))
+            if isinstance(row, dict):
+                held = str(row.get("scheme_name") or row.get("name") or "").strip()
+                if held:
+                    names.append(held)
+                    side["name"] = held
+            continue
+        if source == "chat_memory":
+            resolved = known.get(name.lower()) if name else ""
+            if not resolved and name and fund_authorized_for_question(name, question, memory):
+                resolved = name
+            if not resolved:
+                resolved = primary_fund_name(memory)
+            if resolved:
+                names.append(resolved)
+                side["name"] = resolved
+            continue
+        if name:
+            names.append(name)
+    if names:
+        plan.funds = list(dict.fromkeys(names))
 
 
 def finalize_fund_compare_plan(question: str, plan: ExecutionPlan) -> None:
@@ -145,13 +219,20 @@ def finalize_fund_compare_plan(question: str, plan: ExecutionPlan) -> None:
     plan.data_need = "none"
     plan.intent = "compare"
     plan.requires_compose = True
-    category = _compare_category_slug(question, plan)
-    portfolio_side = _compare_against_portfolio_holding(question) and bool(category)
+    holding_cats = _holding_categories(plan)
+    portfolio_side = bool(holding_cats)
     keep_tools = {"compare_funds", "get_investor_portfolio"} if portfolio_side else {"compare_funds"}
     kept = [c for c in plan.tool_calls if c.tool in keep_tools]
     if not any(c.tool == "compare_funds" for c in kept):
         kept.append(ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1))
-    if portfolio_side and not any(c.tool == "get_investor_portfolio" for c in kept):
+    have = {
+        str((c.arguments or {}).get("scheme_filter") or "").strip().lower()
+        for c in kept
+        if c.tool == "get_investor_portfolio"
+    }
+    for category in holding_cats:
+        if category in have:
+            continue
         kept.insert(
             0,
             ToolCall(
@@ -354,19 +435,99 @@ def _prepend_tool(plan: ExecutionPlan, call: ToolCall) -> None:
     plan.tool_calls = [call, *[c for c in plan.tool_calls if c.tool != call.tool]]
 
 
+def _asks_ideal_portfolio_allocation(question: str) -> bool:
+    q = question or ""
+    if re.search(r"\bideal\s+portfolio\b", q, re.I):
+        return True
+    from news_rag.fund_rating_screen import asks_ideal_portfolio_shape
+
+    return asks_ideal_portfolio_shape(q)
+
+
+def _plan_asks_investor_book_allocation(plan: ExecutionPlan, question: str) -> bool:
+    """Current book mix — not the illustrative balanced-portfolio screen."""
+    from news_rag.insight.investor_subject import question_asks_current_book_allocation
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent, shape_for
+
+    intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
+    if intent == "allocation" and shape_for(intent) == "fact":
+        need = str(plan.data_need or "").lower()
+        if need == "portfolio_allocation" and (
+            plan.horizon_years is not None or _asks_ideal_portfolio_allocation(question)
+        ):
+            return False
+        return True
+    for call in plan.tool_calls or []:
+        if call.tool != "get_investor_portfolio":
+            continue
+        mods = {str(m).lower() for m in (call.arguments or {}).get("modules") or []}
+        if "allocation" in mods:
+            return True
+    if question_asks_current_book_allocation(question):
+        return True
+    scope = str(plan.portfolio_scope or "").lower().strip()
+    if scope in ("investor", "both"):
+        from news_rag.insight.investor_drawback import question_signals_investor_book
+
+        q = (question or "").lower()
+        if question_signals_investor_book(question) and re.search(r"\ballocation\b", q, re.I):
+            if not re.search(r"\b(?:ideal|recommend|suggest)\s+(?:portfolio\s+)?allocation\b", q, re.I):
+                return True
+    return False
+
+
+def _reroute_book_allocation_data_need(question: str, plan: ExecutionPlan) -> bool:
+    """Planner sometimes says portfolio_allocation for the user's current mix."""
+    from news_rag.insight.contracts import ScopeKind
+    from news_rag.insight.portfolio_intents import apply_portfolio_intent
+
+    if str(plan.data_need or "").lower() != "portfolio_allocation":
+        return False
+    if not _plan_asks_investor_book_allocation(plan, question):
+        return False
+    plan.data_need = "investor_summary"
+    plan.portfolio_intent = "allocation"
+    plan.portfolio_scope = "investor"
+    plan.scope_kind = ScopeKind.IN_SCOPE
+    plan.can_answer_directly = False
+    plan.direct_reply = ""
+    apply_portfolio_intent(plan)
+    return True
+
+
 def maybe_install_balanced_portfolio_screen(
     question: str,
     plan: ExecutionPlan,
     memory: dict[str, Any] | None,
 ) -> bool:
     """Illustrative mix when the planner set portfolio_allocation. Missing years asks, it does not assume."""
-    del question, memory
     if str(plan.data_need or "").lower() != "portfolio_allocation":
+        return False
+    if _plan_asks_investor_book_allocation(plan, question):
+        _reroute_book_allocation_data_need(question, plan)
+        return False
+    from news_rag.fund_rating_screen import (
+        asks_balanced_long_horizon_fund_menu,
+        asks_ideal_portfolio_shape,
+    )
+
+    wants_screen = bool(
+        plan.horizon_years is not None
+        or asks_ideal_portfolio_shape(question)
+        or asks_balanced_long_horizon_fund_menu(question, memory)
+        or _asks_ideal_portfolio_allocation(question)
+    )
+    if not wants_screen:
+        if any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or []):
+            _reroute_book_allocation_data_need(question, plan)
         return False
     from news_rag.insight.contracts import AnswerMode, ScopeKind, ToolCall
     from news_rag.insight.portfolio_allocation import allocate
 
     if plan.horizon_years is None:
+        if any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or []):
+            _reroute_book_allocation_data_need(question, plan)
+            return False
         plan.tool_calls = []
         plan.funds = []
         plan.requires_compose = False
@@ -434,6 +595,9 @@ def repair_data_need_tools(plan: ExecutionPlan, question: str = "") -> Execution
         return plan
 
     need = str(plan.data_need or "none").strip().lower()
+    if need == "portfolio_allocation" and _plan_asks_investor_book_allocation(plan, question):
+        _reroute_book_allocation_data_need(question, plan)
+        return plan
     if need == "fund_holdings_breakdown":
         for call in plan.tool_calls or []:
             if call.tool != "get_fund_data":
@@ -652,6 +816,7 @@ def apply_planner_post_hooks(
     reroute_single_fund_risk_plan(question, plan, memory)
     from news_rag.insight.portfolio_scope import enforce_portfolio_scope
 
+    _reroute_book_allocation_data_need(question, plan)
     plan = enforce_portfolio_scope(plan, memory, question)
     from news_rag.insight.portfolio_news_impact import ensure_portfolio_news_impact_plan
 
@@ -672,6 +837,7 @@ def apply_planner_post_hooks(
     ensure_my_holding_fund_scope(plan, question, memory)
     ensure_all_holdings_metrics_plan(plan, question, memory)
 
+    bind_compare_sides(plan, memory, question)
     seed_named_compare_funds_from_question(question, plan)
     reconcile_planner_compare_fund_pair(plan, memory, question)
     ensure_unnamed_category_pair_compare_plan(question, plan, memory)
@@ -681,9 +847,10 @@ def apply_planner_post_hooks(
     reconcile_planner_invented_fund_name(plan, memory, question)
     enforce_investor_holding_subject(plan, memory, question)
     enforce_deictic_and_memory_primary_fund(plan, memory, question)
-    from news_rag.insight.planner_policy import narrow_deictic_follow_up
+    from news_rag.insight.planner_policy import narrow_deictic_follow_up, planner_owns
 
-    plan = narrow_deictic_follow_up(question, plan, memory)
+    if not planner_owns(plan):
+        plan = narrow_deictic_follow_up(question, plan, memory)
     from news_rag.insight.plan_catalog_bind import ensure_whole_book_catalog_scope
 
     ensure_whole_book_catalog_scope(plan, memory, question)

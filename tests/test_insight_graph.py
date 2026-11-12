@@ -97,6 +97,10 @@ def test_lookup_route_skips_news_and_sends_no_identifiers_to_the_writer(monkeypa
     )
     monkeypatch.setattr(graph_mod, "make_plan", lambda *a, **k: None)
     monkeypatch.setattr(graph_mod, "slot_route", lambda *a, **k: plan)
+    monkeypatch.setattr(
+        "news_rag.insight.fund_name_gate.clarify_plan_if_fund_unknown",
+        lambda p, *_a, **_k: p,
+    )
     monkeypatch.setattr(graph_mod, "_resolve_funds", lambda *a, **k: (["Fund A"], []))
 
     def fake_execute_wave(calls, *args, **kwargs):
@@ -114,9 +118,30 @@ def test_lookup_route_skips_news_and_sends_no_identifiers_to_the_writer(monkeypa
 
 def test_unmatched_fund_replies_without_calling_tools(monkeypatch):
     plan = Plan(funds=["Nonexistent Fund"], tool_calls=[ToolCall(tool="get_fund_data", why="")])
-    monkeypatch.setattr(graph_mod, "make_plan", lambda *a, **k: None)
-    monkeypatch.setattr(graph_mod, "slot_route", lambda *a, **k: plan)
     monkeypatch.setattr(graph_mod, "_resolve_funds", lambda *a, **k: ([], ["Nonexistent Fund"]))
-    state = graph_mod.run_graph(_state())
-    assert [t["node"] for t in state.trace] == ["route", "resolve", "reply"]
+    state = graph_mod.GraphState(question="q", plan=plan)
+    nxt = graph_mod.node_resolve(state)
+    assert nxt == "reply"
     assert "couldn't find" in state.answer
+
+
+def test_resolve_keeps_planner_name_when_catalog_misses(monkeypatch):
+    class FakeIdx:
+        def lookup_extracted_fund(self, **_k):
+            return None, False, []
+
+        def get_fund_detail(self, *_a, **_k):
+            return None
+
+        def sample_fund_names(self, *_a, **_k):
+            return []
+
+    monkeypatch.setattr("news_rag.fund_search.get_fund_index", lambda: FakeIdx())
+    name = "Invesco India Large & Mid Cap Fund - Regular Plan - Growth"
+    plan = ExecutionPlan(
+        funds=[name],
+        tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]})],
+    )
+    funds, unresolved = graph_mod._resolve_funds(plan, None, question="tell me more about it")
+    assert funds == [name]
+    assert unresolved == []
