@@ -408,6 +408,11 @@ def _metal_fund_categories(question: str) -> tuple[str, ...]:
     q = question or ""
     if not _METAL_WORD_RE.search(q):
         return ()
+    from news_rag.insight.investor_subject import question_refers_to_investor_holding
+
+    if question_refers_to_investor_holding(q) and re.search(r"\b(?:gold|silver)\s+fund\b", q, re.I):
+        if not re.search(r"\b(?:gold|silver)\s+funds\b", q, re.I):
+            return ()
     if not re.search(r"\b(?:funds?|etfs?|fo[fF]s?|schemes?|fund of funds?)\b", q, re.I):
         return ()
     product = re.search(
@@ -431,7 +436,6 @@ def _metal_fund_categories(question: str) -> tuple[str, ...]:
             q,
             re.I,
         )
-        or re.search(r"\b(?:gold|silver)\s+(?:funds?|etfs?|fo[fF]s?|schemes?)\b", q, re.I)
     )
     if not list_ask:
         return ()
@@ -2002,7 +2006,10 @@ def _apply_category_difference(question: str, plan) -> None:
 def ensure_quality_fund_list(question: str, plan) -> None:
     """Unnamed random or gold/silver lists use the category rating API, not a sector scan."""
     from news_rag.insight.contracts import AnswerMode, ToolCall
+    from news_rag.insight.investor_subject import question_needs_category_holdings_fetch
 
+    if question_needs_category_holdings_fetch(question):
+        return
     if any(call.tool == "compare_funds" for call in plan.tool_calls or []):
         return
     if any((call.arguments or {}).get("compare_pair") for call in plan.tool_calls or []):

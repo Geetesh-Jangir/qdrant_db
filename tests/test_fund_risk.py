@@ -167,6 +167,31 @@ def test_what_is_rs_rating_goes_to_the_composer_with_the_pillars():
     assert "fund pages" not in plan.concept_brief.lower()
 
 
+def test_best_in_category_label_ask_even_when_planner_owns():
+    from news_rag.fund_risk import asks_about_score_bands, asks_rating_concept
+
+    question = "what is best in category thing"
+    assert asks_rating_concept(question)
+    assert asks_about_score_bands(question)
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        funds=[],
+        tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"], "windows": ["1Y"]}, wave=1)],
+    )
+    ensure_risk_tools(question, plan)
+    assert plan.tool_calls == []
+    assert plan.concept_brief
+    assert "Best in category" in plan.concept_brief
+
+
+def test_rs_label_glossary_does_not_resolve_category_field():
+    from news_rag.insight.fields import fields_from_question
+
+    assert fields_from_question("what is best in category thing") == []
+
+
 def test_good_choice_versus_very_high_does_not_look_up_a_fund():
     plan = ExecutionPlan(
         intent="explain_cause",

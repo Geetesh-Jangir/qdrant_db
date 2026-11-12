@@ -202,6 +202,10 @@ def fields_from_question(question: str) -> list[str]:
     q = question or ""
     if not q.strip():
         return []
+    from news_rag.fund_risk import asks_about_score_bands, asks_rating_concept
+
+    if asks_rating_concept(q) or asks_about_score_bands(q):
+        return []
     if _asks_book(q) and _book_fields(q):
         # "NAV of my HDFC fund" is still a fund fact. A whole-book ask is not.
         book = _book_fields(q)
@@ -321,7 +325,11 @@ def _fund_fields(question: str) -> list[str]:
         if re.search(r"\bfund\b.*\breturn\b|\breturn\b.*\bfund\b", q, re.I):
             found.extend(_return_fields(q))
         return _unique(found)
-    if re.search(r"\b(?:which\s+)?category\b", q, re.I):
+    if re.search(r"\b(?:which\s+)?category\b", q, re.I) and not re.search(
+        r"\b(?:best in category|good choice|recommended|underperformer|average)\b",
+        q,
+        re.I,
+    ):
         found.append("category")
     if re.search(r"\bregular\s+plan\b|\bdirect\s+plan\b", q, re.I):
         found.append("plan_type")

@@ -1043,3 +1043,85 @@ def render_portfolio_fact(
     if offer and "not available" not in line and not line.startswith("No "):
         return f"{line}\n\n{offer}"
     return line
+
+
+def _category_amount_map(allocation: dict[str, Any], key: str) -> dict[str, float]:
+    raw = allocation.get(key) if isinstance(allocation.get(key), dict) else {}
+    out: dict[str, float] = {}
+    for label, value in raw.items():
+        amount = _float_or_none(value)
+        if amount is None:
+            continue
+        out[str(label)] = amount
+    return out
+
+
+def render_category_money_draft(allocation: dict[str, Any] | None, *, only: str = "") -> str:
+    """Invested and current value by category. Zero and negative rows are left out."""
+    alloc = allocation if isinstance(allocation, dict) else {}
+    invested = _category_amount_map(alloc, "investedByCategory")
+    current = _category_amount_map(alloc, "aumByCategory")
+    if not invested and not current:
+        return ""
+    labels: list[str] = []
+    for label in list(current) + list(invested):
+        if label not in labels:
+            labels.append(label)
+    needle = (only or "").strip().lower()
+    if needle:
+        labels = [label for label in labels if label.strip().lower() == needle]
+    total_current = sum(max(amount, 0.0) for amount in current.values())
+    rows: list[list[str]] = []
+    for label in labels:
+        inv = invested.get(label, 0.0)
+        cur = current.get(label, 0.0)
+        if inv <= 0 and cur <= 0:
+            continue
+        share = (100.0 * cur / total_current) if total_current and cur > 0 else None
+        gain = cur - inv
+        rows.append([
+            label.title() if label.islower() else label,
+            _inr(inv),
+            _inr(cur),
+            _inr(gain),
+            _pct(share) if share is not None else "—",
+        ])
+    if not rows:
+        return ""
+    rows.sort(key=lambda row: _inr_sort(row[2]), reverse=True)
+    return _table(["Category", "Invested", "Current value", "Gain", "Share of value"], rows)
+
+
+def _inr_sort(text: str) -> float:
+    digits = "".join(ch for ch in text if ch.isdigit() or ch == ".")
+    try:
+        return float(digits) if digits else 0.0
+    except ValueError:
+        return 0.0
+
+
+def render_gold_exposure_draft(allocation: dict[str, Any] | None, metals: dict[str, Any] | None = None) -> str:
+    """Gold category money, plus an approximate move from the spot return."""
+    table = render_category_money_draft(allocation, only="gold")
+    if not table:
+        return ""
+    lines = [
+        "Measured gold category (use this; do not say gold holdings are unavailable):",
+        table,
+    ]
+    spot = metals if isinstance(metals, dict) else {}
+    returns = spot.get("returns") if isinstance(spot.get("returns"), dict) else {}
+    alloc = allocation if isinstance(allocation, dict) else {}
+    current = _category_amount_map(alloc, "aumByCategory")
+    gold_value = next((amount for label, amount in current.items() if label.strip().lower() == "gold"), 0.0)
+    for window in ("1W", "1M"):
+        row = returns.get(window) if isinstance(returns.get(window), dict) else {}
+        pct = _float_or_none(row.get("pct"))
+        if pct is None or gold_value <= 0:
+            continue
+        move = gold_value * pct / 100.0
+        lines.append(
+            f"Approximate {window} move on the gold current value: {_inr(move)} "
+            f"({pct:.2f}% spot). This is an estimate, not a measured fund profit or loss."
+        )
+    return "\n".join(lines)

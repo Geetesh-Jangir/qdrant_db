@@ -296,9 +296,6 @@ _CONCENTRATION_ASK_RE = re.compile(
     r"concentrat|diversif|top holdings|sector allocation|sector weight|underlying",
     re.I,
 )
-_GOLD_ASK_RE = re.compile(r"\bgold\b", re.I)
-
-
 def question_wants_fact_table(question: str, plan: ExecutionPlan | None = None) -> bool:
     """A trailing fact table only for a compare, a rank, or an explicit list."""
     q = question or ""
@@ -315,7 +312,72 @@ def question_wants_concentration_tables(question: str) -> bool:
 
 
 def question_wants_gold_table(question: str) -> bool:
-    return bool(_GOLD_ASK_RE.search(question or ""))
+    """Bullion price ask only. A gold holding or category ask is not a spot-price table."""
+    from news_rag.insight.brief import question_is_bullion_metal_price_question
+
+    return question_is_bullion_metal_price_question(question or "")
+
+
+_EMPTY_CELL_RE = re.compile(r"^(?:|\s*|n/?a|-+|—|–|\*+)$", re.I)
+
+
+def _split_table_row(line: str) -> list[str]:
+    return [cell.strip() for cell in line.strip().strip("|").split("|")]
+
+
+def drop_sparse_table_columns(markdown: str, *, empty_ratio: float = 0.4) -> str:
+    """Drop table columns that are mostly blank. The first column stays."""
+    lines = (markdown or "").splitlines()
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        if not lines[i].lstrip().startswith("|"):
+            out.append(lines[i])
+            i += 1
+            continue
+        block: list[str] = []
+        while i < len(lines) and lines[i].lstrip().startswith("|"):
+            block.append(lines[i])
+            i += 1
+        out.extend(_drop_sparse_in_table(block, empty_ratio))
+    return "\n".join(out)
+
+
+def _drop_sparse_in_table(block: list[str], empty_ratio: float) -> list[str]:
+    if len(block) < 3:
+        return block
+    rows = [_split_table_row(line) for line in block]
+    width = max(len(row) for row in rows)
+    if width < 2:
+        return block
+    rows = [row + [""] * (width - len(row)) for row in rows]
+    body = [row for idx, row in enumerate(rows) if idx != 1 and "---" not in block[idx]]
+    body = body[1:] if body else []
+    if not body:
+        return block
+    drop: set[int] = set()
+    for col in range(1, width):
+        empty = 0
+        for row in body:
+            cell = re.sub(r"[*`]", "", row[col]).strip()
+            if _EMPTY_CELL_RE.match(cell):
+                empty += 1
+        if empty / len(body) > empty_ratio:
+            drop.add(col)
+    keep = [col for col in range(width) if col not in drop]
+    if len(keep) < 2 or len(keep) == width:
+        return block
+
+    def _join(cells: list[str]) -> str:
+        return "| " + " | ".join(cells) + " |"
+
+    rebuilt: list[str] = []
+    for idx, row in enumerate(rows):
+        cells = [row[col] for col in keep]
+        if idx == 1 or "---" in block[idx]:
+            cells = ["---" for _ in keep]
+        rebuilt.append(_join(cells))
+    return rebuilt
 
 
 def fact_values_already_stated(text: str, table: str) -> bool:

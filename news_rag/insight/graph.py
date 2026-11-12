@@ -1569,10 +1569,17 @@ def node_compose(state: GraphState) -> str | None:
     use_facts_compose = False
     if pack and len(plan.asked_facts or []) >= 2:
         from news_rag.insight.evidence_pack import investor_fact_brief
+        from news_rag.insight.fact_slots import facts_only_compose_allowed, missing_slots, slots_from_plan
 
         fact_brief = investor_fact_brief(pack.data_pack, plan.asked_facts)
         # INSIGHT_FUSION overviews need full EVIDENCE (holdings, news, snapshot), not FACTS-only mode.
-        use_facts_compose = bool(fact_brief) and plan.answer_mode == AnswerMode.DATA_ONLY
+        # A thin fact brief also drops allocation and gold spot, so skip it when slots are missing.
+        use_facts_compose = facts_only_compose_allowed(
+            fact_brief=fact_brief,
+            answer_mode=plan.answer_mode.value,
+            missing=missing_slots(slots_from_plan(plan), [*state.wave1_results, *state.wave2_results]),
+            tool_names=[c.tool for c in (plan.tool_calls or [])],
+        )
     evidence_dict = (
         {"FACTS": fact_brief}
         if use_facts_compose
@@ -1629,6 +1636,61 @@ def node_compose(state: GraphState) -> str | None:
             ).strip()
     if (plan.presentation_notes or "").strip():
         wants["presentation_notes"] = plan.presentation_notes.strip()
+    from news_rag.insight.display_table_policy import question_wants_gold_table
+    from news_rag.insight.fact_answer import render_category_money_draft, render_gold_exposure_draft
+    from news_rag.insight.investor_subject import (
+        _category_slug_from_question,
+        question_asks_category_money,
+    )
+    from news_rag.insight.metals_spot_tables import render_gold_returns_table
+
+    book = {}
+    if pack and isinstance(pack.data_pack, dict):
+        raw_book = pack.data_pack.get("investor_portfolio")
+        book = raw_book if isinstance(raw_book, dict) else {}
+    allocation = book.get("allocation") if isinstance(book.get("allocation"), dict) else {}
+    if question_asks_category_money(state.question or "") and allocation:
+        import re as _re
+
+        only = ""
+        if not _re.search(r"\b(?:each|every|all|per|by)\s+categor|\bcategories\b", state.question or "", _re.I):
+            only = _category_slug_from_question(state.question or "")
+        category_draft = render_category_money_draft(allocation, only=only)
+        if category_draft:
+            wants["presentation_notes"] = " ".join(
+                filter(
+                    None,
+                    [
+                        str(wants.get("presentation_notes") or "").strip(),
+                        "Draft category table (choose a table or a sentence; do not print it twice). "
+                        "Show invested and current value. Omit empty categories.\n"
+                        + category_draft,
+                    ],
+                )
+            ).strip()
+    q_low = (state.question or "").lower()
+    if "gold" in q_low and any(word in q_low for word in ("affect", "movement", "moving", "impact", "price")):
+        metals = {}
+        if pack and isinstance(pack.data_pack, dict):
+            market = pack.data_pack.get("market") if isinstance(pack.data_pack.get("market"), dict) else {}
+            metals = market.get("metals_spot") if isinstance(market.get("metals_spot"), dict) else {}
+        gold_note = render_gold_exposure_draft(allocation, metals)
+        if gold_note:
+            wants["presentation_notes"] = " ".join(
+                filter(None, [str(wants.get("presentation_notes") or "").strip(), gold_note])
+            ).strip()
+    if question_wants_gold_table(state.question or ""):
+        gold_table = render_gold_returns_table([*state.wave1_results, *state.wave2_results])
+        if gold_table:
+            wants["presentation_notes"] = " ".join(
+                filter(
+                    None,
+                    [
+                        str(wants.get("presentation_notes") or "").strip(),
+                        "Draft gold price table (keep it, drop it, or turn it into a sentence):\n" + gold_table,
+                    ],
+                )
+            ).strip()
     from news_rag.insight.investor_subject import (
         question_asks_whole_investor_portfolio,
         question_refers_deictic_fund,
@@ -1946,9 +2008,9 @@ def node_compose(state: GraphState) -> str | None:
     if concentration_block:
         polished_text = _drop_scheme_is_the_whole_book(polished_text)
     from news_rag.insight.display_table_policy import (
+        drop_sparse_table_columns,
         fact_values_already_stated,
         question_wants_fact_table,
-        question_wants_gold_table,
     )
     from news_rag.insight.fact_slots import render_asked_facts, slots_from_plan
     from news_rag.insight.sector_exposure_tables import (
@@ -1989,13 +2051,7 @@ def node_compose(state: GraphState) -> str | None:
         and not fact_values_already_stated(polished_text, fact_table)
     ):
         polished_text = f"{polished_text}\n\n{fact_table}".strip()
-    from news_rag.insight.metals_spot_tables import render_gold_returns_table, strip_gold_window_table
-
-    gold_table = render_gold_returns_table(wave_results) if question_wants_gold_table(state.question or "") else ""
-    if gold_table:
-        polished_text = strip_gold_window_table(polished_text)
-        if gold_table not in polished_text:
-            polished_text = f"{polished_text}\n\n{gold_table}".strip()
+    polished_text = drop_sparse_table_columns(polished_text)
     polished_text = strip_news_roundup(polished_text)
     grouped_news: dict[str, Any] = {}
     for row in wave_results:

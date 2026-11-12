@@ -93,6 +93,7 @@ def test_planner_gold_sector_screen_becomes_rating_list():
 def test_named_gold_etf_is_not_a_category_list():
     assert parse_rating_screen("what is the nav of Nippon India Gold ETF") is None
     assert parse_rating_screen("tell me absl gold etf") is None
+    assert parse_rating_screen("tell me about my gold fund") is None
     plan = ExecutionPlan(
         routed_by="planner",
         funds=["Aditya Birla Sun Life Gold ETF"],
@@ -102,6 +103,23 @@ def test_named_gold_etf_is_not_a_category_list():
     )
     ensure_quality_fund_list("tell me absl gold etf", plan)
     assert [call.tool for call in plan.tool_calls] == ["get_fund_data"]
+
+
+def test_my_gold_fund_does_not_add_category_screen():
+    plan = ExecutionPlan(
+        routed_by="planner",
+        data_need="investor_holding",
+        portfolio_scope="investor",
+        tool_calls=[
+            ToolCall(
+                tool="get_investor_portfolio",
+                arguments={"modules": ["holdings"], "scheme_filter": "gold"},
+                wave=1,
+            )
+        ],
+    )
+    ensure_quality_fund_list("tell me about my gold fund", plan)
+    assert not any(c.tool == "screen_funds_by_exposure" for c in plan.tool_calls)
 
 
 def test_category_rating_request_uses_admin_header(monkeypatch):

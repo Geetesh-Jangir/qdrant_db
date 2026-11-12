@@ -59,6 +59,9 @@ def _category_slug_from_question(question: str) -> str:
         "elss",
         "aggressive hybrid",
         "conservative hybrid",
+        "gold",
+        "silver",
+        "liquid",
     ):
         if token in q:
             return token
@@ -331,6 +334,20 @@ def question_asks_holding_metric_and_glossary(question: str) -> bool:
     return any(g in q for g in glossary) and any(m in q for m in metrics)
 
 
+def question_asks_category_money(question: str) -> bool:
+    """Invested amount or share by category, including one category such as gold."""
+    q = (question or "").lower()
+    if re.search(r"\b(?:this|that|the|my)\s+fund\b", q):
+        return False
+    if re.search(r"\b(?:nav|xirr|expense|manager|sip)\b", q) and "categor" not in q:
+        return False
+    if not re.search(r"\b(?:invested|investment|how much|allocation)\b", q):
+        return False
+    if re.search(r"\b(?:each|every|all|per|by)\s+categor|\bcategories\b", q):
+        return True
+    return bool(_category_slug_from_question(question))
+
+
 def question_asks_category_book_share(question: str) -> bool:
     """How much of the whole book sits in a category — not 'my large cap fund' NAV."""
     q = (question or "").lower()
@@ -356,7 +373,7 @@ def ensure_my_category_fund_investor_plan(
 ) -> ExecutionPlan:
     """NAV/XIRR on 'my contra fund' → holdings module + category filter; not investor_summary."""
     cat = _category_slug_from_question(question)
-    if question_asks_category_book_share(question) and cat:
+    if question_asks_category_money(question):
         plan.portfolio_scope = "investor"
         plan.holding_scope = "all_holdings"
         plan.funds = []
@@ -383,9 +400,11 @@ def ensure_my_category_fund_investor_plan(
                 ),
                 *plan.tool_calls,
             ]
+        label = cat or "each category"
         note = (
-            f"Category share of the whole book for {cat}. "
+            f"Category share of the whole book for {label}. "
             "Use allocation.investedByCategory and aumByCategory versus the portfolio total. "
+            "Show invested amount and current value. Drop categories with no money invested. "
             "Do not say the category is 100% of the book just because one scheme is listed."
         )
         plan.presentation_notes = f"{plan.presentation_notes} {note}".strip()

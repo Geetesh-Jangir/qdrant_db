@@ -107,7 +107,7 @@ _SUITABILITY_RE = re.compile(r"\bconservative\b|\bsuitable\b|\bsafe\b|\bright fo
 _BAND_Q_RE = re.compile(
     r"\bhow\b.{0,48}\bcategor|"
     r"\b(?:score|rating|label)s?\b.{0,32}\b(?:bands?|ranges?|categor)|"
-    r"\bwhat does\b.{0,48}\b(?:good choice|recommended|best in category|underperformer|average)\b|"
+    r"\bwhat\s+(?:is|does)\b.{0,48}\b(?:good choice|recommended|best in category|underperformer|average)\b|"
     r"\b(?:good choice|recommended|best in category|underperformer)\b.{0,24}\bmean\b|"
     r"\bwhy\b.{0,40}\b(?:good choice|recommended|best in category|underperformer)\b",
     re.I,
@@ -643,7 +643,8 @@ def rating_concept_plan(question: str) -> ExecutionPlan:
         max_words=180,
         presentation_notes=(
             "Answer from concept_brief only. Explain how the RS rating is measured, including the four pillars. "
-            "The RS label and the SEBI riskometer are different. Do not name a fund. Do not invent a score."
+            "The RS label and the SEBI riskometer are different. Do not name a fund. Do not invent a score. "
+            "Do not say a fund's scheme category is missing — this is a general label explanation."
         ),
         routed_by="slot_router",
         confidence=0.99,
@@ -663,7 +664,8 @@ def _use_rating_concept(plan: ExecutionPlan) -> ExecutionPlan:
     plan.max_words = max(int(plan.max_words or 0), 180)
     plan.presentation_notes = (
         "Answer from concept_brief only. Explain how the RS rating is measured, including the four pillars. "
-        "The RS label and the SEBI riskometer are different. Do not name a fund. Do not invent a score."
+        "The RS label and the SEBI riskometer are different. Do not name a fund. Do not invent a score. "
+        "Do not say a fund's scheme category is missing — this is a general label explanation."
     )
     return plan
 
@@ -757,8 +759,6 @@ def ensure_risk_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
         return _ensure_pillar_rating_plan(question, plan)
     if asks_risk_trend_comparison(question):
         plan = _ensure_risk_trend_plan(question, plan)
-    if planner_owns(plan):
-        return plan
     if asks_rating_concept(question):
         return _use_rating_concept(plan)
     if _is_band_definition(question, plan):
@@ -768,6 +768,8 @@ def ensure_risk_tools(question: str, plan: ExecutionPlan) -> ExecutionPlan:
         plan.answer_mode = AnswerMode.DATA_ONLY
         plan.wave_2_policy = Wave2Policy(trigger="none")
         plan.asked_facts = []
+        return plan
+    if planner_owns(plan):
         return plan
     if not asks_fund_risk(question):
         return plan

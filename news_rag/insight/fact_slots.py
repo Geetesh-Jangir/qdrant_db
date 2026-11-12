@@ -107,6 +107,26 @@ def render_asked_facts(slots: list[str], results: list[dict[str, Any]] | None) -
     return "\n".join(lines)
 
 
+def facts_only_compose_allowed(
+    *,
+    fact_brief: str,
+    answer_mode: str,
+    missing: list[str] | None,
+    tool_names: list[str] | None,
+) -> bool:
+    """FACTS-only mode hides allocation and market data, so it needs a complete fact brief."""
+    if not (fact_brief or "").strip():
+        return False
+    if str(answer_mode or "") != "DATA_ONLY":
+        return False
+    if missing:
+        return False
+    blocked = {"get_market_snapshot", "search_financial_news"}
+    if blocked.intersection(tool_names or []):
+        return False
+    return True
+
+
 def missing_slots(slots: list[str], results: list[dict[str, Any]] | None) -> list[str]:
     slots = list(slots)
     if "holdings" in slots:

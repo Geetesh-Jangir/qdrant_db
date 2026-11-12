@@ -264,14 +264,22 @@ def primary_metal_in_question(question: str) -> str:
     return "gold"
 
 
+_HOLDINGS_NOT_BULLION_RE = re.compile(
+    r"\b(?:invested|investment|portfolio|holdings?|exposure|categor(?:y|ies))\b|\bmy\b|\bi have\b|\bi had\b",
+    re.I,
+)
+
+
 def question_is_bullion_metal_price_question(question: str) -> bool:
-    """Spot/bullion metal price or direction — not a named gold ETF/scheme."""
+    """Spot/bullion metal price or direction — not a named gold ETF/scheme or a holdings ask."""
     q = question or ""
     if not _METAL_RE.search(q):
         return False
     if question_mentions_gold_etf_or_fund(q):
         return False
     if re.search(r"\b(?:etf|mutual\s+fund|scheme|folio|amc|bees)\b", q, re.I):
+        return False
+    if _HOLDINGS_NOT_BULLION_RE.search(q):
         return False
     return True
 

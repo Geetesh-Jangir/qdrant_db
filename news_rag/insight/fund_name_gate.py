@@ -49,6 +49,12 @@ def _compare_sides_resolvable(
     return True
 
 
+def question_refers_deictic_fund_safe(question: str) -> bool:
+    from news_rag.insight.investor_subject import question_refers_deictic_fund
+
+    return question_refers_deictic_fund(question)
+
+
 def _plan_uses_fund_scoped_tools(plan: ExecutionPlan) -> bool:
     for call in plan.tool_calls or []:
         if call.tool in _FUND_SCOPED_TOOLS:
@@ -123,6 +129,75 @@ def _bound_fund_name(plan: ExecutionPlan, memory: dict | None, question: str) ->
     return ""
 
 
+_FUNDISH_RE = re.compile(
+    r"\b([A-Z][A-Za-z0-9.&'’\-]*(?:\s+[A-Za-z0-9.&'’\-]+){0,10}\s+Fund)\b"
+)
+
+
+def _known_names_in_text(text: str, memory: dict | None) -> list[str]:
+    from news_rag.insight.memory.fund_context import memory_known_fund_names
+
+    hits = [
+        name
+        for name in memory_known_fund_names(memory)
+        if name and name.lower() in (text or "").lower()
+    ]
+    return [
+        name
+        for name in hits
+        if not any(name.lower() != other.lower() and name.lower() in other.lower() for other in hits)
+    ]
+
+
+def single_fund_for_deictic(question: str, memory: dict | None) -> str:
+    """One fund for 'this fund': the focused fund, or the only fund named in the last answer."""
+    from news_rag.insight.investor_subject import question_refers_deictic_fund
+
+    if not question_refers_deictic_fund(question):
+        return ""
+    if isinstance(memory, dict):
+        frame = memory.get("frame") if isinstance(memory.get("frame"), dict) else {}
+        focus = str(frame.get("last_fund_focus") or "").strip()
+        if focus:
+            return focus
+        turns = [row for row in (memory.get("chat_turns") or []) if isinstance(row, dict)]
+        if turns:
+            named = _known_names_in_text(str(turns[-1].get("assistant") or ""), memory)
+            if len(named) == 1:
+                return named[0]
+    return ""
+
+
+def scrub_unknown_fund_mentions(plan: ExecutionPlan, memory: dict | None, question: str) -> ExecutionPlan:
+    """Drop fund names the planner wrote that the user did not say and the chat does not know."""
+    from news_rag.insight.memory.fund_context import memory_known_fund_names
+
+    known = {name.lower() for name in memory_known_fund_names(memory) if name}
+    question_l = (question or "").lower()
+
+    def unknown(text: str) -> str:
+        for match in _FUNDISH_RE.finditer(text or ""):
+            low = match.group(1).strip().lower()
+            if low in question_l:
+                continue
+            if any(low == known_name or low in known_name or known_name in low for known_name in known):
+                continue
+            return match.group(1).strip()
+        return ""
+
+    if unknown(str(plan.planner_reading or "")):
+        plan.planner_reading = (question or "").strip()
+    bad = unknown(str(plan.presentation_notes or ""))
+    if bad:
+        kept = [
+            sentence
+            for sentence in re.split(r"(?<=[.])\s+", str(plan.presentation_notes or ""))
+            if bad.lower() not in sentence.lower()
+        ]
+        plan.presentation_notes = " ".join(kept).strip()
+    return plan
+
+
 def clarify_plan_if_fund_unknown(
     plan: ExecutionPlan,
     memory: dict | None,
@@ -130,6 +205,33 @@ def clarify_plan_if_fund_unknown(
 ) -> ExecutionPlan:
     if plan.scope_kind == ScopeKind.OUT_OF_SCOPE:
         return plan
+    scrub_unknown_fund_mentions(plan, memory, question)
+    picked = single_fund_for_deictic(question, memory)
+    if question_refers_deictic_fund_safe(question) and not picked:
+        from news_rag.insight.memory.fund_context import memory_known_fund_names
+
+        names = memory_known_fund_names(memory)[:8]
+        listed = ", ".join(names) if names else "one of the funds already in this chat"
+        plan.scope_kind = ScopeKind.NEEDS_CLARIFICATION
+        plan.direct_reply = f"Which fund do you mean? Recent names in this chat include {listed}."
+        plan.tool_calls = []
+        plan.funds = []
+        plan.requires_compose = False
+        plan.can_answer_directly = True
+        plan.planner_reading = (question or "").strip()
+        return plan
+    if picked and not [str(fund).strip() for fund in (plan.funds or []) if str(fund).strip()]:
+        plan.funds = [picked]
+        for call in plan.tool_calls or []:
+            if call.tool != "get_investor_portfolio":
+                continue
+            args = dict(call.arguments or {})
+            modules = [str(item) for item in (args.get("modules") or [])]
+            if "holdings" not in modules:
+                modules.append("holdings")
+            args["modules"] = modules
+            args["scheme_filter"] = picked
+            call.arguments = args
     if not _plan_uses_fund_scoped_tools(plan):
         if plan.scope_kind == ScopeKind.NEEDS_CLARIFICATION and (plan.direct_reply or "").strip():
             plan.tool_calls = []
