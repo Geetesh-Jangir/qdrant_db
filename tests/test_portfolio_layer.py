@@ -220,6 +220,52 @@ def test_current_value_and_nonzero_xirr():
     assert doc["allocation"]["aumByCategory"]["mid cap"] == 13179
 
 
+def test_normalize_allocation_from_live_books_total():
+    from news_rag.portfolio.normalize import normalize_workspace
+
+    raw = {
+        "sections": {
+            "live": {
+                "data": {
+                    "liveSummary": {"totalInvestedAmount": 1_000_000, "totalMarketValue": 1_100_000},
+                    "schemes": [
+                        {
+                            "schemeName": "Sample Fund",
+                            "marketValueAtTo": 1_100_000,
+                            "investedAmountAtTo": 1_000_000,
+                            "schemeCategory": "large cap",
+                        }
+                    ],
+                    "books": {
+                        "total": {
+                            "allocation": {
+                                "investedBySchemeType": {"equity": 1_000_000},
+                                "aumBySchemeType": {"equity": 1_100_000},
+                                "investedByCategory": {"large cap": 1_000_000},
+                                "aumByCategory": {"large cap": 1_100_000, "gold": 0},
+                            }
+                        }
+                    },
+                }
+            },
+            "book": {
+                "data": {
+                    "books": {
+                        "total": {
+                            "investedInr": 1_000_000,
+                            "aumInr": 1_100_000,
+                            "allocation": {},
+                        }
+                    }
+                }
+            },
+        }
+    }
+    doc = normalize_workspace(raw)
+    assert doc["allocation"]["investedBySchemeType"]["equity"] == 1_000_000
+    assert doc["allocation"]["aumByCategory"]["large cap"] == 1_100_000
+
+
 def test_portfolio_concentration_report_format():
     from news_rag.insight.evidence_pack import _portfolio_concentration_report
 

@@ -345,7 +345,20 @@ def question_asks_category_money(question: str) -> bool:
         return False
     if re.search(r"\b(?:each|every|all|per|by)\s+categor|\bcategories\b", q):
         return True
+    if any(f"invested in {label}" in q for label in ("equity", "debt", "hybrid")):
+        return True
     return bool(_category_slug_from_question(question))
+
+
+def _scheme_type_slug_from_question(question: str) -> str:
+    """Book-level equity/debt/hybrid money ask (scheme type, not SEBI category)."""
+    q = (question or "").lower()
+    if "invested" not in q and "investment" not in q and "how much" not in q and "money" not in q:
+        return ""
+    for label in ("equity", "debt", "hybrid"):
+        if label in q:
+            return label
+    return ""
 
 
 def question_asks_category_book_share(question: str) -> bool:
@@ -390,6 +403,7 @@ def ensure_my_category_fund_investor_plan(
         if investor_calls:
             investor_calls[0].arguments = args
             investor_calls[0].why = f"Full book allocation so {cat} is a share of the portfolio, not 100% of a filtered list"
+            investor_calls[0].arguments.pop("scheme_filter", None)
         else:
             plan.tool_calls = [
                 ToolCall(

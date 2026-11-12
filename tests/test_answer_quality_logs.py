@@ -42,6 +42,16 @@ def test_category_draft_has_invested_and_value_and_drops_zeros():
     assert "Liquid" not in one
 
 
+def test_zero_gold_category_draft():
+    alloc = {
+        "investedByCategory": {"equity": 100.0, "large cap": 100.0},
+        "aumByCategory": {"large cap": 110.0},
+    }
+    text = render_category_money_draft(alloc, only="gold")
+    assert "not invested in gold" in text.lower()
+    assert render_gold_exposure_draft(alloc)
+
+
 def test_invested_in_gold_is_not_a_spot_price_ask():
     q = "how much i have invested in gold"
     assert not question_is_bullion_metal_price_question(q)

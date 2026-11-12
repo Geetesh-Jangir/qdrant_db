@@ -99,6 +99,7 @@ def bind_cached_portfolio(
     from news_rag.insight.investor_subject import (
         _category_slug_from_question,
         question_asks_category_book_share,
+        question_asks_category_money,
         question_asks_whole_investor_portfolio,
         resolve_investor_holding_fund_name,
     )
@@ -140,6 +141,7 @@ def bind_cached_portfolio(
     if (
         category
         and not question_asks_category_book_share(question)
+        and not question_asks_category_money(question)
         and not question_asks_whole_investor_portfolio(question, plan)
     ):
         for call in plan.tool_calls:

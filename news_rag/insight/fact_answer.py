@@ -1056,11 +1056,31 @@ def _category_amount_map(allocation: dict[str, Any], key: str) -> dict[str, floa
     return out
 
 
-def render_category_money_draft(allocation: dict[str, Any] | None, *, only: str = "") -> str:
-    """Invested and current value by category. Zero and negative rows are left out."""
+def _label_amount_in_map(mapping: dict[str, float], needle: str) -> float | None:
+    n = (needle or "").strip().lower()
+    if not n or not mapping:
+        return None
+    for label, amount in mapping.items():
+        low = str(label).strip().lower()
+        if low == n or n in low or low in n:
+            return amount
+    return None
+
+
+def render_category_money_draft(
+    allocation: dict[str, Any] | None,
+    *,
+    only: str = "",
+    by: str = "category",
+) -> str:
+    """Invested and current value by category or scheme type. Zero rows are left out unless `only` is set."""
     alloc = allocation if isinstance(allocation, dict) else {}
-    invested = _category_amount_map(alloc, "investedByCategory")
-    current = _category_amount_map(alloc, "aumByCategory")
+    if by == "scheme_type":
+        invested = _category_amount_map(alloc, "investedBySchemeType")
+        current = _category_amount_map(alloc, "aumBySchemeType")
+    else:
+        invested = _category_amount_map(alloc, "investedByCategory")
+        current = _category_amount_map(alloc, "aumByCategory")
     if not invested and not current:
         return ""
     labels: list[str] = []
@@ -1087,9 +1107,22 @@ def render_category_money_draft(allocation: dict[str, Any] | None, *, only: str 
             _pct(share) if share is not None else "—",
         ])
     if not rows:
+        if needle and (invested or current):
+            inv = _label_amount_in_map(invested, needle)
+            cur = _label_amount_in_map(current, needle)
+            inv_amt = inv if inv is not None else 0.0
+            cur_amt = cur if cur is not None else 0.0
+            if inv_amt <= 0 and cur_amt <= 0:
+                label = only.strip() or needle
+                kind = "scheme type" if by == "scheme_type" else "category"
+                return (
+                    f"Measured {kind} **{label}**: invested **{_inr(0)}**, current value **{_inr(0)}**. "
+                    f"You have not invested in {label.lower()}."
+                )
         return ""
     rows.sort(key=lambda row: _inr_sort(row[2]), reverse=True)
-    return _table(["Category", "Invested", "Current value", "Gain", "Share of value"], rows)
+    header = "Scheme type" if by == "scheme_type" else "Category"
+    return _table([header, "Invested", "Current value", "Gain", "Share of value"], rows)
 
 
 def _inr_sort(text: str) -> float:
@@ -1102,8 +1135,14 @@ def _inr_sort(text: str) -> float:
 
 def render_gold_exposure_draft(allocation: dict[str, Any] | None, metals: dict[str, Any] | None = None) -> str:
     """Gold category money, plus an approximate move from the spot return."""
+    alloc = allocation if isinstance(allocation, dict) else {}
     table = render_category_money_draft(allocation, only="gold")
     if not table:
+        if alloc.get("investedByCategory") or alloc.get("aumByCategory") or alloc.get("categoryShare"):
+            return (
+                "Measured gold category: invested **₹0**, current value **₹0**. "
+                "You have not invested in gold."
+            )
         return ""
     lines = [
         "Measured gold category (use this; do not say gold holdings are unavailable):",

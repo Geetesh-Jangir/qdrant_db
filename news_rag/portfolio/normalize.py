@@ -136,6 +136,38 @@ def _apply_holding_values(holdings: list[dict[str, Any]], xirr_rows: list[dict[s
             holding["isin"] = _resolve_isin(str(holding.get("scheme_name") or ""))
 
 
+def _allocation_raw_has_payload(raw: dict[str, Any] | None) -> bool:
+    if not isinstance(raw, dict) or not raw:
+        return False
+    for key in (
+        "investedByCategory",
+        "aumByCategory",
+        "investedBySchemeType",
+        "aumBySchemeType",
+        "schemeTypeShare",
+        "categoryShare",
+    ):
+        val = raw.get(key)
+        if isinstance(val, dict) and val:
+            return True
+        if isinstance(val, list) and val:
+            return True
+    return False
+
+
+def _allocation_raw_from_workspace(book_total: dict[str, Any], live: dict[str, Any]) -> dict[str, Any]:
+    """book.books.total.allocation, else live.data.books.total.allocation."""
+    raw = book_total.get("allocation") if isinstance(book_total.get("allocation"), dict) else {}
+    if _allocation_raw_has_payload(raw):
+        return raw
+    live_total = (live.get("books") or {}).get("total") if isinstance(live.get("books"), dict) else {}
+    if isinstance(live_total, dict):
+        alt = live_total.get("allocation")
+        if isinstance(alt, dict) and _allocation_raw_has_payload(alt):
+            return alt
+    return raw if isinstance(raw, dict) else {}
+
+
 def _allocation_block(raw: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
@@ -385,7 +417,7 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
         "meta": meta,
         "profile_risk": profile_risk,
         "summary": summary,
-        "allocation": _allocation_block(book_total.get("allocation") if isinstance(book_total.get("allocation"), dict) else {}),
+        "allocation": _allocation_block(_allocation_raw_from_workspace(book_total, live)),
         "holdings": holdings,
         "pnl_summary": pnl_summary,
         "pnl_schemes": pnl_schemes,

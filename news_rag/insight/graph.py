@@ -1656,6 +1656,13 @@ def node_compose(state: GraphState) -> str | None:
         if not _re.search(r"\b(?:each|every|all|per|by)\s+categor|\bcategories\b", state.question or "", _re.I):
             only = _category_slug_from_question(state.question or "")
         category_draft = render_category_money_draft(allocation, only=only)
+        from news_rag.insight.investor_subject import _scheme_type_slug_from_question
+
+        stype = _scheme_type_slug_from_question(state.question or "")
+        if stype:
+            scheme_draft = render_category_money_draft(allocation, only=stype, by="scheme_type")
+            if scheme_draft:
+                category_draft = scheme_draft
         if category_draft:
             wants["presentation_notes"] = " ".join(
                 filter(
@@ -1669,6 +1676,12 @@ def node_compose(state: GraphState) -> str | None:
                 )
             ).strip()
     q_low = (state.question or "").lower()
+    if "gold" in q_low and "invested" in q_low and allocation:
+        gold_inv = render_gold_exposure_draft(allocation, {})
+        if gold_inv:
+            wants["presentation_notes"] = " ".join(
+                filter(None, [str(wants.get("presentation_notes") or "").strip(), gold_inv])
+            ).strip()
     if "gold" in q_low and any(word in q_low for word in ("affect", "movement", "moving", "impact", "price")):
         metals = {}
         if pack and isinstance(pack.data_pack, dict):

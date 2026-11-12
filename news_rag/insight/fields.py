@@ -237,6 +237,11 @@ def _book_fields(question: str) -> list[str]:
         found.append("book_value")
     if re.search(r"\bhow\s+much\s+(?:have\s+)?i\s+invested\b|\binvested\s+amount\b|\bmoney\s+invested\b", q, re.I):
         found.append("invested")
+    low = q.lower()
+    if "invested" not in found and "how much" in low and "invested" in low and "have" in low:
+        found.append("invested")
+    if any(f"invested in {label}" in low for label in ("equity", "debt", "hybrid")):
+        found.append("asset_mix")
     if re.search(r"\bgain\s+or\s+loss\s+percent|\bgain\s*%|\bpercentage\s+gain\b", q, re.I):
         found.append("gain_pct")
     elif re.search(r"\bgain\b|\bloss\b|\bp\s*&\s*l\b|\bpnl\b", q, re.I):
