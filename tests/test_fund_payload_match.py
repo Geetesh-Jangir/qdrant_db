@@ -10,6 +10,14 @@ def test_rejects_wrong_isin_in_cached_rating_payload():
     assert _fund_payload_matches_fund("HDFC Flexi Cap Fund - Growth", data) is False
 
 
+def test_rejects_mismatched_risk_block_name():
+    data = {
+        "fund_name": "Invesco India Largecap Fund - Regular Plan - Growth",
+        "risk": {"fund_name": "360 ONE Flexicap Fund - Regular Plan - Growth"},
+    }
+    assert _fund_payload_matches_fund("Invesco India Largecap Fund - Regular Plan - Growth", data) is False
+
+
 def test_accepts_matching_catalog_isin(monkeypatch):
     class Index:
         def lookup_extracted_fund(self, name="", isin=""):

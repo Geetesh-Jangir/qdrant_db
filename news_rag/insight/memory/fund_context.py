@@ -258,16 +258,32 @@ def resolve_amc_fund_from_recent_chat(question: str, memory: dict[str, Any] | No
     names = shown_list_names(memory)
     if not names:
         return ""
+    from news_rag.fund_scheme_match import pick_best_matching_scheme, user_text_names_scheme
+
+    amc_hits: list[str] = []
     for amc in hits:
         for name in names:
             low = name.lower()
             if re.search(rf"\b{re.escape(amc)}\b", low):
-                return name
+                amc_hits.append(name)
+                continue
             from news_rag.fund_search import _needles_for_amc_hint
 
             for needle in _needles_for_amc_hint(amc):
                 if needle and needle.lower() in low:
-                    return name
+                    amc_hits.append(name)
+                    break
+    unique = list(dict.fromkeys(amc_hits))
+    if not unique:
+        return ""
+    if len(unique) == 1:
+        return unique[0]
+    picked = pick_best_matching_scheme(question, unique)
+    if picked:
+        return picked
+    for name in unique:
+        if user_text_names_scheme(question, name):
+            return name
     return ""
 
 

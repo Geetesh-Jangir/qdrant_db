@@ -121,3 +121,124 @@ def test_pick_compare_pair_walks_tiers():
     assert len(labels) == 2
     assert labels[0] == "Best in category"
     assert labels[1] == "Recommended"
+
+
+def test_resolve_rating_category_debt_gold_and_typo():
+    from news_rag.fund_rating_categories import CATEGORIES, resolve_rating_category
+
+    assert resolve_rating_category("compare two random debt funds") == ("debt", "")
+    assert resolve_rating_category("detb") == ("debt", "")
+    assert resolve_rating_category("gold etf") == ("others", "gold etf")
+    assert resolve_rating_category("silver etf") == ("others", "silver etf")
+    assert resolve_rating_category("silver etf fof") == ("others", "fund of funds-domestic-silver")
+    assert resolve_rating_category("golt etf") == ("others", "gold etf")
+    assert resolve_rating_category("gold fund") == ("others", "")
+    debt_type, debt_cat = resolve_rating_category("liquid")
+    assert debt_type == "debt"
+    assert debt_cat in CATEGORIES["debt"]
+
+
+def test_short_category_moves_to_another_with_two_funds():
+    from news_rag.fund_rating_screen import pick_compare_pair_with_fallback
+
+    def fetch(fund_type, category):
+        if category == "overnight":
+            return {"data": {"ratings": [{"isin": "INFON111111", "fundName": "Only One", "label": "Recommended", "finalScore": 70}]}}
+        if category == "liquid":
+            return {
+                "data": {
+                    "ratings": [
+                        {"isin": "INFLQ222222", "fundName": "Liquid A", "label": "Best in category", "finalScore": 80},
+                        {"isin": "INFLQ333333", "fundName": "Liquid B", "label": "Recommended", "finalScore": 75},
+                    ]
+                }
+            }
+        return {"data": {"ratings": []}}
+
+    result = pick_compare_pair_with_fallback(
+        fund_type="debt",
+        category="overnight",
+        count=2,
+        fetch=fetch,
+    )
+    isins = [row.get("isin") for row in result.get("rankings") or []]
+    assert result.get("success") is True
+    assert isins == ["INFLQ222222", "INFLQ333333"]
+    assert "overnight" in str(result.get("ranking_note") or "")
+    assert "liquid" in str(result.get("ranking_note") or "")
+
+
+def test_debt_type_picks_a_debt_scheme_category(monkeypatch):
+    from news_rag.fund_rating_categories import CATEGORIES
+    from news_rag.insight.category_plan import pick_random_scheme_category_for_compare
+
+    monkeypatch.setattr("random.choice", lambda pool: pool[0])
+    category, fund_type = pick_random_scheme_category_for_compare("compare two random debt funds")
+    assert fund_type == "debt"
+    assert category == CATEGORIES["debt"][0]
+
+
+def test_finalize_rewrites_debt_type_to_a_scheme_category(monkeypatch):
+    from news_rag.fund_rating_categories import CATEGORIES
+    from news_rag.insight.category_plan import finalize_unnamed_catalog_compare
+
+    monkeypatch.setattr("random.choice", lambda pool: pool[0])
+    plan = ExecutionPlan(
+        intent="compare",
+        fund_pick="random_in_category",
+        planner_count=2,
+        scheme_categories=["debt"],
+        tool_calls=[
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"focus_question": "debt", "compare_pair": True, "top_n": 2},
+                wave=1,
+            ),
+        ],
+    )
+    out = finalize_unnamed_catalog_compare(plan)
+    screens = [c for c in out.tool_calls if c.tool == "screen_funds_by_exposure"]
+    assert screens[0].arguments["focus_question"] == CATEGORIES["debt"][0]
+
+
+def test_finalize_uses_planner_count_and_one_category(monkeypatch):
+    from news_rag.insight.category_plan import finalize_unnamed_catalog_compare
+
+    monkeypatch.setattr(
+        "news_rag.insight.category_plan.pick_random_scheme_category_for_compare",
+        lambda _q: ("flexi cap", "equity"),
+    )
+    plan = ExecutionPlan(
+        intent="compare",
+        fund_pick="random_in_category",
+        planner_count=5,
+        tool_calls=[
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"focus_question": "equity", "compare_pair": True, "top_n": 2},
+                wave=1,
+            ),
+        ],
+    )
+    out = finalize_unnamed_catalog_compare(plan)
+    screens = [c for c in out.tool_calls if c.tool == "screen_funds_by_exposure"]
+    assert len(screens) == 1
+    assert screens[0].arguments["focus_question"] == "flexi cap"
+    assert screens[0].arguments["top_n"] == 5
+    assert any(c.tool == "compare_funds" for c in out.tool_calls)
+
+
+def test_finalize_splits_count_across_planner_categories():
+    from news_rag.insight.category_plan import finalize_unnamed_catalog_compare
+
+    plan = ExecutionPlan(
+        intent="compare",
+        fund_pick="compare_categories",
+        planner_count=5,
+        scheme_categories=["small cap", "large cap"],
+    )
+    out = finalize_unnamed_catalog_compare(plan)
+    screens = [c for c in out.tool_calls if c.tool == "screen_funds_by_exposure"]
+    by_cat = {c.arguments["focus_question"]: c.arguments["top_n"] for c in screens}
+    assert by_cat == {"small cap": 3, "large cap": 2}
+    assert any(c.tool == "compare_funds" for c in out.tool_calls)

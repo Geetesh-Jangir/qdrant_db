@@ -112,6 +112,20 @@ def parse_task_list(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _owned_fund_names(memory: dict[str, Any] | None) -> set[str]:
+    from news_rag.insight.memory.fund_context import owned_holding_rows
+
+    if not isinstance(memory, dict):
+        return set()
+    return {str(row.get("name") or "").strip().lower() for row in owned_holding_rows(memory) if row.get("name")}
+
+
+def _compare_subject_kind(name: str, memory: dict[str, Any] | None) -> str:
+    if name.strip().lower() in _owned_fund_names(memory):
+        return "holding_by_name"
+    return "catalog_fund"
+
+
 def _facts_from_plan(plan: ExecutionPlan) -> list[dict[str, str]]:
     facts: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -130,7 +144,10 @@ def _facts_from_plan(plan: ExecutionPlan) -> list[dict[str, str]]:
     return facts
 
 
-def synthesize_tasks(plan: ExecutionPlan) -> list[dict[str, Any]]:
+def synthesize_tasks(
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
     """Build tasks from fields the planner already set. No question text."""
     if plan.tasks:
         return list(plan.tasks)
@@ -151,11 +168,14 @@ def synthesize_tasks(plan: ExecutionPlan) -> list[dict[str, Any]]:
                 subjects.append({"kind": "chat_ref", "value": str(side.get("name") or "")})
             elif side.get("name"):
                 subjects.append({"kind": "catalog_fund", "value": str(side.get("name") or "")})
+        owned = _owned_fund_names(memory)
         for name in plan.funds or []:
             if not any(s.get("value") == name for s in subjects):
-                subjects.append({"kind": "holding_by_name", "value": str(name)})
-        category = str(plan.scheme_category or "").strip()
-        if not category and len(subjects) < 2:
+                kind = "holding_by_name" if str(name).strip().lower() in owned else "catalog_fund"
+                subjects.append({"kind": kind, "value": str(name)})
+        pair_screen = any((c.arguments or {}).get("compare_pair") for c in plan.tool_calls or [])
+        category = "" if pair_screen else str(plan.scheme_category or "").strip()
+        if not category and not pair_screen and len(subjects) < 2:
             category = _category_in_planner_text(plan)
         if category and not any(s.get("kind") == "category_peer" and s.get("value") == category for s in subjects):
             if len([s for s in subjects if s.get("value")]) < 2:
@@ -178,7 +198,10 @@ def synthesize_tasks(plan: ExecutionPlan) -> list[dict[str, Any]]:
         if scope == "all_holdings" or (book and not plan.funds):
             subjects = [{"kind": "all_holdings", "value": ""}]
         elif plan.funds:
-            subjects = [{"kind": "holding_by_name", "value": name} for name in plan.funds]
+            subjects = [
+                {"kind": _compare_subject_kind(name, memory), "value": name}
+                for name in plan.funds
+            ]
         elif scope == "single":
             subjects = [{"kind": "chat_ref", "value": ""}]
         if subjects:
@@ -350,7 +373,7 @@ def apply_task_layer(
     query_log: Any = None,
 ) -> ExecutionPlan:
     """Restore tools the planner's facts need after earlier hooks, and name category peers."""
-    tasks = synthesize_tasks(plan)
+    tasks = synthesize_tasks(plan, memory)
     if not tasks:
         return plan
     _narrow_aggregate_subjects(plan, tasks)
@@ -369,7 +392,13 @@ def apply_task_layer(
         if s.get("kind") == "category_peer" and s.get("value")
     ]
 
-    if needs_book and not any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or []):
+    from news_rag.config import get_settings
+
+    if (
+        needs_book
+        and get_settings().portfolio_enabled
+        and not any(c.tool == "get_investor_portfolio" for c in plan.tool_calls or [])
+    ):
         plan.tool_calls.insert(0, ToolCall(
             tool="get_investor_portfolio",
             arguments={"modules": ["holdings"], "include_meta": True, "holdings_fields": "standard", "top_n": 20},
@@ -388,7 +417,8 @@ def apply_task_layer(
             plan.portfolio_intent = "none"
         plan.requires_compose = True
 
-    for category in peers:
+    pair_screen = any((c.arguments or {}).get("compare_pair") for c in plan.tool_calls or [])
+    for category in ([] if pair_screen else peers):
         if _has_peer_screen(plan, category):
             continue
         plan.tool_calls.append(ToolCall(

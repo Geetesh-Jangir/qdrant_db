@@ -89,6 +89,8 @@ def restore_dropped_planner_tools(plan: ExecutionPlan, original: list[ToolCall])
         return plan
     if plan.scope_kind in (ScopeKind.NEEDS_CLARIFICATION, ScopeKind.OUT_OF_SCOPE):
         return plan
+    if any((c.arguments or {}).get("compare_pair") for c in plan.tool_calls or []):
+        return plan
     if not plan.tool_calls:
         plan.tool_calls = [call.model_copy(deep=True) for call in original]
         return plan

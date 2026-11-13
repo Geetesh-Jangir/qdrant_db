@@ -5,46 +5,78 @@ The list is the one published for that API. Sector and theme slugs are not guess
 
 from __future__ import annotations
 
+import difflib
 import re
 from dataclasses import dataclass
 
-# fund type -> scheme categories, in the order a type-only question walks them
+# API fund-type slugs. "solution oriented" and "other" in the published list
+# are solution_oriented and others on the by-category URL.
+# unknown / other stay listed but are never a random pick.
 CATEGORIES: dict[str, tuple[str, ...]] = {
     "equity": (
         "large cap",
+        "large & mid cap",
+        "flexi cap",
+        "focused",
+        "multi cap",
         "mid cap",
         "small cap",
-        "flexi cap",
-        "multi cap",
-        "large & mid cap",
-        "focused",
         "value",
         "elss",
         "dividend yield",
+        "sectoral-banking and finance",
+        "sectoral-fmcg",
+        "sectoral-infrastructure",
+        "sectoral-pharma and healthcare",
+        "sectoral-technology",
+        "thematic-transportation",
+        "thematic-business-cycle",
+        "thematic-consumption",
+        "thematic-energy",
+        "thematic-esg",
+        "thematic-innovation",
+        "thematic-international",
+        "thematic-manufacturing",
+        "thematic-mnc",
+        "thematic-multi-sector",
+        "thematic-psu",
+        "thematic-quantitative",
+        "thematic-active-momentum",
+        "thematic-others",
+        "unknown",
     ),
     "debt": (
-        "liquid",
         "overnight",
+        "liquid",
         "ultra short duration",
         "low duration",
         "money market",
         "short duration",
+        "medium duration",
+        "medium to long duration",
+        "long duration",
+        "dynamic bond",
         "corporate bond",
+        "credit risk",
         "banking and psu",
+        "floater",
         "gilt",
+        "gilt with 10 year constant duration",
+        "fmp",
     ),
     "hybrid": (
         "aggressive hybrid",
-        "conservative hybrid",
         "balanced hybrid",
-        "dynamic asset allocation",
-        "multi asset allocation",
-        "arbitrage",
+        "conservative hybrid",
         "equity savings",
+        "arbitrage",
+        "dynamic asset allocation",
+        "dynamic asset allocation or balanced advantage",
+        "multi asset allocation",
     ),
     "solution_oriented": (
-        "funds-debt retirement",
         "childrens",
+        "retirement",
     ),
     "others": (
         "index",
@@ -54,12 +86,16 @@ CATEGORIES: dict[str, tuple[str, ...]] = {
         "fund of funds-domestic-gold",
         "fund of funds-domestic-silver",
         "fund of funds-domestic-gold and silver",
-        "fund of funds-hybrid",
         "fund of funds-domestic-equity",
         "fund of funds-domestic-debt",
         "fund of funds-domestic-hybrid",
+        "fund of funds-income plus arbitrage",
+        "fund of funds-overseas",
+        "other",
     ),
 }
+
+_NOT_A_PICK = frozenset({"unknown", "other"})
 
 # Bullion products on the category rating URL. Generic "etfs" and "index" are not metal funds.
 GOLD_SCHEME_CATEGORIES: tuple[str, ...] = (
@@ -98,6 +134,7 @@ _CATEGORY_ALIASES: tuple[tuple[str, str, str], ...] = tuple(
             (phrase, fund_type, phrase)
             for fund_type, phrases in CATEGORIES.items()
             for phrase in phrases
+            if phrase not in _NOT_A_PICK
         ),
         key=lambda item: len(item[0]),
         reverse=True,
@@ -118,7 +155,7 @@ _CATEGORY_ALIASES: tuple[tuple[str, str, str], ...] = tuple(
     ("defence", "equity", ""),
     ("defense", "equity", ""),
     ("manufacturing", "equity", ""),
-    ("retirement", "solution_oriented", "funds-debt retirement"),
+    ("retirement", "solution_oriented", "retirement"),
     ("children", "solution_oriented", "childrens"),
     ("childrens", "solution_oriented", "childrens"),
     ("solution oriented", "solution_oriented", ""),
@@ -280,6 +317,138 @@ def match_all_scheme_categories(question: str) -> list[str]:
 
 def categories_for(fund_type: str) -> tuple[str, ...]:
     return CATEGORIES.get(fund_type or "equity", ())
+
+
+def _rating_tokens(text: str) -> list[str]:
+    """Lowercase words. Hyphens and punctuation become spaces. No regex."""
+    cleaned = (text or "").lower().replace("&", " and ").replace("/", " ")
+    for compact, phrase in (
+        ("largecap", "large cap"),
+        ("midcap", "mid cap"),
+        ("smallcap", "small cap"),
+        ("flexicap", "flexi cap"),
+        ("multicap", "multi cap"),
+    ):
+        cleaned = cleaned.replace(compact, phrase)
+    for ch in "-_.,:;!?()[]\"'":
+        cleaned = cleaned.replace(ch, " ")
+    out: list[str] = []
+    for word in cleaned.split():
+        if word == "fof":
+            out.extend(("fund", "of", "funds"))
+        else:
+            out.append(word)
+    return out
+
+
+def _close(left: str, right: str) -> float:
+    return difflib.SequenceMatcher(None, left, right).ratio()
+
+
+def _token_close(query: list[str], phrase_tokens: list[str]) -> int:
+    used: set[int] = set()
+    matched = 0
+    for phrase_token in phrase_tokens:
+        hit = None
+        for index, query_token in enumerate(query):
+            if index in used:
+                continue
+            if query_token == phrase_token or _close(query_token, phrase_token) >= 0.72:
+                hit = index
+                break
+        if hit is None:
+            continue
+        used.add(hit)
+        matched += 1
+    return matched
+
+
+def _phrase_score(query: list[str], phrase: str) -> float:
+    phrase_tokens = [tok for tok in _rating_tokens(phrase) if tok not in {"a", "the", "and", "or"}]
+    if not query or not phrase_tokens:
+        return 0.0
+    matched = _token_close(query, phrase_tokens)
+    if matched == len(phrase_tokens):
+        return 3.0 + len(phrase_tokens) / 10
+    if matched >= 2 and matched / len(phrase_tokens) >= 0.66:
+        return 2.6 + matched / 10
+    return matched / len(phrase_tokens)
+
+
+def _metal_flags(tokens: list[str]) -> tuple[bool, bool, bool, bool]:
+    blob = set(tokens)
+    has_fof = "fof" in blob or ("fund" in blob and "funds" in blob and "of" in blob)
+    return "gold" in blob, "silver" in blob, "etf" in blob or "etfs" in blob, has_fof
+
+
+def _metal_category(tokens: list[str]) -> str:
+    gold, silver, etf, fof = _metal_flags(tokens)
+    if gold and silver:
+        return "fund of funds-domestic-gold and silver"
+    if silver and fof:
+        return "fund of funds-domestic-silver"
+    if gold and fof:
+        return "fund of funds-domestic-gold"
+    if silver and etf:
+        return "silver etf"
+    if gold and etf:
+        return "gold etf"
+    return ""
+
+
+def _type_hit(tokens: list[str]) -> str:
+    best_type = ""
+    best = 0.0
+    for phrase, fund_type in _TYPE_WORDS:
+        for token in tokens:
+            score = _close(token, phrase.replace(" ", "")) if " " not in phrase else 0.0
+            if " " in phrase and set(_rating_tokens(phrase)) <= set(tokens):
+                score = 1.0
+            if score > best:
+                best = score
+                best_type = fund_type
+    if best >= 0.72:
+        return best_type
+    return ""
+
+
+def resolve_rating_category(text: str) -> tuple[str, str]:
+    """Map free text to (fund_type, scheme category). Empty category means type only.
+
+    A weak score is ("", "") so the caller does not fall through to equity.
+    """
+    tokens = [tok for tok in _rating_tokens(text) if tok not in {"a", "the", "fund", "funds", "random", "compare", "two", "any"}]
+    if not tokens:
+        return "", ""
+    raw = _rating_tokens(text)
+    metal = _metal_category(raw)
+    if metal:
+        return "others", metal
+    best_type = ""
+    best_cat = ""
+    best_score = 0.0
+    for fund_type, phrases in CATEGORIES.items():
+        for phrase in phrases:
+            if phrase in _NOT_A_PICK:
+                continue
+            score = _phrase_score(tokens, phrase)
+            if score > best_score:
+                best_score = score
+                best_type = fund_type
+                best_cat = phrase
+    if best_score >= 2.5:
+        return best_type, best_cat
+    gold, silver, _etf, _fof = _metal_flags(raw)
+    if gold or silver:
+        return "others", ""
+    typed = _type_hit(raw)
+    if typed:
+        return typed, ""
+    return "", ""
+
+
+def pickable_categories(fund_type: str) -> tuple[str, ...]:
+    return tuple(name for name in categories_for(fund_type) if name not in _NOT_A_PICK)
 
 
 def metal_scheme_categories(*metals: str) -> tuple[str, ...]:

@@ -1238,9 +1238,9 @@
     "semantic_hash": "22e00d0327d82646723e18a732562a7c"
   },
   "news_rag/fund_rating_categories.py": {
-    "mtime": 1794294928.2366514,
-    "seen": 1794295393.2014964,
-    "ast_hash": "c01ec0231b85e08917fe2e188856266c",
+    "mtime": 1794549506.5101767,
+    "seen": 1794549579.663973,
+    "ast_hash": "f6c1d969a31e5f4fe729cfe9c6aed1d8",
     "semantic_hash": ""
   },
   "news_rag/fund_rating_labels.py": {
@@ -1250,9 +1250,9 @@
     "semantic_hash": "eb41a73e45e38563525e834e2cf4716a"
   },
   "news_rag/fund_rating_screen.py": {
-    "mtime": 1794477570.347065,
-    "seen": 1794477596.6937792,
-    "ast_hash": "ce0db10fbe60a546dee53aee0ac6143c",
+    "mtime": 1794549735.947096,
+    "seen": 1794549797.7545002,
+    "ast_hash": "733463ccea7c575bb538f4df877fd586",
     "semantic_hash": ""
   },
   "news_rag/fund_risk.py": {
@@ -1352,21 +1352,21 @@
     "semantic_hash": ""
   },
   "news_rag/insight/capabilities/executor.py": {
-    "mtime": 1794390254.0455112,
-    "seen": 1794390360.8841245,
-    "ast_hash": "1a745117e4b92da8ce6f5bc63f6bc192",
+    "mtime": 1794549739.3882728,
+    "seen": 1794549797.7575974,
+    "ast_hash": "b9941e3a5d883ff13339412e76247ae2",
     "semantic_hash": ""
   },
   "news_rag/insight/category_plan.py": {
-    "mtime": 1794385725.626696,
-    "seen": 1794385777.8866587,
-    "ast_hash": "3b6868e37501e8f0b225bf8bb975d60c",
+    "mtime": 1794549410.6144037,
+    "seen": 1794549579.667303,
+    "ast_hash": "fb935bdc890d97ac073dbf6b663b1197",
     "semantic_hash": ""
   },
   "news_rag/insight/compare_evidence.py": {
-    "mtime": 1793882345.3400383,
-    "seen": 1793882866.004021,
-    "ast_hash": "c484abc617a99c43cf613ca9d2fdee04",
+    "mtime": 1794547773.1205394,
+    "seen": 1794547901.2920501,
+    "ast_hash": "e2d057806d85d7e8ce32ec7e9594e253",
     "semantic_hash": ""
   },
   "news_rag/insight/computed_answers.py": {
@@ -1466,9 +1466,9 @@
     "semantic_hash": "c3f997c51ba6d5a826d71ac5fcf0219a"
   },
   "news_rag/insight/graph.py": {
-    "mtime": 1794481278.498852,
-    "seen": 1794481285.9676516,
-    "ast_hash": "0822992d89af84a8ffdc4ae222e472ad",
+    "mtime": 1794548405.0123038,
+    "seen": 1794548488.7274985,
+    "ast_hash": "a04391cc62910a24827175da5e8e26a6",
     "semantic_hash": ""
   },
   "news_rag/insight/greeting.py": {
@@ -1514,9 +1514,9 @@
     "semantic_hash": ""
   },
   "news_rag/insight/investor_subject.py": {
-    "mtime": 1794481277.624621,
-    "seen": 1794481285.9697895,
-    "ast_hash": "15ef4480e062026e71429031d102e236",
+    "mtime": 1794485186.359207,
+    "seen": 1794485237.1854534,
+    "ast_hash": "2337832e094eba36e4896b113ee37d74",
     "semantic_hash": ""
   },
   "news_rag/insight/layer_tools.py": {
@@ -1556,9 +1556,9 @@
     "semantic_hash": ""
   },
   "news_rag/insight/memory/fund_context.py": {
-    "mtime": 1794299931.636708,
-    "seen": 1794303205.9136925,
-    "ast_hash": "e3fef0a3bd1fda2a0043df4f246bebb8",
+    "mtime": 1794483932.3733318,
+    "seen": 1794484404.6179514,
+    "ast_hash": "b525994bd544b5f19629ab1c8ec24be0",
     "semantic_hash": ""
   },
   "news_rag/insight/memory/prompt.py": {
@@ -1634,9 +1634,9 @@
     "semantic_hash": "316a541c6664ba0fc9c96a7aca990bde"
   },
   "news_rag/insight/plan.py": {
-    "mtime": 1794469574.5463784,
-    "seen": 1794469983.0810378,
-    "ast_hash": "e86fab7ff1f666f1b70d3e21520b6203",
+    "mtime": 1794548422.8945024,
+    "seen": 1794548488.7321615,
+    "ast_hash": "12f3a4d9a6acdc2b196e74315af84f63",
     "semantic_hash": ""
   },
   "news_rag/insight/plan_catalog_bind.py": {
@@ -1646,9 +1646,9 @@
     "semantic_hash": ""
   },
   "news_rag/insight/plan_enforce.py": {
-    "mtime": 1794467594.2799447,
-    "seen": 1794467632.3205495,
-    "ast_hash": "16a843b233d0f88acbfff22bfa12bd9a",
+    "mtime": 1794547772.7054863,
+    "seen": 1794547901.3010042,
+    "ast_hash": "21f2cf60d182cb12d715c26408dbd2ce",
     "semantic_hash": ""
   },
   "news_rag/insight/plan_intent.py": {
@@ -1664,9 +1664,9 @@
     "semantic_hash": "be941a7b310b3aa7c6c444ab7a2712c3"
   },
   "news_rag/insight/planner_policy.py": {
-    "mtime": 1794467593.2380621,
-    "seen": 1794467632.3209183,
-    "ast_hash": "331b577a037dd8e7c14d3de071895089",
+    "mtime": 1794548407.3046052,
+    "seen": 1794548488.7328303,
+    "ast_hash": "fa77d298006360bd55a6c52e9fb3da4a",
     "semantic_hash": ""
   },
   "news_rag/insight/portfolio_news_impact.py": {
@@ -1844,9 +1844,9 @@
     "semantic_hash": ""
   },
   "news_rag/portfolio/normalize.py": {
-    "mtime": 1794481222.2910726,
-    "seen": 1794481285.9807057,
-    "ast_hash": "041270b25742cc28707ec08928cfc4f5",
+    "mtime": 1794485102.2886078,
+    "seen": 1794485237.1947632,
+    "ast_hash": "095404dd7a7972e7cad2d8b5c8330a46",
     "semantic_hash": ""
   },
   "news_rag/portfolio/project.py": {
@@ -2156,10 +2156,10 @@
     "semantic_hash": "8e26091e53ae354c73095656250b467e"
   },
   "tests/test_compare_evidence.py": {
-    "mtime": 1793621533.2856436,
-    "seen": 1793772841.0563407,
-    "ast_hash": "6c7e2811a29b91a4ace8e3f5ebc427da",
-    "semantic_hash": "6c7e2811a29b91a4ace8e3f5ebc427da"
+    "mtime": 1794547790.7779796,
+    "seen": 1794547901.317375,
+    "ast_hash": "10d3ea48c1691d651dc530c4c1b6049f",
+    "semantic_hash": ""
   },
   "tests/test_compare_funds_cache.py": {
     "mtime": 1793429183.72227,
@@ -2174,10 +2174,10 @@
     "semantic_hash": "2f57eceb0f808059ca9e01b550b4c696"
   },
   "tests/test_compare_pair_category.py": {
-    "mtime": 1793707698.9978795,
-    "seen": 1793772841.0567741,
-    "ast_hash": "80ddaae5b7e4f291a9dbe24804983b3a",
-    "semantic_hash": "80ddaae5b7e4f291a9dbe24804983b3a"
+    "mtime": 1794549755.3969471,
+    "seen": 1794549797.7822652,
+    "ast_hash": "96d73f78c1dde1db211584eb0655c5bc",
+    "semantic_hash": ""
   },
   "tests/test_compose_prompt_tone.py": {
     "mtime": 1793878931.6908846,
@@ -2294,10 +2294,10 @@
     "semantic_hash": "a1d8108a687c36e90df4ade200265af2"
   },
   "tests/test_fund_payload_match.py": {
-    "mtime": 1793429183.7302687,
-    "seen": 1793772841.059525,
-    "ast_hash": "c9ec2fb4a681117a103bd6c3af8e3a18",
-    "semantic_hash": "c9ec2fb4a681117a103bd6c3af8e3a18"
+    "mtime": 1794547785.2041144,
+    "seen": 1794547901.3213503,
+    "ast_hash": "255ba134d49080c0dfaa9f222fac4a90",
+    "semantic_hash": ""
   },
   "tests/test_fund_performance_digest.py": {
     "mtime": 1793085917.4897592,
@@ -2312,9 +2312,9 @@
     "semantic_hash": "e9ff4861ecc4c44c0785489966b47ee1"
   },
   "tests/test_fund_rating_screen.py": {
-    "mtime": 1794305399.653901,
-    "seen": 1794307027.905714,
-    "ast_hash": "e3be68c7df876f096bf82b96fbc17ee6",
+    "mtime": 1794549518.2110476,
+    "seen": 1794549579.6962802,
+    "ast_hash": "382afe2da893e0f3af6681037df1340e",
     "semantic_hash": ""
   },
   "tests/test_fund_risk.py": {
@@ -2486,9 +2486,9 @@
     "semantic_hash": ""
   },
   "tests/test_investor_subject.py": {
-    "mtime": 1794399328.1966498,
-    "seen": 1794465563.2034295,
-    "ast_hash": "cbfd260a5e5e4ecf13d4a7477ac0d420",
+    "mtime": 1794483654.8647084,
+    "seen": 1794483719.6338935,
+    "ast_hash": "1ff3807474931779419e945d5af02c78",
     "semantic_hash": ""
   },
   "tests/test_macro_news_cache.py": {
@@ -2624,9 +2624,9 @@
     "semantic_hash": "d45a8dcd01f7276e03c1482dbe1dfec2"
   },
   "tests/test_portfolio_layer.py": {
-    "mtime": 1794481240.2431185,
-    "seen": 1794481286.0089204,
-    "ast_hash": "4529e7953ff54ac9e9b37e17bf836ccc",
+    "mtime": 1794485122.0077195,
+    "seen": 1794485237.2187855,
+    "ast_hash": "aec81f58955078c9cc54f1926271c0e2",
     "semantic_hash": ""
   },
   "tests/test_portfolio_news_impact.py": {
@@ -2738,9 +2738,9 @@
     "semantic_hash": ""
   },
   "news_rag/insight/fact_answer.py": {
-    "mtime": 1794481230.6772058,
-    "seen": 1794481285.9647162,
-    "ast_hash": "2dcc56d47d2dfe2a887809ea3acea147",
+    "mtime": 1794485086.365193,
+    "seen": 1794485237.1824389,
+    "ast_hash": "924db90a1871932d7569d7f682ea973b",
     "semantic_hash": ""
   },
   "news_rag/insight/fields.py": {
@@ -3194,15 +3194,15 @@
     "semantic_hash": ""
   },
   "news_rag/insight/fund_name_policy.py": {
-    "mtime": 1793948439.9890978,
-    "seen": 1793948564.0973892,
-    "ast_hash": "4608812a52648f09afe5229f6a89d99a",
+    "mtime": 1794547771.423007,
+    "seen": 1794547901.2948716,
+    "ast_hash": "6f53ee9eca180aee212b3eca042cd5ef",
     "semantic_hash": ""
   },
   "tests/test_fund_name_policy.py": {
-    "mtime": 1794291759.692327,
-    "seen": 1794292650.697517,
-    "ast_hash": "fee6b6cb2be16310ed3f94fa8495a8b1",
+    "mtime": 1794547782.9040866,
+    "seen": 1794547901.3210504,
+    "ast_hash": "2070ba86d18ed6bdda7440cb2c18e110",
     "semantic_hash": ""
   },
   "tests/test_fund_type_name_spec.py": {
@@ -3266,9 +3266,9 @@
     "semantic_hash": ""
   },
   "tests/test_portfolio_allocation.py": {
-    "mtime": 1794397780.379161,
-    "seen": 1794397823.540425,
-    "ast_hash": "7ad74725a2d85470e1a39777980f1bf9",
+    "mtime": 1794485107.445823,
+    "seen": 1794485237.2184637,
+    "ast_hash": "9ac97ff2babecaf158bebe3ddc5a7654",
     "semantic_hash": ""
   },
   "news_rag/insight/answer_markdown.py": {
@@ -3308,21 +3308,33 @@
     "semantic_hash": ""
   },
   "news_rag/insight/task_exec.py": {
-    "mtime": 1794469711.6092453,
-    "seen": 1794469983.0833092,
-    "ast_hash": "99c731fedf7c165947b9f5456e2e9127",
+    "mtime": 1794548406.596994,
+    "seen": 1794548488.734594,
+    "ast_hash": "9f0e6766457fd8c05f99d7fecf83bec1",
     "semantic_hash": ""
   },
   "tests/test_task_exec.py": {
-    "mtime": 1794469888.6852891,
-    "seen": 1794469983.1141374,
-    "ast_hash": "51cd7560e0975f1d87e4edd5917951d2",
+    "mtime": 1794548432.6173618,
+    "seen": 1794548488.7705574,
+    "ast_hash": "949d102507ab323af8f5de140975f4c9",
     "semantic_hash": ""
   },
   "tests/test_answer_quality_logs.py": {
     "mtime": 1794481261.7706993,
     "seen": 1794481285.9909115,
     "ast_hash": "2311ca908b31e7a045276280352eae1b",
+    "semantic_hash": ""
+  },
+  "news_rag/fund_scheme_match.py": {
+    "mtime": 1794484361.7947645,
+    "seen": 1794484404.608811,
+    "ast_hash": "5d73c9c2c66b1c917db6ac4f1de7acb8",
+    "semantic_hash": ""
+  },
+  "tests/test_fund_scheme_match.py": {
+    "mtime": 1794483943.7836647,
+    "seen": 1794484404.641497,
+    "ast_hash": "8e77dd820e0d001645192bef639de999",
     "semantic_hash": ""
   },
   "cloudflare/scrape-worker/package-lock.json": {

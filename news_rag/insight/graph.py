@@ -323,6 +323,9 @@ def node_route(state: GraphState) -> str | None:
     from news_rag.insight.planner_policy import restore_dropped_planner_tools
 
     plan = restore_dropped_planner_tools(plan, original_calls)
+    from news_rag.insight.category_plan import finalize_unnamed_catalog_compare
+
+    plan = finalize_unnamed_catalog_compare(plan)
     state.plan = plan
     if state.query_log is not None:
         tools = [f"{c.tool}({c.arguments})" for c in plan.tool_calls]
@@ -500,6 +503,10 @@ def _resolve_funds(
         and not compare_planned
         and len(resolved) < 2
     ):
+        from news_rag.insight.fund_name_policy import plan_allows_server_fund_pick
+
+        if plan_allows_server_fund_pick(question or "", plan, memory):
+            return list(dict.fromkeys(resolved)), unresolved
         from news_rag.fund_rating_categories import match_scheme_category
         from news_rag.insight.memory.fund_context import comparison_fund_names, memory_funds_for_category
 
@@ -1372,6 +1379,24 @@ def node_compose(state: GraphState) -> str | None:
     compose_always = bool(getattr(get_settings(), "insight_compose_always", True))
     if compose_always:
         plan.requires_compose = True
+
+    from news_rag.insight.portfolio_intents import normalize_portfolio_intent
+
+    if pack is not None and normalize_portfolio_intent(getattr(plan, "portfolio_intent", "")) == "allocation":
+        from news_rag.insight.fact_answer import render_portfolio_fact
+
+        book = (pack.data_pack or {}).get("investor_portfolio") if isinstance(pack.data_pack, dict) else None
+        fact_line = render_portfolio_fact(
+            "allocation",
+            book if isinstance(book, dict) else {},
+            plan=plan,
+        )
+        if fact_line:
+            state.answer = _clean_answer(fact_line)
+            state.route_reason = "portfolio fact"
+            if state.query_log is not None:
+                state.query_log.write("COMPOSE portfolio_fact intent=allocation")
+            return None
 
     from news_rag.fund_risk import asks_pillar_mark, asks_sebi_riskometer, rating_lead
 

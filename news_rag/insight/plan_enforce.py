@@ -209,11 +209,6 @@ def finalize_fund_compare_plan(question: str, plan: ExecutionPlan) -> None:
         plan.data_need = "none"
         plan.intent = "compare"
         plan.requires_compose = True
-        plan.tool_calls = [
-            call
-            for call in plan.tool_calls
-            if call.tool == "screen_funds_by_exposure" and (call.arguments or {}).get("compare_pair")
-        ]
         plan.funds = []
         return
     plan.data_need = "none"
@@ -743,8 +738,11 @@ def bind_shown_list_followup(
 
 def _keep_picked_shown_fund(question: str, plan: ExecutionPlan, memory: dict[str, Any] | None) -> None:
     """A 'pick one from above' follow-up stays on that scheme and its fund lookup."""
+    from news_rag.insight.fund_name_policy import plan_allows_server_fund_pick
     from news_rag.insight.memory.fund_context import fund_picked_from_prior_answer
 
+    if plan_allows_server_fund_pick(question, plan, memory):
+        return
     picked = fund_picked_from_prior_answer(question, memory)
     if not picked:
         return
@@ -832,7 +830,11 @@ def apply_planner_post_hooks(
     )
 
     ensure_my_category_fund_investor_plan(plan, question, memory)
-    from news_rag.insight.investor_subject import ensure_all_holdings_metrics_plan, ensure_my_holding_fund_scope
+    from news_rag.insight.investor_subject import (
+        ensure_all_holdings_metrics_plan,
+        ensure_manager_fund_scope,
+        ensure_my_holding_fund_scope,
+    )
 
     ensure_my_holding_fund_scope(plan, question, memory)
     ensure_all_holdings_metrics_plan(plan, question, memory)
@@ -847,6 +849,7 @@ def apply_planner_post_hooks(
     reconcile_planner_invented_fund_name(plan, memory, question)
     enforce_investor_holding_subject(plan, memory, question)
     enforce_deictic_and_memory_primary_fund(plan, memory, question)
+    ensure_manager_fund_scope(plan, question, memory)
     from news_rag.insight.planner_policy import narrow_deictic_follow_up, planner_owns
 
     if not planner_owns(plan):

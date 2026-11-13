@@ -63,6 +63,16 @@ def _fund_payload_matches_fund(
     if insight_name and target and insight_name != target:
         if insight_name not in target and target not in insight_name:
             return False
+    snap = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else {}
+    snap_name = str(snap.get("fund_name") or "").strip().lower()
+    if snap_name and target and snap_name != target:
+        if snap_name not in target and target not in snap_name:
+            return False
+    risk = data.get("risk") if isinstance(data.get("risk"), dict) else {}
+    risk_name = str(risk.get("fund_name") or "").strip().lower()
+    if risk_name and target and risk_name != target:
+        if risk_name not in target and target not in risk_name:
+            return False
     rating = data.get("rs_rating") if isinstance(data.get("rs_rating"), dict) else {}
     if expected and rating.get("fund_type") == "debt" and "flexi cap" in target:
         return False
@@ -938,16 +948,29 @@ def _run_screen_funds_by_exposure(args: dict[str, Any], ctx: dict[str, Any]) -> 
         rs_label = normalize_rs_label(str(args.get("rs_label") or ""))
 
         if args.get("compare_pair"):
-            match = match_scheme_category(spec_question)
-            category = str(match.category if match else focus or spec_question).strip()
-            fund_type = str(match.fund_type if match else "equity").strip() or "equity"
-            if category:
-                from news_rag.fund_rating_screen import pick_compare_pair_in_category
+            from news_rag.fund_rating_categories import CATEGORIES
 
-                pair = pick_compare_pair_in_category(
+            known = {phrase for phrases in CATEGORIES.values() for phrase in phrases}
+            match = match_scheme_category(spec_question)
+            category = str(match.category if match and match.category else "").strip()
+            if category not in known:
+                category = focus if focus in known else ""
+            fund_type = str(match.fund_type if match else "equity").strip() or "equity"
+            if category not in known:
+                from news_rag.insight.category_plan import pick_random_scheme_category_for_compare
+
+                category, fund_type = pick_random_scheme_category_for_compare(
+                    " ".join(part for part in (focus, spec_question, question) if part)
+                )
+            want_n = max(2, int(args.get("top_n") or 2))
+            if category:
+                from news_rag.fund_rating_screen import pick_compare_pair_with_fallback
+
+                pair = pick_compare_pair_with_fallback(
                     fund_type=fund_type,
                     category=category,
                     question=question,
+                    count=want_n,
                 )
                 rankings = pair.get("rankings") if isinstance(pair.get("rankings"), list) else []
                 if len(rankings) >= 2:

@@ -129,6 +129,52 @@ def test_aum_without_a_named_fund_is_the_book_total():
     assert "Should Not Appear" not in text
 
 
+def test_compare_pair_screen_does_not_add_a_peer_screen():
+    plan = ExecutionPlan(
+        intent="compare",
+        scheme_category="large cap",
+        planner_reading="compare two large cap funds",
+        tool_calls=[
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"compare_pair": True, "focus_question": "large cap", "top_n": 2},
+                wave=1,
+            ),
+            ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1),
+        ],
+    )
+    apply_task_layer(plan, memory={})
+    screens = [c for c in plan.tool_calls if c.tool == "screen_funds_by_exposure"]
+    assert len(screens) == 1
+    assert screens[0].arguments.get("compare_pair") is True
+
+
+def test_random_compare_no_investor_portfolio_when_disabled(monkeypatch):
+    monkeypatch.setattr(
+        "news_rag.config.get_settings",
+        lambda: type("S", (), {"portfolio_enabled": False})(),
+    )
+    memory = {
+        "chat_turns": [
+            {"user": "x", "assistant": "ITI Small Cap Fund - Regular Plan - Growth"},
+        ],
+    }
+    plan = ExecutionPlan(
+        intent="compare",
+        asked_facts=["category", "expense", "returns", "risk"],
+        tool_calls=[
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"compare_pair": True, "random_sample": True},
+                wave=1,
+            ),
+            ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1),
+        ],
+    )
+    apply_task_layer(plan, memory=memory)
+    assert not any(c.tool == "get_investor_portfolio" for c in plan.tool_calls)
+
+
 def test_category_filter_does_not_bind_every_holding():
     plan = ExecutionPlan(
         intent="lookup",

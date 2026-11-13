@@ -816,6 +816,10 @@ def _share_rows_from_list(rows: Any) -> list[tuple[str, float | None, float | No
             if row.get("aum_pct") is not None
             else row.get("aumPct", row.get("percentage", row.get("weight_pct")))
         )
+        if amt is not None and amt <= 0:
+            continue
+        if (amt is None or amt <= 0) and (pct is None or pct <= 0):
+            continue
         out.append((name, amt, pct))
     return out
 
@@ -823,12 +827,16 @@ def _share_rows_from_list(rows: Any) -> list[tuple[str, float | None, float | No
 def _share_rows_from_map(mapping: Any) -> list[tuple[str, float | None, float | None]]:
     if not isinstance(mapping, dict) or not mapping:
         return []
-    total = sum(_float_or_none(v) or 0.0 for v in mapping.values())
+    amounts = {
+        str(label): amt
+        for label, value in mapping.items()
+        if (amt := _float_or_none(value)) is not None and amt > 0
+    }
+    total = sum(amounts.values())
     out: list[tuple[str, float | None, float | None]] = []
-    for label, value in mapping.items():
-        amt = _float_or_none(value)
-        pct = round(100.0 * amt / total, 2) if amt is not None and total else None
-        out.append((str(label), amt, pct))
+    for label, amt in amounts.items():
+        pct = round(100.0 * amt / total, 2) if total else None
+        out.append((label, amt, pct))
     out.sort(key=lambda item: float(item[2] or item[1] or 0), reverse=True)
     return out
 

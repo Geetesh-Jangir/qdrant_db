@@ -96,6 +96,12 @@ def enforce_user_authorized_funds_only(
     if question_is_standalone_macro(question):
         return plan
     if plan_allows_server_fund_pick(question, plan, memory):
+        from news_rag.insight.investor_subject import user_explicitly_named_scheme
+
+        plan.funds = [
+            f for f in (plan.funds or [])
+            if user_explicitly_named_scheme(question, str(f))
+        ]
         return plan
     if str(plan.portfolio_scope or "").lower() in ("investor", "both"):
         if question_refers_to_investor_holding(question):

@@ -32,6 +32,51 @@ def test_resolve_pair_anchor_plus_screen_pick():
     ]
 
 
+def test_maybe_run_compare_retries_after_failed_compare(monkeypatch):
+    from types import SimpleNamespace
+
+    from news_rag.insight.compare_evidence import maybe_run_compare_funds_for_parties
+
+    plan = ExecutionPlan(
+        intent="compare",
+        tool_calls=[
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"compare_pair": True},
+                wave=1,
+            ),
+        ],
+    )
+    state = SimpleNamespace(
+        plan=plan,
+        question="compare two random funds",
+        wave1_results=[
+            {"tool": "compare_funds", "ok": False, "error": "need_two_funds"},
+            {
+                "tool": "screen_funds_by_exposure",
+                "ok": True,
+                "data": {"rankings": [{"fund_name": "Fund A"}, {"fund_name": "Fund B"}]},
+            },
+        ],
+        resolved_funds=[],
+        telemetry=None,
+        query_log=None,
+        conversation_id=None,
+        memory={},
+    )
+
+    def _fake_execute(calls, ctx, **kwargs):
+        assert kwargs.get("fund_names") == ["Fund A", "Fund B"]
+        return [{"tool": "compare_funds", "ok": True, "data": {"funds": []}}]
+
+    monkeypatch.setattr(
+        "news_rag.insight.capabilities.executor.execute_wave",
+        _fake_execute,
+    )
+    maybe_run_compare_funds_for_parties(state)
+    assert any(r.get("tool") == "compare_funds" and r.get("ok") for r in state.wave1_results)
+
+
 def test_resolve_pair_two_screen_rankings():
     plan = ExecutionPlan(
         tool_calls=[

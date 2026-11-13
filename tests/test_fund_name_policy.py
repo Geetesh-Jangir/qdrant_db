@@ -30,6 +30,36 @@ def test_random_compare_allows_server_pick():
     assert plan_allows_server_fund_pick(q, plan, None) is True
 
 
+def test_server_pick_strips_chat_only_funds():
+    memory = {
+        "chat_turns": [
+            {
+                "user": "pick a random fund",
+                "assistant": "ITI Small Cap Fund - Regular Plan - Growth is a small cap scheme.",
+            }
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        intent="compare",
+        funds=["ITI Small Cap Fund - Regular Plan - Growth"],
+        tool_calls=[
+            ToolCall(
+                tool="screen_funds_by_exposure",
+                arguments={"compare_pair": True, "random_sample": True, "top_n": 2},
+                wave=1,
+            ),
+            ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1),
+        ],
+    )
+    out = enforce_user_authorized_funds_only(
+        plan,
+        memory,
+        "pick two random equity funds and compare them",
+    )
+    assert out.funds == []
+
+
 def test_prior_answer_names_are_authorized():
     memory = {
         "chat_turns": [

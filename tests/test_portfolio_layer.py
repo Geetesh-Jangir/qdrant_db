@@ -220,6 +220,46 @@ def test_current_value_and_nonzero_xirr():
     assert doc["allocation"]["aumByCategory"]["mid cap"] == 13179
 
 
+def test_allocation_drops_dust_and_matches_book_aum():
+    from news_rag.portfolio.normalize import normalize_workspace
+
+    raw = {
+        "sections": {
+            "book": {
+                "data": {
+                    "books": {
+                        "total": {
+                            "investedInr": 2551280,
+                            "aumInr": 3973714,
+                            "allocation": {
+                                "investedByCategory": {
+                                    "value": 408251.0,
+                                    "short term": 0.0,
+                                    "debt oriented": -1.0,
+                                },
+                                "aumByCategory": {
+                                    "value": 835793.0,
+                                    "gold": 3137922.0,
+                                    "short term": 0.0,
+                                    "debt oriented": 0.0,
+                                },
+                            },
+                        }
+                    }
+                }
+            }
+        }
+    }
+    doc = normalize_workspace(raw)
+    alloc = doc["allocation"]
+    assert "debt oriented" not in alloc["investedByCategory"]
+    assert "short term" not in alloc["aumByCategory"]
+    assert sum(alloc["aumByCategory"].values()) == 3973714
+    names = [row["name"] for row in alloc["categoryShare"]]
+    assert "debt oriented" not in names and "short term" not in names
+    assert abs(sum(row["aum_pct"] for row in alloc["categoryShare"]) - 100) < 0.05
+
+
 def test_normalize_allocation_from_live_books_total():
     from news_rag.portfolio.normalize import normalize_workspace
 

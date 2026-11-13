@@ -168,29 +168,83 @@ def _allocation_raw_from_workspace(book_total: dict[str, Any], live: dict[str, A
     return raw if isinstance(raw, dict) else {}
 
 
-def _allocation_block(raw: dict[str, Any] | None) -> dict[str, Any]:
+def _positive_amount_map(block: Any) -> dict[str, float]:
+    if not isinstance(block, dict):
+        return {}
+    out: dict[str, float] = {}
+    for name, value in block.items():
+        amount = _num(value)
+        if amount is not None and amount > 0 and str(name).strip():
+            out[str(name)] = amount
+    return out
+
+
+def _share_rows(mapping: dict[str, float], total: float | None = None) -> list[dict[str, Any]]:
+    denom = total if total and total > 0 else sum(mapping.values())
+    rows = []
+    for name, amount in sorted(mapping.items(), key=lambda item: item[1], reverse=True):
+        pct = round(100.0 * amount / denom, 2) if denom else 0.0
+        rows.append({"name": name, "aum_inr": amount, "aum_pct": pct})
+    return rows
+
+
+def _fit_rupee_dust(mapping: dict[str, float], book_total: float | None) -> None:
+    """Fold a 1–2 rupee upstream remainder into the largest bucket."""
+    if not mapping or book_total is None or book_total <= 0:
+        return
+    diff = round(sum(mapping.values()) - float(book_total), 2)
+    if diff == 0 or abs(diff) > 2:
+        return
+    largest = max(mapping, key=mapping.get)
+    adjusted = round(mapping[largest] - diff, 2)
+    if adjusted > 0:
+        mapping[largest] = adjusted
+
+
+def _allocation_block(raw: dict[str, Any] | None, *, aum_inr: float | None = None) -> dict[str, Any]:
     if not isinstance(raw, dict):
         return {}
     out: dict[str, Any] = {}
     for key in ("investedByCategory", "aumByCategory", "investedBySchemeType", "aumBySchemeType"):
-        block = raw.get(key)
-        if isinstance(block, dict):
-            out[key] = {str(name): _num(value) for name, value in block.items()}
-    for key in ("schemeTypeShare", "categoryShare"):
-        rows = raw.get(key)
-        if not isinstance(rows, list):
-            continue
-        slim = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            slim.append({
-                "name": _str(row.get("name") or row.get("category") or row.get("schemeType")),
-                "aum_inr": _num(_first(row.get("aumInr"), row.get("marketValue"))),
-                "aum_pct": _num(_first(row.get("aumPct"), row.get("percentage"))),
-            })
-        out[key] = [r for r in slim if r.get("name")]
+        cleaned = _positive_amount_map(raw.get(key))
+        if cleaned:
+            out[key] = cleaned
+    categories = out.get("aumByCategory")
+    if isinstance(categories, dict):
+        _fit_rupee_dust(categories, aum_inr)
+        out["categoryShare"] = _share_rows(categories, aum_inr if aum_inr and aum_inr > 0 else None)
+    elif isinstance(raw.get("categoryShare"), list):
+        kept = _positive_share_rows(raw.get("categoryShare"))
+        if kept:
+            out["categoryShare"] = kept
+    scheme_types = out.get("aumBySchemeType")
+    if isinstance(scheme_types, dict):
+        out["schemeTypeShare"] = _share_rows(scheme_types)
+    elif isinstance(raw.get("schemeTypeShare"), list):
+        kept = _positive_share_rows(raw.get("schemeTypeShare"))
+        if kept:
+            out["schemeTypeShare"] = kept
     return out
+
+
+def _positive_share_rows(rows: Any) -> list[dict[str, Any]]:
+    if not isinstance(rows, list):
+        return []
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = _str(row.get("name") or row.get("category") or row.get("schemeType"))
+        amount = _num(_first(row.get("aum_inr"), row.get("aumInr"), row.get("marketValue")))
+        pct = _num(_first(row.get("aum_pct"), row.get("aumPct"), row.get("percentage")))
+        if not name:
+            continue
+        if amount is not None and amount <= 0:
+            continue
+        if (amount is None or amount <= 0) and (pct is None or pct <= 0):
+            continue
+        kept.append({"name": name, "aum_inr": amount, "aum_pct": pct})
+    return kept
 
 
 def _pnl_summary_row(raw: dict[str, Any] | None) -> dict[str, Any]:
@@ -417,7 +471,10 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
         "meta": meta,
         "profile_risk": profile_risk,
         "summary": summary,
-        "allocation": _allocation_block(_allocation_raw_from_workspace(book_total, live)),
+        "allocation": _allocation_block(
+            _allocation_raw_from_workspace(book_total, live),
+            aum_inr=_num(summary.get("aum_inr")),
+        ),
         "holdings": holdings,
         "pnl_summary": pnl_summary,
         "pnl_schemes": pnl_schemes,

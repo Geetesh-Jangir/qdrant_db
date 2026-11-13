@@ -271,6 +271,63 @@ def test_user_explicitly_named_scheme_requires_amc_or_two_tokens():
     )
 
 
+def test_kotak_contra_not_kotak_liquid_amc_only():
+    from news_rag.insight.investor_subject import (
+        ensure_manager_fund_scope,
+        resolve_user_named_fund_in_memory,
+        user_explicitly_named_scheme,
+    )
+
+    q = "tell me about the fund manager of kotak contra fund"
+    contra = "Kotak Contra Fund - Regular Plan - Growth"
+    liquid = "Kotak Liquid Fund - Regular Plan - Growth"
+    assert user_explicitly_named_scheme(q, contra)
+    assert not user_explicitly_named_scheme(q, liquid)
+    memory = {
+        "holdings_in_chat": [
+            {"name": contra, "category": "contra"},
+            {"name": liquid, "category": "liquid"},
+        ],
+    }
+    assert resolve_user_named_fund_in_memory(q, memory) == contra
+    plan = ExecutionPlan(
+        funds=[liquid],
+        tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["managers"]}, wave=1)],
+    )
+    ensure_manager_fund_scope(plan, q, memory)
+    assert plan.funds == [contra]
+    assert plan.holding_scope == "single"
+
+
+def test_contra_fund_managers_scope_not_all_holdings():
+    from news_rag.insight.investor_subject import (
+        ensure_manager_fund_scope,
+        resolve_category_holding_fund_name,
+    )
+
+    memory = {
+        "frame": {"last_fund_focus": "Kotak Contra Fund - Regular Plan - Growth"},
+        "holdings_in_chat": [
+            {"name": "Kotak Contra Fund - Regular Plan - Growth", "category": "contra"},
+            {"name": "Kotak Liquid Fund - Regular Plan - Growth", "category": "liquid"},
+        ],
+    }
+    q = "tell me about the managers of the contra fund"
+    assert (
+        resolve_category_holding_fund_name(q, memory)
+        == "Kotak Contra Fund - Regular Plan - Growth"
+    )
+    plan = ExecutionPlan(
+        funds=[],
+        data_need="investor_holding",
+        portfolio_scope="both",
+        tool_calls=[ToolCall(tool="get_fund_data", arguments={"modules": ["managers"]}, wave=1)],
+    )
+    ensure_manager_fund_scope(plan, q, memory)
+    assert plan.funds == ["Kotak Contra Fund - Regular Plan - Growth"]
+    assert plan.holding_scope == "single"
+
+
 def test_assets_in_portfolio_question_is_not_mirae_asset_fund():
     from news_rag.insight.investor_subject import user_explicitly_named_scheme
 

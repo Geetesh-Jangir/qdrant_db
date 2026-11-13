@@ -785,25 +785,25 @@ def pick_random_scheme_category_for_compare(question: str) -> tuple[str, str]:
     import random
 
     from news_rag.fund_rating_categories import (
-        CATEGORIES,
-        RANDOM_EQUITY_COMPARE_CATEGORIES,
-        match_scheme_category,
+        metal_scheme_categories,
+        pickable_categories,
+        resolve_rating_category,
     )
 
-    match = match_scheme_category(question or "")
-    if match and match.category and match.locked:
-        return str(match.category).strip(), str(match.fund_type or "equity").strip() or "equity"
-
-    q = (question or "").lower()
-    fund_type = "debt" if re.search(r"\bdebt\b", q) and not re.search(r"\bequity\b", q) else "equity"
-    if fund_type == "equity":
-        pool = list(RANDOM_EQUITY_COMPARE_CATEGORIES)
+    fund_type, category = resolve_rating_category(question or "")
+    if category:
+        return category, fund_type or "others"
+    if not fund_type:
+        return "", ""
+    low = (question or "").lower()
+    if fund_type == "others" and ("gold" in low or "silver" in low):
+        metals = [name for name in ("gold", "silver") if name in low]
+        pool = list(metal_scheme_categories(*metals))
     else:
-        pool = list(CATEGORIES.get("debt", ()))
+        pool = list(pickable_categories(fund_type))
     if not pool:
         return "", fund_type
-    category = random.choice(pool)
-    return category, fund_type
+    return random.choice(pool), fund_type
 
 
 def plan_wants_random_same_category_pair_compare(
@@ -839,6 +839,88 @@ def plan_wants_random_same_category_pair_compare(
     if match and match.category and match.locked:
         return False
     return True
+
+
+def _compare_fund_count(plan: ExecutionPlan) -> int:
+    """How many unnamed funds to pick. Planner count wins; 2 only when it gave none."""
+    n = int(getattr(plan, "random_fund_count", 0) or 0) or int(getattr(plan, "planner_count", 0) or 0)
+    if n < 2:
+        n = 2
+    return min(n, 8)
+
+
+def _split_count(total: int, categories: list[str]) -> list[tuple[str, int]]:
+    cats = categories[:total] if total < len(categories) else list(categories)
+    if not cats:
+        return []
+    base, extra = divmod(total, len(cats))
+    shares: list[tuple[str, int]] = []
+    for index, category in enumerate(cats):
+        count = base + (1 if index < extra else 0)
+        if count > 0:
+            shares.append((category, count))
+    return shares
+
+
+def finalize_unnamed_catalog_compare(plan: ExecutionPlan) -> ExecutionPlan:
+    """Last step: unnamed compare uses planner count and categories, not the question text."""
+    if str(plan.intent or "").strip().lower() != "compare":
+        return plan
+    if [str(f).strip() for f in (plan.funds or []) if str(f).strip()]:
+        return plan
+    if str(plan.portfolio_scope or "").strip().lower() in ("investor", "both"):
+        return plan
+    pick = str(plan.fund_pick or "").strip().lower()
+    categories = [str(c).strip() for c in (plan.scheme_categories or []) if str(c).strip()]
+    single = str(plan.scheme_category or "").strip()
+    if not categories and single:
+        categories = [single]
+    has_pair = any((c.arguments or {}).get("compare_pair") for c in plan.tool_calls or [])
+    unnamed = pick in ("random_in_category", "compare_categories") or int(plan.random_fund_count or 0) >= 2
+    if not unnamed and not categories and not has_pair:
+        return plan
+
+    count = _compare_fund_count(plan)
+    if len(categories) >= 2:
+        shares = _split_count(count, categories)
+    else:
+        category = categories[0] if categories else ""
+        from news_rag.fund_rating_categories import CATEGORIES
+
+        known = {phrase for phrases in CATEGORIES.values() for phrase in phrases}
+        if category not in known:
+            category, _fund_type = pick_random_scheme_category_for_compare(category)
+        if not category:
+            return plan
+        plan.scheme_category = category
+        shares = [(category, count)]
+        if not plan.scheme_categories:
+            plan.scheme_categories = [category]
+
+    screens = [
+        ToolCall(
+            tool="screen_funds_by_exposure",
+            arguments={
+                "rating_screen": True,
+                "focus_question": category,
+                "top_n": n,
+                "compare_pair": n > 1,
+                "rating_fetch_n": max(20, n),
+            },
+            wave=1,
+            why=f"Pick {n} rated fund(s) in {category}.",
+        )
+        for category, n in shares
+    ]
+    plan.tool_calls = [
+        *screens,
+        ToolCall(tool="compare_funds", arguments={"mode": "both"}, wave=1, why="Compare the screened funds."),
+    ]
+    plan.funds = []
+    plan.intent = "compare"
+    plan.data_need = "none"
+    plan.requires_compose = True
+    return plan
 
 
 def ensure_random_same_category_pair_compare_plan(

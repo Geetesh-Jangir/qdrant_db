@@ -1315,18 +1315,20 @@ def pick_compare_pair_in_category(
     fund_type: str,
     category: str,
     question: str = "",
+    count: int = 2,
     fetch: Callable[[str, str], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Two distinct funds in one category for compare — Best, then Recommended, then Good Choice."""
+    """N distinct funds in one category for compare — Best, then Recommended, then Good Choice."""
+    want = max(2, int(count or 2))
     loader = fetch or fetch_category_ratings
     payload = loader(fund_type, category)
     rows = _rows_from_payload(payload, fund_type=fund_type, category=category)
     if not rows:
         return {"success": False, "rankings": [], "ranking_note": "", "screen_type": "rs_rating"}
 
-    picked, tier_note = pick_funds_by_label_cascade(rows, 2, max_tier="Good Choice")
+    picked, tier_note = pick_funds_by_label_cascade(rows, want, max_tier="Good Choice")
 
-    if len(picked) < 2:
+    if len(picked) < want:
         return {
             "success": False,
             "rankings": [_strip(row) for row in picked],
@@ -1336,7 +1338,7 @@ def pick_compare_pair_in_category(
             "count": len(picked),
         }
 
-    public = [_strip(row) for row in picked[:2]]
+    public = [_strip(row) for row in picked[:want]]
     try:
         from news_rag.tools import _attach_screen_facts
 
@@ -1358,10 +1360,54 @@ def pick_compare_pair_in_category(
         "ranking_note": note.strip(),
         "categories_called": [category],
         "priced_isins": [],
-        "count": 2,
+        "count": len(public),
         "return_window": "",
         "compare_pair": True,
     }
+
+
+def pick_compare_pair_with_fallback(
+    *,
+    fund_type: str,
+    category: str,
+    question: str = "",
+    count: int = 2,
+    fetch: Callable[[str, str], dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Same-category pair. If that category has fewer than count rated funds, try another in the type."""
+    want = max(2, int(count or 2))
+    first = pick_compare_pair_in_category(
+        fund_type=fund_type,
+        category=category,
+        question=question,
+        count=want,
+        fetch=fetch,
+    )
+    rows = first.get("rankings") if isinstance(first.get("rankings"), list) else []
+    if len(rows) >= want:
+        return first
+    from news_rag.fund_rating_categories import pickable_categories
+
+    alts = [name for name in pickable_categories(fund_type) if name != category]
+    random.shuffle(alts)
+    for alt in alts:
+        pair = pick_compare_pair_in_category(
+            fund_type=fund_type,
+            category=alt,
+            question=question,
+            count=want,
+            fetch=fetch,
+        )
+        alt_rows = pair.get("rankings") if isinstance(pair.get("rankings"), list) else []
+        if len(alt_rows) < want:
+            continue
+        moved = f"{category} had fewer than {want} rated funds, so this pair is from {alt}."
+        pair["ranking_note"] = f"{moved} {pair.get('ranking_note') or ''}".strip()
+        called = [category]
+        called.extend(pair.get("categories_called") or [alt])
+        pair["categories_called"] = called
+        return pair
+    return first
 
 
 def pick_rows_by_label_cascade(

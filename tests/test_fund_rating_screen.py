@@ -209,17 +209,17 @@ def test_equity_best_in_category_walks_until_five():
         called.append(category)
         if category == "large cap":
             return _payload(_rating("INF1", label="Best in category", score=79, trail=8))
-        if category == "mid cap":
+        if category == "large & mid cap":
             return _payload(
                 *[
-                    _rating(f"INFM{i}", label="Best in category", score=80, trail=9, category="mid cap")
+                    _rating(f"INFM{i}", label="Best in category", score=80, trail=9, category="large & mid cap")
                     for i in range(4)
                 ]
             )
         return _payload(_rating("INFSMALL", label="Best in category", score=81, trail=10, category=category))
 
     result = run_rating_list("5 equity funds that are Best in category", fetch=fetch)
-    assert called == ["large cap", "mid cap"]
+    assert called == ["large cap", "large & mid cap"]
     assert len(result["rankings"]) == 5
     assert "INFSMALL" not in {row["isin"] for row in result["rankings"]}
 
@@ -343,10 +343,10 @@ def test_best_in_category_list_shows_one_year_against_the_category_average():
             row = _rating("INF1", label="Best in category", score=80, trail=5)
             row["inputs"]["categoryAvg1Y"] = 4.0
             return _payload(row)
-        if category == "mid cap":
+        if category == "large & mid cap":
             rows = []
             for index in range(4):
-                row = _rating(f"INFM{index}", label="Best in category", score=81, trail=3, category="mid cap")
+                row = _rating(f"INFM{index}", label="Best in category", score=81, trail=3, category="large & mid cap")
                 row["inputs"]["categoryAvg1Y"] = 2.0
                 rows.append(row)
             return _payload(*rows)
@@ -364,7 +364,7 @@ def test_best_in_category_list_shows_one_year_against_the_category_average():
         return out
 
     result = run_rating_list(question, fetch=fetch, price=price)
-    assert called == ["large cap", "mid cap"]
+    assert called == ["large cap", "large & mid cap"]
     assert priced == [row["isin"] for row in result["rankings"]]
     large = next(row for row in result["rankings"] if row["isin"] == "INF1")
     assert large["return_1y_pct"] == 6.0
@@ -618,9 +618,9 @@ def test_a_positive_one_month_return_is_paired_with_best_in_category():
     def fetch(fund_type: str, category: str) -> dict:
         if category == "large cap":
             return _payload(_rating("INFDOWN", label="Best in category", score=90, trail=1, category="large cap"))
-        if category == "mid cap":
-            up = _rating("INFUP", label="Good Choice", score=60, trail=1, category="mid cap")
-            best = _rating("INFBEST", label="Best in category", score=81, trail=1, category="mid cap")
+        if category == "large & mid cap":
+            up = _rating("INFUP", label="Good Choice", score=60, trail=1, category="large & mid cap")
+            best = _rating("INFBEST", label="Best in category", score=81, trail=1, category="large & mid cap")
             return _payload(up, best)
         return _payload()
 
@@ -635,7 +635,7 @@ def test_a_positive_one_month_return_is_paired_with_best_in_category():
         fetch=fetch,
         price=price,
     )
-    assert result["categories_called"] == ["large cap", "mid cap"]
+    assert result["categories_called"] == ["large cap", "large & mid cap"]
     by_role = {row["pick_role"]: row for row in result["rankings"]}
     assert by_role["performance"]["isin"] == "INFUP"
     assert by_role["performance"]["period_return"] == 2.4

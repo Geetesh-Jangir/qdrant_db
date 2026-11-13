@@ -24,7 +24,7 @@ def question_asks_current_book_allocation(question: str) -> bool:
         return False
     q = (question or "").lower()
     if not re.search(
-        r"\ballocation\b|\bcategory\s+mix\b|\basset\s+mix\b|\bhow\s+(?:is|am)\s+i\s+allocated\b",
+        r"\ballocations?\b|\bcategory\s+mix\b|\basset\s+mix\b|\bhow\s+(?:is|am)\s+i\s+allocated\b",
         q,
         re.I,
     ):
@@ -131,6 +131,12 @@ def resolve_investor_holding_by_amc_token(
     unique = list(dict.fromkeys(matches))
     if len(unique) == 1:
         return unique[0]
+    if len(unique) > 1:
+        from news_rag.fund_scheme_match import pick_best_matching_scheme
+
+        picked = pick_best_matching_scheme(question, unique)
+        if picked:
+            return picked
     return ""
 
 
@@ -146,6 +152,20 @@ def resolve_investor_holding_fund_name(
         if row:
             return str(row.get("name") or "").strip()
     return resolve_investor_holding_by_amc_token(question, memory)
+
+
+def resolve_category_holding_fund_name(
+    question: str,
+    memory: dict[str, Any] | None,
+) -> str:
+    """'the contra fund' / manager of contra — category in text, no 'my'."""
+    cat = _category_slug_from_question(question)
+    if not cat:
+        return ""
+    row = investor_holding_for_category(memory, cat)
+    if row:
+        return str(row.get("name") or "").strip()
+    return ""
 
 
 def holdings_rows_from_investor_tool_results(
@@ -341,9 +361,9 @@ def question_asks_category_money(question: str) -> bool:
         return False
     if re.search(r"\b(?:nav|xirr|expense|manager|sip)\b", q) and "categor" not in q:
         return False
-    if not re.search(r"\b(?:invested|investment|how much|allocation)\b", q):
+    if not re.search(r"\b(?:invested|investment|how much|allocations?)\b", q):
         return False
-    if re.search(r"\b(?:each|every|all|per|by)\s+categor|\bcategories\b", q):
+    if re.search(r"\b(?:each|every|all|per|by)\s+categor|\bcategor(?:y|ies)\b", q):
         return True
     if any(f"invested in {label}" in q for label in ("equity", "debt", "hybrid")):
         return True
@@ -471,6 +491,78 @@ def ensure_my_category_fund_investor_plan(
     if question_asks_holding_metric_and_glossary(question):
         plan.response_shape = "short_answer"
         plan.max_words = max(int(plan.max_words or 0), 120)
+    return plan
+
+
+def _plan_wants_manager_roster(plan: ExecutionPlan) -> bool:
+    roster_facts = {"managers", "manager", "fund_manager", "manager_tenure", "past_managers"}
+    asked = {str(f).lower() for f in (plan.asked_facts or []) if str(f).strip()}
+    if asked & roster_facts:
+        return True
+    for call in plan.tool_calls or []:
+        if call.tool != "get_fund_data":
+            continue
+        mods = {str(m).lower() for m in (call.arguments or {}).get("modules") or []}
+        if "managers" in mods:
+            return True
+    return False
+
+
+def _question_wants_all_fund_managers(question: str) -> bool:
+    q = (question or "").lower()
+    return bool(
+        re.search(
+            r"\b(?:each|every|all)\s+(?:my\s+)?(?:funds?|holdings?|schemes?).*\bmanag",
+            q,
+        )
+    ) or bool(re.search(r"\bmanagers?\s+(?:of|for)\s+(?:each|every|all)\b", q))
+
+
+def ensure_manager_fund_scope(
+    plan: ExecutionPlan,
+    question: str,
+    memory: dict[str, Any] | None = None,
+) -> ExecutionPlan:
+    """One scheme's managers — not fan-out on every holding when user meant contra / a named fund."""
+    if not _plan_wants_manager_roster(plan):
+        return plan
+    if _question_wants_all_fund_managers(question):
+        return plan
+    funds = [str(f).strip() for f in (plan.funds or []) if str(f).strip()]
+    if len(funds) == 1 and user_explicitly_named_scheme(question, funds[0]):
+        plan.holding_scope = "single"
+        return plan
+
+    name = resolve_user_named_fund_in_memory(question, memory)
+    if not name and len(funds) == 1:
+        name = funds[0]
+    if not name:
+        from news_rag.fund_search import resolve_fund_from_question
+
+        detail, amb, _close = resolve_fund_from_question(question)
+        if detail and not amb:
+            candidate = str(
+                detail.get("scheme_name") or detail.get("fund_name") or detail.get("name") or ""
+            ).strip()
+            if candidate and user_explicitly_named_scheme(question, candidate):
+                name = candidate
+    if not name:
+        name = resolve_category_holding_fund_name(question, memory)
+    if not name and isinstance(memory, dict):
+        frame = memory.get("frame") if isinstance(memory.get("frame"), dict) else {}
+        focus = str(frame.get("last_fund_focus") or "").strip()
+        cat = _category_slug_from_question(question)
+        if focus and cat and re.search(rf"\b{re.escape(cat.split()[0])}\b", (question or "").lower()):
+            name = focus
+
+    if name:
+        plan.funds = [name]
+        plan.holding_scope = "single"
+        if str(plan.data_need or "").lower().strip() in ("none", ""):
+            plan.data_need = "investor_holding"
+        scope = str(plan.portfolio_scope or "").lower().strip()
+        if scope in ("none", "", "catalog"):
+            plan.portfolio_scope = "both"
     return plan
 
 
@@ -758,17 +850,14 @@ def question_refers_deictic_fund(question: str) -> bool:
 
 
 def resolve_user_named_fund_in_memory(question: str, memory: dict[str, Any] | None) -> str:
-    """Longest session fund whose AMC/category tokens the user actually wrote."""
+    """Best-matching session fund whose tokens the user actually wrote (not longest AMC-only hit)."""
+    from news_rag.fund_scheme_match import pick_best_matching_scheme
     from news_rag.insight.memory.fund_context import memory_known_fund_names
 
     text = str(question or "").strip()
     if not text:
         return ""
-    best = ""
-    for name in memory_known_fund_names(memory):
-        if user_explicitly_named_scheme(text, name) and len(name) > len(best):
-            best = name
-    return best
+    return pick_best_matching_scheme(text, list(memory_known_fund_names(memory)))
 
 
 def resolve_deictic_fund_name(
@@ -993,104 +1082,17 @@ def ensure_deictic_fund_period_return_plan(
     return plan
 
 
-_SCHEME_NAME_MATCH_SKIP = frozenset(
-    {
-        "fund",
-        "funds",
-        "growth",
-        "regular",
-        "plan",
-        "direct",
-        "elss",
-        "tax",
-        "saver",
-        "equity",
-        "debt",
-        "hybrid",
-        "minimum",
-        "maximum",
-        "redemption",
-        "redeem",
-        "period",
-        "load",
-        "exit",
-        "settlement",
-        "systematic",
-        "option",
-        "variance",
-        "index",
-        "cap",
-        "large",
-        "small",
-        "mid",
-        "flexi",
-        "multi",
-    }
-)
-
-
-# English portfolio words must not fuzzy-match AMC tokens (e.g. assets → Mirae Asset).
-_AMC_FUZZY_BLOCK = frozenset(
-    {
-        "assets",
-        "asset",
-        "categories",
-        "category",
-        "portfolio",
-        "portfolios",
-        "allocation",
-        "holdings",
-        "holding",
-    }
-)
-
-
 def _amc_token_in_question(token: str, amc_tokens: set[str]) -> str:
-    if token in _AMC_FUZZY_BLOCK:
-        return ""
-    if token in amc_tokens:
-        return token
-    if len(token) < 5:
-        return ""
-    hits = difflib.get_close_matches(token, list(amc_tokens), n=1, cutoff=0.8)
-    if not hits:
-        return ""
-    match = hits[0]
-    if match in _AMC_FUZZY_BLOCK:
-        return ""
-    return match
+    from news_rag.fund_scheme_match import amc_token_in_question
+
+    return amc_token_in_question(token, amc_tokens)
 
 
 def user_explicitly_named_scheme(question: str, fund_name: str) -> bool:
     """True only when the user text actually names this scheme — not a token like 'minimum' alone."""
-    from news_rag.insight.brief import _amc_token_set
+    from news_rag.fund_scheme_match import user_text_names_scheme
 
-    text = (question or "").lower()
-    name_lower = (fund_name or "").lower()
-    if not text or not name_lower:
-        return False
-    q_tokens = set(re.findall(r"[a-z0-9]+", text))
-    amc_tokens = _amc_token_set()
-    amc_in_question = [canon for t in q_tokens if (canon := _amc_token_in_question(t, amc_tokens))]
-    if amc_in_question:
-        from news_rag.fund_search import _needles_for_amc_hint
-
-        for amc in amc_in_question:
-            if re.search(rf"\b{re.escape(amc)}\b", name_lower):
-                return True
-            for needle in _needles_for_amc_hint(amc):
-                if needle and needle.lower() in name_lower:
-                    return True
-        return False
-    fund_tokens = [
-        w
-        for w in re.findall(r"[a-z0-9]+", name_lower)
-        if len(w) > 3 and w not in _SCHEME_NAME_MATCH_SKIP
-    ]
-    if not fund_tokens:
-        return False
-    hits = sum(1 for t in fund_tokens if t in text)
-    return hits >= 2
+    return user_text_names_scheme(question, fund_name)
 
 
 def reconcile_planner_invented_fund_name(
