@@ -308,7 +308,9 @@ def align_planned_news_execution(plan: ExecutionPlan) -> ExecutionPlan:
 
     A DATA_ONLY plan is a figure, a list, or a comparison. It does not fetch news.
     """
-    if plan.answer_mode == AnswerMode.DATA_ONLY:
+    if plan.answer_mode == AnswerMode.DATA_ONLY and str(
+        getattr(plan, "portfolio_news_mode", "") or "none"
+    ) == "none":
         plan.tool_calls = [
             call
             for call in plan.tool_calls

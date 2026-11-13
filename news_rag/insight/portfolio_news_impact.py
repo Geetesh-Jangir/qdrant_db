@@ -17,6 +17,8 @@ _NEWS_RE = re.compile(r"\bnews\b|\bheadline\b|\bcrude\b|\boil\b|\bbrent\b|\bmacr
 
 def question_is_portfolio_news_impact(question: str, plan: ExecutionPlan) -> bool:
     """User asks how news / a macro theme would affect their own portfolio."""
+    if str(getattr(plan, "portfolio_news_mode", "") or "none") in ("book_wide", "sector"):
+        return True
     from news_rag.insight.investor_drawback import question_signals_investor_book
 
     q = (question or "").strip().lower()
@@ -86,11 +88,33 @@ def ensure_portfolio_news_impact_plan(plan: ExecutionPlan, question: str) -> Exe
             )
         )
     plan.presentation_notes = (
-        f"{plan.presentation_notes} Map each news theme to concentration.sectors weights. "
-        "Example: an RBI repo-rate item applies to Banks at that sector's portfolio weight. "
-        "Say the weight from EVIDENCE. Do not invent a sector weight."
+        f"{plan.presentation_notes} One sentence on the sector weight and direction, "
+        "then at most 4 bullets. Each bullet names the news, the holding, its weight, and positive or negative. "
+        "Do not list every holding. Do not invent a weight."
     ).strip()
     return plan
+
+
+def _tag_holding_news(book: dict[str, Any] | None, articles: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not book:
+        return None
+    tagged = dict(book)
+    holdings = []
+    for holding in book.get("holdings") or []:
+        if not isinstance(holding, dict):
+            continue
+        needle = str(holding.get("news_name") or holding.get("name") or "").casefold()
+        matched = []
+        if needle:
+            for article in articles:
+                blob = " ".join(
+                    str(article.get(key) or "") for key in ("theme", "title", "summary")
+                ).casefold()
+                if needle in blob:
+                    matched.append(article)
+        holdings.append({**holding, "articles": matched[:3]})
+    tagged["holdings"] = holdings
+    return tagged
 
 
 def _articles_from_pack(news_grouped: dict[str, Any]) -> list[dict[str, Any]]:
@@ -217,8 +241,28 @@ def build_portfolio_news_impact_dossier(
 ) -> dict[str, Any] | None:
     """Run sector-impact LLM, join portfolio sector weights and fund-level exposure."""
     articles = _articles_from_pack(news_grouped)
+    from news_rag.insight.book_news_map import sector_book as build_sector_book
+
+    book = None
+    try:
+        from news_rag.portfolio.cache import get_active_crn
+        from news_rag.portfolio.concentration import fetch_top_holdings
+
+        book = build_sector_book(plan, fetch_top_holdings(get_active_crn()))
+    except Exception:
+        book = None
     if not articles:
-        return None
+        if not book:
+            return None
+        return {
+            "question_focus": (plan.goal or plan.planner_reading or question)[:240],
+            "news_article_count": 0,
+            "portfolio_sectors": [],
+            "sector_impact_analysis": [],
+            "fund_sector_exposure": [],
+            "macro_direction": "any",
+            "sector_book": book,
+        }
 
     investor = data_pack.get("investor_portfolio")
     if not isinstance(investor, dict):
@@ -338,6 +382,7 @@ def build_portfolio_news_impact_dossier(
         "sector_impact_analysis": exposure_rows,
         "fund_sector_exposure": fund_rows[:12],
         "macro_direction": direction,
+        "sector_book": _tag_holding_news(book, articles),
     }
 
 
@@ -357,53 +402,53 @@ _NO_DRIVER = "No major news lines up with this. It looks like a broader market m
 
 
 def render_portfolio_news_impact_markdown(dossier: dict[str, Any]) -> str:
-    """Deterministic sector + fund impact tables (replaces concentration + screen rankings)."""
+    """Sector, fund and holding impact as bullets. The composer must not add a second table."""
     parts: list[str] = []
     analysis = [row for row in (dossier.get("sector_impact_analysis") or []) if isinstance(row, dict)]
     if analysis:
-        parts.extend(
-            [
-                "### Sectors affected by the news",
-                "",
-                "| Sector | Direction | Your portfolio weight | Linkage | Why |",
-                "| --- | --- | ---: | --- | --- |",
-            ]
-        )
+        parts.extend(["### Sectors affected by the news", ""])
         for row in analysis:
-            direction = str(row.get("direction") or "—")
             weight = row.get("portfolio_weight_pct")
             weight_s = f"{float(weight):.2f}%" if weight is not None else "—"
+            why = str(row.get("reason") or "").strip()
             parts.append(
-                "| {sector} | {dir} | {wt} | {link} | {why} |".format(
-                    sector=str(row.get("sector") or ""),
-                    dir=direction,
-                    wt=weight_s,
-                    link=str(row.get("linkage") or ""),
-                    why=str(row.get("reason") or "").replace("|", " ")[:160],
-                )
+                f"- **{row.get('sector') or ''}** is **{weight_s}** of your portfolio, "
+                f"and the news is **{row.get('direction') or 'unclear'}** for it. {why}"
             )
 
     funds = [row for row in (dossier.get("fund_sector_exposure") or []) if isinstance(row, dict)]
     if funds:
-        parts.extend(
-            [
-                "",
-                "### Your funds affected",
-                "",
-                "| Fund | Sector | Sector weight in fund | Your portfolio weight | Expected direction | How news may affect it |",
-                "| --- | --- | ---: | ---: | --- | --- |",
-            ]
-        )
+        parts.extend(["", "### Your funds affected", ""])
         for row in funds:
+            why = str(row.get("sector_reason") or "").strip()
             parts.append(
-                "| {name} | {sector} | {sw}% | {pw}% | {dir} | {why} |".format(
-                    name=str(row.get("scheme_name") or "")[:56],
-                    sector=str(row.get("sector") or ""),
-                    sw=row.get("sector_weight_in_fund_pct"),
-                    pw=row.get("scheme_portfolio_weight_pct"),
-                    dir=str(row.get("impact_direction") or "—"),
-                    why=str(row.get("sector_reason") or "").replace("|", " ")[:120],
-                )
+                f"- **{str(row.get('scheme_name') or '')[:56]}** has **{row.get('sector_weight_in_fund_pct')}%** "
+                f"in {row.get('sector') or 'this sector'} "
+                f"({row.get('scheme_portfolio_weight_pct')}% of your portfolio). "
+                f"Expected effect: **{row.get('impact_direction') or 'unclear'}**. {why}"
+            )
+    book = dossier.get("sector_book") if isinstance(dossier.get("sector_book"), dict) else {}
+    holdings = [row for row in (book.get("holdings") or []) if isinstance(row, dict)]
+    if holdings:
+        sector = book.get("sector") if isinstance(book.get("sector"), dict) else {}
+        parts.extend(["", "### Holdings in this sector", ""])
+        if sector:
+            parts.append(
+                f"{sector.get('sector')} is **{sector.get('weight_pct')}%** of the portfolio."
+            )
+            parts.append("")
+        shown = 0
+        for row in holdings:
+            articles = [a for a in (row.get("articles") or []) if isinstance(a, dict)]
+            titles = [str(a.get("title") or "").strip() for a in articles if str(a.get("title") or "").strip()]
+            if not titles:
+                continue
+            shown += 1
+            if shown > 4:
+                break
+            parts.append(
+                f"- **{row.get('direction') or 'News'}** for **{row.get('name')}** "
+                f"({row.get('weight_pct')}% of your portfolio): {titles[0]}"
             )
     text = "\n".join(parts).strip()
     if not text:

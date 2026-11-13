@@ -459,6 +459,7 @@
     let conversationId = sessionStorage.getItem("rag_conversation_id") || ("conv_" + Math.random().toString(36).substring(2, 9));
     sessionStorage.setItem("rag_conversation_id", conversationId);
     let askedAt = 0;
+    let liveToolGroups = new Map();
 
     const crnChoice = document.getElementById("crnChoice");
     const crnInput = document.getElementById("crnInput");
@@ -656,6 +657,7 @@
     });
 
     function resetTimeline() {
+      liveToolGroups = new Map();
       if (timelineStepsEl) timelineStepsEl.innerHTML = "";
       if (timelineEl) timelineEl.classList.remove("hidden");
       if (ribbonEl) {
@@ -677,26 +679,76 @@
       chip.textContent = detail ? `${label} (${detail})` : label;
     }
 
+    function formatToolMs(ms) {
+      const n = Number(ms) || 0;
+      if (n >= 100) return `${Math.round(n)}ms`;
+      return `${Math.round(n * 10) / 10}ms`;
+    }
+
+    function groupToolsForWave(tools, wave) {
+      const groups = new Map();
+      for (const row of tools || []) {
+        if (Number(row.wave) !== Number(wave)) continue;
+        const name = row.tool || "tool";
+        let g = groups.get(name);
+        if (!g) {
+          g = { tool: name, wave: row.wave, ok: true, duration_ms: 0, count: 0 };
+          groups.set(name, g);
+        }
+        g.count += 1;
+        g.duration_ms += Number(row.duration_ms) || 0;
+        if (row.ok === false) g.ok = false;
+      }
+      return Array.from(groups.values());
+    }
+
+    function toolTimelineDetail(tool) {
+      const wave = tool.wave != null && tool.wave !== "" ? `W${tool.wave}` : "";
+      const parts = [wave];
+      if (tool.count > 1) parts.push(`${tool.count}×`);
+      const durMs = Number(tool.duration_ms) || 0;
+      if (durMs > 0 || tool.count <= 1) parts.push(formatToolMs(durMs));
+      return parts.filter(Boolean).join(" · ");
+    }
+
+    function noteLiveToolCompleted(data) {
+      const tool = data.tool || "tool";
+      const wave = Number(data.wave) || 1;
+      const key = wave + ":" + tool;
+      let g = liveToolGroups.get(key);
+      if (!g) {
+        g = { tool, wave, ok: true, duration_ms: 0, count: 0 };
+        liveToolGroups.set(key, g);
+      }
+      g.count += 1;
+      g.duration_ms += Number(data.duration_ms) || 0;
+      if (data.ok === false) g.ok = false;
+      const chipId = "live_tool_" + key.replace(/[^a-zA-Z0-9_-]/g, "_");
+      addOrUpdateTimelineStep(chipId, g.tool, g.ok ? "done" : "error", toolTimelineDetail(g));
+    }
+
+    function appendToolTimelineChips(tools, wave, idPrefix) {
+      groupToolsForWave(tools, wave).forEach((tool, n) => {
+        addOrUpdateTimelineStep(
+          idPrefix + "_" + n + "_" + tool.tool,
+          tool.tool,
+          tool.ok ? "done" : "error",
+          toolTimelineDetail(tool)
+        );
+      });
+    }
+
     function renderExecutionTimeline(telemetry) {
       if (!timelineStepsEl || !telemetry) return;
       timelineStepsEl.innerHTML = "";
       if (timelineEl) timelineEl.classList.remove("hidden");
-      (telemetry.phases || []).forEach((phase) => {
+      const tools = telemetry.tools || [];
+      for (const phase of telemetry.phases || []) {
         const dur = phase.duration_ms != null ? `${phase.duration_ms}ms` : "";
         addOrUpdateTimelineStep(phase.name, phase.name, phase.status || "done", dur);
-      });
-      (telemetry.tools || []).forEach((tool, index) => {
-        const name = tool.tool || "tool";
-        const wave = tool.wave ? `W${tool.wave}` : "";
-        const dur = tool.duration_ms != null ? `${tool.duration_ms}ms` : "";
-        const detail = [wave, dur].filter(Boolean).join(" · ");
-        addOrUpdateTimelineStep(
-          "tool_" + index + "_" + name,
-          name,
-          tool.ok ? "done" : "error",
-          detail
-        );
-      });
+        if (phase.name === "wave1") appendToolTimelineChips(tools, 1, "tool_w1");
+        else if (phase.name === "wave2") appendToolTimelineChips(tools, 2, "tool_w2");
+      }
     }
 
     function renderRibbon(telemetry) {
@@ -1252,50 +1304,6 @@
       }
       usageEl.appendChild(table);
       }
-      const toolRows = toolTimingRows(data);
-      if (!toolRows.length) return;
-      const toolTitle = document.createElement("p");
-      toolTitle.className = "card-meta";
-      toolTitle.textContent = "Tools";
-      usageEl.appendChild(toolTitle);
-      const toolTable = document.createElement("table");
-      const toolHead = document.createElement("tr");
-      for (const label of ["Tool", "Wave", "OK", "Seconds"]) {
-        const th = document.createElement("th");
-        th.textContent = label;
-        toolHead.appendChild(th);
-      }
-      toolTable.appendChild(toolHead);
-      for (const row of toolRows) {
-        const tr = document.createElement("tr");
-        const seconds = row.duration_ms == null ? "" : (Number(row.duration_ms) / 1000).toFixed(3);
-        for (const value of [row.tool || "", row.wave || "", row.ok ? "yes" : "no", seconds]) {
-          const td = document.createElement("td");
-          td.textContent = String(value);
-          tr.appendChild(td);
-        }
-        toolTable.appendChild(tr);
-      }
-      usageEl.appendChild(toolTable);
-    }
-
-    function toolTimingRows(data) {
-      const fromTelemetry = data.telemetry && Array.isArray(data.telemetry.tools) ? data.telemetry.tools : [];
-      if (fromTelemetry.length) {
-        return fromTelemetry.map((row) => ({
-          tool: row.tool,
-          wave: row.wave,
-          ok: row.ok,
-          duration_ms: row.duration_ms,
-        }));
-      }
-      const fromResearch = data.research && Array.isArray(data.research.tool_runs) ? data.research.tool_runs : [];
-      return fromResearch.map((row) => ({
-        tool: row.tool,
-        wave: "",
-        ok: row.ok,
-        duration_ms: row.elapsed_ms,
-      }));
     }
 
     function fmtPct(v) {
@@ -1318,6 +1326,24 @@
       const n = Number(v);
       if (Number.isNaN(n)) return "—";
       return "₹" + n.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+    }
+
+    function stripToolDiagnosticsTables(text) {
+      if (!text) return text;
+      return text.replace(
+        /\n\|[^\n]+\|\n\|[-:\s|]+\|\n(?:\|[^\n]+\|\n?)+/g,
+        function (block) {
+          const cells = (block.trim().split("\n")[0] || "")
+            .split("|")
+            .map((c) => c.trim())
+            .filter(Boolean);
+          const lower = cells.map((c) => c.toLowerCase());
+          if (lower.includes("tool") && lower.includes("wave") && (lower.includes("ok") || lower.includes("seconds"))) {
+            return "\n";
+          }
+          return block;
+        }
+      ).replace(/\n{3,}/g, "\n\n").trim();
     }
 
     /** Drop only a fund-ranking markdown table. Holdings, returns, and snapshot tables stay. */
@@ -1641,7 +1667,7 @@
           "Server returned an empty answer. On the server run: sudo journalctl -u news-rag -n 40 --no-pager"
         );
       }
-      let insightForDisplay = insightText;
+      let insightForDisplay = stripToolDiagnosticsTables(insightText);
       const proseCoversManagers = /fund manager/i.test(insightText);
       if (hasRankings) insightForDisplay = stripMarkdownTables(insightForDisplay);
       if (hasManagers && !proseCoversManagers) insightForDisplay = managerInsightIntro(insightForDisplay);
@@ -1776,16 +1802,8 @@
             } else if (eventType === "phase_completed") {
               const dur = data.duration_ms ? `${data.duration_ms}ms` : "";
               addOrUpdateTimelineStep(data.phase, data.phase, "done", dur);
-            } else if (eventType === "tool_started") {
-              addOrUpdateTimelineStep("live_" + (data.wave || 1) + "_" + data.tool, data.tool, "running", `W${data.wave || 1}`);
             } else if (eventType === "tool_completed") {
-              const dur = data.duration_ms != null ? `${data.duration_ms}ms` : "";
-              addOrUpdateTimelineStep(
-                "live_" + (data.wave || 1) + "_" + data.tool,
-                data.tool,
-                data.ok ? "done" : "error",
-                `W${data.wave || 1} · ${dur}`
-              );
+              noteLiveToolCompleted(data);
             } else if (eventType === "answer_delta") {
               if (!resultEl.classList.contains("hidden")) {
                 // already visible

@@ -2,8 +2,8 @@
   "sector_label": "It - Software",
   "benchmark_label": "It - Software",
   "yfinance_ticker": "^CNXIT",
-  "return_pct": 13.63,
+  "return_pct": 5.76,
   "window_days": 30,
   "substituted_broad_index": false,
-  "cached_at": 1794306071.935979
+  "cached_at": 1794552053.6152532
 }

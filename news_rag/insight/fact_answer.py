@@ -647,7 +647,7 @@ def _book_line(name: str, investor: dict[str, Any], question: str) -> str:
         if summary.get("absolute_return_pct") is not None:
             return f"Your gain or loss is {_pct(summary.get('absolute_return_pct'))}."
     if name == "scheme_count":
-        count = summary.get("scheme_count") or len(holdings)
+        count = len(holdings) or summary.get("scheme_count")
         if count:
             return f"You hold {count} schemes."
     if name == "holdings_list" and holdings:
@@ -931,9 +931,8 @@ def render_portfolio_fact(
             else "Portfolio XIRR is not available right now."
         )
     elif name == "scheme_count":
-        count = summary.get("scheme_count")
-        if count is None:
-            count = len(_holdings(book)) or None
+        active = _holdings(book)
+        count = len(active) or summary.get("scheme_count")
         line = f"You hold **{count}** funds{stamp}." if count else "Fund count is not available right now."
     elif name == "nav_of_scheme":
         row = _holding_row_for_plan(book, plan)

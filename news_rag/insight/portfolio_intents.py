@@ -168,6 +168,26 @@ def should_attach_news(intent: str, *, planner_intent: str = "", answer_mode: st
     return False
 
 
+def _keep_book_news(plan: ExecutionPlan) -> bool:
+    """News the planner already attached stays, even when the book intent is a fact card."""
+    mode = str(getattr(plan, "portfolio_news_mode", "") or "none").strip().lower()
+    if mode in ("book_wide", "sector"):
+        return True
+    for call in plan.tool_calls or []:
+        if call.tool not in _NEWS_TOOLS:
+            continue
+        args = call.arguments or {}
+        topics = [str(t).strip() for t in (args.get("topics") or []) if str(t).strip()]
+        if str(args.get("scope") or "").lower() == "sector" and topics:
+            plan.portfolio_news_mode = "sector"
+            if not str(getattr(plan, "news_sector", "") or "").strip():
+                plan.news_sector = topics[0]
+        elif mode == "none":
+            plan.portfolio_news_mode = "book_wide"
+        return True
+    return False
+
+
 def apply_portfolio_intent(plan: ExecutionPlan, question: str = "") -> ExecutionPlan:
     """Seed scope, modules are applied later. Fact intents skip the composer and news."""
     intent = normalize_portfolio_intent(getattr(plan, "portfolio_intent", ""))
@@ -176,6 +196,14 @@ def apply_portfolio_intent(plan: ExecutionPlan, question: str = "") -> Execution
         if inferred != "none":
             intent = inferred
     plan.portfolio_intent = intent
+    if _keep_book_news(plan):
+        plan.answer_mode = AnswerMode.INSIGHT_FUSION
+        plan.requires_compose = True
+        if str(plan.portfolio_scope or "").lower().strip() in ("none", "", "catalog"):
+            plan.portfolio_scope = "investor"
+        if str(plan.data_need or "").lower().strip() in ("", "none"):
+            plan.data_need = data_need_for(intent) or plan.data_need
+        return plan
     if intent == "none":
         return plan
     if str(plan.portfolio_scope or "").lower().strip() in ("none", "", "catalog"):

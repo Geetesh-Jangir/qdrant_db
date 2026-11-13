@@ -547,6 +547,95 @@ def test_switch_evicts_the_previous_crn(monkeypatch):
     clear_cache_for_tests()
 
 
+def test_invested_value_table_for_each_holding():
+    from news_rag.insight.evidence_pack import render_investor_invested_value_table
+    from news_rag.insight.contracts import ExecutionPlan
+    from news_rag.insight.investor_subject import question_wants_invested_value_table
+
+    q = "how much money i have invested in all and whats the current value of each of them now"
+    assert question_wants_invested_value_table(q)
+    data = {
+        "meta": {"as_of_date": "2026-11-13"},
+        "summary": {"invested_inr": 100, "aum_inr": 120, "gain_loss_inr": 20, "absolute_return_pct": 20},
+        "holdings": [
+            {"scheme_name": "Fund A", "invested_inr": 60, "aum_inr": 72},
+            {"scheme_name": "Fund B", "invested_inr": 40, "aum_inr": 48},
+        ],
+    }
+    text = render_investor_invested_value_table(data, ExecutionPlan(), q)
+    assert text and "| Scheme | Invested" in text
+    assert "Fund A" in text and "Fund B" in text
+    assert "| --- |" in text
+
+
+def test_book_schemes_are_the_open_holdings():
+    from news_rag.portfolio.normalize import normalize_workspace
+
+    raw = {
+        "sections": {
+            "book": {
+                "data": {
+                    "books": {
+                        "total": {
+                            "schemeCount": 3,
+                            "investedInr": 150,
+                            "aumInr": 200,
+                            "schemes": [
+                                {
+                                    "schemeName": "Open A",
+                                    "folioScheme": "F1",
+                                    "investedAmount": 100,
+                                    "marketValue": 140,
+                                    "xirrPercent": 0,
+                                },
+                                {
+                                    "schemeName": "Open B",
+                                    "folioScheme": "F2",
+                                    "investedAmount": 50,
+                                    "marketValue": 60,
+                                    "xirrPercent": 0,
+                                },
+                                {
+                                    "schemeName": "Empty",
+                                    "folioScheme": "F3",
+                                    "investedAmount": 0,
+                                    "marketValue": 0,
+                                },
+                            ],
+                        }
+                    }
+                }
+            },
+            "live": {
+                "data": {
+                    "schemes": [
+                        {"schemeName": "Open A", "folioScheme": "F1", "liveXirrPercent": 11.2, "investedAmount": 999},
+                        {"schemeName": "Open B", "folioScheme": "F2", "liveXirrPercent": 4.5},
+                    ]
+                }
+            },
+            "xirr": {
+                "data": {
+                    "data": [
+                        {"folioScheme": "F1", "xirr": 47012448.5, "marketValueAtTo": 1},
+                    ]
+                }
+            },
+        }
+    }
+    doc = normalize_workspace(raw)
+    names = [h["scheme_name"] for h in doc["holdings"]]
+    assert names == ["Open A", "Open B"]
+    assert doc["meta"]["sold_scheme_count"] == 1
+    by_name = {h["scheme_name"]: h for h in doc["holdings"]}
+    assert by_name["Open A"]["aum_inr"] == 140
+    assert by_name["Open A"]["invested_inr"] == 100
+    assert by_name["Open A"]["xirr_pct"] == 11.2
+    assert by_name["Open B"]["xirr_pct"] == 4.5
+    assert doc["summary"]["scheme_count"] == 2
+    assert doc["summary"].get("book_folio_count") == 3
+
+
 def test_active_crn_reaches_a_worker_thread():
     import contextvars
     from concurrent.futures import ThreadPoolExecutor

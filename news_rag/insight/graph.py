@@ -1021,6 +1021,24 @@ def node_bridge(state: GraphState) -> str | None:
             state.route_reason = f"bridge: drawdown for {len(drawdown_calls)} holding(s)"
             return "wave2"
 
+    from news_rag.insight.book_news_map import news_calls_for_book
+    from news_rag.portfolio.cache import get_active_crn
+    from news_rag.portfolio.concentration import fetch_top_holdings
+
+    book_calls = news_calls_for_book(plan, fetch_top_holdings(get_active_crn()))
+    if book_calls and state.remaining_deadline_ms() >= 2000:
+        seen = {
+            (c.tool, tuple((c.arguments or {}).get("topics") or []))
+            for c in plan.tool_calls or []
+        }
+        added = [
+            call for call in book_calls
+            if (call.tool, tuple((call.arguments or {}).get("topics") or [])) not in seen
+        ]
+        plan.tool_calls.extend(added)
+        state.route_reason = f"bridge: book news {len(added)} call(s)"
+        return "wave2"
+
     remaining_ms = state.remaining_deadline_ms()
     from news_rag.insight.bridge import market_affected_fund_calls
 
@@ -1204,7 +1222,7 @@ You get QUESTION, WHAT THE USER WANTS and EVIDENCE (fetched data, optional news 
 _COMPOSE_HINTS: tuple[tuple[str, str], ...] = (
     ("answer_subject", "Start with `## {answer_subject}` (exact scheme name from EVIDENCE) and answer about that scheme only."),
     ("investor_portfolio_overview", "Whole-book answer: title `## Your portfolio`; totals and XIRR first; one category table if allocation exists. Do not name any scheme and do not add a holdings or scheme table unless the question asks for holdings, schemes, or one particular fund. Use gain on invested, not absolute_return_pct."),
-    ("portfolio_news_impact_answer", "Explain how the news affects the user's own book from `portfolio_news_impact` (sector_impact_analysis, fund_sector_exposure). The server appends the sector and fund tables; do not repeat them. Only holdings in the book count."),
+    ("portfolio_news_impact_answer", "Short insight only. One opening sentence: the sector weight from sector_book and whether the week helps or hurts that slice. Then at most 4 bullets. Each bullet is one line: **positive** or **negative**, the news in a few words, the holding or sector, and its weight from EVIDENCE. No ### headings, no table, no second list of every holding, no closing recap. Skip news that does not name a holding or the sector."),
     ("concept_brief", "Explain `concept_brief` first in 1-3 sentences, then use EVIDENCE for the example fund."),
     (
         "list_fund_ratings",
@@ -1391,12 +1409,34 @@ def node_compose(state: GraphState) -> str | None:
             book if isinstance(book, dict) else {},
             plan=plan,
         )
-        if fact_line:
+        if fact_line and not compose_always:
             state.answer = _clean_answer(fact_line)
             state.route_reason = "portfolio fact"
             if state.query_log is not None:
                 state.query_log.write("COMPOSE portfolio_fact intent=allocation")
             return None
+        if fact_line:
+            state.draft_answer = fact_line
+            plan.requires_compose = True
+
+    if pack is not None and isinstance(pack.data_pack, dict):
+        from news_rag.insight.evidence_pack import render_investor_invested_value_table
+        from news_rag.insight.investor_subject import question_wants_invested_value_table
+
+        investor = pack.data_pack.get("investor_portfolio")
+        if (
+            isinstance(investor, dict)
+            and question_wants_invested_value_table(state.question or "")
+        ):
+            table = render_investor_invested_value_table(
+                investor, plan, state.question or ""
+            )
+            if table:
+                state.answer = _clean_answer(table)
+                state.route_reason = "investor invested value table"
+                if state.query_log is not None:
+                    state.query_log.write("COMPOSE investor_invested_value_table")
+                return None
 
     from news_rag.fund_risk import asks_pillar_mark, asks_sebi_riskometer, rating_lead
 
@@ -1803,10 +1843,10 @@ def node_compose(state: GraphState) -> str | None:
         wants["answer_subject"] = subject
     if pack and isinstance(pack.data_pack.get("portfolio_news_impact"), dict):
         wants["portfolio_news_impact_answer"] = True
-        wants["max_words"] = max(int(wants.get("max_words") or 0), 480)
+        wants["max_words"] = 140
         impact_notes = (
-            "Use EVIDENCE.portfolio_news_impact for sector and fund exposure tables. "
-            "Sector-impact reasons come from sector_impact_analysis; do not invent weights."
+            "Hard cap 140 words. One sentence, then at most 4 bullets. "
+            "Weights only from sector_book. Do not add a holdings roster."
         )
         wants["presentation_notes"] = " ".join(
             filter(None, [str(wants.get("presentation_notes") or "").strip(), impact_notes])
@@ -2039,7 +2079,7 @@ def node_compose(state: GraphState) -> str | None:
         polished_text = f"{polished_text}\n\n{concentration_block}".strip()
     if impact_dossier or question_is_portfolio_news_impact(state.question or "", plan):
         polished_text = _strip_book_concentration_tables(polished_text)
-    if impact_dossier:
+    if impact_dossier and len(polished_text) < 80:
         impact_block = render_portfolio_news_impact_markdown(impact_dossier)
         if impact_block:
             polished_text = f"{polished_text}\n\n{impact_block}".strip()

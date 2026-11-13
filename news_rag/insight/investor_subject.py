@@ -354,6 +354,24 @@ def question_asks_holding_metric_and_glossary(question: str) -> bool:
     return any(g in q for g in glossary) and any(m in q for m in metrics)
 
 
+def question_wants_invested_value_table(question: str) -> bool:
+    """Per-scheme invested amount and current market value (not category totals)."""
+    q = (question or "").lower()
+    if not re.search(r"\b(?:invested|investment|how much)\b", q):
+        return False
+    if not re.search(
+        r"\b(?:current value|market value|worth now|value of each|each of them|"
+        r"every scheme|all of them|all of my|each scheme|them now)\b",
+        q,
+    ):
+        return False
+    if re.search(r"\b(?:by|per|each|every)\s+categor|\bcategor(?:y|ies)\b", q) and "scheme" not in q:
+        return False
+    if re.search(r"\b(?:i have|i've|in all|my portfolio|my funds|my schemes)\b", q):
+        return True
+    return question_refers_to_investor_holding(question)
+
+
 def question_asks_category_money(question: str) -> bool:
     """Invested amount or share by category, including one category such as gold."""
     q = (question or "").lower()

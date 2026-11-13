@@ -153,3 +153,4 @@ def test_render_impact_markdown():
     assert "### Sectors affected by the news" in md
     assert "### Your funds affected" in md
     assert "Kotak Contra" in md
+    assert "|" not in md

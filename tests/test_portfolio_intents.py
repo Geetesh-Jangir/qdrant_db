@@ -208,3 +208,61 @@ def test_compose_always_uses_composer_for_largest_holding(monkeypatch):
     assert "largest holding" in (state.answer or "").lower()
     assert "Invesco" in (state.answer or "")
     assert "Quant Small Cap" not in (state.answer or "")
+
+
+def test_allocation_with_book_data_still_calls_composer(monkeypatch):
+    from types import SimpleNamespace
+
+    from news_rag.insight.contracts import EvidencePack
+    from news_rag.insight.graph import GraphState, node_compose
+    from news_rag.insight import graph as graph_mod
+    from news_rag.insight.plan import parse_plan
+
+    plan = parse_plan(
+        {
+            "scope": {"kind": "in_scope"},
+            "understanding": {
+                "goal": "Gold share",
+                "intent": "lookup",
+                "answer_mode": "DATA_ONLY",
+                "portfolio_intent": "allocation",
+            },
+            "tool_calls": [
+                {"tool": "get_investor_portfolio", "arguments": {"modules": ["allocation", "holdings"]}, "wave": 1}
+            ],
+        }
+    )
+    seen: dict[str, int] = {"calls": 0}
+
+    def fake_llm(**kwargs):
+        seen["calls"] += 1
+        return SimpleNamespace(
+            raw_text="Gold is Rs 1,14,382, about 4% of the book, in Nippon India Gold Savings Fund.",
+            provider="anthropic",
+            model="test",
+            input_tokens=1,
+            output_tokens=20,
+        )
+
+    monkeypatch.setattr(graph_mod, "call_insight_llm", fake_llm)
+    monkeypatch.setattr(graph_mod, "llm_api_key_configured", lambda *_a, **_k: True)
+    monkeypatch.setattr(graph_mod, "composer_model", lambda *_a, **_k: "test")
+    monkeypatch.setattr(
+        graph_mod,
+        "get_settings",
+        lambda: SimpleNamespace(insight_compose_always=True, llm_provider="anthropic"),
+    )
+    state = GraphState(question="how much of my money is invested in gold", plan=plan)
+    state.evidence_pack = EvidencePack(
+        data_pack={
+            "investor_portfolio": {
+                "allocation": [{"bucket": "gold", "value_inr": 114382, "share_pct": 4.15}],
+                "holdings": [
+                    {"scheme_name": "Nippon India Gold Savings Fund", "scheme_category": "gold", "aum_inr": 114382},
+                ],
+            }
+        }
+    )
+    node_compose(state)
+    assert seen["calls"] == 1
+    assert "Gold" in (state.answer or "")

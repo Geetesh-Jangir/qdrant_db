@@ -87,6 +87,19 @@ PLAN_SCHEMA: dict[str, Any] = {
                         "health_check, risk_alignment, sip_review, period_change, fy_summary."
                     ),
                 },
+                "portfolio_news_mode": {
+                    "type": "string",
+                    "enum": ["none", "book_wide", "sector"],
+                    "description": (
+                        "none unless the user wants news or an event mapped onto their own portfolio. "
+                        "book_wide: news that could affect the whole book. "
+                        "sector: news about one sector they named, and how it hits their book."
+                    ),
+                },
+                "news_sector": {
+                    "type": "string",
+                    "description": "The sector they named, in plain words (Banks, IT). Empty unless portfolio_news_mode is sector.",
+                },
                 "portfolio_scope": {
                     "type": "string",
                     "enum": ["none", "investor", "catalog", "both"],
@@ -413,6 +426,11 @@ def _horizon_years(raw: Any) -> float | None:
     return years
 
 
+def _news_mode(raw: Any) -> str:
+    mode = str(raw or "none").strip().lower()
+    return mode if mode in ("none", "book_wide", "sector") else "none"
+
+
 _COMPARE_SOURCES = frozenset({"chat_memory", "my_holding", "named"})
 
 
@@ -632,6 +650,8 @@ def parse_plan(data: dict[str, Any]) -> ExecutionPlan:
         include_gold=bool(under.get("include_gold")),
         portfolio_scope=str(under.get("portfolio_scope") or "none").strip().lower() or "none",
         portfolio_intent=normalize_portfolio_intent(under.get("portfolio_intent")),
+        portfolio_news_mode=_news_mode(under.get("portfolio_news_mode")),
+        news_sector=str(under.get("news_sector") or "").strip(),
         subject_ref=str(under.get("subject_ref") or "none").strip().lower() or "none",
         turn_relation=relation,
         stack_refs=stack_refs,
@@ -862,6 +882,9 @@ You are the only router: every tool, module, window and wave comes from your JSO
 - task: explain (understand a word, fund type, categories) or data (numbers, a list, a named fund).
 - data_need (optional; fund_holdings_breakdown, category_composition, category_performance and rating_for_screened_list are only for follow-ups on funds already in the conversation; a fresh question that screens funds uses none): none, fund_holdings_breakdown, category_composition, category_performance, rating_for_screened_list, portfolio_allocation, investor_summary, investor_holding, investor_sip, investor_stp, investor_pnl, investor_xirr, investor_hybrid, investor_risk.
 - portfolio_intent: none unless the question is about the user's own book (including a follow-up about the fund already in memory). Fact: aum, invested, overall_return, xirr, scheme_count, nav_of_scheme, next_sip, sip_list, stp_list, dividends, risk_profile, st_vs_lt_gains, list_holdings, top_holdings, allocation. Insight card: scheme_performance, where_losing, sector_exposure, stock_overlap. Brief: portfolio_overview, health_check, risk_alignment, sip_review, period_change, fy_summary. Vague book questions are portfolio_overview. Do not fetch news for a fact intent.
+- portfolio_news_mode: none, book_wide, or sector. book_wide when they ask which news could affect their portfolio, with no sector named. sector when they name a sector (banking, IT, pharma, or any other) and want the news and the effect on their book. news_sector is that sector in plain words. answer_mode stays INSIGHT_FUSION and search_financial_news stays on the plan. A sector weight with no news is still sector_exposure and DATA_ONLY.
+- Example, book-wide: {"understanding":{"intent":"overview","answer_mode":"INSIGHT_FUSION","portfolio_scope":"investor","portfolio_intent":"portfolio_overview","portfolio_news_mode":"book_wide","news_sector":""},"tool_calls":[{"tool":"get_investor_portfolio","arguments":{"modules":["summary","concentration"]},"wave":1},{"tool":"search_financial_news","arguments":{"scope":"macro","top_n":8,"window_days":7},"wave":2}]}.
+- Example, one sector: {"understanding":{"intent":"overview","answer_mode":"INSIGHT_FUSION","portfolio_scope":"investor","portfolio_intent":"sector_exposure","portfolio_news_mode":"sector","news_sector":"Banks"},"tool_calls":[{"tool":"get_investor_portfolio","arguments":{"modules":["concentration"]},"wave":1},{"tool":"search_financial_news","arguments":{"scope":"sector","topics":["Banks"],"top_n":8,"window_days":7},"wave":2}]}.
 - portfolio_allocation: ideal portfolio, asset mix, or fund names for a horizon. Set horizon_years to the number they gave (or null). Set asset_preference equity_more, debt_more, balanced, or unspecified. Set include_gold true only if they asked for gold. Do not pick one category. Do not use category_composition for this.
 - request.holding_scope: single, or all_holdings for "each / all my funds" (list every holding name in entities.funds; add get_fund_data per fund for catalog numbers).
 - scope.direct_reply only when the whole answer is one short sentence (glossary, greeting).

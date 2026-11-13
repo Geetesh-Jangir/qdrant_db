@@ -127,6 +127,9 @@ class ExecutionPlan(BaseModel):
     portfolio_scope: str = "none"
     # Planner-named book question. none means a general or catalog question. See portfolio_intents.
     portfolio_intent: str = "none"
+    # Planner: news mapped onto the user's book. none | book_wide | sector.
+    portfolio_news_mode: str = "none"
+    news_sector: str = ""
     subject_ref: str = "none"
     rs_label: str = ""
     holding_scope: str = "none"

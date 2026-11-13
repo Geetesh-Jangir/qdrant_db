@@ -75,7 +75,12 @@ BOOK_FIELDS: dict[str, FieldNeed] = {
     "invested": FieldNeed("get_investor_portfolio", "summary", "Amount invested", book=True),
     "gain_abs": FieldNeed("get_investor_portfolio", "summary", "Gain or loss", book=True),
     "gain_pct": FieldNeed("get_investor_portfolio", "summary", "Gain or loss percent", book=True),
-    "scheme_count": FieldNeed("get_investor_portfolio", "summary", "Number of schemes", book=True),
+    "scheme_count": FieldNeed(
+        "get_investor_portfolio",
+        "summary",
+        "Number of open schemes with current value (excludes zero-balance folios)",
+        book=True,
+    ),
     "holdings_list": FieldNeed("get_investor_portfolio", "holdings", "Holdings", book=True),
     "largest_holding": FieldNeed("get_investor_portfolio", "holdings", "Largest holding", book=True),
     "smallest_holding": FieldNeed("get_investor_portfolio", "holdings", "Smallest holding", book=True),

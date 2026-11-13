@@ -114,6 +114,26 @@ def _resolve_isin(scheme_name: str) -> str:
         return ""
 
 
+def _book_has_market_value(rows: list[dict[str, Any]]) -> bool:
+    for row in rows:
+        if _num(row.get("marketValue")) is not None:
+            return True
+    return False
+
+
+def _fill_missing_from_live(holding: dict[str, Any], live: dict[str, Any]) -> None:
+    """Book wins for money fields. Live only fills gaps and a real XIRR."""
+    if not holding.get("scheme_name"):
+        holding["scheme_name"] = _str(_first(live.get("schemeName"), live.get("fundName")))
+    if not holding.get("amc_name"):
+        holding["amc_name"] = _str(_first(live.get("amcName"), live.get("amc")))
+    if not holding.get("nav_date"):
+        holding["nav_date"] = _str(_first(live.get("currentNavDate"), live.get("navDate")))
+    live_xirr = _prefer_xirr(live.get("liveXirrPercent"), live.get("xirrPercent"))
+    if live_xirr not in (None, 0):
+        holding["xirr_pct"] = live_xirr
+
+
 def _apply_holding_values(holdings: list[dict[str, Any]], xirr_rows: list[dict[str, Any]]) -> None:
     by_folio = {str(row.get("folio_scheme") or ""): row for row in xirr_rows if row.get("folio_scheme")}
     for holding in holdings:
@@ -341,8 +361,21 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
 
     live_schemes = live.get("schemes") if isinstance(live.get("schemes"), list) else []
     book_schemes = book_total.get("schemes") if isinstance(book_total.get("schemes"), list) else []
-    scheme_rows = live_schemes or book_schemes
-    holdings = [_holding_from_scheme(r) for r in scheme_rows if isinstance(r, dict)]
+    book_rows = [r for r in book_schemes if isinstance(r, dict)]
+    # live.schemes often omit marketValue; book.marketValue is the open-position list.
+    scheme_rows = book_rows if _book_has_market_value(book_rows) else [
+        r for r in live_schemes if isinstance(r, dict)
+    ]
+    live_by_folio = {
+        _str(r.get("folioScheme")): r
+        for r in live_schemes
+        if isinstance(r, dict) and _str(r.get("folioScheme"))
+    }
+    holdings = [_holding_from_scheme(r) for r in scheme_rows]
+    for holding in holdings:
+        live_row = live_by_folio.get(_str(holding.get("folio_scheme")))
+        if live_row:
+            _fill_missing_from_live(holding, live_row)
     holdings = [h for h in holdings if h.get("scheme_name")]
 
     ps = book.get("portfolioSummary") if isinstance(book.get("portfolioSummary"), dict) else {}
@@ -373,7 +406,6 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
             book_total.get("portfolioXirrPercent"),
             live_summary.get("portfolioXirrPercent"),
         ),
-        "scheme_count": int(_first(book_total.get("schemeCount"), len(holdings)) or 0),
     }
 
     pnl_schemes = []
@@ -434,6 +466,10 @@ def normalize_workspace(raw: dict[str, Any]) -> dict[str, Any]:
 
     _apply_holding_values(holdings, xirr_rows)
     holdings, sold_count = _drop_sold(holdings)
+    book_folio_count = int(_first(book_total.get("schemeCount"), len(book_rows)) or 0)
+    summary["scheme_count"] = len(holdings)
+    if book_folio_count and book_folio_count != len(holdings):
+        summary["book_folio_count"] = book_folio_count
 
     meta = {
         "sold_scheme_count": sold_count,

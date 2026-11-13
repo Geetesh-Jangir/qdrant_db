@@ -1515,6 +1515,64 @@ def _category_rows_from_investor(investor: dict[str, Any]) -> list[tuple[str, fl
     return [(_pretty_category(name), amt, pct) for name, amt, pct in _sorted_inr_weights(mapping)]
 
 
+def render_investor_invested_value_table(
+    data: dict[str, Any],
+    plan: ExecutionPlan,
+    question: str = "",
+) -> str | None:
+    """Invested vs current value for each open holding — compact markdown table."""
+    holdings = [row for row in (data.get("holdings") or []) if isinstance(row, dict)]
+    if not holdings:
+        return None
+
+    from news_rag.insight.pack_sanitize import (
+        _rollup_investor_summary,
+        investor_holdings_for_display,
+    )
+
+    rolled = _rollup_investor_summary(data)
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
+    as_of = str(meta.get("as_of_date") or "").strip()
+    parts: list[str] = []
+    if as_of:
+        parts.append(f"As of **{as_of}**.")
+    if rolled.get("invested_inr") is not None and rolled.get("aum_inr") is not None:
+        lead = (
+            f"Total **{_fmt_inr(rolled.get('invested_inr'))}** invested; "
+            f"current value **{_fmt_inr(rolled.get('aum_inr'))}**"
+        )
+        if rolled.get("gain_loss_inr") is not None:
+            lead += f" (gain **{_fmt_inr(rolled.get('gain_loss_inr'))}**"
+            if rolled.get("absolute_return_pct") is not None:
+                lead += f", **{float(rolled.get('absolute_return_pct')):.2f}%** on invested"
+            lead += ")"
+        lead += "."
+        parts.append(lead)
+
+    header = "| Scheme | Invested (₹) | Current value (₹) |\n| --- | ---: | ---: |"
+    display_rows, total_schemes, truncated = investor_holdings_for_display(
+        holdings, question, plan, sort_weakest=False
+    )
+    body_rows: list[str] = []
+    for row in display_rows:
+        body_rows.append(
+            "| {name} | {inv} | {val} |".format(
+                name=str(row.get("scheme_name") or "")[:72],
+                inv=_fmt_table_inr(row.get("invested_inr")).replace("₹", ""),
+                val=_fmt_table_inr(row.get("aum_inr")).replace("₹", ""),
+            )
+        )
+    if not body_rows:
+        return None
+    table = "\n".join([header, *body_rows])
+    if truncated:
+        parts.append(
+            f"*Showing {len(display_rows)} of {total_schemes} schemes by current value.*"
+        )
+    lead = "\n\n".join(p for p in parts if p).strip()
+    return f"{lead}\n\n{table}".strip() if lead else table
+
+
 def _render_investor_holdings_table(
     data: dict[str, Any],
     plan: ExecutionPlan,
@@ -2012,10 +2070,11 @@ def _portfolio_concentration_report(investor: dict[str, Any]) -> str | None:
     summary = investor.get("summary") if isinstance(investor.get("summary"), dict) else {}
     meta = investor.get("meta") if isinstance(investor.get("meta"), dict) else {}
     as_of = str(meta.get("as_of_date") or conc.get("as_of_date") or "").strip()
+    live_holdings = [r for r in (investor.get("holdings") or []) if isinstance(r, dict)]
     try:
-        scheme_count = int(summary.get("scheme_count") or 0)
+        scheme_count = len(live_holdings) or int(summary.get("scheme_count") or 0)
     except (TypeError, ValueError):
-        scheme_count = 0
+        scheme_count = len(live_holdings)
     try:
         total_inr = float(conc.get("total_current_value") or summary.get("aum_inr") or 0)
     except (TypeError, ValueError):
