@@ -192,25 +192,12 @@ def _score_new_entities(
     for index, match in enumerate(new_matches):
         result = score_match(answers, index)
         
-        if result["about_this_name"] < settings.about_name_min:
+        # Quality filtering is at retrieval. Drop only noise that is not about the entity.
+        if result["about_this_name"] <= 0.0:
             if run_log is not None:
                 run_log.write(
                     f"merge_entity_links drop entity={match['name']} reason=about_name "
                     f"about={result['about_this_name']:.4f}"
-                )
-            continue
-
-        is_material_event = result["event_type"] in {"results", "order", "deal", "regulatory"}
-        passes_gate = (
-            result["relevance"] >= settings.relevance_min
-            or result["impact"] >= 2
-            or (result["relevance"] == 1 and is_material_event)
-        )
-        if not passes_gate:
-            if run_log is not None:
-                run_log.write(
-                    f"merge_entity_links drop entity={match['name']} reason=low_relevance_and_impact "
-                    f"relevance={result['relevance']} impact={result['impact']} event={result['event_type']}"
                 )
             continue
 

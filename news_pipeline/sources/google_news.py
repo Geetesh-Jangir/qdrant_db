@@ -27,6 +27,22 @@ from news_pipeline.textutil import (
 
 
 def fetch_entity_items(entity: dict, settings: Settings) -> list[dict]:
+    """Primary query plus optional entity["query_variants"], merged and de-duplicated by URL."""
+    kept = _fetch_query_items(entity, settings)
+    seen = {item["url"] for item in kept}
+    for variant in entity.get("query_variants") or ():
+        try:
+            rows = _fetch_query_items({**entity, "query": variant}, settings)
+        except RuntimeError:  # a failed variant must not discard the primary query results
+            continue
+        for item in rows:
+            if item["url"] not in seen:
+                seen.add(item["url"])
+                kept.append(item)
+    return kept
+
+
+def _fetch_query_items(entity: dict, settings: Settings) -> list[dict]:
     google_breaker.assert_allowed()
     now = utc_now()
     time_q = google_time_query(settings)

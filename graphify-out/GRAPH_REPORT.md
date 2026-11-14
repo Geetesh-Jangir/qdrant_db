@@ -1,34 +1,34 @@
-# Graph Report - db_design_with_qdrant_locally  (2026-11-13)
+# Graph Report - db_design_with_qdrant_locally  (2026-11-14)
 
 ## Corpus Check
-- 510 files · ~882,899 words
+- 526 files · ~890,300 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 20 file(s) not represented in the graph (top: .example 6, (none) 4, .mdc 2)
 
 ## Summary
-- 5676 nodes · 18211 edges · 211 communities (179 shown, 32 thin omitted)
-- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 652 edges (avg confidence: 0.9)
+- 5817 nodes · 18639 edges · 218 communities (182 shown, 36 thin omitted)
+- Extraction: 96% EXTRACTED · 4% INFERRED · 0% AMBIGUOUS · INFERRED: 660 edges (avg confidence: 0.9)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8c4c6f18`
+- Built from commit: `7c7f0faf`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
 - logging
-- NewsStore
+- Settings
 - fund_rating_screen.py
 - interpret.py
 - fields.py
 - article_quality.py
-- lib/portfolio_scope.py
+- node_compose
 - time
 - test_ask_speed.py
 - Settings
-- test_fund_drawdown.py
-- test_pick_shown_fund.py
-- get_sector_fund_ranking_index
+- fund_drawdown.py
+- node_compose
+- concept_asks.py
 - compute.py
 - _attach_screen_facts
 - tools.py
@@ -36,9 +36,9 @@
 - update.py
 - QueryLogger
 - news_reader.py
-- lib/portfolio_scope.py
-- fact_slots.py
-- Settings
+- macro_data.py
+- test_portfolio_startup_cache.py
+- AnswerMode
 - failure_ledger.py
 - tool_runners.py
 - category_plan.py
@@ -46,25 +46,25 @@
 - ensure_registry
 - resolve_fund_for_query
 - fund_name_gate.py
-- sector_alignment.py
-- pipeline.py
-- executor.py
+- nse_fii_dii.py
+- bridge.py
+- _run_get_fund_data
 - task_exec.py
 - llm_client.py
 - book_news_map.py
 - fund_search.py
 - normalize.py
-- investor_drawback.py
+- pack_sanitize.py
 - test_fund_rating_screen.py
 - env
-- investor_subject.py
-- contracts.py
-- test_call_json_llm.py
+- plan_enforce.py
+- build_evidence_pack
+- plan.py
 - macro_news_cache.py
 - env
 - affected_sectors.py
-- rupeestop_auth.py
-- sources/google_news.py
+- validate_plan_tools
+- test_fund_drawdown.py
 - fund_scheme_match.py
 - get_settings
 - gold_service.py
@@ -75,88 +75,88 @@
 - test_portfolio_intents.py
 - scrape-worker/package.json
 - _normalize_fund_text
-- question_intent.py
+- test_fund_payload_first.py
 - test_fund_risk.py
 - graph.py
-- scoped_retrieve.py
+- retrieve_scoped_news
 - re
 - nav_service.py
-- test_investor_grounding.py
+- fund_universe_agent.py
 - batch.ts
-- validate_capability_args
+- CapabilityCache
 - insight/guardrails.py
 - http-fetch.ts
 - embed.py
 - portfolio/cache.py
-- retrieve_scoped_news
-- graph.py
+- holdings_market.py
+- test_insight_graph.py
 - with
-- stock_fund_ranking.py
+- ensure_registry
 - ExecutionPlan
 - stock_fund_ranking.py
-- test_holding_overlap.py
+- rupeestop_auth.py
 - display_table_policy.py
 - test_portfolio_layer.py
 - fact_answer.py
 - holding_attribution.py
 - scrape-worker/src/index.ts
-- news_rag/config.py
+- get_fund_index
 - test_rupeestop_auth.py
-- test_portfolio_layer.py
+- screen_hints_from_question
 - test_portfolio_allocation.py
 - normalize_answer_markdown
 - nse_sector_indices.py
 - compare_evidence.py
 - env
-- plan_system_prompt
+- prompts.py
 - steps
 - evidence_pack.py
 - portfolio/client.py
-- concept_asks.py
-- test_fund_payload_first.py
-- evidence.py
+- NumericRecord
+- validate_capability_args
+- fund_display.py
 - pathlib
-- test_two_wave_pipeline.py
+- MospiClient
 - run-daily-pipeline.sh
 - env
 - enrich_manager_payload
 - macro_impact_map.py
 - market_pulse.py
 - fund_rating_categories.py
-- plan_enforce.py
-- test_fact_answer.py
-- aggregate_fund_holdings.py
-- test_macro_news_cache.py
+- call_json_llm
+- output_judge.py
+- test_portfolio_layer.py
+- execute_capability
 - news_digest.py
-- ._ensure_loaded
+- planner_policy.py
 - vitest
 - format_inr
-- test_macro_scope.py
+- test_guardrails_domain.py
 - compilerOptions
 - compilerOptions
-- test_news_only_answer.py
-- argparse
+- test_ai_insight_mospi.py
+- run_ask_engine
 - backfill
 - lib/google_news.py
 - test_composer_table_summaries.py
-- _return_slice_covers
+- evidence.py
 - run-pipeline
-- test_metal_fund_rating.py
-- get_stock_profile
+- enforce_planner_catalog_plan
+- ask_market_bridge.py
 - index_series.py
 - worker/src/index.ts
 - steps
 - steps
 - with
-- planner_catalog_knowledge.py
-- top_n_from_question
+- executor.py
+- glossary.py
 - insights.py
 - inputs
 - with
 - inputs
 - json
-- prompts.py
-- append_investor_portfolio_overview_tables
+- build_data_pack
+- node_wave1
 - run-backfill.sh
 - qdrant
 - test_stocks_service.py
@@ -171,7 +171,7 @@
 - pause_sec
 - start_date
 - rag-api.js
-- relationships.py
+- repo_root
 - install.sh
 - fund_match.py
 - install-backfill.sh
@@ -181,242 +181,246 @@
 - fund_catalog.py
 - diagnose_lightsail_site.sh
 - RunLogger
-- re
+- node_compose
 - EntityFunnel
-- _run_screen_funds_by_exposure
+- test_metal_fund_rating.py
 - test_answer_precision.py
 - build_derived_views
 - market_scope_entities
-- csv
+- planner_catalog_knowledge.py
 - extract_top_holdings
 - entity_candidates.py
-- strip_missing_data_caveats
-- typing
-- strip_news_roundup
-- _category_fund_name_spec
+- pack_trim.py
+- query_log.py
+- test_holding_overlap.py
+- fund_type_name_spec
 - metals_spot_tables.py
-- planner_policy.py
-- node_route
-- Path
+- httpx
+- memory/__init__.py
+- maybe_install_balanced_portfolio_screen
 - QuestionBrief
-- test_expired_jwt_logs_in_once_and_reuses_fresh_token
-- compare_ask_speed.py
-- json_util.py
+- news_fanout.py
 - fund_brief.py
-- _amc_outside_label
-- contains_phrase
-- datetime
+- test_ai_insight.py
+- top_n_from_question
+- test_return_windows.py
 - portfolio_news_impact.py
-- ToolCall
+- eval_basic_queries.py
+- pick_compare_pair_with_fallback
+- render_asked_facts
+- prompts.py
+- measured_facts_block
+- _unhandled_exception_handler
+- test_risk_analysis_without_periods_still_loads_one_three_and_five_year
 
 ## God Nodes (most connected - your core abstractions)
-1. `ExecutionPlan` - 605 edges
+1. `ExecutionPlan` - 607 edges
 2. `ToolCall` - 367 edges
 3. `get_settings()` - 141 edges
 4. `apply_planner_post_hooks()` - 123 edges
-5. `AnswerMode` - 109 edges
-6. `QueryLogger` - 100 edges
-7. `node_compose()` - 100 edges
+5. `AnswerMode` - 108 edges
+6. `node_compose()` - 102 edges
+7. `QueryLogger` - 100 edges
 8. `QuestionBrief` - 88 edges
-9. `slot_route()` - 84 edges
-10. `Settings` - 83 edges
+9. `Settings` - 84 edges
+10. `slot_route()` - 84 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `test_allocation_drops_dust_and_matches_book_aum()` --calls--> `normalize_workspace()`  [EXTRACTED]
-  tests/test_portfolio_layer.py → news_rag/portfolio/normalize.py
-- `test_book_schemes_are_the_open_holdings()` --calls--> `normalize_workspace()`  [EXTRACTED]
-  tests/test_portfolio_layer.py → news_rag/portfolio/normalize.py
-- `test_current_value_and_nonzero_xirr()` --calls--> `normalize_workspace()`  [EXTRACTED]
-  tests/test_portfolio_layer.py → news_rag/portfolio/normalize.py
-- `test_normalize_allocation_from_live_books_total()` --calls--> `normalize_workspace()`  [EXTRACTED]
-  tests/test_portfolio_layer.py → news_rag/portfolio/normalize.py
-- `test_project_pnl_scheme_without_filter_returns_schemes()` --calls--> `project_modules()`  [EXTRACTED]
-  tests/test_portfolio_layer.py → news_rag/portfolio/project.py
+- `test_400_is_not_retried()` --uses--> `MospiError`  [INFERRED]
+  tests/test_ai_insight_mospi.py → ai_insight/data/macro_data.py
+- `fetch_google_news()` --uses--> `GoogleBlockedError`  [INFERRED]
+  news_pipeline/graph/nodes/fetch_google_news.py → lib/google_guard.py
+- `test_market_sector_lists_in_display_without_funds()` --uses--> `SubAsk`  [INFERRED]
+  tests/test_insight_interpret.py → news_rag/insight/brief.py
+- `test_structured_compose_orders_sub_asks_and_bold()` --uses--> `SubAsk`  [INFERRED]
+  tests/test_insight_interpret.py → news_rag/insight/brief.py
+- `retrieve_fund_articles()` --uses--> `PortfolioScope`  [INFERRED]
+  news_rag/fund_brief.py → lib/portfolio_scope.py
 
 ## Import Cycles
 - None detected.
 
-## Communities (211 total, 32 thin omitted)
+## Communities (218 total, 36 thin omitted)
 
 ### Community 0 - "logging"
-Cohesion: 0.08
-Nodes (39): get_entity_funnel(), build_graph(), dedupe_and_alias(), drop_old_points(), embed_and_upsert(), _compact_fetch_errors(), fetch_google_news(), jev_article_scores() (+31 more)
+Cohesion: 0.06
+Nodes (58): get_entity_funnel(), fetch_window_fields(), is_source_exhausted(), build_graph(), _absorb_into_candidate(), dedupe_and_alias(), _dedupe_candidates(), _find_story_match() (+50 more)
 
-### Community 1 - "NewsStore"
-Cohesion: 0.05
-Nodes (23): _to_article(), EntityScore, StoredArticle, is_qdrant_cloud(), qdrant_host(), qdrant_summary(), validate_qdrant_settings(), scrape_article_url() (+15 more)
+### Community 1 - "Settings"
+Cohesion: 0.03
+Nodes (47): Publisher, SectorQuery, Settings, is_google_exhausted(), is_qdrant_cloud(), qdrant_host(), qdrant_summary(), validate_qdrant_settings() (+39 more)
 
 ### Community 2 - "fund_rating_screen.py"
-Cohesion: 0.06
-Nodes (46): categories_for(), metal_scheme_categories(), pickable_categories(), _add_category_comparison(), _allocation_mix_spec(), _amc_matches(), _apply_category_difference(), asks_balanced_long_horizon_fund_menu() (+38 more)
+Cohesion: 0.08
+Nodes (42): _add_category_comparison(), _alternate_row_excluded(), _amc_matches(), _apply_category_difference(), balanced_portfolio_examples_spec(), _best_label(), _best_rated_row(), _cascade_labels_for_spec() (+34 more)
 
 ### Community 3 - "interpret.py"
 Cohesion: 0.06
-Nodes (70): asks_random_fund_compare(), Findings, FundFinding, SectorFinding, mentions_publication_date(), publication_date_keys(), _assemble(), _caveat() (+62 more)
+Nodes (67): asks_random_fund_compare(), Findings, FundFinding, SectorFinding, mentions_publication_date(), _assemble(), _caveat(), check_composer_guardrails() (+59 more)
 
 ### Community 4 - "fields.py"
-Cohesion: 0.09
-Nodes (32): _asks_book(), bind_fields_to_tools(), _book_fields(), field_need(), FieldNeed, fields_from_question(), _find_term(), _fund_fields() (+24 more)
+Cohesion: 0.11
+Nodes (22): periods_requested_in_question(), _asks_book(), bind_fields_to_tools(), _book_fields(), canonicalize_field(), field_need(), FieldNeed, fields_from_question() (+14 more)
 
 ### Community 5 - "article_quality.py"
 Cohesion: 0.13
 Nodes (18): _article_blob(), _body_len(), claim_matches_label(), filter_quality_articles(), _has_movers(), _impact(), _quality_score(), relevance_terms() (+10 more)
 
-### Community 6 - "lib/portfolio_scope.py"
+### Community 6 - "node_compose"
 Cohesion: 0.16
-Nodes (18): instrument_to_qdrant_names(), match_holding_to_corpus_entity(), load_portfolio_universe(), _aliases_for(), build_holding_entities(), canonical_key(), _display_name(), _holding_query() (+10 more)
+Nodes (20): _asks_portfolio_rs_ratings(), field_answer_needs_composer(), _investor_holdings_rows(), is_pure_field_answer(), render_benchmark_comparison_table(), render_fact_answer(), render_investor_rs_ratings_table(), wants_comparison_table() (+12 more)
 
 ### Community 7 - "time"
-Cohesion: 0.11
-Nodes (34): _conversation_id(), _load_planner_memory(), _store_turn_memory(), hydrate_memory_from_prior_turns(), normalize_prior_turns(), chat_history_view(), _chat_turn_rows(), format_chat_history_block() (+26 more)
+Cohesion: 0.14
+Nodes (29): _conversation_id(), GraphState, _load_planner_memory(), node_reply(), hydrate_memory_from_prior_turns(), normalize_prior_turns(), append_chat_turn(), _fresh() (+21 more)
 
 ### Community 8 - "test_ask_speed.py"
-Cohesion: 0.10
-Nodes (25): collect_evidence_calendar_dates(), add_article(), cores_for_float(), cores_in_text(), derived_cores(), finalize_text_fields(), format_user_calendar_date(), number_is_grounded() (+17 more)
+Cohesion: 0.06
+Nodes (36): analyst_should_run(), asks_market_briefing(), collect_evidence_calendar_dates(), add_article(), cores_for_float(), cores_in_text(), finalize_text_fields(), format_user_calendar_date() (+28 more)
 
 ### Community 9 - "Settings"
-Cohesion: 0.06
-Nodes (44): _checkpoint_path(), _load_checkpoint(), main(), _save_checkpoint(), repo_root(), _bucket(), _entity_names(), fetch_window_fields() (+36 more)
-
-### Community 10 - "test_fund_drawdown.py"
 Cohesion: 0.08
-Nodes (58): _add_drawdown_call(), asks_category_drawdown(), attach_screen_drawdown(), average_peer_drawdown(), collapse_episodes(), compare_drawdown_rows(), drawdown_words(), ensure_drawdown_tools() (+50 more)
+Nodes (32): _checkpoint_path(), _load_checkpoint(), main(), _save_checkpoint(), article_in_fetch_window(), google_time_query(), has_news_date_range(), iter_inclusive_days() (+24 more)
 
-### Community 11 - "test_pick_shown_fund.py"
-Cohesion: 0.10
-Nodes (19): _metal_fund_categories(), fund_picked_from_prior_answer(), funds_from_shown_list(), _list_count(), _list_question(), merge_fund_isins_map(), question_picks_one_shown_fund(), question_refers_to_shown_list() (+11 more)
+### Community 10 - "fund_drawdown.py"
+Cohesion: 0.15
+Nodes (27): _add_drawdown_call(), attach_screen_drawdown(), average_peer_drawdown(), collapse_episodes(), compare_drawdown_rows(), fetch_drawdown_periods(), fetch_trailing_drawdown(), investment_amount() (+19 more)
 
-### Community 12 - "get_sector_fund_ranking_index"
-Cohesion: 0.08
-Nodes (34): execute_wave(), get_sector_fund_ranking_index(), asks_fund_portfolio_holdings(), asks_funds_holding_stock(), asks_funds_with_sector_exposure(), _clean_stock_capture(), _resolved_scheme_for_portfolio_ask(), screen_hints_from_question() (+26 more)
+### Community 11 - "node_compose"
+Cohesion: 0.05
+Nodes (70): question_is_standalone_macro(), _categories_equivalent(), node_evidence_gate(), apply_investor_category_fund_to_plan(), _category_slug_from_question(), enforce_catalog_fund_list_scope(), enforce_investor_holding_subject(), ensure_all_holdings_metrics_plan() (+62 more)
+
+### Community 12 - "concept_asks.py"
+Cohesion: 0.31
+Nodes (10): apply_concept_example_to_plan(), asks_concept_with_catalog_example(), asks_wants_named_example(), build_concept_example_plan(), concept_brief_for_question(), asks_fof_funds(), test_concept_example_plan_screen_fof(), test_fof_name_one_detected() (+2 more)
 
 ### Community 13 - "compute.py"
 Cohesion: 0.07
-Nodes (46): _alignment(), _benchmark(), _build_evidence_text(), _claims_for_findings(), compute_findings(), _drags_for(), _driver_row_tilt(), _fmt_date() (+38 more)
+Nodes (48): _alignment(), _benchmark(), _build_evidence_text(), _claims_for_findings(), compute_findings(), _drags_for(), _driver_row_tilt(), _fmt_date() (+40 more)
 
 ### Community 14 - "_attach_screen_facts"
-Cohesion: 0.12
-Nodes (22): is_higher_rated_than(), is_lower_tier_than(), label_tiers_from(), label_tiers_up_to(), normalize_rs_label(), tier_rank(), _alternate_row_excluded(), infer_anchor_label_from_excludes() (+14 more)
+Cohesion: 0.13
+Nodes (18): is_higher_rated_than(), is_lower_tier_than(), label_tiers_from(), label_tiers_up_to(), normalize_rs_label(), tier_rank(), pick_funds_by_label_cascade(), pick_rows_by_label_cascade() (+10 more)
 
 ### Community 15 - "tools.py"
 Cohesion: 0.06
-Nodes (49): rank_funds_by_sector_exposure(), _active_sector_equity(), _articles_for_affected_question(), _as_date(), asks_equity_funds(), _broad_working_well_keys(), _catalog_candidates(), _drop_stale_nav() (+41 more)
+Nodes (57): question_needs_affected_sectors(), fetch_fund_managers_for_isin(), _finalize_screen_payload(), run_driver_affected_funds_adapter(), DataNeed, get_sector_fund_ranking_index(), _active_sector_equity(), _articles_for_affected_question() (+49 more)
 
 ### Community 16 - "fund_display.py"
-Cohesion: 0.12
-Nodes (27): _as_float(), _assess_table_quality(), build_fund_display_tables(), _cell(), _comparison_pair_ok(), _composition_table_markdown(), _fmt_inr(), _fmt_pct() (+19 more)
+Cohesion: 0.15
+Nodes (21): _as_float(), build_fund_display_tables(), _cell(), _comparison_pair_ok(), _composition_table_markdown(), _fmt_pct(), _fmt_pp(), _fmt_weight() (+13 more)
 
 ### Community 17 - "update.py"
-Cohesion: 0.14
-Nodes (19): drop_old_turns(), add_gist(), empty_frame(), empty_state(), expire_stale_entities(), push_fund(), stack_entry(), _subject() (+11 more)
+Cohesion: 0.16
+Nodes (18): drop_old_turns(), add_gist(), empty_frame(), empty_state(), expire_stale_entities(), push_fund(), stack_entry(), _subject() (+10 more)
 
 ### Community 18 - "QueryLogger"
-Cohesion: 0.08
-Nodes (15): compose_fund_insight(), _empty_brief(), generate_fund_brief(), format_insight_display(), ParsedQuery, clip_log_text(), find_query_log_file(), _kv() (+7 more)
+Cohesion: 0.10
+Nodes (7): _pillar_maximum(), _public_pillars(), clip_log_text(), _kv(), QueryLogger, _shrink_for_log(), _tool_digest()
 
 ### Community 19 - "news_reader.py"
-Cohesion: 0.09
-Nodes (38): _article_context_for_interpret(), measured_facts_block(), _allowed_sector_names(), _article_char_limit(), _body(), _build_user_prompt(), _canonical_sector(), _claim_priority() (+30 more)
-
-### Community 20 - "lib/portfolio_scope.py"
-Cohesion: 0.17
-Nodes (16): build_portfolio_scope(), FundRef, _holding_equity_allowed(), is_blocked_sector(), load_aggregated_equity_keys(), load_allisin_doc(), load_manifest(), load_portfolio_funds() (+8 more)
-
-### Community 21 - "fact_slots.py"
-Cohesion: 0.15
-Nodes (14): asked_slots(), merge_planner_asked_facts(), missing_slots(), render_asked_facts(), _slot_label(), _slot_value(), slots_from_plan(), tag_answer_parts() (+6 more)
-
-### Community 22 - "Settings"
 Cohesion: 0.10
-Nodes (16): Publisher, SectorQuery, Settings, apply_fresh_start(), _clear_run_json_summaries(), clear_scrape_workspace(), remove_scrape_artifacts(), remove_scrape_artifacts_many() (+8 more)
+Nodes (37): _article_context_for_interpret(), _allowed_sector_names(), _article_char_limit(), _body(), _build_user_prompt(), _canonical_sector(), _claim_priority(), _clean_claims() (+29 more)
+
+### Community 20 - "macro_data.py"
+Cohesion: 0.14
+Nodes (26): BondYieldResult, _client(), _codes(), walk(), CPIRecord, fetch_bond_yields(), fetch_cpi(), fetch_gdp() (+18 more)
+
+### Community 21 - "test_portfolio_startup_cache.py"
+Cohesion: 0.14
+Nodes (17): question_asks_category_book_share(), question_asks_category_money(), bind_cached_portfolio(), _catalog_fund_holdings_question(), ensure_tools_for_data_question(), finish_portfolio_plan_bind(), _investor_args(), _merge_fund() (+9 more)
+
+### Community 22 - "AnswerMode"
+Cohesion: 0.12
+Nodes (20): AnswerMode, normalize_portfolio_plan_from_question(), plan_matches_intent(), QuestionIntent, resolve_question_intent(), _top_n_from_question(), _asks_catalog_fund_performance(), _extract_fund_names() (+12 more)
 
 ### Community 23 - "failure_ledger.py"
-Cohesion: 0.08
-Nodes (32): _merge_publisher_error_reasons(), write_day_report(), _atomic_write(), day_failure_slices_for_run(), ensure_loaded(), _failures_dir(), flush(), is_google_exhausted() (+24 more)
+Cohesion: 0.06
+Nodes (39): _merge_publisher_error_reasons(), write_day_report(), _bucket(), _entity_names(), summarize_errors(), write_error_summary(), _atomic_write(), day_failure_slices_for_run() (+31 more)
 
 ### Community 24 - "tool_runners.py"
-Cohesion: 0.10
-Nodes (47): build_holding_overlap(), build_default_registry(), _driver_without_sector(), _enrich_compare_brief(), _fail(), _fund_compare_brief(), _has(), _has_sector() (+39 more)
+Cohesion: 0.07
+Nodes (58): aggregate_sectors_from_holdings(), extract_top_sectors(), _price_holdings(), _detail(), register_layer_tools(), run_fund_attribution_tool(), run_fund_portfolio(), run_fund_snapshot() (+50 more)
 
 ### Community 25 - "category_plan.py"
 Cohesion: 0.05
-Nodes (54): match_all_scheme_categories(), match_scheme_category(), _phrase_in(), fund_type_name_spec(), _anchor_rating_for_category(), _apply_same_category_pair_screen_plan(), asks_category_composition(), asks_cross_category_compare() (+46 more)
+Nodes (62): match_all_scheme_categories(), match_scheme_category(), _phrase_in(), fund_type_name_spec(), _anchor_rating_for_category(), _apply_same_category_pair_screen_plan(), asks_category_composition(), asks_cross_category_compare() (+54 more)
 
 ### Community 26 - "test_fund_display_tables.py"
-Cohesion: 0.07
-Nodes (31): assemble_fund_overview_answer(), _drop_repeated_fund_heading(), ensure_markdown_table_spacing(), format_display_tables_markdown(), normalize_user_facing_text(), stitch_display_tables_into_answer(), strip_composer_display_sections(), strip_empty_table_pointers() (+23 more)
+Cohesion: 0.08
+Nodes (29): assemble_fund_overview_answer(), _drop_repeated_fund_heading(), format_display_tables_markdown(), normalize_user_facing_text(), stitch_display_tables_into_answer(), strip_composer_display_sections(), strip_empty_table_pointers(), _compose_hints() (+21 more)
 
 ### Community 27 - "ensure_registry"
-Cohesion: 0.07
-Nodes (51): _brief_system(), canonical_facet(), _article_key(), _base_ctx(), _close_dependencies(), _collect_articles(), _extract_funds_from_result(), gather_evidence() (+43 more)
+Cohesion: 0.11
+Nodes (26): _article_key(), _base_ctx(), _close_dependencies(), _collect_articles(), _extract_funds_from_result(), gather_evidence(), GatherContext, LedgerEntry (+18 more)
 
 ### Community 28 - "resolve_fund_for_query"
-Cohesion: 0.14
-Nodes (19): lookup_extracted_fund(), _lookup_fund_scan_question(), resolve_fund_for_query(), test_absl_and_ppfas_shorthand(), test_absl_conservative_hybrid_active_fof(), test_absl_gold_etf_is_the_etf_not_a_gold_fund_list(), test_absl_large_cap_is_not_frontline_or_the_trigger_plan(), test_absl_nifty_50_etf_not_momentum_200() (+11 more)
+Cohesion: 0.10
+Nodes (25): fetch_fund_managers_for_query(), is_macro_metals_question(), is_market_fund_discovery_question(), lookup_extracted_fund(), _lookup_fund_scan_question(), prefer_resolved_fund_name(), resolve_fund_for_query(), resolve_fund_from_question() (+17 more)
 
 ### Community 29 - "fund_name_gate.py"
-Cohesion: 0.15
-Nodes (13): primary_metal_in_question(), question_is_bullion_metal_price_question(), question_mentions_gold_etf_or_fund(), apply_bullion_metal_scope(), question_wants_gold_table(), scrub_unknown_fund_mentions(), test_gold_price_still_wants_a_draft_table(), test_invested_in_gold_is_not_a_spot_price_ask() (+5 more)
+Cohesion: 0.08
+Nodes (21): primary_metal_in_question(), question_is_bullion_metal_price_question(), question_mentions_gold_etf_or_fund(), apply_bullion_metal_scope(), question_wants_gold_table(), asked_slots(), facts_only_compose_allowed(), merge_planner_asked_facts() (+13 more)
 
-### Community 30 - "sector_alignment.py"
-Cohesion: 0.17
-Nodes (12): clear_macro_impact_cache(), analyze_sector_block(), canonical_sector_for_holding(), holding_return_pct(), holdings_in_sector(), index_return_pct(), return_sign(), _sector_news() (+4 more)
+### Community 30 - "nse_fii_dii.py"
+Cohesion: 0.29
+Nodes (8): FlowLeg, _bucket(), fetch_fii_dii_snapshot(), _leg(), _nse_json(), _num(), test_bucket_fii_dii(), test_leg_parses_nse_row()
 
-### Community 31 - "pipeline.py"
-Cohesion: 0.24
-Nodes (3): run_insight_pipeline(), stream_insight_pipeline(), test_streaming_sse_order()
+### Community 31 - "bridge.py"
+Cohesion: 0.09
+Nodes (15): evaluate_wave2(), _extract_returns_from_results(), _extract_top_entities_from_results(), infer_fund_news_layers(), prefers_planner_over_slot(), asks_fund_related_news(), test_asks_fund_related_news(), test_infer_all_layers_when_unspecified() (+7 more)
 
-### Community 32 - "executor.py"
-Cohesion: 0.06
-Nodes (46): fetch_vs_benchmark(), get_fund_index(), get_capability_cache(), _attach_rs_rating_to_screen_rows(), _bullion_articles(), _bullion_topics(), _compare_payload_matches_funds(), _conversation_id() (+38 more)
+### Community 32 - "_run_get_fund_data"
+Cohesion: 0.12
+Nodes (14): fetch_vs_benchmark(), merge_fund_insight_metrics(), _detail_for_fund_tool(), _fund_payload_matches_fund(), _isin_for_fund_name(), refetch_partial_fund_tools(), _repair_incomplete_fund_data(), _run_get_fund_data() (+6 more)
 
 ### Community 33 - "task_exec.py"
-Cohesion: 0.05
-Nodes (65): explanation_brief(), canonicalize_field(), field_prompt_table(), _apply_planner_request(), _compare_sides(), _example_part(), _horizon_years(), _label_for_days() (+57 more)
+Cohesion: 0.13
+Nodes (28): bind_subjects(), _book_total_line(), _canon_fact(), _category_in_planner_text(), _cell(), _compare_subject_kind(), coverage_line(), _fact_label() (+20 more)
 
 ### Community 34 - "llm_client.py"
-Cohesion: 0.07
-Nodes (57): ask(), ask_stream(), AskRequest, _attach_llm_meta(), fund_brief(), health(), get_settings(), Settings (+49 more)
+Cohesion: 0.09
+Nodes (37): health(), get_settings(), Settings, make_plan(), _slot_fallback(), anthropic_cache_control(), anthropic_system_blocks(), _call_anthropic() (+29 more)
 
 ### Community 35 - "book_news_map.py"
 Cohesion: 0.21
 Nodes (14): _clean_holding_tokens(), book_wide_sectors(), _display_name(), _has_named_stock(), news_calls_for_book(), _news_name(), _pct(), resolve_book_sector() (+6 more)
 
 ### Community 36 - "fund_search.py"
-Cohesion: 0.10
-Nodes (23): aggregate_sectors_from_holdings(), _clean_company_name(), detail_has_live_facts(), _entry_matches_query_scheme(), fetch_fund_managers_for_isin(), fetch_fund_managers_for_query(), _fund_context_for_managers(), _fund_text() (+15 more)
+Cohesion: 0.09
+Nodes (19): _clean_company_name(), detail_has_live_facts(), _entry_matches_amc(), _expand_query_token(), _fund_context_for_managers(), _fund_text(), FundIndex, get_fund_benchmark() (+11 more)
 
 ### Community 37 - "normalize.py"
-Cohesion: 0.15
+Cohesion: 0.18
 Nodes (21): aggregate_term_gains(), _allocation_block(), _allocation_raw_from_workspace(), _allocation_raw_has_payload(), _apply_holding_values(), _book_has_market_value(), _fill_missing_from_live(), _first() (+13 more)
 
-### Community 38 - "investor_drawback.py"
-Cohesion: 0.12
-Nodes (21): _fund_performance_digest(), attach_drawback_digest(), _fmt_inr(), _pretty_category(), render_portfolio_drawback_answer(), _display_holding_row(), _enrich_investor_computed_fields(), _internal_contribution_row() (+13 more)
+### Community 38 - "pack_sanitize.py"
+Cohesion: 0.08
+Nodes (30): append_investor_portfolio_overview_tables(), _fund_performance_digest(), strip_unasked_scheme_names(), attach_drawback_digest(), _fmt_inr(), _pretty_category(), render_portfolio_drawback_answer(), question_asks_all_schemes_in_answer() (+22 more)
 
 ### Community 39 - "test_fund_rating_screen.py"
-Cohesion: 0.09
-Nodes (45): asks_taxonomy(), match_all_fund_types(), parse_rating_screen(), _return_direction(), run_rating_list(), _payload(), _rating(), test_a_named_large_cap_positive_year_stays_in_large_cap() (+37 more)
+Cohesion: 0.08
+Nodes (46): asks_taxonomy(), parse_rating_screen(), _return_direction(), run_rating_list(), _payload(), _rating(), test_a_named_large_cap_positive_year_stays_in_large_cap(), fetch() (+38 more)
 
 ### Community 40 - "env"
 Cohesion: 0.05
 Nodes (39): APP_TOKEN, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, EMBEDDING_CACHE_DIR, GEMINI_API_KEY, GEMINI_MODEL, PYTHONPATH (+31 more)
 
-### Community 41 - "investor_subject.py"
-Cohesion: 0.03
-Nodes (108): plan_wants_single_scheme_risk(), pick_best_matching_scheme(), resolve_fund_from_question(), _amc_token_set(), _bound_fund_name(), _compare_sides_resolvable(), _known_names_in_text(), question_refers_deictic_fund_safe() (+100 more)
-
-### Community 42 - "contracts.py"
+### Community 41 - "plan_enforce.py"
 Cohesion: 0.04
-Nodes (58): _followup_modules(), AnswerMode, EvidenceRow, build_evidence_pack(), ensure_fund_concentration_plan(), ensure_compare_template(), ensure_multi_fact_tools(), ensure_planner_fund_fact_modules() (+50 more)
+Nodes (77): pick_best_matching_scheme(), _bound_fund_name(), _compare_sides_resolvable(), _known_names_in_text(), question_refers_deictic_fund_safe(), single_fund_for_deictic(), fund_authorized_for_question(), _resolve_funds() (+69 more)
 
-### Community 43 - "test_call_json_llm.py"
-Cohesion: 0.14
-Nodes (19): AskPlan, EntityMention, _int_list(), PlannedTool, common_market_news_from_plan(), market_pulse_from_plan(), _layered_news_topics(), _client() (+11 more)
+### Community 42 - "build_evidence_pack"
+Cohesion: 0.05
+Nodes (50): normalize_sector_row(), ensure_affected_fund_screen(), market_affected_fund_calls(), EvidencePack, EvidenceRow, build_evidence_pack(), render_data_only_template(), table_source() (+42 more)
+
+### Community 43 - "plan.py"
+Cohesion: 0.11
+Nodes (21): mentions_advice(), _apply_planner_request(), _compare_sides(), _example_part(), _horizon_years(), _label_for_days(), _news_mode(), parse_plan() (+13 more)
 
 ### Community 44 - "macro_news_cache.py"
-Cohesion: 0.21
-Nodes (10): _article_text(), _cache_has_article_text(), compute_macro_news(), _fresh(), get_macro_news(), _log(), _read(), _search_macro_parameters() (+2 more)
+Cohesion: 0.10
+Nodes (23): _run_get_macro_news(), _article_text(), _cache_has_article_text(), compute_macro_news(), _fresh(), get_macro_news(), _log(), _read() (+15 more)
 
 ### Community 45 - "env"
 Cohesion: 0.05
@@ -426,145 +430,145 @@ Nodes (38): FRESH_START_CLEAR_QDRANT, FRESH_START_EACH_RUN, JEV_API_KEY, JEV_BAS
 Cohesion: 0.16
 Nodes (12): accepted_sectors(), _article_char_limit(), _article_lines(), build_picker_prompt(), _flatten_sector_buckets(), pick_affected_companies(), pick_affected_sectors(), picker_direction_line() (+4 more)
 
-### Community 47 - "rupeestop_auth.py"
-Cohesion: 0.24
-Nodes (11): ensure_fresh_rupeestop_bearer(), _cfg(), _current(), _fetch_admin_login_token(), _jwt_exp_epoch(), _login_credentials(), _login_url(), _looks_like_jwt() (+3 more)
+### Community 47 - "validate_plan_tools"
+Cohesion: 0.12
+Nodes (23): owned_holding_names(), _block_deictic_all_holdings_fanout(), _ensure_all_holdings_tool_order(), _ensure_metric_modules(), ensure_silver_news_only(), _holdings_breakdown_question(), validate_plan_tools(), _all_holdings_metric_spec() (+15 more)
 
-### Community 48 - "sources/google_news.py"
+### Community 48 - "test_fund_drawdown.py"
 Cohesion: 0.15
-Nodes (15): _absorb_into_candidate(), _dedupe_candidates(), _find_story_match(), _is_duplicate(), fetch_entity_items(), _match_publisher(), _parse_rss(), _resolve_publisher_url() (+7 more)
+Nodes (27): asks_category_drawdown(), drawdown_words(), ensure_drawdown_tools(), is_drawdown_definition(), _named_standard_periods(), periods_for_question(), _question_needs_drawdown(), _plan() (+19 more)
 
 ### Community 49 - "fund_scheme_match.py"
-Cohesion: 0.15
-Nodes (17): is_quant_amc_entry(), is_quantum_amc_entry(), amc_token_in_question(), _category_phrases_in_question(), _constraint_in_scheme_name(), _distinctive_constraints(), question_amc_hints(), scheme_match_score() (+9 more)
+Cohesion: 0.16
+Nodes (14): amc_token_in_question(), _category_phrases_in_question(), _constraint_in_scheme_name(), _distinctive_constraints(), question_amc_hints(), scheme_match_score(), _scheme_name_tokens(), _scheme_vocab_tokens() (+6 more)
 
 ### Community 50 - "get_settings"
-Cohesion: 0.09
-Nodes (35): ask_memory(), ask_query_log(), ask_sources(), _attach_portfolio_to_ask(), backfill_page(), backfill_start(), backfill_status(), backfill_stop() (+27 more)
+Cohesion: 0.07
+Nodes (45): ask(), ask_memory(), ask_query_log(), ask_sources(), ask_stream(), AskRequest, _attach_llm_meta(), _attach_portfolio_to_ask() (+37 more)
 
 ### Community 51 - "gold_service.py"
-Cohesion: 0.13
-Nodes (17): _fetch(), get_silver_snapshot(), _load_payload(), _merged_series(), add(), _normalize_windows(), _parse_date(), _point_on_or_before() (+9 more)
+Cohesion: 0.10
+Nodes (24): _fetch(), get_gold_snapshot(), get_silver_snapshot(), _load_payload(), _merged_series(), add(), _normalize_windows(), _parse_date() (+16 more)
 
 ### Community 52 - "env"
 Cohesion: 0.06
 Nodes (33): ALLISIN_SECTORS_HOLDINGS_JSON, FRESH_START_CLEAR_QDRANT, FRESH_START_EACH_RUN, JEV_API_KEY, JEV_BASE_URL, JEV_MODEL, NEWS_CORPUS_MODE, PORTFOLIO_JSON (+25 more)
 
 ### Community 53 - "insight/portfolio_scope.py"
-Cohesion: 0.06
-Nodes (50): plan_wants_portfolio_drawback(), plan_wants_pure_concentration(), _category_slug_from_question(), plan_targets_single_fund_measured_return(), question_asks_category_book_share(), question_asks_category_money(), question_asks_holding_metric_and_glossary(), bind_cached_portfolio() (+42 more)
+Cohesion: 0.08
+Nodes (37): build_drawdown_wave2_calls(), plan_wants_investor_drawdown_fetch(), plan_wants_portfolio_drawback(), plan_wants_pure_concentration(), question_asks_portfolio_level_drawdown(), question_signals_investor_book(), plan_targets_single_fund_measured_return(), question_asks_current_book_allocation() (+29 more)
 
 ### Community 54 - "fund_rupeestop_metrics.py"
-Cohesion: 0.11
-Nodes (20): build_comparison_periods(), expense_ratio_for_question(), _f(), fund_returns_from_detail(), merge_fund_insight_metrics(), normalize_category_average_returns(), normalize_vs_benchmark_payload(), _optional_number() (+12 more)
+Cohesion: 0.12
+Nodes (19): asks_category_performance(), asks_fund_category_average(), build_comparison_periods(), expense_ratio_for_question(), _f(), fund_returns_from_detail(), normalize_category_average_returns(), normalize_vs_benchmark_payload() (+11 more)
 
 ### Community 55 - "slot_router.py"
 Cohesion: 0.06
-Nodes (35): rating_list_plan(), rating_concept_plan(), QueryClass, ScopeKind, Wave2Policy, _slot_fallback(), normalize_portfolio_plan_from_question(), _asks_catalog_fund_performance() (+27 more)
+Nodes (43): asks_rating_list(), rating_list_plan(), rating_concept_plan(), execute_wave(), QueryClass, ScopeKind, Wave2Policy, _asks_driver_sector_or_fund_impact() (+35 more)
 
 ### Community 56 - "test_portfolio_intents.py"
-Cohesion: 0.15
-Nodes (17): apply_portfolio_intent(), data_need_for(), _keep_book_news(), modules_for(), normalize_portfolio_intent(), portfolio_intent_from_question(), shape_for(), should_attach_news() (+9 more)
+Cohesion: 0.14
+Nodes (19): _as_of(), render_portfolio_fact(), apply_portfolio_intent(), data_need_for(), _keep_book_news(), modules_for(), normalize_portfolio_intent(), portfolio_intent_from_question() (+11 more)
 
 ### Community 57 - "scrape-worker/package.json"
 Cohesion: 0.08
 Nodes (27): devDependencies, @cloudflare/workers-types@^5.20261019.1, typescript@^5.6.3, vitest@^3.2.4, wrangler@^4.151.0, @cloudflare/workers-types, typescript, wrangler (+19 more)
 
 ### Community 58 - "_normalize_fund_text"
-Cohesion: 0.15
-Nodes (13): _attach_trailing_product(), _clean_fund_phrase(), collect_fund_phrase_candidates(), add(), _compose_amc_scheme_phrase(), _extend_amc_phrase_tail(), _extract_amc_scheme_phrase(), extract_fund_phrase_from_question() (+5 more)
+Cohesion: 0.12
+Nodes (18): labels_name_the_same_scheme(), _attach_trailing_product(), build_holding_overlap(), _clean_fund_phrase(), collect_fund_phrase_candidates(), add(), _compose_amc_scheme_phrase(), _entry_matches_query_scheme() (+10 more)
 
-### Community 59 - "question_intent.py"
-Cohesion: 0.11
-Nodes (19): infer_fund_news_layers(), plan_matches_intent(), prefers_planner_over_slot(), QuestionIntent, resolve_question_intent(), _top_n_from_question(), asks_fund_related_news(), test_asks_fund_related_news() (+11 more)
+### Community 59 - "test_fund_payload_first.py"
+Cohesion: 0.17
+Nodes (9): fetch_public_rating(), headline_rating(), rating_for_request(), rating_needs_pillars(), _attach_rs_ratings_to_screen(), _one(), test_headline_helper_drops_computed_at(), test_headline_rating_has_no_date_and_skips_admin() (+1 more)
 
 ### Community 60 - "test_fund_risk.py"
 Cohesion: 0.06
-Nodes (48): asks_about_score_bands(), asks_pillar_mark(), asks_pillar_structure(), asks_private_system(), asks_rating_concept(), asks_risk_trend_comparison(), asks_score_only(), _ensure_pillar_rating_plan() (+40 more)
+Nodes (56): asks_about_score_bands(), asks_fund_risk(), asks_hidden_rating(), asks_pillar_mark(), asks_pillar_structure(), asks_private_system(), asks_rating_concept(), asks_risk_trend_comparison() (+48 more)
 
 ### Community 61 - "graph.py"
-Cohesion: 0.12
-Nodes (16): LLMUsageRecord, PhaseRecord, RequestTelemetry, ToolRecord, stream_graph_pipeline(), event_answer_completed(), event_answer_delta(), event_phase_completed() (+8 more)
+Cohesion: 0.15
+Nodes (16): RequestTelemetry, _answer_stream_chunks(), Node, _plan_fetches_manager_roster(), stream_graph_pipeline(), event_answer_completed(), event_answer_delta(), event_phase_completed() (+8 more)
 
-### Community 62 - "scoped_retrieve.py"
-Cohesion: 0.05
-Nodes (37): _warmup_embeddings_background(), _run(), _pack_row(), _retrieve_bullion_for_entities(), retrieve_bullion_macro_news(), retrieve_bullion_metal_news(), _trim_snippet(), embed_query() (+29 more)
+### Community 62 - "retrieve_scoped_news"
+Cohesion: 0.10
+Nodes (21): _fetch_holding_news(), _fetch_macro_news(), _fetch_sector_news(), _layer_rank(), _macro_queries_for_sectors(), _merge_articles(), retrieve_layered_fund_news(), _sector_entities() (+13 more)
 
 ### Community 63 - "re"
-Cohesion: 0.08
-Nodes (28): asks_financial_news(), asks_macro_explanation(), _detect_drivers(), _detect_funds(), _detect_sectors(), _detect_stocks(), DomainScan, enrich_news_search_topic() (+20 more)
+Cohesion: 0.12
+Nodes (20): asks_financial_news(), asks_macro_explanation(), _detect_drivers(), _detect_funds(), _detect_sectors(), _detect_stocks(), DomainScan, enrich_news_search_topic() (+12 more)
 
 ### Community 64 - "nav_service.py"
-Cohesion: 0.17
-Nodes (12): _cache_path(), _calculate_window_stats(), _ensure_cache_dir(), fetch_raw_nav_history(), format_nav_context_for_rag(), fund_return_series(), get_fund_nav_history(), monthly_returns_from_records() (+4 more)
+Cohesion: 0.12
+Nodes (19): _cache_path(), _calculate_window_stats(), _ensure_cache_dir(), fetch_raw_nav_history(), format_nav_context_for_rag(), fund_return_series(), get_fund_nav_history(), monthly_returns_from_records() (+11 more)
 
-### Community 65 - "test_investor_grounding.py"
-Cohesion: 0.19
-Nodes (13): repair_investor_insight_prose(), strip_grounding_holes(), investor_book_cores(), sanitize_data_pack_for_composer(), _sample_book(), test_grounding_keeps_category_weight_in_prose(), test_investor_book_cores_includes_pnl_term_gains(), test_investor_book_cores_includes_rounded_allocation_pct() (+5 more)
+### Community 65 - "fund_universe_agent.py"
+Cohesion: 0.09
+Nodes (12): FundEntry, FundUniverseAgent, FundUniverseCatalog, _enrich(), get_fund_universe_catalog(), match_fund_category(), test_agent_answer_elss_question(), test_agent_answer_large_cap_question() (+4 more)
 
 ### Community 66 - "batch.ts"
 Cohesion: 0.15
 Nodes (22): bumpPublisher(), emptyRunSummary(), failedSourceFromErrorRow(), logScrapeEvent(), publisherKey(), recordOutcome(), ScrapeBatchResult, scrapeItems() (+14 more)
 
-### Community 67 - "validate_capability_args"
-Cohesion: 0.12
-Nodes (15): _arg_text(), _capabilities_for_planner(), capability_catalog_text(), _clamp(), validate_capability_args(), test_validate_capability_args_keeps_compare_pair(), test_default_windows_are_one_three_and_five_years(), test_named_window_is_not_expanded() (+7 more)
+### Community 67 - "CapabilityCache"
+Cohesion: 0.14
+Nodes (7): CapabilityCache, _Entry, get_capability_cache(), test_complete_payload_is_stored_in_capability_cache(), test_partial_fund_payload_is_not_stored_in_capability_cache(), stub_runner(), test_capabilities_cache_stores_and_retrieves()
 
 ### Community 68 - "insight/guardrails.py"
-Cohesion: 0.13
-Nodes (15): asks_advice_only(), asks_internals(), _close_to_known(), guard_reply(), looks_like_gibberish(), memory_shows_investor_book(), mentions_advice(), _tokens() (+7 more)
+Cohesion: 0.14
+Nodes (15): _sector_candidates(), asks_advice_only(), asks_internals(), _close_to_known(), guard_reply(), looks_like_gibberish(), memory_shows_investor_book(), _tokens() (+7 more)
 
 ### Community 69 - "http-fetch.ts"
 Cohesion: 0.20
 Nodes (17): ScraperConfig, buildErrorRecord(), describeHttpStatus(), fetchHtmlWithPolicy(), FetchOk, hostFromUrl(), sanitizeExcerpt(), SleepFn (+9 more)
 
 ### Community 70 - "embed.py"
-Cohesion: 0.14
-Nodes (9): model_snapshot_exists(), prepare_embedding_cache(), configure_huggingface_token(), huggingface_model_kwargs(), Encoder, get_encoder(), _build_encoder(), embeddings_ready() (+1 more)
+Cohesion: 0.15
+Nodes (8): model_snapshot_exists(), prepare_embedding_cache(), configure_huggingface_token(), huggingface_model_kwargs(), Encoder, get_encoder(), _build_encoder(), main()
 
 ### Community 71 - "portfolio/cache.py"
-Cohesion: 0.13
-Nodes (20): _run_get_investor_portfolio(), _BreakerState, _CacheEntry, crn_log_id(), _fetch_and_store(), get_active_crn(), get_normalized_portfolio(), peek_derived() (+12 more)
+Cohesion: 0.22
+Nodes (14): _BreakerState, _CacheEntry, crn_log_id(), _fetch_and_store(), get_normalized_portfolio(), peek_derived(), preload_configured_portfolio(), _run() (+6 more)
 
-### Community 72 - "retrieve_scoped_news"
-Cohesion: 0.08
-Nodes (28): _fetch_holding_news(), _fetch_macro_news(), _fetch_sector_news(), _layer_rank(), _macro_queries_for_sectors(), _merge_articles(), retrieve_layered_fund_news(), _sector_entities() (+20 more)
+### Community 72 - "holdings_market.py"
+Cohesion: 0.07
+Nodes (30): format_holdings_stock_context(), format_single_stock_context(), get_stock_profile(), resolve_stock_ticker(), sector_query_for_label(), _article_mentions_holding(), build_holdings_market_snapshots(), fetch_dedicated_holding_news() (+22 more)
 
-### Community 73 - "graph.py"
-Cohesion: 0.05
-Nodes (55): asks_fund_risk(), asks_hidden_rating(), asks_sebi_riskometer(), blocked_reply(), EvidencePack, question_wants_concentration_tables(), render_investor_concentration_answer(), facts_only_compose_allowed() (+47 more)
+### Community 73 - "test_insight_graph.py"
+Cohesion: 0.16
+Nodes (12): build_result(), _insight_headline_narrative(), node_resolve(), run_graph(), run_graph_pipeline(), _store_turn_memory(), drain_cache_events(), _state() (+4 more)
 
 ### Community 74 - "with"
 Cohesion: 0.08
 Nodes (23): default, description, required, type, runs-on, steps, timeout-minutes, branch (+15 more)
 
-### Community 75 - "stock_fund_ranking.py"
-Cohesion: 0.09
-Nodes (12): FundEntry, FundUniverseAgent, FundUniverseCatalog, _enrich(), get_fund_universe_catalog(), match_fund_category(), test_agent_answer_elss_question(), test_agent_answer_large_cap_question() (+4 more)
+### Community 75 - "ensure_registry"
+Cohesion: 0.13
+Nodes (22): plan_to_brief(), tools_to_facets(), all_tools(), _eligible(), ensure_registry(), pick_tool_for_facet(), registry_prompt_block(), tools_providing() (+14 more)
 
 ### Community 77 - "ExecutionPlan"
-Cohesion: 0.07
-Nodes (47): ExecutionPlan, _attach_rs_ratings_to_screen(), owned_holding_names(), owned_holding_rows(), _bind_fund_list(), enforce_planner_catalog_plan(), _ensure_get_fund_data_for_holdings(), _ensure_portfolio_data_for_compare() (+39 more)
+Cohesion: 0.03
+Nodes (129): ensure_rating_screen(), _followup_modules(), category_composition_plan_applies(), _compare_fund_count(), finalize_unnamed_catalog_compare(), _split_count(), ExecutionPlan, ToolCall (+121 more)
 
 ### Community 78 - "stock_fund_ranking.py"
-Cohesion: 0.22
-Nodes (13): _aggregated_map(), default_holder_candidates(), _funds_from_holdings_file(), funds_holding_stock(), holder_candidates_for_stock(), holdings_archive_available(), _holdings_file(), _initials() (+5 more)
+Cohesion: 0.21
+Nodes (13): extract_top_holdings(), _aggregated_map(), default_holder_candidates(), _funds_from_holdings_file(), funds_holding_stock(), holder_candidates_for_stock(), _holdings_file(), _initials() (+5 more)
 
-### Community 79 - "test_holding_overlap.py"
-Cohesion: 0.10
-Nodes (17): _add_category_comparison(), _compare_brief_line(), extra_part_brief(), table_source(), _compare_return_windows(), _detail(), test_a_comparison_keeps_one_three_and_five_years_plus_benchmark_and_rating(), test_compare_table_includes_risk_for_both_funds() (+9 more)
+### Community 79 - "rupeestop_auth.py"
+Cohesion: 0.15
+Nodes (19): ensure_fresh_rupeestop_bearer(), _cfg(), _current(), _env_files_for_token(), _fetch_admin_login_token(), _jwt_exp_epoch(), _login_credentials(), _login_url() (+11 more)
 
 ### Community 80 - "display_table_policy.py"
 Cohesion: 0.10
-Nodes (19): DisplayTablePolicy, _drop_sparse_in_table(), drop_sparse_table_columns(), filter_display_tables(), _limit_tables(), _named_fund_overview(), _news_primary(), _plan_fetches_vs_benchmark() (+11 more)
+Nodes (20): resolve_display_periods(), DisplayTablePolicy, _drop_sparse_in_table(), drop_sparse_table_columns(), filter_display_tables(), _limit_tables(), _named_fund_overview(), _news_primary() (+12 more)
 
 ### Community 81 - "test_portfolio_layer.py"
-Cohesion: 0.15
-Nodes (9): fetch_top_holdings(), project_concentration(), match_scheme_filter(), _attach_ratings(), _pick_row(), project_modules(), _scheme_match(), PortfolioStore (+1 more)
+Cohesion: 0.12
+Nodes (13): _run_get_investor_portfolio(), node_bridge(), get_active_crn(), fetch_top_holdings(), project_concentration(), match_scheme_filter(), _attach_ratings(), _pick_row() (+5 more)
 
 ### Community 82 - "fact_answer.py"
-Cohesion: 0.13
-Nodes (36): _age(), _allocation_bucket_rows(), _as_of(), _book_line(), _category_amount_map(), _comparison_rows(), _composition_line(), _float_or_none() (+28 more)
+Cohesion: 0.14
+Nodes (33): _age(), _allocation_bucket_rows(), _book_line(), _category_amount_map(), _comparison_rows(), _composition_line(), _float_or_none(), _fund_line() (+25 more)
 
 ### Community 83 - "holding_attribution.py"
 Cohesion: 0.22
@@ -574,17 +578,17 @@ Nodes (14): arithmetic_ok(), attribute_rows(), company_news_line(), contribution
 Cohesion: 0.30
 Nodes (18): buildErrorsFile(), buildScrapedFile(), checkAuth(), fetch(), handleRun(), json(), newRunId(), parseBatchSize() (+10 more)
 
-### Community 85 - "news_rag/config.py"
-Cohesion: 0.08
-Nodes (15): classify_sector_fund_purity(), _damerau(), _fuzzy_pipeline_sectors(), is_passive_fund_name(), load_regular_growth_isins(), _pipeline_sector_targets(), _repo_path(), _sector_label_in_text() (+7 more)
+### Community 85 - "get_fund_index"
+Cohesion: 0.06
+Nodes (22): normalize_sector_label(), _article_blob(), _matches(), _names_on_article(), _norm(), trace_relationships(), classify_sector_fund_purity(), _damerau() (+14 more)
 
 ### Community 86 - "test_rupeestop_auth.py"
-Cohesion: 0.12
-Nodes (8): rupeestop_admin_request_headers(), _jwt(), test_admin_headers_include_bearer(), test_admin_headers_use_token_from_login(), test_bearer_prefers_auth_token_over_admin_token(), test_failed_login_keeps_previous_token(), test_non_admin_url_has_no_authorization(), test_valid_jwt_does_not_call_login()
+Cohesion: 0.09
+Nodes (5): _jwt(), test_admin_headers_use_token_from_login(), test_expired_jwt_logs_in_once_and_reuses_fresh_token(), test_failed_login_keeps_previous_token(), test_valid_jwt_does_not_call_login()
 
-### Community 87 - "test_portfolio_layer.py"
-Cohesion: 0.11
-Nodes (13): _drop_sold(), normalized_doc(), test_allocation_drops_dust_and_matches_book_aum(), test_book_schemes_are_the_open_holdings(), test_current_value_and_nonzero_xirr(), test_holdings_table_uses_exact_value(), test_normalize_allocation_from_live_books_total(), test_portfolio_concentration_report_format() (+5 more)
+### Community 87 - "screen_hints_from_question"
+Cohesion: 0.14
+Nodes (17): _clean_stock_capture(), screen_hints_from_question(), stock_name_from_question(), test_defence_fund_screen_uses_defense_category(), test_fof_fund_screen_returns_fof_schemes(), test_funds_invested_in_hdfc_bank_not_hdfc_amc_catalog(), test_banking_and_defence_funds_are_categories_not_sectors(), test_category_beats_a_shorter_cap_phrase() (+9 more)
 
 ### Community 88 - "test_portfolio_allocation.py"
 Cohesion: 0.14
@@ -606,41 +610,41 @@ Nodes (8): maybe_run_compare_funds_for_parties(), resolve_compare_fund_pair(), _
 Cohesion: 0.11
 Nodes (18): env, BACKFILL_END, BACKFILL_PAUSE_SEC, BACKFILL_START, FRESH_START_CLEAR_QDRANT, FRESH_START_EACH_RUN, HOLDINGS_LIMIT, JEV_API_KEY (+10 more)
 
-### Community 93 - "plan_system_prompt"
-Cohesion: 0.23
-Nodes (8): plan_system_prompt(), build_anthropic_messages_body(), shared_system_prefix(), test_composer_and_prefix_carry_the_product_rules(), test_rupee_grouping_lives_in_the_shared_prefix(), _body(), test_planner_and_composer_share_the_first_system_block(), test_tools_stay_available_when_there_is_no_shared_prefix()
+### Community 93 - "prompts.py"
+Cohesion: 0.16
+Nodes (11): field_prompt_table(), _invalidate_plan_system_cache(), plan_system_prompt(), build_anthropic_messages_body(), shared_system_prefix(), test_composer_and_prefix_carry_the_product_rules(), test_rupee_grouping_lives_in_the_shared_prefix(), test_plan_system_prompt_planner_authority() (+3 more)
 
 ### Community 94 - "steps"
 Cohesion: 0.12
 Nodes (16): jobs, verify, name, on, pull_request, push, paths, branches (+8 more)
 
 ### Community 95 - "evidence_pack.py"
-Cohesion: 0.08
-Nodes (49): _benchmark_lines_from_pack(), _category_rows_from_investor(), _compare_cell(), _compare_header(), _complete_fund_row(), _complete_shown_funds(), _concentration_markdown(), _drawdown_body() (+41 more)
+Cohesion: 0.07
+Nodes (52): _add_category_comparison(), _benchmark_lines_from_pack(), _category_rows_from_investor(), _compare_brief_line(), _compare_cell(), _compare_header(), _complete_fund_row(), _complete_shown_funds() (+44 more)
 
 ### Community 96 - "portfolio/client.py"
-Cohesion: 0.15
-Nodes (15): fetch_workspace_raw(), _load_json_file(), _resolve_fixture_path(), _workspace_url(), InvalidCRN, PortfolioError, PortfolioNotConfigured, PortfolioUnavailable (+7 more)
+Cohesion: 0.14
+Nodes (16): fetch_workspace_raw(), _load_json_file(), _resolve_fixture_path(), _workspace_url(), InvalidCRN, PortfolioError, PortfolioNotConfigured, PortfolioUnavailable (+8 more)
 
-### Community 97 - "concept_asks.py"
-Cohesion: 0.31
-Nodes (10): apply_concept_example_to_plan(), asks_concept_with_catalog_example(), asks_wants_named_example(), build_concept_example_plan(), concept_brief_for_question(), asks_fof_funds(), test_concept_example_plan_screen_fof(), test_fof_name_one_detected() (+2 more)
+### Community 97 - "NumericRecord"
+Cohesion: 0.18
+Nodes (17): NumericRecord, unavailable(), fetch_cpi_record(), pick(), fetch_fii_dii(), fetch_gdp_record(), fetch_gsec(), fetch_gst() (+9 more)
 
-### Community 98 - "test_fund_payload_first.py"
-Cohesion: 0.15
-Nodes (11): fetch_public_rating(), headline_rating(), pending_rating_line(), rating_api_data_is_null(), rating_for_request(), rating_needs_pillars(), _one(), test_headline_helper_drops_computed_at() (+3 more)
+### Community 98 - "validate_capability_args"
+Cohesion: 0.10
+Nodes (17): _arg_text(), _capabilities_for_planner(), capability_catalog_text(), _clamp(), validate_capability_args(), test_validate_capability_args_keeps_compare_pair(), test_default_windows_are_one_three_and_five_years(), test_named_window_is_not_expanded() (+9 more)
 
-### Community 99 - "evidence.py"
-Cohesion: 0.15
-Nodes (15): _compare_cache_label(), clear_conversation(), drain_cache_events(), recall_slice(), recall_wider_portfolio(), remember_slice(), slice_key(), slice_slot() (+7 more)
+### Community 99 - "fund_display.py"
+Cohesion: 0.07
+Nodes (20): append_news_section(), _assess_table_quality(), clean_news_insight(), complete_sentences(), ensure_markdown_table_spacing(), _insert_before_disclaimer(), is_article_only_news(), news_insight_articles() (+12 more)
 
 ### Community 100 - "pathlib"
 Cohesion: 0.26
 Nodes (10): _blob(), load_cases_v2(), score_answer(), score_brief(), score_case(), score_findings(), score_ledger(), main() (+2 more)
 
-### Community 102 - "test_two_wave_pipeline.py"
-Cohesion: 0.09
-Nodes (13): ensure_affected_fund_screen(), evaluate_wave2(), _extract_returns_from_results(), _extract_top_entities_from_results(), market_affected_fund_calls(), test_bridge_skips_wave2_for_data_only(), test_bridge_skips_when_return_positive(), test_bridge_triggers_on_negative_return() (+5 more)
+### Community 102 - "MospiClient"
+Cohesion: 0.23
+Nodes (4): MospiError, _payload(), _sse_json(), GraphUnavailable
 
 ### Community 103 - "run-daily-pipeline.sh"
 Cohesion: 0.14
@@ -651,56 +655,56 @@ Cohesion: 0.13
 Nodes (15): FRESH_START_CLEAR_QDRANT, FRESH_START_EACH_RUN, GOOGLE_NEWS_WHEN, HOLDINGS_LIMIT, JEV_API_KEY, JEV_BASE_URL, JEV_MODEL, NEWS_CORPUS_MODE (+7 more)
 
 ### Community 105 - "enrich_manager_payload"
-Cohesion: 0.20
-Nodes (11): asks_manager_roster(), build_roster_note(), _earliest_on_scheme_dates(), enrich_manager_payload(), infer_manager_roster_focus(), _parse_iso_date(), test_asks_manager_roster_not_pillar_score(), test_default_manager_answer_drops_former_managers() (+3 more)
+Cohesion: 0.22
+Nodes (10): build_roster_note(), _earliest_on_scheme_dates(), enrich_manager_payload(), infer_manager_roster_focus(), _parse_iso_date(), test_asks_manager_roster_not_pillar_score(), test_default_manager_answer_drops_former_managers(), test_enrich_filters_past_only() (+2 more)
 
 ### Community 106 - "macro_impact_map.py"
-Cohesion: 0.23
-Nodes (12): _rule_sector_picks(), canonical_direction_for_driver(), _document(), _driver_row(), list_macro_drivers(), macro_impact_entry(), macro_series_for_driver(), normalize_direction() (+4 more)
+Cohesion: 0.15
+Nodes (16): _rule_sector_picks(), canonical_direction_for_driver(), clear_macro_impact_cache(), _document(), _driver_row(), list_macro_drivers(), macro_impact_entry(), macro_series_for_driver() (+8 more)
 
 ### Community 107 - "market_pulse.py"
-Cohesion: 0.10
-Nodes (27): article_dedupe_key(), collect_bundle_articles(), merge_article(), sources_from_articles(), _one(), _fetch_macro_query(), _query_variants(), run_macro_news_enhanced() (+19 more)
+Cohesion: 0.04
+Nodes (54): _warmup_embeddings_background(), _run(), article_dedupe_key(), collect_bundle_articles(), merge_article(), sources_from_articles(), AskPlan, EntityMention (+46 more)
 
 ### Community 108 - "fund_rating_categories.py"
+Cohesion: 0.09
+Nodes (24): categories_for(), CategoryMatch, _close(), explanation_brief(), fund_type_for_category(), match_all_fund_types(), _metal_category(), _metal_flags() (+16 more)
+
+### Community 109 - "call_json_llm"
+Cohesion: 0.21
+Nodes (16): _blocks_to_parts(), call_json_llm(), _model_for(), _composer_partial_usable(), _summarize_parsed_for_log(), _layered_news_topics(), _client(), _gemini_response() (+8 more)
+
+### Community 110 - "output_judge.py"
+Cohesion: 0.13
+Nodes (10): extract_assistant_text(), _json_balance(), parse_json_from_text(), _plain_answer_from_reasoning(), salvage_truncated_json(), _loads_closed(), judge_answer(), JudgeResult (+2 more)
+
+### Community 111 - "test_portfolio_layer.py"
+Cohesion: 0.10
+Nodes (14): question_wants_invested_value_table(), _drop_sold(), normalized_doc(), test_allocation_drops_dust_and_matches_book_aum(), test_book_schemes_are_the_open_holdings(), test_current_value_and_nonzero_xirr(), test_holdings_table_uses_exact_value(), test_invested_value_table_for_each_holding() (+6 more)
+
+### Community 112 - "execute_capability"
 Cohesion: 0.15
-Nodes (15): CategoryMatch, _close(), fund_type_for_category(), _metal_category(), _metal_flags(), _names_a_type(), _phrase_score(), rating_scope_pairs() (+7 more)
-
-### Community 109 - "plan_enforce.py"
-Cohesion: 0.07
-Nodes (32): asks_ideal_portfolio_shape(), ensure_rating_screen(), question_signals_investor_book(), question_asks_current_book_allocation(), apply_category_scoped_compare_funds(), _asks_ideal_portfolio_allocation(), _compare_category_slug(), drop_misclassified_category_composition() (+24 more)
-
-### Community 110 - "test_fact_answer.py"
-Cohesion: 0.16
-Nodes (19): _asks_portfolio_rs_ratings(), field_answer_needs_composer(), is_pure_field_answer(), render_benchmark_comparison_table(), render_fact_answer(), render_investor_rs_ratings_table(), wants_comparison_table(), _plan() (+11 more)
-
-### Community 111 - "aggregate_fund_holdings.py"
-Cohesion: 0.23
-Nodes (11): _canonical_industry(), clean_display_name(), clean_industry(), fetch_fund(), _has_markers(), load_isins(), normalize_holding(), normalize_sector() (+3 more)
-
-### Community 112 - "test_macro_news_cache.py"
-Cohesion: 0.16
-Nodes (13): select_macro_for_question(), _digest(), test_banking_and_banks_are_one_search(), test_cache_keeps_the_article_body_not_only_the_title(), test_cache_searches_named_macro_parameters(), test_clusters_are_ordered_by_how_many_articles_are_in_the_db(), test_failed_refresh_keeps_the_previous_cache(), test_macro_news_is_reused_for_two_hours_then_overwritten() (+5 more)
+Nodes (10): _compare_cache_label(), _compare_payload_matches_funds(), execute_capability(), widen_portfolio_args(), compare_payload_matches_funds(), test_compare_conversation_cache_does_not_reuse_different_pair(), fake_compare(), test_compare_conversation_cache_hits_same_pair() (+2 more)
 
 ### Community 113 - "news_digest.py"
 Cohesion: 0.25
 Nodes (9): _best_excerpt(), _clean_body(), _dedupe_key(), digest_articles(), executive_sector_summary(), _extract_numbers(), test_digest_articles_uses_snippet_and_impact(), test_digest_strips_boilerplate_and_dedupes() (+1 more)
 
-### Community 114 - "._ensure_loaded"
-Cohesion: 0.18
-Nodes (3): FundIndex, _infer_category_and_type(), _sync_amc_prefix_from_catalog()
+### Community 114 - "planner_policy.py"
+Cohesion: 0.14
+Nodes (10): sector_focus_from_market(), drop_unasked_fund_modules(), _ensure_sector_overview(), question_uses_now_window(), trim_named_fund_overview(), _asks_fund_manager(), asks_sector_overview(), test_banking_sector_question_is_an_overview_not_a_fund_list() (+2 more)
 
 ### Community 115 - "vitest"
 Cohesion: 0.18
 Nodes (4): DomainPacer, NowFn, SleepFn, vitest
 
 ### Community 116 - "format_inr"
-Cohesion: 0.23
-Nodes (10): format_indian_amount(), format_indian_integer_digits(), format_inr(), format_rs(), normalize_rupee_commas_in_text(), repl(), test_format_indian_amount_lakh(), test_format_inr_symbol() (+2 more)
+Cohesion: 0.21
+Nodes (11): format_indian_amount(), format_indian_integer_digits(), format_inr(), format_rs(), normalize_rupee_commas_in_text(), repl(), _fmt_inr(), test_format_indian_amount_lakh() (+3 more)
 
-### Community 117 - "test_macro_scope.py"
-Cohesion: 0.16
-Nodes (11): question_is_standalone_macro(), ensure_catalog_tools_for_fund_news(), apply_standalone_macro_scope(), _macro_news_topics(), test_fund_news_adds_catalog_tools(), test_how_its_affecting_rupee_is_not_deictic_fund_title(), test_macro_scope_injects_news_when_planner_sent_no_tools(), test_macro_scope_strips_fund_tools() (+3 more)
+### Community 117 - "test_guardrails_domain.py"
+Cohesion: 0.20
+Nodes (11): question_in_finance_scope(), check_guardrails(), financial_keyword_signal(), GuardrailResult, test_crude_why_not_misrouted_to_random_fund(), test_fund_question_still_passes(), test_hdfc_bank_passes_guardrails(), test_hdfc_bank_short_happening_passes() (+3 more)
 
 ### Community 118 - "compilerOptions"
 Cohesion: 0.18
@@ -710,13 +714,13 @@ Nodes (10): compilerOptions, lib, module, moduleResolution, noEmit, skipLibCheck
 Cohesion: 0.18
 Nodes (10): compilerOptions, lib, module, moduleResolution, noEmit, skipLibCheck, strict, target (+2 more)
 
-### Community 120 - "test_news_only_answer.py"
-Cohesion: 0.19
-Nodes (9): _news_subject(), clean_news_insight(), complete_sentences(), is_article_only_news(), news_insight_articles(), strip_publisher(), _subject_words(), test_news_about_hdfc_bank_is_not_a_market_pulse() (+1 more)
+### Community 120 - "test_ai_insight_mospi.py"
+Cohesion: 0.27
+Nodes (9): _client(), _sse(), test_400_is_not_retried(), test_gdp_yoy_uses_prior_fiscal_year(), handler(), test_retries_500_then_reads_cache(), handler(), test_wpi_yoy_is_derived() (+1 more)
 
-### Community 121 - "argparse"
-Cohesion: 0.24
-Nodes (4): check(), main(), run_case(), _Usage
+### Community 121 - "run_ask_engine"
+Cohesion: 0.19
+Nodes (7): _events(), run_ask_engine(), stream_ask_engine(), run_insight_pipeline(), stream_insight_pipeline(), test_ask_engine_delegates_to_insight_pipeline(), test_streaming_sse_order()
 
 ### Community 122 - "backfill"
 Cohesion: 0.20
@@ -724,31 +728,31 @@ Nodes (9): runs-on, timeout-minutes, jobs, backfill, name, on, permissions, acti
 
 ### Community 123 - "lib/google_news.py"
 Cohesion: 0.04
-Nodes (37): _authors(), _clean(), extract_article(), _meta(), _meta_fallback(), _backoff(), _consent_jar(), fetch_url() (+29 more)
+Nodes (38): _authors(), _clean(), extract_article(), _meta(), _meta_fallback(), _backoff(), _consent_jar(), fetch_url() (+30 more)
 
 ### Community 124 - "test_composer_table_summaries.py"
-Cohesion: 0.19
-Nodes (8): filter_display_tables_by_decision(), parse_tables_append_directive(), strip_empty_bold_sections(), test_evidence_pack_compact_includes_table_summaries(), test_filter_display_tables_by_decision(), test_holdings_question_data_only_skips_returns_table(), test_parse_tables_append_directive(), test_strip_empty_bold_sections()
+Cohesion: 0.24
+Nodes (8): filter_display_tables_by_decision(), parse_tables_append_directive(), strip_empty_bold_sections(), test_filter_display_tables_by_decision(), test_holdings_question_data_only_skips_returns_table(), test_parse_tables_append_directive(), test_strip_empty_bold_sections(), test_summarize_tables_for_composer_extracts_mix_and_holdings()
 
-### Community 125 - "_return_slice_covers"
-Cohesion: 0.10
-Nodes (16): CapabilityCache, _Entry, _return_slice_covers(), _trim_cached_to_ask(), test_missing_window_is_not_covered(), test_wider_cached_fund_payload_covers_and_trims_to_the_ask(), _wide(), test_return_slice_requires_pillars_when_requested() (+8 more)
+### Community 125 - "evidence.py"
+Cohesion: 0.28
+Nodes (9): clear_conversation(), recall_slice(), recall_wider_portfolio(), remember_slice(), slice_key(), slice_slot(), test_holdings_then_sectors_keep_both_slices(), test_period_change_does_not_reuse_the_other_window() (+1 more)
 
 ### Community 126 - "run-pipeline"
 Cohesion: 0.22
 Nodes (8): jobs, run-pipeline, name, on, schedule, runs-on, timeout-minutes, cron
 
-### Community 127 - "test_metal_fund_rating.py"
-Cohesion: 0.13
-Nodes (13): ensure_quality_fund_list(), fetch_category_ratings(), _payload(), _rating(), test_category_rating_request_uses_admin_header(), test_gold_etf_only_stays_on_the_etf_category(), test_gold_fund_list_uses_only_gold_scheme_categories(), test_gold_list_spreads_etf_and_fund_of_funds() (+5 more)
+### Community 127 - "enforce_planner_catalog_plan"
+Cohesion: 0.12
+Nodes (28): _bind_fund_list(), enforce_planner_catalog_plan(), _ensure_get_fund_data_for_holdings(), _ensure_portfolio_data_for_compare(), _ensure_portfolio_data_for_holdings(), ensure_whole_book_catalog_scope(), _funds_from_entities(), _holding_scope() (+20 more)
 
-### Community 128 - "get_stock_profile"
-Cohesion: 0.25
-Nodes (4): format_holdings_stock_context(), format_single_stock_context(), get_stock_profile(), resolve_stock_ticker()
+### Community 128 - "ask_market_bridge.py"
+Cohesion: 0.22
+Nodes (7): fetch_ask_market_records(), fetch_gold_record(), get_ask_market_snapshot(), write_ask_market_snapshot(), test_fetch_ask_market_records_includes_extras(), test_fetch_gold_record_ok(), test_get_ask_market_snapshot_shape()
 
 ### Community 129 - "index_series.py"
-Cohesion: 0.09
-Nodes (30): get_gold_snapshot(), nifty50_ticker(), extract_top_holdings(), extract_top_sectors(), _run_get_market_snapshot(), _run_get_portfolio_data(), _price_holdings(), benchmark_return_for_scheme() (+22 more)
+Cohesion: 0.22
+Nodes (11): nifty50_ticker(), benchmark_return_for_scheme(), _cache_path(), index_return_for_sector(), nifty50_reference_returns(), _read_cache(), scheme_benchmark_metadata(), worst_sector_by_return() (+3 more)
 
 ### Community 130 - "worker/src/index.ts"
 Cohesion: 0.43
@@ -766,13 +770,13 @@ Nodes (8): steps, PYTHONPATH, env, if, name, run, uses, working-directory
 Cohesion: 0.25
 Nodes (8): with, cache, if-no-files-found, key, name, path, python-version, restore-keys
 
-### Community 134 - "planner_catalog_knowledge.py"
-Cohesion: 0.33
-Nodes (5): _catalog_block(), planner_catalog_knowledge(), _read(), _repo_root(), _scheme_categories_block()
+### Community 134 - "executor.py"
+Cohesion: 0.11
+Nodes (24): _attach_rs_rating_to_screen_rows(), _bullion_articles(), _bullion_topics(), _conversation_id(), _conversation_turn(), _one_fund(), _fill_returns_from_catalog(), _filter_excluded_screen_rows() (+16 more)
 
-### Community 135 - "top_n_from_question"
-Cohesion: 0.36
-Nodes (5): top_n_from_question(), test_top_five_sectors(), test_top_sector_singular(), test_top_sectors_default_three(), test_top_six_word()
+### Community 135 - "glossary.py"
+Cohesion: 0.26
+Nodes (10): asks_precise_definition(), direct_glossary_reply(), extract_glossary_term(), glossary_execution_plan(), meaning_reply(), _normalize_term(), test_fund_nav_not_glossary(), test_nav_full_form_direct_reply() (+2 more)
 
 ### Community 136 - "insights.py"
 Cohesion: 0.30
@@ -791,16 +795,16 @@ Cohesion: 0.29
 Nodes (7): sectors_limit, workflow_dispatch, default, description, required, type, inputs
 
 ### Community 140 - "json"
-Cohesion: 0.14
-Nodes (15): main(), fetch_fund(), load_done_isins(), load_isins(), main(), _pct(), run(), write_final() (+7 more)
+Cohesion: 0.05
+Nodes (38): _canonical_industry(), clean_display_name(), clean_industry(), fetch_fund(), _has_markers(), load_isins(), normalize_holding(), normalize_sector() (+30 more)
 
-### Community 141 - "prompts.py"
-Cohesion: 0.25
-Nodes (5): build_brief_prompt(), build_interpret_hybrid_prompt(), build_judge_prompt(), build_named_fund_composer_prompt(), build_news_reader_prompt()
+### Community 141 - "build_data_pack"
+Cohesion: 0.38
+Nodes (3): build_data_pack(), build(), _compact()
 
-### Community 142 - "append_investor_portfolio_overview_tables"
-Cohesion: 0.25
-Nodes (5): append_investor_portfolio_overview_tables(), strip_unasked_scheme_names(), question_asks_all_schemes_in_answer(), question_wants_scheme_names(), test_portfolio_overview_omits_scheme_names()
+### Community 142 - "node_wave1"
+Cohesion: 0.18
+Nodes (8): _attach_conversation(), _catalog_fanout_fund_names(), _ensure_portfolio_for_fund_news(), _maybe_compare_funds_after_multi_screen(), _maybe_enrich_picked_fund_from_screen(), node_wave1(), node_wave2(), repair_compare_with_screen_peer()
 
 ### Community 143 - "run-backfill.sh"
 Cohesion: 0.33
@@ -850,129 +854,141 @@ Nodes (5): pause_sec, default, description, required, type
 Cohesion: 0.40
 Nodes (5): start_date, default, description, required, type
 
-### Community 159 - "relationships.py"
-Cohesion: 0.42
-Nodes (5): _article_blob(), _matches(), _names_on_article(), _norm(), trace_relationships()
+### Community 159 - "repo_root"
+Cohesion: 0.26
+Nodes (7): FiiDiiSnapshot, _cache_dir(), write_snapshot(), main(), write_fii_dii(), write_latest(), repo_root()
 
 ### Community 163 - "fund_match.py"
-Cohesion: 0.11
-Nodes (14): _cap_structure_adjustment(), _catalog_name_extra_token_penalty(), catalog_name_for_match(), _distinctive_token_adjustment(), embedding_best_match(), fold_fund_spelling(), labels_name_the_same_scheme(), load_fund_embedding_cache() (+6 more)
+Cohesion: 0.15
+Nodes (10): _cap_structure_adjustment(), _catalog_name_extra_token_penalty(), catalog_name_for_match(), _distinctive_token_adjustment(), embedding_best_match(), fold_fund_spelling(), load_fund_embedding_cache(), _normalize_fund_text() (+2 more)
 
 ### Community 170 - "fund_catalog.py"
-Cohesion: 0.16
-Nodes (16): all_amc_bare_names(), amc_headers_for_hint(), amc_hint_token_set(), amc_planner_lines(), AmcCatalogIndex, bare_amc_name(), build_amc_catalog(), add_prefix() (+8 more)
-
-### Community 174 - "RunLogger"
-Cohesion: 0.25
-Nodes (5): finish_run_logger(), RunLogger, start_run_logger(), main(), _run_test()
-
-### Community 178 - "re"
-Cohesion: 0.10
-Nodes (22): question_needs_affected_sectors(), question_mentions_fund_scheme(), _looks_like_fund_list(), asks_category_performance(), asks_fund_category_average(), asks_precise_definition(), direct_glossary_reply(), extract_glossary_term() (+14 more)
-
-### Community 180 - "_run_screen_funds_by_exposure"
 Cohesion: 0.13
-Nodes (11): asks_rating_list(), fund_naming_clause(), rating_screen_question(), _run_screen_funds_by_exposure(), _named_scheme_category(), pick_random_scheme_category_for_compare(), test_debt_type_picks_a_debt_scheme_category(), test_debt_fund_type_not_confused_by_equity_education_clause() (+3 more)
+Nodes (22): all_amc_bare_names(), amc_headers_for_hint(), amc_hint_token_set(), amc_planner_lines(), AmcCatalogIndex, bare_amc_name(), build_amc_catalog(), add_prefix() (+14 more)
+
+### Community 178 - "node_compose"
+Cohesion: 0.06
+Nodes (33): rating_lead(), asks_computed_illustration(), strip_grounding_holes(), strip_missing_data_caveats(), strip_private_leaks(), _drop_scheme_is_the_whole_book(), node_compose(), _rating_lead_for_pack() (+25 more)
+
+### Community 180 - "test_metal_fund_rating.py"
+Cohesion: 0.27
+Nodes (8): ensure_quality_fund_list(), _payload(), _rating(), test_gold_list_spreads_etf_and_fund_of_funds(), fetch(), test_my_gold_fund_does_not_add_category_screen(), test_named_gold_etf_is_not_a_category_list(), test_planner_gold_sector_screen_becomes_rating_list()
 
 ### Community 181 - "test_answer_precision.py"
-Cohesion: 0.17
-Nodes (9): fact_values_already_stated(), question_wants_fact_table(), strip_meta_opening_heading(), _strip_unasked_closers(), test_fact_table_only_for_compare_or_an_explicit_list(), test_fact_table_skipped_when_prose_has_the_figure(), test_next_steps_and_summary_are_removed(), test_specific_lookup_has_no_default_table() (+1 more)
+Cohesion: 0.14
+Nodes (11): fact_values_already_stated(), question_wants_fact_table(), strip_context_disclaimer(), _clean_answer(), strip_meta_opening_heading(), _strip_unasked_closers(), test_fact_table_only_for_compare_or_an_explicit_list(), test_fact_table_skipped_when_prose_has_the_figure() (+3 more)
 
 ### Community 182 - "build_derived_views"
-Cohesion: 0.26
-Nodes (8): asset_bucket(), _aum(), balance_verdicts(), balance_verdicts_for_payload(), build_derived_views(), _pct(), _split_from_allocation(), test_equity_only_and_concentration_verdicts()
+Cohesion: 0.22
+Nodes (10): asset_bucket(), _aum(), balance_verdicts(), balance_verdicts_for_payload(), build_derived_views(), _pct(), _split_from_allocation(), _doc() (+2 more)
 
 ### Community 183 - "market_scope_entities"
 Cohesion: 0.32
 Nodes (3): market_query_for_topic(), market_scope_entities(), pulse_theme_entities()
 
+### Community 184 - "planner_catalog_knowledge.py"
+Cohesion: 0.33
+Nodes (5): _catalog_block(), planner_catalog_knowledge(), _read(), _repo_root(), _scheme_categories_block()
+
 ### Community 185 - "extract_top_holdings"
 Cohesion: 0.17
-Nodes (13): normalize_holding_row(), build_insight_links(), _fact(), _key(), _match(), _pct(), _portfolio_rows(), _wider_holdings() (+5 more)
+Nodes (13): normalize_holding_row(), _group_layered_articles(), build_insight_links(), _fact(), _key(), _match(), _pct(), _portfolio_rows() (+5 more)
 
 ### Community 186 - "entity_candidates.py"
-Cohesion: 0.26
-Nodes (7): candidates_block(), entity_candidates(), _holding_candidates(), _sector_candidates(), test_no_candidates_for_plain_text(), test_quant_question_includes_amc_catalog_note(), test_sector_and_holding_candidates()
+Cohesion: 0.30
+Nodes (6): candidates_block(), entity_candidates(), _holding_candidates(), test_no_candidates_for_plain_text(), test_quant_question_includes_amc_catalog_note(), test_sector_and_holding_candidates()
 
-### Community 187 - "strip_missing_data_caveats"
-Cohesion: 0.25
-Nodes (6): strip_missing_data_caveats(), strip_private_leaks(), test_a_rating_pick_does_not_apologise_for_returns_or_pillars(), test_missing_apology_and_private_leak_are_removed(), test_strip_removes_risk_trend_apology(), test_a_gap_apology_is_removed_and_a_real_point_stays()
+### Community 188 - "query_log.py"
+Cohesion: 0.19
+Nodes (9): ParsedQuery, attach_query_log_meta(), find_query_log_file(), query_log_page_href(), read_query_log(), test_attach_query_log_meta_adds_page_link(), test_finish_writes_json_sidecar(), test_log_parsed_includes_intent_and_fund() (+1 more)
 
-### Community 188 - "typing"
-Cohesion: 0.07
-Nodes (13): _events(), run_ask_engine(), stream_ask_engine(), trim_news_grouped(), attach_query_log_meta(), new_fund_brief_logger(), new_query_logger(), query_log_page_href() (+5 more)
+### Community 190 - "test_holding_overlap.py"
+Cohesion: 0.24
+Nodes (8): _compare_return_windows(), _detail(), test_a_comparison_keeps_one_three_and_five_years_plus_benchmark_and_rating(), test_compare_table_includes_risk_for_both_funds(), test_extra_part_brief_names_both_funds(), test_no_overlap_message_and_overlap_table(), test_overlap_uses_full_stock_list_and_skips_cash(), test_unnamed_catalog_periods_are_measured_together()
 
-### Community 190 - "strip_news_roundup"
-Cohesion: 0.33
-Nodes (6): append_news_section(), _insert_before_disclaimer(), _strip_heading_sections(), strip_news_roundup(), test_portfolio_tables_and_news_section(), test_examples_heading_is_removed()
-
-### Community 191 - "_category_fund_name_spec"
-Cohesion: 0.40
-Nodes (4): _category_fund_name_spec(), _label_in(), _return_window(), _suggestion_spec()
+### Community 191 - "fund_type_name_spec"
+Cohesion: 0.11
+Nodes (13): _category_fund_name_spec(), fund_naming_clause(), _label_in(), _looks_like_fund_list(), _metal_fund_categories(), _metal_fund_spec(), _question_names_amc_scheme(), rating_screen_question() (+5 more)
 
 ### Community 192 - "metals_spot_tables.py"
 Cohesion: 0.26
 Nodes (7): _fmt_inr_whole(), _metals_spot_from_results(), render_gold_returns_table(), _short_date(), strip_gold_window_table(), test_render_gold_returns_table_shows_then_and_now(), test_strip_gold_window_table()
 
-### Community 193 - "planner_policy.py"
-Cohesion: 0.09
-Nodes (22): sector_focus_from_market(), _invalidate_plan_system_cache(), apply_now_window(), drop_unasked_fund_modules(), _ensure_sector_overview(), finalize_planner_plan(), question_uses_now_window(), trim_named_fund_overview() (+14 more)
+### Community 193 - "httpx"
+Cohesion: 0.18
+Nodes (4): fetch_category_ratings(), main(), main(), test_category_rating_request_uses_admin_header()
 
-### Community 194 - "node_route"
-Cohesion: 0.12
-Nodes (12): asks_computed_illustration(), GraphUnavailable, node_route(), greeting_reply(), identity_reply(), _mirror_greeting(), test_fire_sip_plan_is_a_computed_illustration(), test_sip_definition_is_not_a_calculator() (+4 more)
+### Community 194 - "memory/__init__.py"
+Cohesion: 0.15
+Nodes (13): greeting_reply(), identity_reply(), _mirror_greeting(), chat_history_view(), _chat_turn_rows(), format_chat_history_block(), format_chat_history_from_view(), memory_json_tokens() (+5 more)
 
-### Community 195 - "Path"
-Cohesion: 0.40
-Nodes (4): _env_files_for_token(), persist_rupeestop_auth_token(), _rewrite_env_token(), test_persist_sets_process_env()
+### Community 195 - "maybe_install_balanced_portfolio_screen"
+Cohesion: 0.36
+Nodes (8): asks_balanced_long_horizon_fund_menu(), asks_ideal_portfolio_shape(), _asks_ideal_portfolio_allocation(), maybe_install_balanced_portfolio_screen(), test_ideal_portfolio_without_planner_allocation_does_not_install_a_screen(), test_long_horizon_fund_names_uses_seven_sleeves(), test_misclassified_allocation_with_investor_tool_never_clears_tools(), test_portfolio_allocation_without_screen_signals_does_not_clarify_horizon()
 
 ### Community 197 - "QuestionBrief"
-Cohesion: 0.06
-Nodes (39): analyst_should_run(), asks_market_briefing(), asks_sector_lists(), asks_share_price(), asks_weak_sector(), build_question_brief(), _detect_direction(), _detect_funds() (+31 more)
+Cohesion: 0.09
+Nodes (31): asks_sector_lists(), asks_share_price(), asks_weak_sector(), _brief_system(), build_question_brief(), _detect_direction(), _detect_funds(), _heuristic_brief() (+23 more)
 
-### Community 199 - "compare_ask_speed.py"
-Cohesion: 0.53
-Nodes (4): compare(), _load(), main(), _numbers()
+### Community 198 - "news_fanout.py"
+Cohesion: 0.33
+Nodes (5): embed_query(), _body(), grouped_news(), NewsTarget, search_targets()
 
 ### Community 203 - "fund_brief.py"
+Cohesion: 0.06
+Nodes (61): build_portfolio_scope(), FundRef, _holding_equity_allowed(), instrument_to_qdrant_names(), is_blocked_sector(), load_aggregated_equity_keys(), load_allisin_doc(), load_manifest() (+53 more)
+
+### Community 206 - "test_ai_insight.py"
+Cohesion: 0.18
+Nodes (6): digest_filter(), _holding_mentioned(), matches_entity(), contains_phrase(), test_digest_filter_uses_stricter_scores(), test_sector_exclude_drops_nbfc_from_banks()
+
+### Community 208 - "top_n_from_question"
+Cohesion: 0.36
+Nodes (5): top_n_from_question(), test_top_five_sectors(), test_top_sector_singular(), test_top_sectors_default_three(), test_top_six_word()
+
+### Community 209 - "test_return_windows.py"
 Cohesion: 0.11
-Nodes (27): PortfolioScope, qdrant_filter_names(), _article_entities(), build_events(), cluster_articles(), _cluster_entities(), _day_key(), _exposure_for_holding() (+19 more)
-
-### Community 206 - "contains_phrase"
-Cohesion: 0.70
-Nodes (3): _holding_mentioned(), matches_entity(), contains_phrase()
-
-### Community 209 - "datetime"
-Cohesion: 0.15
-Nodes (16): _capability_cache_key(), _age_phrase(), align_plan_windows(), normalize_window_code(), _parse_date(), _pretty_date(), published_return(), returns_for_windows() (+8 more)
+Nodes (19): _capability_cache_key(), _positive_ms(), _return_slice_covers(), _trim_cached_to_ask(), test_missing_window_is_not_covered(), test_wider_cached_fund_payload_covers_and_trims_to_the_ask(), _wide(), test_return_slice_requires_pillars_when_requested() (+11 more)
 
 ### Community 210 - "portfolio_news_impact.py"
-Cohesion: 0.18
-Nodes (11): _articles_from_pack(), build_portfolio_news_impact_dossier(), _infer_direction(), _linkage(), _merge_sector_picks(), _portfolio_sector_weights(), render_portfolio_news_impact_markdown(), _tag_holding_news() (+3 more)
+Cohesion: 0.15
+Nodes (13): _articles_from_pack(), build_portfolio_news_impact_dossier(), _infer_direction(), _linkage(), _merge_sector_picks(), _portfolio_sector_weights(), render_portfolio_news_impact_markdown(), _strip_book_concentration_tables() (+5 more)
 
-### Community 212 - "ToolCall"
-Cohesion: 0.04
-Nodes (70): reroute_single_fund_risk_plan(), finalize_unnamed_catalog_compare(), _split_count(), ToolCall, clarify_plan_if_fund_unknown(), _plan_uses_fund_scoped_tools(), enforce_user_authorized_funds_only(), apply_pure_concept_plan() (+62 more)
+### Community 211 - "eval_basic_queries.py"
+Cohesion: 0.39
+Nodes (7): _cases(), _check_plan(), _expects(), main(), _modules(), _offline_plan(), _turns()
+
+### Community 212 - "pick_compare_pair_with_fallback"
+Cohesion: 0.21
+Nodes (4): _amc_outside_label(), _amc_token(), pick_compare_pair_with_fallback(), test_short_category_moves_to_another_with_two_funds()
+
+### Community 213 - "render_asked_facts"
+Cohesion: 0.48
+Nodes (5): missing_slots(), render_asked_facts(), _slot_label(), _slot_value(), test_aum_slot_renders_from_snapshot()
+
+### Community 214 - "prompts.py"
+Cohesion: 0.29
+Nodes (4): build_interpret_hybrid_prompt(), build_judge_prompt(), build_named_fund_composer_prompt(), build_news_reader_prompt()
 
 ## Knowledge Gaps
 - **20 isolated node(s):** `FRESH_START_CLEAR_QDRANT`, `FRESH_START_EACH_RUN`, `GOOGLE_NEWS_WHEN`, `HOLDINGS_LIMIT`, `MACRO_NEWS_ENABLED` (+15 more)
-  These have ≤1 connection - possible missing edges. (Counts symbols only; 1639 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **32 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges. (Counts symbols only; 1676 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **36 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ExecutionPlan` connect `ExecutionPlan` to `fund_rating_screen.py`, `fields.py`, `time`, `test_fund_drawdown.py`, `test_pick_shown_fund.py`, `append_investor_portfolio_overview_tables`, `update.py`, `fact_slots.py`, `category_plan.py`, `ensure_registry`, `fund_name_gate.py`, `task_exec.py`, `llm_client.py`, `book_news_map.py`, `investor_drawback.py`, `test_fund_rating_screen.py`, `investor_subject.py`, `contracts.py`, `re`, `gold_service.py`, `test_answer_precision.py`, `insight/portfolio_scope.py`, `slot_router.py`, `test_portfolio_intents.py`, `question_intent.py`, `test_fund_risk.py`, `graph.py`, `planner_policy.py`, `graph.py`, `test_holding_overlap.py`, `display_table_policy.py`, `datetime`, `fact_answer.py`, `portfolio_news_impact.py`, `ToolCall`, `test_portfolio_layer.py`, `test_portfolio_allocation.py`, `compare_evidence.py`, `evidence_pack.py`, `concept_asks.py`, `test_two_wave_pipeline.py`, `plan_enforce.py`, `test_fact_answer.py`, `test_macro_scope.py`, `test_news_only_answer.py`, `test_composer_table_summaries.py`, `test_metal_fund_rating.py`?**
-  _High betweenness centrality (0.101) - this node is a cross-community bridge._
-- **Are the 49 inferred relationships involving `ExecutionPlan` (e.g. with `news_calls_for_book()` and `sector_book()`) actually correct?**
-  _`ExecutionPlan` has 49 INFERRED edges - model-reasoned connections that need verification._
+- **Why does `ExecutionPlan` connect `ExecutionPlan` to `fund_rating_screen.py`, `fields.py`, `node_compose`, `glossary.py`, `time`, `node_compose`, `concept_asks.py`, `node_wave1`, `fund_display.py`, `update.py`, `macro_data.py`, `test_portfolio_startup_cache.py`, `AnswerMode`, `category_plan.py`, `fund_name_gate.py`, `bridge.py`, `task_exec.py`, `llm_client.py`, `book_news_map.py`, `pack_sanitize.py`, `test_fund_rating_screen.py`, `plan_enforce.py`, `build_evidence_pack`, `plan.py`, `validate_plan_tools`, `test_fund_drawdown.py`, `node_compose`, `gold_service.py`, `test_metal_fund_rating.py`, `test_answer_precision.py`, `insight/portfolio_scope.py`, `slot_router.py`, `test_portfolio_intents.py`, `test_fund_payload_first.py`, `test_fund_risk.py`, `graph.py`, `test_holding_overlap.py`, `maybe_install_balanced_portfolio_screen`, `test_insight_graph.py`, `ensure_registry`, `display_table_policy.py`, `test_return_windows.py`, `fact_answer.py`, `portfolio_news_impact.py`, `eval_basic_queries.py`, `test_portfolio_allocation.py`, `compare_evidence.py`, `evidence_pack.py`, `test_portfolio_layer.py`, `planner_policy.py`, `test_composer_table_summaries.py`, `enforce_planner_catalog_plan`?**
+  _High betweenness centrality (0.104) - this node is a cross-community bridge._
+- **Are the 34 inferred relationships involving `ExecutionPlan` (e.g. with `news_calls_for_book()` and `sector_book()`) actually correct?**
+  _`ExecutionPlan` has 34 INFERRED edges - model-reasoned connections that need verification._
 - **What connects `FRESH_START_CLEAR_QDRANT`, `FRESH_START_EACH_RUN`, `GOOGLE_NEWS_WHEN` to the rest of the system?**
   _20 weakly-connected nodes found - possible missing edges._
 - **Should `logging` be split into smaller, more focused modules?**
-  _Cohesion score 0.08281086729362591 - nodes in this community are weakly interconnected._
-- **Why does `get_settings()` connect `llm_client.py` to `interpret.py`, `get_sector_fund_ranking_index`, `compute.py`, `tools.py`, `QueryLogger`, `news_reader.py`, `ensure_registry`, `executor.py`, `task_exec.py`, `fund_match.py`, `fund_search.py`, `investor_subject.py`, `affected_sectors.py`, `rupeestop_auth.py`, `get_settings`, `gold_service.py`, `insight/portfolio_scope.py`, `slot_router.py`, `typing`, `scoped_retrieve.py`, `node_route`, `validate_capability_args`, `insight/guardrails.py`, `QuestionBrief`, `embed.py`, `portfolio/cache.py`, `retrieve_scoped_news`, `graph.py`, `fund_brief.py`, `stock_fund_ranking.py`, `test_portfolio_layer.py`, `portfolio_news_impact.py`, `news_rag/config.py`, `test_rupeestop_auth.py`, `test_portfolio_layer.py`, `plan_system_prompt`, `portfolio/client.py`, `market_pulse.py`?**
-  _High betweenness centrality (0.044) - this node is a cross-community bridge._
+  _Cohesion score 0.06221889055472264 - nodes in this community are weakly interconnected._
+- **Why does `ToolCall` connect `ExecutionPlan` to `fund_rating_screen.py`, `fields.py`, `executor.py`, `time`, `fund_drawdown.py`, `node_compose`, `concept_asks.py`, `node_wave1`, `update.py`, `macro_data.py`, `test_portfolio_startup_cache.py`, `AnswerMode`, `category_plan.py`, `fund_name_gate.py`, `bridge.py`, `task_exec.py`, `book_news_map.py`, `pack_sanitize.py`, `test_fund_rating_screen.py`, `plan_enforce.py`, `build_evidence_pack`, `plan.py`, `validate_plan_tools`, `test_fund_drawdown.py`, `gold_service.py`, `test_metal_fund_rating.py`, `insight/portfolio_scope.py`, `slot_router.py`, `test_portfolio_intents.py`, `test_fund_risk.py`, `graph.py`, `test_holding_overlap.py`, `maybe_install_balanced_portfolio_screen`, `CapabilityCache`, `test_insight_graph.py`, `ensure_registry`, `display_table_policy.py`, `test_return_windows.py`, `portfolio_news_impact.py`, `test_portfolio_allocation.py`, `compare_evidence.py`, `test_portfolio_layer.py`, `execute_capability`, `planner_policy.py`, `enforce_planner_catalog_plan`?**
+  _High betweenness centrality (0.061) - this node is a cross-community bridge._
 - **Are the 4 inferred relationships involving `ToolCall` (e.g. with `news_calls_for_book()` and `_apply_planner_request()`) actually correct?**
   _`ToolCall` has 4 INFERRED edges - model-reasoned connections that need verification._
-- **Should `NewsStore` be split into smaller, more focused modules?**
-  _Cohesion score 0.04995004995004995 - nodes in this community are weakly interconnected._
+- **Should `Settings` be split into smaller, more focused modules?**
+  _Cohesion score 0.03377284293314828 - nodes in this community are weakly interconnected._

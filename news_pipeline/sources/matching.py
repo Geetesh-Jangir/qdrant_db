@@ -8,7 +8,10 @@ from news_pipeline.textutil import contains_phrase
 def matches_entity(title: str, snippet: str, entity: dict) -> bool:
     text = f"{title or ''} {snippet or ''}"
     if entity["type"] == "sector":
-        return any(contains_phrase(text, keyword) for keyword in entity["keywords"])
+        hits = sum(1 for keyword in entity["keywords"] if contains_phrase(text, keyword))
+        if hits < int(entity.get("min_keyword_hits") or 1):
+            return False
+        return not any(contains_phrase(text, word) for word in entity.get("exclude_keywords") or ())
     return _holding_mentioned(text, entity)
 
 

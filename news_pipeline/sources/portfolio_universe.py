@@ -10,7 +10,7 @@ from lib.portfolio_scope import (
     sector_query_for_label,
     write_manifest,
 )
-from news_pipeline.config import Settings, repo_root
+from news_pipeline.config import SECTOR_QUERY_VARIANTS, Settings, repo_root
 from news_pipeline.sources.universe import build_holding_entities, canonical_key
 
 
@@ -87,9 +87,12 @@ def load_portfolio_universe(settings: Settings) -> tuple[list[dict], Path | None
                 "type": "sector",
                 "industry": canonical,
                 "query": spec.query,
+                "query_variants": list(SECTOR_QUERY_VARIANTS.get(canonical, ())),
                 "aliases": [],
                 "negative_aliases": [],
                 "keywords": list(spec.keywords),
+                "exclude_keywords": list(spec.exclude),
+                "min_keyword_hits": spec.min_hits,
                 "fund_count": len(s.by_fund),
                 "total_percentage": s.percentage,
             }

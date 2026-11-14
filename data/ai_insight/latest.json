@@ -1,0 +1,161 @@
+{
+  "records": [
+    {
+      "entity": "Macro - Nifty 50",
+      "date": "2026-11-13",
+      "value": 25144.3008,
+      "change_pct": -0.61,
+      "unit": "index",
+      "source": "yfinance:^NSEI",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "entity": "Macro - Bank Nifty",
+      "date": "2026-11-13",
+      "value": 61034.1016,
+      "change_pct": -0.79,
+      "unit": "index",
+      "source": "yfinance:^NSEBANK",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "entity": "Macro - Sensex",
+      "date": "2026-11-13",
+      "value": 81592.4531,
+      "change_pct": -0.39,
+      "unit": "index",
+      "source": "yfinance:^BSESN",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "entity": "Macro - India VIX",
+      "date": "2026-11-13",
+      "value": 15.5,
+      "change_pct": -6.74,
+      "unit": "index",
+      "source": "yfinance:^INDIAVIX",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "entity": "Macro - Rupee / USD",
+      "date": "2026-11-14",
+      "value": 94.24,
+      "change_pct": 0.22,
+      "unit": "inr_per_usd",
+      "source": "yfinance:INR=X",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "entity": "Macro - Crude Oil",
+      "date": "2026-11-13",
+      "value": 95.84,
+      "change_pct": 0.02,
+      "unit": "usd",
+      "source": "yfinance:BZ=F",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "entity": "Macro - FII DII Flows",
+      "date": "13-Nov-2026",
+      "value": 5736.55,
+      "change_pct": null,
+      "unit": "inr_crore",
+      "source": "nseindia.com:fiidiiTradeReact",
+      "status": "ok",
+      "detail": ""
+    },
+    {
+      "entity": "Macro - Bond Yields",
+      "date": "",
+      "value": null,
+      "change_pct": null,
+      "unit": "",
+      "source": "rbi.org.in",
+      "status": "unavailable",
+      "detail": "page returned no 10-year yield (likely a script shell)"
+    },
+    {
+      "entity": "Macro - Inflation (CPI)",
+      "date": "",
+      "value": null,
+      "change_pct": null,
+      "unit": "",
+      "source": "mospi.gov.in",
+      "status": "unavailable",
+      "detail": "CPI: homepage has no current print to parse"
+    },
+    {
+      "entity": "Macro - WPI Inflation",
+      "date": "",
+      "value": null,
+      "change_pct": null,
+      "unit": "",
+      "source": "mospi.gov.in",
+      "status": "unavailable",
+      "detail": "WPI: homepage has no current print to parse"
+    },
+    {
+      "entity": "Macro - IIP",
+      "date": "",
+      "value": null,
+      "change_pct": null,
+      "unit": "",
+      "source": "mospi.gov.in",
+      "status": "unavailable",
+      "detail": "IIP: homepage has no current print to parse"
+    },
+    {
+      "entity": "Macro - GDP & Economy",
+      "date": "",
+      "value": null,
+      "change_pct": null,
+      "unit": "",
+      "source": "mospi.gov.in",
+      "status": "unavailable",
+      "detail": "GDP: homepage has no current print to parse"
+    },
+    {
+      "entity": "Macro - GST Collections",
+      "date": "",
+      "value": null,
+      "change_pct": null,
+      "unit": "",
+      "source": "pib.gov.in",
+      "status": "unavailable",
+      "detail": "PIB listing has no GST figure in the HTML"
+    }
+  ],
+  "fii_dii": {
+    "trade_date": "13-Nov-2026",
+    "fii": {
+      "category": "FII/FPI",
+      "buy_inr_crore": 18339.57,
+      "sell_inr_crore": 12603.02,
+      "net_inr_crore": 5736.55
+    },
+    "dii": {
+      "category": "DII",
+      "buy_inr_crore": 11745.95,
+      "sell_inr_crore": 13999.53,
+      "net_inr_crore": -2253.58
+    },
+    "source": "nseindia.com:fiidiiTradeReact",
+    "status": "ok",
+    "detail": ""
+  },
+  "news_only": [
+    "Macro - Gold",
+    "Macro - Silver",
+    "Macro - Natural Gas",
+    "Macro - RBI Repo Rate",
+    "Macro - SEBI",
+    "Macro - Tariffs & Trade",
+    "Macro - Geopolitical Risk"
+  ]
+}
