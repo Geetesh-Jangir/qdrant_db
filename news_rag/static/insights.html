@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Market Insights</title>
+  <link rel="stylesheet" href="/static/insights.css?v=1" />
+</head>
+<body>
+  <div class="nav">
+    <a href=".">Ask a Question</a>
+    <a href="insights">Market Insights</a>
+    <a href="fund">Fund News Brief</a>
+  </div>
+  <header class="header">
+    <div>
+      <h1>Market Insights</h1>
+      <div class="date-row">
+        <button type="button" id="prev" aria-label="Previous trading day">←</button>
+        <strong id="date">—</strong>
+        <button type="button" id="next" aria-label="Next trading day">→</button>
+      </div>
+      <p class="muted" id="updated">Last updated —</p>
+    </div>
+    <button type="button" id="create">Create insights</button>
+  </header>
+  <div id="progress" class="progress" hidden></div>
+  <div id="error" class="err" hidden></div>
+  <main id="main"></main>
+  <script src="/static/rag-api.js?v=5"></script>
+  <script src="/static/insights.js?v=2"></script>
+</body>
+</html>

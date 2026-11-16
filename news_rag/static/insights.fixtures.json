@@ -1,0 +1,77 @@
+{
+  "date": "2026-11-16",
+  "prev_date": "2026-11-13",
+  "next_date": null,
+  "generated_at": "2026-11-16T18:10:00+05:30",
+  "insights": {
+    "market_driver_digest": {
+      "insight_id": "market_driver_digest",
+      "trading_date": "2026-11-16",
+      "as_of_ist": "2026-11-16T18:10:00+05:30",
+      "status": "ok",
+      "prominence": "normal",
+      "headline": "Nifty slips 0.6% as crude rally weighs",
+      "body": "The drop appears tied to a crude rally. The rupee also slipped.",
+      "chips": [
+        {"label": "Nifty 50", "value": "-0.61%", "tone": "negative"},
+        {"label": "India VIX", "value": "+3.2%", "tone": "positive"}
+      ],
+      "viz": {"type": "index_move", "data": {"nifty": {"close": 24500, "change_pct": -0.61, "prev_close": 24650}, "range_5d": [24100, 24220, 24310, 24650, 24500]}},
+      "sources": [{"title": "Crude extends its rally", "url": "https://example.com/crude", "source": "Mint", "published_at": "2026-11-16T06:00:00Z"}],
+      "run_mode": "scheduled"
+    },
+    "fii_dii_flow_narrative": {
+      "insight_id": "fii_dii_flow_narrative",
+      "trading_date": "2026-11-16",
+      "as_of_ist": "2026-11-16T18:10:00+05:30",
+      "status": "ok",
+      "prominence": "high",
+      "headline": "FIIs sold for a fifth straight day",
+      "body": "The selling appears tied to the weaker rupee.",
+      "chips": [
+        {"label": "FII net", "value": "-₹2,340 crore", "tone": "negative"},
+        {"label": "DII net", "value": "₹1,100 crore", "tone": "positive"},
+        {"label": "FII streak", "value": "5 days", "tone": "neutral"}
+      ],
+      "viz": {"type": "flow_bars", "data": {"days": [{"date": "2026-11-12", "fii_net": -400, "dii_net": 300}, {"date": "2026-11-13", "fii_net": -800, "dii_net": 500}, {"date": "2026-11-14", "fii_net": -200, "dii_net": 100}, {"date": "2026-11-16", "fii_net": -2340, "dii_net": 1100}]}},
+      "sources": [{"title": "Rupee hits a fresh low", "url": "https://example.com/rupee", "source": "Reuters", "published_at": "2026-11-16T05:00:00Z"}],
+      "run_mode": "live"
+    },
+    "sector_leaderboard": {
+      "insight_id": "sector_leaderboard",
+      "trading_date": "2026-11-16",
+      "status": "skipped",
+      "skip_reason": "market_closed"
+    }
+  },
+  "sector_performance": [
+    {
+      "insight_id": "sector_index_insights",
+      "trading_date": "2026-11-16",
+      "as_of_ist": "2026-11-16T18:10:00+05:30",
+      "status": "ok",
+      "prominence": "high",
+      "headline": "Nifty Bank rose 1.8% this week",
+      "body": "The rise appears tied to loan-growth commentary in bank results.",
+      "chips": [{"label": "Week", "value": "+1.80%", "tone": "positive"}, {"label": "Today", "value": "+0.40%", "tone": "positive"}],
+      "viz": {"type": "ohlc_week", "data": {"ticker": "^NSEBANK", "week_change_pct": 1.8, "rows": [{"date": "2026-11-12", "open": 100, "high": 102, "low": 99, "close": 101}, {"date": "2026-11-13", "open": 101, "high": 103, "low": 100, "close": 102}, {"date": "2026-11-14", "open": 102, "high": 104, "low": 101, "close": 103}, {"date": "2026-11-16", "open": 103, "high": 105, "low": 102, "close": 104}]}},
+      "sources": [{"title": "Banks report stronger loan growth", "url": "https://example.com/banks", "source": "Mint", "published_at": "2026-11-14T08:00:00Z"}],
+      "run_mode": "scheduled"
+    }
+  ],
+  "additional": [
+    {
+      "insight_id": "additional_insights",
+      "trading_date": "2026-11-16",
+      "as_of_ist": "2026-11-16T18:10:00+05:30",
+      "status": "ok",
+      "prominence": "normal",
+      "headline": "Metal news turned sharply negative",
+      "body": "Metal stories were much more negative than their recent run.",
+      "chips": [],
+      "viz": {"type": "trend_line", "data": {"rows": [{"index": "Metal", "week_change_pct": -2.1}, {"index": "IT", "week_change_pct": 1.1}]}},
+      "sources": [],
+      "run_mode": "scheduled"
+    }
+  ]
+}

@@ -170,8 +170,16 @@ def _cluster_label(articles: list[dict[str, Any]]) -> str:
     return title
 
 
-def cluster_articles_by_theme(articles: list[dict[str, Any]]) -> list[MacroThemeCluster]:
-    """Group articles; larger groups = more coverage of the same event."""
+def cluster_articles_by_theme(
+    articles: list[dict[str, Any]],
+    *,
+    top_clusters: int = MARKET_PULSE_TOP_CLUSTERS,
+    articles_per_cluster: int | None = 4,
+) -> list[MacroThemeCluster]:
+    """Group articles; larger groups = more coverage of the same event.
+
+    articles_per_cluster=None keeps every member. The default (4) is the market-pulse digest.
+    """
     if not articles:
         return []
     buckets: list[dict[str, Any]] = []
@@ -222,7 +230,10 @@ def cluster_articles_by_theme(articles: list[dict[str, Any]]) -> list[MacroTheme
         for a in arts:
             sectors.extend(str(s) for s in (a.get("sector_names") or []) if s)
             entities.extend(str(e) for e in (a.get("entity_names") or []) if e)
-        ranked_arts = pick_diverse_articles(arts, limit=4)
+        if articles_per_cluster is None:
+            ranked_arts = list(arts)
+        else:
+            ranked_arts = pick_diverse_articles(arts, limit=articles_per_cluster)
         theme_slug = re.sub(r"[^a-z0-9]+", "_", label.lower())[:32] or f"theme_{i}"
         clusters.append(
             MacroThemeCluster(
@@ -238,7 +249,7 @@ def cluster_articles_by_theme(articles: list[dict[str, Any]]) -> list[MacroTheme
         )
 
     clusters.sort(key=lambda c: c.score, reverse=True)
-    return clusters[:MARKET_PULSE_TOP_CLUSTERS]
+    return clusters[:top_clusters]
 
 
 def pick_diverse_articles(articles: list[dict[str, Any]], *, limit: int = 4) -> list[dict[str, Any]]:

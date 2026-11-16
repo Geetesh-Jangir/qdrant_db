@@ -74,6 +74,47 @@ def get_gold_snapshot(
     return snapshot_from_payload(payload, windows=windows, history_months=history_months, stale=stale)
 
 
+GOLD_API_SOURCE = "rupeestop:gold_24k"
+
+
+def gold_horizon_code(window_days: int) -> str:
+    window = max(1, int(window_days))
+    if window <= 35:
+        return "1M"
+    if window <= 100:
+        return "3M"
+    if window <= 200:
+        return "6M"
+    return "1Y"
+
+
+def gold_macro_series_row(window_days: int = 30) -> dict[str, Any]:
+    """One macro_series row for India 24K gold (RupeeStop JSON API only, never yfinance)."""
+    code = gold_horizon_code(window_days)
+    gold = get_gold_snapshot(windows=[code])
+    latest = gold.get("latest") or {}
+    ret = (gold.get("returns") or {}).get(code) or {}
+    base = {
+        "series": "gold",
+        "label": "24K gold (INR per 10g)",
+        "source": GOLD_API_SOURCE,
+        "window_days": int(window_days),
+        "horizon": code,
+        "unit": gold.get("unit") or "INR per 10g (24K)",
+        "available": bool(gold.get("available")),
+    }
+    if not gold.get("available"):
+        base["error"] = gold.get("error") or "gold_price_unavailable"
+        return base
+    base["price_24k_10g"] = latest.get("price_24k_10g")
+    base["as_of"] = latest.get("as_of")
+    base["change_pct"] = ret.get("pct")
+    base["approx"] = ret.get("approx")
+    if gold.get("stale"):
+        base["stale"] = True
+    return base
+
+
 def snapshot_from_payload(
     payload: dict[str, Any],
     *,

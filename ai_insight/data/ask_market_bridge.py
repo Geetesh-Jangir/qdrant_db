@@ -8,7 +8,9 @@ from typing import Any
 
 from ai_insight.data.base import NumericRecord, unavailable
 
-SOURCE_GOLD = "rupeestop:gold_24k"
+from historical_data.gold_service import GOLD_API_SOURCE
+
+SOURCE_GOLD = GOLD_API_SOURCE
 SOURCE_ASK = "ask_market_bridge"
 
 
@@ -41,7 +43,7 @@ def get_ask_market_snapshot(*, window_days: int = 30) -> dict[str, Any]:
     from news_rag.insight.layer_tools import run_index_return_tool, run_macro_series_tool
 
     wd = max(1, min(365, int(window_days)))
-    macro = run_macro_series_tool({"window_days": wd, "series": ["crude", "wti", "usdinr", "gold", "yield"]})
+    macro = run_macro_series_tool({"window_days": wd, "series": ["crude", "wti", "usdinr", "yield"]})
     series_by_key: dict[str, Any] = {}
     for row in (macro.get("data") or {}).get("series") or []:
         if not isinstance(row, dict):
@@ -53,6 +55,9 @@ def get_ask_market_snapshot(*, window_days: int = 30) -> dict[str, Any]:
             series_by_key["us_10y_yield"] = row
         else:
             series_by_key[key] = row
+    from historical_data.gold_service import gold_macro_series_row
+
+    series_by_key["gold"] = gold_macro_series_row(wd)
 
     indices: dict[str, Any] = {}
     for index, label in (("nifty50", "Nifty 50"), ("sensex", "Sensex"), ("Bank Nifty", "Bank Nifty")):
@@ -76,7 +81,7 @@ def get_ask_market_snapshot(*, window_days: int = 30) -> dict[str, Any]:
 
 
 def fetch_ask_market_records(*, window_days: int = 30) -> list[NumericRecord]:
-    """Headline rows for gold plus labeled extras (WTI, US 10Y) not duplicated in yfinance ingest."""
+    """Headline rows for gold (RupeeStop API) plus WTI / US 10Y window changes (yfinance)."""
     rows: list[NumericRecord] = [fetch_gold_record()]
     payload = get_ask_market_snapshot(window_days=window_days)
     for key, entity, unit in (

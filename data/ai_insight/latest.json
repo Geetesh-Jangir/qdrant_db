@@ -61,6 +61,36 @@
       "detail": ""
     },
     {
+      "entity": "Macro - Gold",
+      "date": "2026-11-14",
+      "value": 136200.0,
+      "change_pct": -7.19,
+      "unit": "inr_per_10g_24k",
+      "source": "rupeestop:gold_24k",
+      "status": "ok",
+      "detail": "India 24K gold; 1M return may be approximate on month-end basis"
+    },
+    {
+      "entity": "Market - WTI Crude",
+      "date": "",
+      "value": null,
+      "change_pct": -6.87,
+      "unit": "usd",
+      "source": "ask_market_bridge",
+      "status": "ok",
+      "detail": "WTI crude (NYMEX); 30d change"
+    },
+    {
+      "entity": "Market - US 10Y Treasury Yield",
+      "date": "",
+      "value": null,
+      "change_pct": -0.69,
+      "unit": "percent",
+      "source": "ask_market_bridge",
+      "status": "ok",
+      "detail": "US 10-year yield; 30d change"
+    },
+    {
       "entity": "Macro - FII DII Flows",
       "date": "13-Nov-2026",
       "value": 5736.55,
@@ -82,33 +112,33 @@
     },
     {
       "entity": "Macro - Inflation (CPI)",
-      "date": "",
-      "value": null,
+      "date": "2026-October",
+      "value": 6.09,
       "change_pct": null,
-      "unit": "",
-      "source": "mospi.gov.in",
-      "status": "unavailable",
-      "detail": "CPI: homepage has no current print to parse"
+      "unit": "percent",
+      "source": "mospi",
+      "status": "ok",
+      "detail": "base 2024 index 110.05"
     },
     {
       "entity": "Macro - WPI Inflation",
-      "date": "",
-      "value": null,
-      "change_pct": null,
-      "unit": "",
-      "source": "mospi.gov.in",
-      "status": "unavailable",
-      "detail": "WPI: homepage has no current print to parse"
+      "date": "2026-September",
+      "value": 112.5,
+      "change_pct": 11.39,
+      "unit": "index",
+      "source": "mospi",
+      "status": "ok",
+      "detail": "base 2022-23; yoy derived"
     },
     {
       "entity": "Macro - IIP",
-      "date": "",
-      "value": null,
-      "change_pct": null,
-      "unit": "",
-      "source": "mospi.gov.in",
-      "status": "unavailable",
-      "detail": "IIP: homepage has no current print to parse"
+      "date": "2026-March",
+      "value": 173.2,
+      "change_pct": 4.1,
+      "unit": "index",
+      "source": "mospi",
+      "status": "ok",
+      "detail": "base 2011-12"
     },
     {
       "entity": "Macro - GDP & Economy",
@@ -116,9 +146,9 @@
       "value": null,
       "change_pct": null,
       "unit": "",
-      "source": "mospi.gov.in",
+      "source": "mospi",
       "status": "unavailable",
-      "detail": "GDP: homepage has no current print to parse"
+      "detail": "no headline row"
     },
     {
       "entity": "Macro - GST Collections",
@@ -150,7 +180,6 @@
     "detail": ""
   },
   "news_only": [
-    "Macro - Gold",
     "Macro - Silver",
     "Macro - Natural Gas",
     "Macro - RBI Repo Rate",

@@ -18,6 +18,7 @@ data/embedding_models/
 data/nav_cache/
 data/index_cache/
 data/macro_news_cache.json
+data/ai_insights/
 
 # fund_holdings_aggregate: commit everything needed for Lightsail except huge local builds
 data/fund_holdings_aggregate/allisin_sectors_with_holdings.json

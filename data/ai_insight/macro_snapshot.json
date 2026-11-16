@@ -1,0 +1,85 @@
+{
+  "cpi": [
+    {
+      "state": "All India",
+      "sector": "Rural",
+      "commodity_group": "CPI (General)",
+      "index_value": 110.73,
+      "inflation_rate_yoy": 6.63,
+      "month": "October",
+      "year": 2026,
+      "base_year": "2024",
+      "source": "mospi:CPI",
+      "fetched_at": "2026-11-14T11:40:21.279150Z"
+    },
+    {
+      "state": "All India",
+      "sector": "Urban",
+      "commodity_group": "CPI (General)",
+      "index_value": 109.22,
+      "inflation_rate_yoy": 5.41,
+      "month": "October",
+      "year": 2026,
+      "base_year": "2024",
+      "source": "mospi:CPI",
+      "fetched_at": "2026-11-14T11:40:21.279150Z"
+    },
+    {
+      "state": "All India",
+      "sector": "Combined",
+      "commodity_group": "CPI (General)",
+      "index_value": 110.05,
+      "inflation_rate_yoy": 6.09,
+      "month": "October",
+      "year": 2026,
+      "base_year": "2024",
+      "source": "mospi:CPI",
+      "fetched_at": "2026-11-14T11:40:21.279150Z"
+    }
+  ],
+  "wpi": [
+    {
+      "commodity_group": "Wholesale Price Index",
+      "index_value": 112.5,
+      "inflation_rate_yoy": 11.39,
+      "yoy_derived": true,
+      "month": "September",
+      "year": 2026,
+      "base_year": "2022-23",
+      "source": "mospi:WPI",
+      "fetched_at": "2026-11-14T11:40:21.274588Z"
+    }
+  ],
+  "iip": [
+    {
+      "sector": "General",
+      "index_value": 173.2,
+      "growth_rate_yoy": 4.1,
+      "month": "March",
+      "year": 2026,
+      "base_year": "2011-12",
+      "source": "mospi:IIP",
+      "fetched_at": "2026-11-14T11:40:21.269633Z"
+    },
+    {
+      "sector": "Mining",
+      "index_value": 166.8,
+      "growth_rate_yoy": 5.5,
+      "month": "March",
+      "year": 2026,
+      "base_year": "2011-12",
+      "source": "mospi:IIP",
+      "fetched_at": "2026-11-14T11:40:21.269633Z"
+    }
+  ],
+  "gdp": [],
+  "bond_yields": {
+    "status": "unavailable",
+    "detail": "MoSPI RBI dataset has no G-sec or bond-yield series",
+    "records": []
+  },
+  "as_of": "2026-11-14T11:40:21.400584Z",
+  "unavailable": [
+    "bond_yields: MoSPI RBI dataset has no G-sec or bond-yield series"
+  ]
+}

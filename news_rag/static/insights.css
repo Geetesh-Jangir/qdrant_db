@@ -1,0 +1,45 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: #1e293b;
+  background: #f8fafc;
+  line-height: 1.5;
+}
+body { max-width: 880px; margin: 0 auto; padding: 1.25rem 1rem 3rem; }
+.nav { display: flex; gap: 1rem; font-size: 0.9rem; margin-bottom: 1.25rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }
+.nav a { color: #2563eb; text-decoration: none; font-weight: 500; }
+h1 { font-size: 1.5rem; margin: 0; color: #0f172a; }
+.header { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.date-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.35rem; }
+.date-row button, #create { background: #1d4ed8; color: #fff; border: 0; border-radius: 8px; padding: 0.45rem 0.8rem; font-weight: 600; cursor: pointer; }
+.date-row button { background: #e2e8f0; color: #0f172a; }
+button:disabled { opacity: 0.6; cursor: wait; }
+.muted { color: #64748b; font-size: 0.85rem; }
+.progress, .card, .placeholder { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1rem; margin-top: 0.75rem; }
+.section { margin-top: 1.4rem; }
+.section h2 { font-size: 0.95rem; margin: 0 0 0.4rem; color: #334155; }
+.kicker { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: #64748b; }
+.badge { background: #dbeafe; color: #1d4ed8; border-radius: 999px; padding: 0.1rem 0.45rem; font-weight: 700; }
+.card h3 { margin: 0.35rem 0; font-size: 1.15rem; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.card p { margin: 0.35rem 0 0.6rem; color: #334155; }
+.chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.chip { border-radius: 999px; padding: 0.15rem 0.55rem; background: #f1f5f9; font-size: 0.82rem; }
+.chip.positive { background: #ecfdf5; color: #047857; }
+.chip.negative { background: #fef2f2; color: #b91c1c; }
+.chart { width: 100%; height: 88px; margin-top: 0.6rem; }
+.why { margin-top: 0.6rem; }
+.why summary { cursor: pointer; color: #2563eb; font-size: 0.85rem; }
+.source { font-size: 0.85rem; margin-top: 0.35rem; }
+.source a { color: #2563eb; }
+.grid { display: grid; gap: 0.75rem; }
+.usage { font-size: 0.8rem; color: #475569; margin: 0.35rem 0; }
+.banner { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 0.4rem 0.6rem; font-size: 0.82rem; color: #9a3412; }
+.log-link { display: inline-block; margin-top: 0.5rem; font-size: 0.85rem; color: #2563eb; }
+.log-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 0.4rem; }
+.log-table th, .log-table td { border-bottom: 1px solid #e2e8f0; padding: 0.25rem 0.35rem; text-align: left; }
+.log-main pre.trace { white-space: pre-wrap; font-size: 0.8rem; background: #f8fafc; padding: 0.75rem; border-radius: 8px; }
+.placeholder { color: #64748b; }
+.err { color: #b91c1c; }
+.skeleton { height: 92px; border-radius: 12px; background: linear-gradient(90deg, #e2e8f0, #f8fafc, #e2e8f0); background-size: 200% 100%; animation: shine 1.2s infinite; }
+@media (prefers-reduced-motion: reduce) { .skeleton, .card { animation: none; } }
+@keyframes shine { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (min-width: 800px) { .grid { grid-template-columns: 1fr 1fr; } }

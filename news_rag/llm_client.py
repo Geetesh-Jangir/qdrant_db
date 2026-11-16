@@ -514,6 +514,7 @@ def call_json_llm(
     _repair_attempt: bool = False,
     enable_gemini_context_cache: bool = False,
     cached_system_prefix: str = "",
+    allow_fallback: bool = True,
 ) -> LlmCallResult:
     settings = get_settings()
     provider = (provider_override or "").strip().lower() or _effective_provider(settings)
@@ -602,6 +603,8 @@ def call_json_llm(
         result = _invoke(provider)
     except Exception as exc:
         fallback = ""
+        if not allow_fallback:
+            raise
         if provider == "anthropic" and _gemini_fallback_available(settings):
             fallback = "gemini"
             if query_log is not None:

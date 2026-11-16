@@ -172,7 +172,7 @@ CAPABILITIES: dict[str, dict[str, Any]] = {
     },
     "get_market_snapshot": {
         "description": (
-            "Market numbers: index_return, sector_ranking, macro_series (crude, brent, wti, usdinr, yield), "
+            "Market numbers: index_return, sector_ranking, macro_series (crude, brent, wti, usdinr, gold via RupeeStop API, US yield), "
             "metals_spot (India 24K gold, INR per 10g; windows and history_months), stock_quote. "
             "No silver price exists: silver is news only."
         ),

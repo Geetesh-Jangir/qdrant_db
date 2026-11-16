@@ -207,6 +207,23 @@ def query_log_page() -> FileResponse:
     return _html_page("log.html")
 
 
+@app.get("/insights")
+@app.get("/market-insights")
+def insights_page() -> FileResponse:
+    return _html_page("insights.html")
+
+
+@app.get("/insights/log/{insight_id}/{trading_date}/{run_id}")
+def insight_log_page(insight_id: str, trading_date: str, run_id: str) -> FileResponse:
+    _ = (insight_id, trading_date, run_id)
+    return _html_page("insight_log.html")
+
+
+from ai_insight.api import create_router
+
+app.include_router(create_router(_check_token))
+
+
 @app.get("/api/ask/memory/{query_id}")
 def ask_memory(
     query_id: str,

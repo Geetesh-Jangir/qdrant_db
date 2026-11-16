@@ -49,7 +49,7 @@ ARG_HELP: dict[str, str] = {
     "fund_attribution": "window_days 7-365 (default 30), top_n 3-12 (default 3). Holding contribution = weight x stock return, computed in code. Include this for any 'how is the fund doing' or 'why did it move' question.",
     "index_return": "index: nifty50, sensex, benchmark (the fund's own), or a sector name. window_days 1-365.",
     "sector_ranking": "window_days 7-365, top_n 3-12. Index return for the main sectors, best and worst.",
-    "macro_series": "series: crude (Brent BZ=F), brent, wti (CL=F), usdinr, gold, silver, yield. window_days 1-365.",
+    "macro_series": "series: crude (Brent BZ=F), brent, wti (CL=F), usdinr, gold (RupeeStop 24K API), yield (US 10Y). window_days 1-365.",
     "stock_snapshot": "windows: 1W 1M. One call per stock already named.",
     "compare_funds": "overlap: true to add shared holdings. Needs at least two funds.",
     "sector_holdings": "top_n 1-15 companies in the sector.",
@@ -323,22 +323,10 @@ def run_macro_series_tool(ctx: dict[str, Any]) -> dict[str, Any]:
         series_keys = ["crude", "usdinr"]
     for key in series_keys:
         if key == "gold":
-            from historical_data.gold_service import get_gold_snapshot
+            from historical_data.gold_service import gold_macro_series_row
 
-            code = "1M" if window <= 35 else "3M" if window <= 100 else "6M" if window <= 200 else "1Y"
-            gold = get_gold_snapshot(windows=[code])
-            change = ((gold.get("returns") or {}).get(code) or {}).get("pct")
-            series.append(
-                {
-                    "series": "gold",
-                    "label": "24K gold (INR per 10g)",
-                    "change_pct": change,
-                    "window_days": window,
-                    "horizon": code,
-                    "unit": gold.get("unit"),
-                    "approx": ((gold.get("returns") or {}).get(code) or {}).get("approx"),
-                }
-            )
+            row = gold_macro_series_row(window)
+            series.append(row)
             continue
         ticker, label = _SERIES_TICKER.get(str(key), ("", ""))
         if not ticker:
@@ -353,7 +341,12 @@ def run_macro_series_tool(ctx: dict[str, Any]) -> dict[str, Any]:
                 "horizon": horizon_code(window),
             }
         )
-    return {"ok": any(s.get("change_pct") is not None for s in series), "data": {"series": series}}
+    def _ok_row(row: dict[str, Any]) -> bool:
+        if row.get("series") == "gold":
+            return bool(row.get("available")) and row.get("change_pct") is not None
+        return row.get("change_pct") is not None
+
+    return {"ok": any(_ok_row(s) for s in series), "data": {"series": series}}
 
 
 def register_layer_tools() -> None:

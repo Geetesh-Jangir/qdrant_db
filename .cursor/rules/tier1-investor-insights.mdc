@@ -1,0 +1,36 @@
+---
+description: Tier 1 daily investor insights — workflow, architecture, and constraints
+globs: ai_insight/**,data/ai_insights/**,tests/**/*insight*
+alwaysApply: false
+---
+
+# Tier 1 Investor Insights
+
+Full spec: `ai_insight/PROJECT_RULES.md`. Read it before planning or coding.
+
+## Mandatory workflow
+
+1. Inspect relevant code (graphify first per project rule), then post an implementation **plan** (files, signatures, data flow, tests, risks) and **stop for user approval**.
+2. After approval only: implement the plan exactly — no `news_pipeline/*` or Qdrant index/payload changes.
+3. Add/run unit tests under `tests/`; report real results.
+
+## Architecture (non-negotiable)
+
+- Three packages: `market_driver_digest`, `fii_dii_flow_narrative`, `sector_leaderboard` + shared `ai_insight/common/` (`schemas.py`, `store.py`, validators, Qdrant entity explode/gate, clustering wrappers).
+- **Numbers in code, prose from LLM** using `facts` JSON + `call_json_llm`; validate no hallucinated numbers/names/events.
+- **JSON persistence** via `ai_insight/common/store.py` → `data/ai_insights/` (FII/DII history files too).
+- **Qdrant:** collection `news_articles`; filter per **entity** after exploding `entities[]` (ignore leaky top-level `max_relevance` / `max_impact` / `direction`).
+- **Independence:** separate entrypoints and failure handling; imports only from `ai_insight/common/` (plus listed reuse modules below).
+- **IST session window** (prev trading day 15:30 → cutoff); run after Lightsail ingest completes.
+
+## `ai_insight/` role
+
+`ai_insight/data/` is the numeric layer (`data/ai_insight/latest.json`). Insight prose modules live beside it under `ai_insight/` and import only `ai_insight.common`.
+
+## Reuse (verify before use)
+
+`news_rag/llm_client.call_json_llm`, `news_rag/market_pulse`, `news_rag/qdrant_reader`, `ai_insight/data/yfinance_source`, `ai_insight/data/nse_fii_dii`, `news_pipeline/textutil`, `lib/fetch.py`, `news_rag/insight/grounding.py` (patterns for validators).
+
+## Output contract
+
+Shared envelope in `ai_insight/common/schemas.py`: states `ok | degraded | skipped | failed`; headline ≤12 words; body ≤55 words / 3 sentences; `chips`, `viz`, `sources`, `meta.cluster_ids`. No investment advice or unsupported “why” claims.

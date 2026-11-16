@@ -140,6 +140,8 @@ sudo systemctl restart news-rag
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1/backfill
 # Re-apply daily cron if deploy/lightsail/install-daily-cron.sh changed (uses /bin/bash; survives 644 checkout)
 sudo NEWS_RAG_DIR=/opt/news-rag bash deploy/lightsail/install-daily-cron.sh
+# Insights cron: do not install on Lightsail until you ask for it (news cron only for now).
+# Script exists if needed later: deploy/lightsail/install-insights-cron.sh
 crontab -u ubuntu -l
 ```
 

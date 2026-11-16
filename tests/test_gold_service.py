@@ -124,7 +124,9 @@ def test_macro_series_gold_uses_india_series(monkeypatch):
         svc,
         "get_gold_snapshot",
         lambda windows=None, history_months=None: {
+            "available": True,
             "unit": "INR per 10g (24K)",
+            "latest": {"price_24k_10g": 100000, "as_of": "2026-11-14"},
             "returns": {"1M": {"pct": 1.5, "approx": False}},
         },
     )
@@ -135,3 +137,5 @@ def test_macro_series_gold_uses_india_series(monkeypatch):
     assert row["series"] == "gold"
     assert row["change_pct"] == 1.5
     assert row["label"].startswith("24K")
+    assert row["source"] == "rupeestop:gold_24k"
+    assert "yfinance" not in row

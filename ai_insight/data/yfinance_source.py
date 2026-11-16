@@ -15,6 +15,38 @@ YF_SERIES: tuple[tuple[str, str, str], ...] = (
 )
 
 
+def fetch_history(entity_name: str, period: str = "6mo") -> list[tuple[str, float]]:
+    """Daily closes up to the latest bar Yahoo has. Empty when the series is unknown or down."""
+    match = next((row for row in YF_SERIES if row[0] == entity_name), None)
+    if match is None:
+        return []
+    try:
+        import yfinance as yf
+    except ImportError:
+        return []
+    try:
+        hist = yf.Ticker(match[1]).history(period=period)
+        if hist is None or hist.empty or "Close" not in hist:
+            return []
+        close = hist["Close"].dropna()
+        return [(str(index.date()), float(value)) for index, value in close.items()]
+    except Exception:
+        return []
+
+
+def fetch_series(entity_name: str) -> NumericRecord:
+    """One YF_SERIES row. Unknown names come back unavailable and do not hit the network."""
+    match = next((row for row in YF_SERIES if row[0] == entity_name), None)
+    if match is None:
+        return unavailable(entity_name, "yfinance", "unknown series")
+    try:
+        import yfinance as yf
+    except ImportError:
+        return unavailable(entity_name, "yfinance", "yfinance is not installed")
+    name, ticker, unit = match
+    return _one(yf, name, ticker, unit)
+
+
 def fetch_yfinance() -> list[NumericRecord]:
     try:
         import yfinance as yf
@@ -28,18 +60,29 @@ def fetch_yfinance() -> list[NumericRecord]:
 
 
 def _one(yf, name: str, ticker: str, unit: str) -> NumericRecord:
+    from datetime import date as date_cls
+
+    from ai_insight.common.yahoo_live import latest_quote
+
     try:
-        hist = yf.Ticker(ticker).history(period="5d")
+        live, live_day = latest_quote(ticker, trading_date=date_cls.today())
+        hist = yf.Ticker(ticker).history(period="5d", prepost=True, interval="1d")
         if hist is None or hist.empty or "Close" not in hist:
-            return unavailable(name, f"yfinance:{ticker}", "empty history")
-        close = hist["Close"].dropna()
-        if close.empty:
-            return unavailable(name, f"yfinance:{ticker}", "no close")
-        value = float(close.iloc[-1])
+            if live is None:
+                return unavailable(name, f"yfinance:{ticker}", "empty history")
+            value = live
+            traded = live_day or ""
+            prev = None
+        else:
+            close = hist["Close"].dropna()
+            if close.empty and live is None:
+                return unavailable(name, f"yfinance:{ticker}", "no close")
+            value = float(live if live is not None else close.iloc[-1])
+            traded = live_day or str(close.index[-1].date())
+            prev = float(close.iloc[-2]) if len(close) >= 2 else None
         change = None
-        if len(close) >= 2 and float(close.iloc[-2]) != 0:
-            change = round((value - float(close.iloc[-2])) / float(close.iloc[-2]) * 100.0, 2)
-        date = str(close.index[-1].date())
-        return NumericRecord(name, date, round(value, 4), change, unit, f"yfinance:{ticker}", "ok")
+        if prev and prev != 0:
+            change = round((value - prev) / prev * 100.0, 2)
+        return NumericRecord(name, traded, round(value, 4), change, unit, f"yfinance:{ticker}", "ok")
     except Exception as exc:
         return unavailable(name, f"yfinance:{ticker}", str(exc)[:200])

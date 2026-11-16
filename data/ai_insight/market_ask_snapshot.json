@@ -1,0 +1,239 @@
+{
+  "window_days": 30,
+  "macro_series": {
+    "brent": {
+      "series": "crude",
+      "label": "Brent crude (ICE)",
+      "yfinance_ticker": "BZ=F",
+      "change_pct": -9.64,
+      "window_days": 30,
+      "horizon": "1M"
+    },
+    "wti": {
+      "series": "wti",
+      "label": "WTI crude (NYMEX)",
+      "yfinance_ticker": "CL=F",
+      "change_pct": -6.87,
+      "window_days": 30,
+      "horizon": "1M"
+    },
+    "usdinr": {
+      "series": "usdinr",
+      "label": "USD/INR",
+      "yfinance_ticker": "INR=X",
+      "change_pct": -0.96,
+      "window_days": 30,
+      "horizon": "1M"
+    },
+    "gold": {
+      "series": "gold",
+      "label": "24K gold (INR per 10g)",
+      "change_pct": -7.19,
+      "window_days": 30,
+      "horizon": "1M",
+      "unit": "INR per 10g (24K)",
+      "approx": true
+    },
+    "us_10y_yield": {
+      "series": "yield",
+      "label": "US 10-year yield",
+      "yfinance_ticker": "^TNX",
+      "change_pct": -0.69,
+      "window_days": 30,
+      "horizon": "1M"
+    }
+  },
+  "index_returns": {
+    "Nifty 50": {
+      "sector_label": "Nifty 50",
+      "benchmark_label": "Nifty 50",
+      "yfinance_ticker": "^NSEI",
+      "return_pct": 11.15,
+      "window_days": 30,
+      "substituted_broad_index": true,
+      "cached_at": 1794656414.64987,
+      "horizon": "1M"
+    },
+    "Sensex": {
+      "benchmark_label": "Sensex",
+      "return_pct": 12.11,
+      "window_days": 30,
+      "horizon": "1M",
+      "yfinance_ticker": "^BSESN"
+    },
+    "Bank Nifty": {
+      "sector_label": "Bank Nifty",
+      "benchmark_label": "Nifty 50 (broad market proxy)",
+      "yfinance_ticker": "^NSEI",
+      "return_pct": 11.15,
+      "window_days": 30,
+      "substituted_broad_index": true,
+      "cached_at": 1794656414.8901346,
+      "horizon": "1M"
+    }
+  },
+  "gold": {
+    "available": true,
+    "metal": "gold",
+    "unit": "INR per 10g (24K)",
+    "purity": "24K",
+    "latest": {
+      "price_24k_10g": 136200.0,
+      "as_of": "2026-11-14",
+      "source_basis": "live"
+    },
+    "returns": {
+      "1M": {
+        "pct": -7.19,
+        "from_date": "2026-09-30",
+        "from_price": 146751.0,
+        "to_date": "2026-11-14",
+        "to_price": 136200.0,
+        "basis": "month_end",
+        "approx": true,
+        "horizon": "1M"
+      },
+      "3M": {
+        "pct": -3.88,
+        "from_date": "2026-07-31",
+        "from_price": 141695.0,
+        "to_date": "2026-11-14",
+        "to_price": 136200.0,
+        "basis": "month_end",
+        "approx": true,
+        "horizon": "3M"
+      },
+      "1Y": {
+        "pct": 11.85,
+        "from_date": "2025-10-31",
+        "from_price": 121774.0,
+        "to_date": "2026-11-14",
+        "to_price": 136200.0,
+        "basis": "month_end",
+        "approx": true,
+        "horizon": "1Y"
+      }
+    },
+    "stale": false,
+    "source_note": "24K gold in INR per 10 grams. Windows inside the last month use daily prices. Longer windows use the nearest month-end price and are approximate.",
+    "daily": [
+      {
+        "date": "2026-11-04",
+        "price_24k_10g": 141330.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-05",
+        "price_24k_10g": 143010.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-06",
+        "price_24k_10g": 140900.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-07",
+        "price_24k_10g": 141700.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-08",
+        "price_24k_10g": 141790.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-09",
+        "price_24k_10g": 142300.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-10",
+        "price_24k_10g": 142340.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-11",
+        "price_24k_10g": 139390.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-12",
+        "price_24k_10g": 135650.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-13",
+        "price_24k_10g": 135780.0,
+        "basis": "day"
+      },
+      {
+        "date": "2026-11-14",
+        "price_24k_10g": 136200.0,
+        "basis": "live"
+      }
+    ],
+    "monthly": [
+      {
+        "date": "2025-10-31",
+        "price_24k_10g": 121774.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2025-11-30",
+        "price_24k_10g": 126940.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2025-12-31",
+        "price_24k_10g": 135927.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-01-31",
+        "price_24k_10g": 149075.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-02-28",
+        "price_24k_10g": 162062.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-03-31",
+        "price_24k_10g": 147204.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-04-30",
+        "price_24k_10g": 151090.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-05-31",
+        "price_24k_10g": 155838.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-06-30",
+        "price_24k_10g": 143228.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-07-31",
+        "price_24k_10g": 141695.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-08-31",
+        "price_24k_10g": 154081.0,
+        "basis": "month_end"
+      },
+      {
+        "date": "2026-09-30",
+        "price_24k_10g": 146751.0,
+        "basis": "month_end"
+      }
+    ]
+  }
+}
