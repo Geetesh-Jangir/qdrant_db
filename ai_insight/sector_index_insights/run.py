@@ -13,7 +13,7 @@ from ai_insight.common.retrieval_plan import fetch_section, plan_window
 from ai_insight.common.quality import LoopSpec, run_quality_loop
 from ai_insight.common.runner import RunContext, run_bundle_insight
 from ai_insight.common.schemas import Chip, Envelope, InsightBundle, Meta, Source, Viz
-from ai_insight.common.sector_indices import IndexSeries, fetch_ohlc, load_catalog
+from ai_insight.common.sector_indices import IndexSeries, fetch_ohlc, load_catalog, news_sectors_for_index
 from ai_insight.common.store import save_bundle
 from ai_insight.common.time_ist import ist_now
 from ai_insight.sector_index_insights.prompt import REVISE, ROTATION, SYSTEM, VERIFY, build_user
@@ -83,11 +83,14 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _one(ctx: RunContext, series: IndexSeries) -> Envelope:
+    news_sectors = news_sectors_for_index(series.spec)
     facts = {
         "trading_date": ctx.trading_date.isoformat(),
         "index": series.spec.display,
+        "news_sector": news_sectors[0] if len(news_sectors) == 1 else news_sectors,
         "fit": series.spec.fit,
-        "sectors": series.spec.news_sectors,
+        "sectors": news_sectors,
+        "catalog_sectors": series.spec.news_sectors,
         "ticker": series.ticker,
         "week_change_pct": series.week_change_pct,
         "today_change_pct": series.today_change_pct,
@@ -97,7 +100,7 @@ def _one(ctx: RunContext, series: IndexSeries) -> Envelope:
         "editorial": editorial_context(ctx),
     }
     ctx.scope(f"sector:{series.spec.display}")
-    pack = fetch_section(ctx, "sector_index_insights", sector_names=series.spec.news_sectors, client=getattr(ctx, "qdrant", None))
+    pack = fetch_section(ctx, "sector_index_insights", sector_names=news_sectors, client=getattr(ctx, "qdrant", None))
     clusters = pack.clusters[:8]
     evidence = pack.evidence
     facts["article_count"] = len(evidence)
@@ -154,7 +157,8 @@ def _rotation(ctx: RunContext, serieses: list[IndexSeries]) -> Envelope:
         text = _rotation_fallback(ordered)
         return _rotation_envelope(ctx, text, text, facts)
     def compose(data: dict[str, Any]) -> Envelope:
-        return _rotation_envelope(ctx, str(data.get("headline") or "Sector rotation this week"), str(data.get("body") or ""), facts)
+        body = str(data.get("body") or "")
+        return _rotation_envelope(ctx, str(data.get("headline") or "Sector rotation this week"), body, facts)
     result = run_quality_loop(ctx, spec=LoopSpec(ROTATION, VERIFY, REVISE, build_user(facts, []), DRAFT_SCHEMA, compose), facts=facts, evidence=[])
     return result.envelope
 

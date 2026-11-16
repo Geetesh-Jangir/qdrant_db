@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from ai_insight.common.config import CommonConfig, load_config
 from ai_insight.common.display import fmt_pct, sector_label
+from ai_insight.common.prose_guard import split_sentences
 from ai_insight.common.prose_guard import scrub_refusal_prose
 from ai_insight.common.run_log import RunLog
 from ai_insight.common.runner import RunContext, cli_main
@@ -19,7 +20,7 @@ from ai_insight.common.store import list_dates, load
 from ai_insight.common.time_ist import ist_now, session_window
 from ai_insight.common.trading_calendar import is_trading_day, prev_trading_day
 
-from ai_insight.sector_leaderboard.fetch import SectorFetch, fetch_sector_stories
+from ai_insight.sector_leaderboard.fetch import SectorFetch, fetch_sector_stories, fetch_targeted_sector_stories
 from ai_insight.sector_leaderboard.prompt import PROMPT_VERSION, SYSTEM, build_user
 from ai_insight.sector_leaderboard.schema import INSIGHT_ID, SectorFacts, SectorScore, StoryScore, Themes, llm_schema
 from ai_insight.sector_leaderboard.score import (
@@ -27,7 +28,10 @@ from ai_insight.sector_leaderboard.score import (
     publishable,
     rank,
     score_sector,
+    pulse_viz_data,
+    pulse_viz_items,
     shown,
+    summarize_sector_news,
     top_stories,
     viz_items,
 )
@@ -48,12 +52,11 @@ def build(ctx: RunContext) -> Envelope:
     ctx.window, _ = plan_window(ctx, "sector_leaderboard")
     best_names, worst_names, week_meta = sector_names_for_pulse(ctx)
     target = list(dict.fromkeys([*best_names, *worst_names]))
-    fetched = fetch_sector_stories(
-        ctx.window,
-        client=getattr(ctx, "qdrant", None),
-        log=ctx.log,
-        only_sectors=target or None,
-    )
+    client = getattr(ctx, "qdrant", None)
+    if target:
+        fetched = fetch_targeted_sector_stories(ctx, ctx.window, target, client=client)
+    else:
+        fetched = fetch_sector_stories(ctx.window, client=client, log=ctx.log)
     sectors = [score_sector(item.name, item.clusters) for item in fetched.sectors]
     ranking = _week_ranking(sectors, best_names, worst_names, week_meta)
     facts = _facts(ctx, fetched, ranking)
@@ -66,22 +69,31 @@ def build(ctx: RunContext) -> Envelope:
         f"with_news={facts['sectors_with_news']} eligible={facts['eligible_count']} "
         f"best={best_name} worst={worst_name}",
     )
-    if not publishable(ranking):
+    if not _pulse_publishable(week_meta, ranking):
         ctx.log.line("SCORE", "thin coverage, so no card was written")
         return _envelope(ctx, "skipped", facts, ranking, themes=None, skip_reason="thin coverage")
-    evidence_best = top_stories(ranking.best, 4) if ranking.best else []
-    evidence_worst = top_stories(ranking.worst, 4) if ranking.worst else []
-    themes, problems = _themes(ctx, ranking, evidence_best, evidence_worst)
+    evidence_best = top_stories(ranking.best, 6) if ranking.best and ranking.best.n_stories else []
+    evidence_worst = top_stories(ranking.worst, 6) if ranking.worst and ranking.worst.n_stories else []
+    themes: Themes | None = None
+    problems: list[str] = []
+    if evidence_best or evidence_worst:
+        themes, problems = _themes(ctx, ranking, evidence_best, evidence_worst)
     if themes is None:
-        ctx.log.warning("theme check failed twice; the card is saved as degraded")
-        return _envelope(
-            ctx,
-            "degraded",
-            facts,
-            ranking,
-            themes=None,
-            problems=problems,
-        )
+        wm = facts.get("week_movers") or {}
+        if problems and not wm.get("best_index"):
+            ctx.log.warning("theme check failed twice; the card is saved as degraded")
+            return _envelope(
+                ctx,
+                "degraded",
+                facts,
+                ranking,
+                themes=None,
+                problems=problems,
+            )
+        ctx.log.warning("theme step skipped or failed; saving week movers with price-led copy")
+        body = scrub_refusal_prose(_week_pulse_fallback(wm, ranking))
+        headline = compose_headline(ranking.best, ranking.worst, ctx.trading_date, wm)
+        return _pulse_envelope(ctx, "degraded" if problems else "ok", facts, ranking, headline, body, themes=None, problems=problems)
     return _envelope(ctx, "ok", facts, ranking, themes=themes)
 
 
@@ -144,6 +156,8 @@ def compose_body(
         sentences.append(
             f"{wi['display']} lagged {fmt_pct(wi.get('week_change_pct') or 0)} — {_fragment(worst_theme)}."
         )
+    elif wi and worst is not None:
+        sentences.append(f"{wi['display']} lagged {fmt_pct(wi.get('week_change_pct') or 0)} this week.")
     elif worst is not None and worst_theme.strip():
         sentences.append(f"{worst.display} lagged: {_fragment(worst_theme)}.")
     extra = _extra_line(best, worst)
@@ -349,7 +363,7 @@ def _envelope(
     body = ""
     chips: list[Chip] = []
     sources: list[Source] = []
-    items: list[dict[str, Any]] = []
+    viz_data: dict[str, Any] = {"items": [], "drivers": {}}
     cluster_ids: list[str] = []
     validation: dict[str, Any] = {}
     if status == "skipped":
@@ -370,9 +384,14 @@ def _envelope(
         else:
             body = scrub_refusal_prose(compose_body(best, worst, best_theme, worst_theme, week_meta=wm))
             cluster_ids = list(themes.cited_cluster_ids) if themes else []
-        chips = _chips(ranking, int(facts["sectors_with_news"]))
-        items = viz_items(ranking.eligible)
-        sources = _sources(ranking, cluster_ids)
+        chips = _chips(ranking, int(facts["sectors_with_news"]), week_meta=wm)
+        viz_data = pulse_viz_data(
+            ranking,
+            wm,
+            best_theme=best_theme,
+            worst_theme=worst_theme,
+        )
+        sources = _sources(ranking, cluster_ids, viz_data.get("drivers"))
     level = "normal"
     if status in {"ok", "degraded"}:
         level = _prominence(ctx, ranking)
@@ -386,11 +405,21 @@ def _envelope(
         headline=headline,
         body=body,
         chips=chips,
-        viz=Viz(type="diverging_bars", data={"items": items}),
+        viz=Viz(type="diverging_bars", data=viz_data),
         sources=sources,
         facts=facts,
         meta=Meta(prompt_version=PROMPT_VERSION, cluster_ids=cluster_ids, validation=validation),
     )
+
+
+def _pulse_publishable(week_meta: dict[str, Any], ranking: Ranking) -> bool:
+    if week_meta.get("best_index"):
+        return True
+    return publishable(ranking)
+
+
+def _placeholder_sector(name: str) -> SectorScore:
+    return SectorScore(name=name, display=sector_label(name), score=0.0, n_stories=0, stories=[])
 
 
 def _week_ranking(
@@ -405,23 +434,86 @@ def _week_ranking(
         if name in by_name:
             best = by_name[name]
             break
+    if best is None and best_names:
+        best = by_name.get(best_names[0]) or _placeholder_sector(best_names[0])
     worst: SectorScore | None = None
     for name in worst_names:
         if name in by_name:
             worst = by_name[name]
             break
+    if worst is None and worst_names:
+        worst = by_name.get(worst_names[0]) or _placeholder_sector(worst_names[0])
     if best is None and worst is None:
         return rank(sectors)
     eligible = [sector for sector in sectors if sector.n_stories >= 1]
-    return Ranking(sectors=sectors, eligible=eligible, best=best, worst=worst)
+    if best is not None and best.n_stories >= 1 and best not in eligible:
+        eligible.append(best)
+    if worst is not None and worst.n_stories >= 1 and worst not in eligible:
+        eligible.append(worst)
+    return Ranking(sectors=sectors or [s for s in (best, worst) if s], eligible=eligible, best=best, worst=worst)
+
+
+def _week_pulse_fallback(week_meta: dict[str, Any], ranking: Ranking) -> str:
+    wm = week_meta or {}
+    bi = wm.get("best_index")
+    wi = wm.get("worst_index")
+    parts: list[str] = []
+    if bi:
+        parts.append(f"{bi['display']} led the week with a {fmt_pct(bi.get('week_change_pct') or 0)} gain.")
+    elif ranking.best is not None:
+        parts.append(f"{ranking.best.display} led sector news.")
+    if wi:
+        parts.append(f"{wi['display']} was the weakest index, down {fmt_pct(wi.get('week_change_pct') or 0)}.")
+    elif ranking.worst is not None:
+        parts.append(f"{ranking.worst.display} lagged on news flow.")
+    return " ".join(parts)
+
+
+def _pulse_envelope(
+    ctx: RunContext,
+    status: str,
+    facts: dict[str, Any],
+    ranking: Ranking,
+    headline: str,
+    body: str,
+    *,
+    themes: Themes | None,
+    problems: list[str],
+) -> Envelope:
+    wm = facts.get("week_movers") or {}
+    chips = _chips(ranking, int(facts["sectors_with_news"]), week_meta=wm)
+    viz_data = pulse_viz_data(ranking, wm)
+    sources = _sources(ranking, [], viz_data.get("drivers"))
+    return Envelope(
+        insight_id=INSIGHT_ID,
+        trading_date=ctx.trading_date.isoformat(),
+        as_of_ist=ist_now().isoformat(),
+        status=status,  # type: ignore[arg-type]
+        skip_reason=None,
+        prominence="normal",
+        headline=headline,
+        body=body,
+        chips=chips,
+        viz=Viz(type="diverging_bars", data=viz_data),
+        sources=sources,
+        facts=facts,
+        meta=Meta(
+            prompt_version=PROMPT_VERSION,
+            cluster_ids=list(themes.cited_cluster_ids) if themes else [],
+            validation={"ok": False, "errors": problems} if problems else {},
+        ),
+    )
 
 
 def _facts(ctx: RunContext, fetched: SectorFetch, ranking: Ranking) -> dict[str, Any]:
     evidence: dict[str, list[dict[str, Any]]] = {}
+    news_digest: dict[str, Any] = {}
     if ranking.best is not None:
-        evidence["best"] = [_story_fact(story) for story in top_stories(ranking.best)]
+        evidence["best"] = [_story_fact(story) for story in top_stories(ranking.best, 5)]
+        news_digest["best"] = summarize_sector_news(ranking.best)
     if ranking.worst is not None:
-        evidence["worst"] = [_story_fact(story) for story in top_stories(ranking.worst)]
+        evidence["worst"] = [_story_fact(story) for story in top_stories(ranking.worst, 5)]
+        news_digest["worst"] = summarize_sector_news(ranking.worst)
     model = SectorFacts(
         trading_date=ctx.trading_date.isoformat(),
         window_utc=[ctx.window[0], ctx.window[1]],
@@ -440,7 +532,10 @@ def _facts(ctx: RunContext, fetched: SectorFetch, ranking: Ranking) -> dict[str,
             "dropped": dict(fetched.diagnostics.dropped),
         },
     )
-    return model.model_dump(mode="json")
+    payload = model.model_dump(mode="json")
+    if news_digest:
+        payload["news_digest"] = news_digest
+    return payload
 
 
 def _rank_row(sector: SectorScore) -> dict[str, Any]:
@@ -460,17 +555,48 @@ def _story_fact(story: StoryScore) -> dict[str, Any]:
     return payload
 
 
-def _chips(ranking: Ranking, sectors_with_news: int) -> list[Chip]:
+def _chips(ranking: Ranking, sectors_with_news: int, *, week_meta: dict[str, Any] | None = None) -> list[Chip]:
+    wm = week_meta or {}
     chips: list[Chip] = []
-    if ranking.best is not None:
-        chips.append(Chip(label=ranking.best.display, value=f"{ranking.best.n_stories} stories", tone="positive"))
-    if ranking.worst is not None:
-        chips.append(Chip(label=ranking.worst.display, value=f"{ranking.worst.n_stories} stories", tone="negative"))
-    chips.append(Chip(label="Sectors tracked", value=f"{sectors_with_news} with news", tone="neutral"))
+    bi = wm.get("best_index")
+    wi = wm.get("worst_index")
+    if bi:
+        chips.append(
+            Chip(
+                label=str(bi.get("display") or "Best index"),
+                value=fmt_pct(float(bi.get("week_change_pct") or 0)),
+                tone="positive",
+            )
+        )
+    elif ranking.best is not None:
+        chips.append(Chip(label=ranking.best.display, value=f"{shown(ranking.best.score):+.3f} news", tone="positive"))
+    if wi:
+        chips.append(
+            Chip(
+                label=str(wi.get("display") or "Worst index"),
+                value=fmt_pct(float(wi.get("week_change_pct") or 0)),
+                tone="negative",
+            )
+        )
+    elif ranking.worst is not None:
+        chips.append(Chip(label=ranking.worst.display, value=f"{shown(ranking.worst.score):+.3f} news", tone="negative"))
+    for sector in (ranking.best, ranking.worst):
+        if sector is None or not sector.stories:
+            continue
+        digest = summarize_sector_news(sector)
+        chips.append(
+            Chip(
+                label=f"{digest['sector']} news tone",
+                value=f"{digest['boosting']}↑ {digest['weighing']}↓",
+                tone="neutral",
+            )
+        )
+    if not chips:
+        chips.append(Chip(label="Sectors tracked", value=f"{sectors_with_news} with news", tone="neutral"))
     return chips
 
 
-def _sources(ranking: Ranking, cited: list[str]) -> list[Source]:
+def _sources(ranking: Ranking, cited: list[str], drivers: dict[str, Any] | None = None) -> list[Source]:
     by_id: dict[str, StoryScore] = {}
     best_ids: set[str] = set()
     worst_ids: set[str] = set()
@@ -489,10 +615,25 @@ def _sources(ranking: Ranking, cited: list[str]) -> list[Source]:
     for item in cited:
         if item not in ordered:
             ordered.append(item)
+    if not ordered and drivers:
+        for side in ("best", "worst"):
+            block = drivers.get(side) or {}
+            headlines = block.get("headlines") or {}
+            for bucket in ("boosting", "weighing"):
+                for row in headlines.get(bucket) or []:
+                    cluster_id = str(row.get("cluster_id") or "")
+                    if cluster_id and cluster_id not in ordered:
+                        ordered.append(cluster_id)
     if not ordered:
         for sector in (ranking.best, ranking.worst):
             if sector is not None and sector.stories:
                 ordered.append(top_stories(sector, 1)[0].cluster_id)
+        for sector in (ranking.best, ranking.worst):
+            if sector is None or len(sector.stories) < 2:
+                continue
+            extra = top_stories(sector, 2)[1]
+            if extra.cluster_id not in ordered:
+                ordered.append(extra.cluster_id)
     sources: list[Source] = []
     seen: set[str] = set()
     for cluster_id in ordered:
@@ -547,14 +688,14 @@ def _fits(text: str, word_limit: int) -> bool:
 
 
 def _trim_to_contract(body: str, word_limit: int) -> str:
-    parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", body) if part.strip()]
+    parts = split_sentences(body)
     while parts and not _fits(" ".join(parts), word_limit):
         parts.pop()
     return " ".join(parts)
 
 
 def _sentence_count(text: str) -> int:
-    return len([part for part in re.split(r"[.!?]+", text) if part.strip()])
+    return len(split_sentences(text))
 
 
 def _theme_problem(name: str, theme: Any, stories: list[StoryScore]) -> list[str]:

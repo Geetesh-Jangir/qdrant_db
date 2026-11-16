@@ -101,6 +101,108 @@ def viz_items(eligible: list[SectorScore], *, limit: int = 3) -> list[dict]:
     return items
 
 
+def _driver_row(story: StoryScore) -> dict[str, Any]:
+    return {
+        "cluster_id": story.cluster_id,
+        "title": story.title,
+        "url": story.url,
+        "source": story.source,
+        "published_at": story.published_at,
+        "direction": story.direction,
+        "weight": shown(abs(story.weight)),
+    }
+
+
+def summarize_sector_news(sector: SectorScore, *, headline_limit: int = 5) -> dict[str, Any]:
+    """Counts and top headlines by entity direction across every scored story."""
+    stories = list(sector.stories)
+    boosting = [story for story in stories if story.sign > 0]
+    weighing = [story for story in stories if story.sign < 0]
+    unclear = len(stories) - len(boosting) - len(weighing)
+
+    def pick(pool: list[StoryScore]) -> list[StoryScore]:
+        return sorted(pool, key=lambda story: (-story.magnitude, story.published_at, story.url))[:headline_limit]
+
+    return {
+        "sector": sector.display,
+        "total": len(stories),
+        "boosting": len(boosting),
+        "weighing": len(weighing),
+        "unclear": unclear,
+        "net_score": shown(sector.score),
+        "headlines": {
+            "boosting": [_driver_row(story) for story in pick(boosting)],
+            "weighing": [_driver_row(story) for story in pick(weighing)],
+        },
+    }
+
+
+def build_pulse_drivers(
+    ranking: Ranking,
+    week_meta: dict[str, Any] | None,
+    *,
+    best_theme: str = "",
+    worst_theme: str = "",
+) -> dict[str, Any]:
+    wm = week_meta or {}
+    drivers: dict[str, Any] = {}
+    for side, sector, index_key, theme in (
+        ("best", ranking.best, "best_index", best_theme),
+        ("worst", ranking.worst, "worst_index", worst_theme),
+    ):
+        if sector is None or not sector.stories:
+            continue
+        digest = summarize_sector_news(sector)
+        index = wm.get(index_key) or {}
+        drivers[side] = {
+            "index": str(index.get("display") or sector.display),
+            "week_change_pct": index.get("week_change_pct"),
+            "theme": theme.strip(),
+            **digest,
+        }
+    return drivers
+
+
+def pulse_viz_data(
+    ranking: Ranking,
+    week_meta: dict[str, Any] | None = None,
+    *,
+    best_theme: str = "",
+    worst_theme: str = "",
+) -> dict[str, Any]:
+    return {
+        "items": pulse_viz_items(ranking, week_meta),
+        "drivers": build_pulse_drivers(ranking, week_meta, best_theme=best_theme, worst_theme=worst_theme),
+    }
+
+
+def pulse_viz_items(ranking: Ranking, week_meta: dict[str, Any] | None = None) -> list[dict]:
+    """Week index moves with linked news scores; falls back to raw sector scores."""
+    wm = week_meta or {}
+    by_name = {sector.name: sector for sector in ranking.eligible}
+    items: list[dict] = []
+    for key, tone in (("best_index", "positive"), ("worst_index", "negative")):
+        index = wm.get(key)
+        if not index:
+            continue
+        sectors = list(index.get("sectors") or [])
+        sector = next((by_name.get(name) for name in sectors if name in by_name), None)
+        display = str(index.get("display") or (sector.display if sector else sectors[0] if sectors else "Index"))
+        row: dict[str, Any] = {
+            "display": display,
+            "sector": sector.display if sector else display,
+            "week_change_pct": index.get("week_change_pct"),
+            "tone": tone,
+        }
+        if sector is not None:
+            row["score"] = shown(sector.score)
+            row["stories"] = sector.n_stories
+        items.append(row)
+    if items:
+        return items
+    return viz_items(ranking.eligible)
+
+
 def shown(score: float) -> float:
     return round(float(score), 3)
 

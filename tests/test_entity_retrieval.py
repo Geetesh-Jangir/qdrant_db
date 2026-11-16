@@ -1,8 +1,16 @@
 """Entity-scoped retrieval helpers."""
 
 from ai_insight.common.clustering import Cluster
-from ai_insight.common.entity_retrieval import merge_evidence, slug
+from ai_insight.common.entity_retrieval import _qdrant_holding_names, bellwether_holdings, merge_evidence, slug
 from ai_insight.common.evidence import EvidenceArticle
+
+
+def test_bellwether_holdings_resolves_it_majors():
+    _qdrant_holding_names.cache_clear()
+    names = bellwether_holdings("It - Software")
+    assert "Tata Consultancy Services Limited" in names
+    assert "Infosys Limited" in names
+    assert len(_qdrant_holding_names()) > 100
 
 
 def test_slug_macro_name() -> None:

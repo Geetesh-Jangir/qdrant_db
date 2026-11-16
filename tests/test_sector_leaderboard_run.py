@@ -189,7 +189,8 @@ def test_both_sides_build_a_card_the_validator_accepts(tmp_path):
     assert [item["tone"] for item in envelope.viz.data["items"]] == ["positive", "negative"]
     assert all(row["stories"] >= 2 for row in envelope.facts["ranking"])
     assert {chip.tone for chip in envelope.chips} == {"positive", "negative", "neutral"}
-    assert any(chip.label == "Sectors tracked" for chip in envelope.chips)
+    assert any("news tone" in chip.label or chip.label == "Sectors tracked" for chip in envelope.chips)
+    assert envelope.viz.data.get("drivers")
     assert 1 <= len(envelope.sources) <= 3
     assert {source.url for source in envelope.sources} >= {"https://banks/a", "https://realty/a"} or {
         source.url for source in envelope.sources
@@ -338,6 +339,26 @@ def test_a_number_that_is_in_the_story_passes_the_shared_validator(tmp_path):
     checked = validate_insight(envelope)
     assert checked.ok, checked.errors
     assert "25" in envelope.body
+
+
+def test_compose_body_keeps_both_sides_when_week_pct_has_decimals():
+    wm = {
+        "best_index": {"display": "Nifty Bank", "week_change_pct": 10.13},
+        "worst_index": {"display": "Nifty IT", "week_change_pct": -0.38},
+    }
+    best = SectorScore(name="Banks", display="Banks", score=0.041, n_stories=25, stories=[])
+    worst = SectorScore(name="It - Software", display="It - Software", score=-0.009, n_stories=6, stories=[])
+    body = compose_body(
+        best,
+        worst,
+        "Banks may gain as oil and bond yields ease, though rate hikes loom",
+        "IT firms face H-1B visa scrutiny and weak organic revenue",
+        week_meta=wm,
+    )
+    assert "Nifty Bank" in body
+    assert "Nifty IT" in body
+    assert "10.13%" in body
+    assert "0.38%" in body
 
 
 def test_body_stays_inside_the_length_contract_and_drops_the_extra_line():

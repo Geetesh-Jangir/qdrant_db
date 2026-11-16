@@ -5,6 +5,7 @@ from ai_insight.common.display import sector_label
 
 from ai_insight.sector_leaderboard.schema import SectorScore, StoryScore, llm_schema
 from ai_insight.sector_leaderboard.score import (
+    Ranking,
     prominence,
     rank,
     score_sector,
@@ -12,6 +13,9 @@ from ai_insight.sector_leaderboard.score import (
     shown,
     story_weight,
     top_stories,
+    pulse_viz_data,
+    pulse_viz_items,
+    summarize_sector_news,
     viz_items,
 )
 
@@ -203,6 +207,95 @@ def test_top_stories_follow_absolute_weight():
     assert [story.title for story in top_stories(sector, 2)] == ["Sharp", "Mild"]
 
 
+def test_summarize_sector_news_splits_direction_and_headlines():
+    stories = [
+        StoryScore(
+            cluster_id="s00_c0",
+            title="Rates cut",
+            url="https://a",
+            source="Mint",
+            published_at="2026-11-13T06:00:00Z",
+            text="Rates cut",
+            weight=0.5,
+            magnitude=0.5,
+            sign=1,
+            direction="positive",
+        ),
+        StoryScore(
+            cluster_id="s00_c1",
+            title="Loan stress rises",
+            url="https://b",
+            source="Mint",
+            published_at="2026-11-13T07:00:00Z",
+            text="Stress",
+            weight=-0.4,
+            magnitude=0.4,
+            sign=-1,
+            direction="negative",
+        ),
+    ]
+    sector = SectorScore(name="Banks", display="Banks", score=0.05, n_stories=2, stories=stories)
+    digest = summarize_sector_news(sector, headline_limit=2)
+    assert digest["boosting"] == 1
+    assert digest["weighing"] == 1
+    assert len(digest["headlines"]["boosting"]) == 1
+    assert digest["headlines"]["boosting"][0]["title"] == "Rates cut"
+
+
+def test_pulse_viz_prefers_week_index_moves():
+    ranking = Ranking(
+        sectors=[],
+        eligible=[
+            SectorScore(name="Banks", display="Banks", score=0.04, n_stories=3, stories=[]),
+            SectorScore(name="It - Software", display="It - Software", score=-0.01, n_stories=2, stories=[]),
+        ],
+        best=SectorScore(name="Banks", display="Banks", score=0.04, n_stories=3, stories=[]),
+        worst=SectorScore(name="It - Software", display="It - Software", score=-0.01, n_stories=2, stories=[]),
+    )
+    items = pulse_viz_items(
+        ranking,
+        {
+            "best_index": {"display": "Nifty Bank", "week_change_pct": 1.2, "sectors": ["Banks"]},
+            "worst_index": {"display": "Nifty IT", "week_change_pct": -0.5, "sectors": ["It - Software"]},
+        },
+    )
+    assert [item["week_change_pct"] for item in items] == [1.2, -0.5]
+    assert items[0]["stories"] == 3
+
+
+def test_pulse_viz_data_includes_driver_board():
+    ranking = Ranking(
+        sectors=[],
+        eligible=[
+            SectorScore(name="Banks", display="Banks", score=0.04, n_stories=1, stories=[]),
+        ],
+        best=SectorScore(
+            name="Banks",
+            display="Banks",
+            score=0.04,
+            n_stories=1,
+            stories=[
+                StoryScore(
+                    cluster_id="s00_c0",
+                    title="A",
+                    url="https://a",
+                    source="Mint",
+                    published_at="z",
+                    text="t",
+                    weight=0.3,
+                    magnitude=0.3,
+                    sign=1,
+                    direction="positive",
+                )
+            ],
+        ),
+        worst=None,
+    )
+    payload = pulse_viz_data(ranking, {"best_index": {"display": "Nifty Bank", "week_change_pct": 1.0, "sectors": ["Banks"]}}, best_theme="rates eased")
+    assert payload["drivers"]["best"]["theme"] == "rates eased"
+    assert payload["drivers"]["best"]["boosting"] == 1
+
+
 def test_viz_keeps_three_each_side_and_rounds_scores():
     sectors = [
         SectorScore(name=f"P{index}", display=f"P{index}", score=score, n_stories=2, stories=[])
@@ -230,7 +323,7 @@ def test_prominence_needs_five_saved_days_and_uses_the_top_decile():
 def test_display_names_stay_cosmetic():
     sector = score_sector("It - Software", [])
     assert sector.name == "It - Software"
-    assert sector.display == sector_label("It - Software") == "IT Software"
+    assert sector.display == sector_label("It - Software") == "It - Software"
 
 
 def test_llm_schema_requires_only_the_sides_that_exist():

@@ -8,7 +8,7 @@ from news_rag.indian_format import format_indian_amount
 SECTOR_DISPLAY: dict[str, str] = {
     "Banks": "Banks",
     "Pharmaceuticals & Biotechnology": "Pharma & Biotech",
-    "It - Software": "IT Software",
+    "It - Software": "It - Software",
     "Finance": "Finance",
     "Capital Markets": "Capital Markets",
     "Automobiles": "Automobiles",

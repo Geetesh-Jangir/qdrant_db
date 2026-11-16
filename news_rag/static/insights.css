@@ -26,6 +26,15 @@ button:disabled { opacity: 0.6; cursor: wait; }
 .chip.positive { background: #ecfdf5; color: #047857; }
 .chip.negative { background: #fef2f2; color: #b91c1c; }
 .chart { width: 100%; height: 88px; margin-top: 0.6rem; }
+.pulse-drivers { margin-top: 0.75rem; display: grid; gap: 0.85rem; }
+.driver-block { border: 1px solid #e2e8f0; border-radius: 10px; padding: 0.65rem 0.75rem; background: #f8fafc; }
+.driver-theme { margin: 0 0 0.35rem; font-size: 0.92rem; color: #0f172a; }
+.driver-meta { margin: 0 0 0.5rem; }
+.driver-heading { margin: 0.45rem 0 0.25rem; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; font-weight: 700; }
+.driver-heading.positive { color: #047857; }
+.driver-heading.negative { color: #b91c1c; }
+.driver-list { margin: 0; padding-left: 1.1rem; font-size: 0.85rem; }
+.driver-list li { margin: 0.25rem 0; }
 .why { margin-top: 0.6rem; }
 .why summary { cursor: pointer; color: #2563eb; font-size: 0.85rem; }
 .source { font-size: 0.85rem; margin-top: 0.35rem; }

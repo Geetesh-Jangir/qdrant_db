@@ -1,4 +1,4 @@
-"""Run one insight: trading day, idempotency, validation, save, one summary line."""
+"""Run one insight: trading day, validation, save, one summary line."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from typing import Any, Callable
 from ai_insight.common.config import CommonConfig, load_config
 from ai_insight.common.run_log import RunLog
 from ai_insight.common.schemas import Envelope, InsightBundle, Meta, UsageMeta
-from ai_insight.common.store import bundle_exists, exists, load, save
+from ai_insight.common.store import save
 from ai_insight.common.time_ist import fmt_ist, ist_now, session_window, to_ist
 from ai_insight.common.trading_calendar import is_trading_day
 from ai_insight.common.validate import validate_insight
@@ -124,11 +124,6 @@ def run_insight(
             if not dry_run:
                 saved = str(save(envelope, root=cfg.data_dir, live=live))
             return _finish(log, status, 0, started, envelope, saved, artifacts)
-        if not dry_run and not live and not force and exists(insight_id, trading_date.isoformat(), status="ok", root=cfg.data_dir):
-            status = "skipped"
-            envelope = load(insight_id, trading_date.isoformat(), root=cfg.data_dir)
-            log.warning("an ok file already exists; pass --force to write it again")
-            return _finish(log, status, 0, started, envelope, saved, artifacts)
         ctx = RunContext(
             insight_id=insight_id,
             trading_date=trading_date,
@@ -189,7 +184,7 @@ def run_insight(
 def cli_main(insight_id: str, build_fn: BuildFn, argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog=f"insight {insight_id}")
     parser.add_argument("--date", default="", help="Trading date YYYY-MM-DD. Default: today in IST.")
-    parser.add_argument("--force", action="store_true", help="Rewrite an existing ok file.")
+    parser.add_argument("--force", action="store_true", help="Kept for scripts; every run rebuilds the file.")
     parser.add_argument("--dry-run", action="store_true", help="Print facts and prompts. Do not call the model or save.")
     parser.add_argument("--verbose", action="store_true", help="Keep the full prompt next to the log.")
     parser.add_argument("--live", action="store_true", help="Window ends now. Saved beside the nightly file.")
@@ -262,10 +257,6 @@ def run_bundle_insight(
             status = "skipped"
             log.warning(f"{trading_date.isoformat()} is not an NSE trading day, so nothing was written for investors")
             return _finish_bundle(log, status, 0, started, None, "", artifacts)
-        if not dry_run and not live and not force and bundle_exists(insight_id, trading_date.isoformat(), status="ok", root=cfg.data_dir):
-            status = "skipped"
-            log.warning("an ok bundle already exists; pass --force to write it again")
-            return _finish_bundle(log, status, 0, started, None, "", artifacts)
         ctx = RunContext(
             insight_id=insight_id,
             trading_date=trading_date,
@@ -306,7 +297,7 @@ def run_bundle_insight(
 def bundle_cli_main(insight_id: str, build_fn: BundleBuildFn, argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog=f"insight bundle {insight_id}")
     parser.add_argument("--date", default="", help="Trading date YYYY-MM-DD. Default: today in IST.")
-    parser.add_argument("--force", action="store_true", help="Rewrite an existing ok bundle.")
+    parser.add_argument("--force", action="store_true", help="Kept for scripts; every run rebuilds the bundle.")
     parser.add_argument("--dry-run", action="store_true", help="Build without calling the model or saving.")
     parser.add_argument("--verbose", action="store_true", help="Keep the full prompt next to the log.")
     parser.add_argument("--live", action="store_true", help="Window ends now. Saved beside the nightly file.")

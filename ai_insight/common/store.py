@@ -36,31 +36,19 @@ class LoadedEnvelope:
 
 
 def load_best(insight_id: str, trading_date: str, *, root: Path | None = None) -> Envelope | None:
-    """Prefer the newer ok file when a live run and a scheduled run both exist."""
+    """Newest envelope for the day (scheduled or live)."""
     return load_best_detail(insight_id, trading_date, root=root).envelope
 
 
 def load_best_detail(insight_id: str, trading_date: str, *, root: Path | None = None) -> LoadedEnvelope:
+    """Return the newest saved envelope for the day (scheduled vs live), never an older ok fallback."""
     scheduled = load(insight_id, trading_date, root=root, live=False)
     live_file = load(insight_id, trading_date, root=root, live=True)
-    stale = False
-    reason = ""
-    if live_file is not None and live_file.status in {"failed", "degraded"} and scheduled is not None and scheduled.status == "ok":
-        stale = True
-        reason = f"latest live run is {live_file.status}; showing last ok from {scheduled.as_of_ist}"
-    chosen: Envelope | None
-    ok = [item for item in (scheduled, live_file) if item is not None and item.status == "ok"]
-    if ok:
-        chosen = max(ok, key=lambda item: item.as_of_ist)
-    else:
-        chosen = live_file or scheduled
-    if chosen is None:
-        return LoadedEnvelope(None, stale=False)
-    if live_file is not None and live_file.status in {"ok", "degraded"} and live_file.as_of_ist >= chosen.as_of_ist:
-        chosen = live_file
-        stale = False
-        reason = ""
-    return LoadedEnvelope(chosen, stale=stale, stale_reason=reason)
+    candidates = [item for item in (scheduled, live_file) if item is not None]
+    if not candidates:
+        return LoadedEnvelope(None)
+    chosen = max(candidates, key=lambda item: item.as_of_ist)
+    return LoadedEnvelope(chosen, stale=False, stale_reason="")
 
 
 def save_bundle(bundle: InsightBundle, *, root: Path | None = None, live: bool = False) -> Path:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 INSIGHT_ID = "sector_index_insights"
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 DRAFT_SCHEMA: dict[str, Any] = {
     "type": "object",

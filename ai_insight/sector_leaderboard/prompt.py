@@ -13,9 +13,10 @@ SYSTEM = """You write two short news themes for the week's winning and losing se
 
 Rules:
 - Output only best_theme, worst_theme, cited_cluster_ids.
+- Synthesize the main thread across the stories for each side; do not rely on a single headline.
 - Use story text given. Plain words. Each theme ≤ 14 words, no period at the end.
 - No scores, no "articles do not", no advice.
-- cited_cluster_ids from the stories you used.
+- cited_cluster_ids: 2–4 cluster ids from the stories that support each theme.
 
 Example 1
 Stories:

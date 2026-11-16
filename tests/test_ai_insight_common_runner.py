@@ -59,24 +59,20 @@ def test_non_trading_day_is_skipped(tmp_path):
     assert "RUN_SUMMARY" in text and "status=skipped" in text
 
 
-def test_existing_ok_is_kept_unless_forced(tmp_path):
+def test_existing_ok_is_rebuilt_on_rerun(tmp_path):
     cfg = _cfg(tmp_path)
     save(_good("Original headline stays"), root=cfg.data_dir)
     calls = []
-    skipped = run_insight("market_driver_digest", lambda ctx: calls.append(1) or _good(), DAY, config=cfg, now=NOW)
-    assert calls == []
-    assert skipped.status == "skipped"
-    forced = run_insight(
+    outcome = run_insight(
         "market_driver_digest",
-        lambda ctx: calls.append(1) or _good("Forced headline stays"),
+        lambda ctx: calls.append(1) or _good("Fresh headline after rerun"),
         DAY,
-        force=True,
         config=cfg,
         now=NOW,
     )
     assert calls == [1]
-    assert forced.status == "ok"
-    assert load("market_driver_digest", "2026-11-16", root=cfg.data_dir).headline == "Forced headline stays"
+    assert outcome.status == "ok"
+    assert load("market_driver_digest", "2026-11-16", root=cfg.data_dir).headline == "Fresh headline after rerun"
 
 
 def test_exception_is_saved_as_failed(tmp_path):

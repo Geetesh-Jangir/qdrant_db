@@ -97,9 +97,69 @@
     return '<svg class="chart" viewBox="0 0 ' + width + " " + height + '" role="img" aria-label="' + label + '"><title>' + label + '</title><line x1="0" y1="40" x2="' + width + '" y2="40" stroke="#cbd5e1"/>' + shapes + "</svg>";
   }
 
+  function esc(text) {
+    return String(text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function pulseDrivers(viz, insightId) {
+    if (insightId !== "sector_leaderboard" || !viz || viz.type !== "diverging_bars") return "";
+    const drivers = (viz.data && viz.data.drivers) || null;
+    if (!drivers) return "";
+    const blocks = [];
+    ["best", "worst"].forEach(function (side) {
+      const block = drivers[side];
+      if (!block || !block.total) return;
+      const index = esc(block.index || block.sector || side);
+      const pct = block.week_change_pct != null ? " (" + (block.week_change_pct >= 0 ? "+" : "") + Number(block.week_change_pct).toFixed(2) + "% week)" : "";
+      const theme = block.theme ? '<p class="driver-theme"><strong>' + index + "</strong>" + pct + " — " + esc(block.theme) + "</p>" : "<p class=\"driver-theme\"><strong>" + index + "</strong>" + pct + "</p>";
+      const meta = '<p class="muted driver-meta">' + block.total + " stories scanned · " + block.boosting + " boosting · " + block.weighing + " weighing on sector entities</p>";
+      let lists = "";
+      [["boosting", "Boosting headlines", "positive"], ["weighing", "Weighing headlines", "negative"]].forEach(function (row) {
+        const key = row[0];
+        const heading = row[1];
+        const tone = row[2];
+        const headlines = (block.headlines && block.headlines[key]) || [];
+        if (!headlines.length) return;
+        lists += '<p class="driver-heading ' + tone + '">' + heading + "</p><ul class="driver-list">';
+        headlines.forEach(function (item) {
+          const title = esc(item.title || "Story");
+          const href = esc(item.url || "#");
+          const src = esc(item.source || "");
+          lists += "<li>" + (src ? '<span class="muted">' + src + " · </span>" : "") + '<a href="' + href + '" target="_blank" rel="noopener">' + title + "</a></li>";
+        });
+        lists += "</ul>";
+      });
+      blocks.push('<div class="driver-block">' + theme + meta + lists + "</div>");
+    });
+    if (!blocks.length) return "";
+    return '<div class="pulse-drivers">' + blocks.join("") + "</div>";
+  }
+
   function diverging(items) {
-    const text = items.slice(0, 6).map((item) => (item.display || item.name || "") + " " + (item.score || "")).join(", ");
-    return '<p class="muted" aria-label="Sector scores">' + (text || "No sector bars") + "</p>";
+    if (!items.length) return '<p class="muted" aria-label="Sector movers">No sector bars</p>';
+  const hasWeek = items.some((item) => item.week_change_pct != null);
+    if (!hasWeek) {
+      const text = items.slice(0, 6).map((item) => (item.display || item.sector || item.name || "") + " " + (item.score || "")).join(", ");
+      return '<p class="muted" aria-label="Sector scores">' + text + "</p>";
+    }
+    const width = 300;
+    const height = 88;
+    const values = items.map((item) => Number(item.week_change_pct || 0));
+    const maxAbs = Math.max.apply(null, values.map(Math.abs).concat([0.5]));
+    let shapes = "";
+    const slot = width / Math.max(items.length, 1);
+    items.forEach((item, index) => {
+      const value = Number(item.week_change_pct || 0);
+      const label = item.display || item.sector || "";
+      const bh = Math.abs(value) / maxAbs * 34;
+      const y = value >= 0 ? 42 - bh : 42;
+      const x = index * slot + slot / 2 - 14;
+      const color = value >= 0 ? "#1d4ed8" : "#b91c1c";
+      const pct = (value >= 0 ? "+" : "") + value.toFixed(2) + "%";
+      shapes += '<rect x="' + x + '" y="' + y + '" width="28" height="' + bh + '" fill="' + color + '"><title>' + label + " " + pct + "</title></rect>";
+      shapes += '<text x="' + (x + 14) + '" y="78" text-anchor="middle" font-size="10" fill="#475569">' + label.replace(/^Nifty /, "") + "</text>";
+    });
+    return '<svg class="chart" viewBox="0 0 ' + width + " " + height + '" role="img" aria-label="Index week moves"><title>Index week moves</title><line x1="0" y1="42" x2="' + width + '" y2="42" stroke="#cbd5e1"/>' + shapes + "</svg>";
   }
 
   const INSIGHT_ORDER = [
@@ -130,12 +190,14 @@
     const stale = item.stale ? '<p class="banner">Showing last good card: ' + (item.stale_reason || "stale") + "</p>" : "";
     const logLink = item.log_url ? '<a class="log-link" href="' + item.log_url + '" target="_blank" rel="noopener">View log</a>' : "";
     const logPath = item.log_path ? '<p class="muted log-path">' + item.log_path + "</p>" : "";
+    const vizHtml = chart(item.viz);
+    const driverHtml = pulseDrivers(item.viz, item.insight_id);
     const callTable = (usage.calls_detail || []).length
       ? '<details class="why"><summary>LLM calls</summary><table class="log-table"><thead><tr><th>Label</th><th>Kind</th><th>In</th><th>Out</th></tr></thead><tbody>' +
         usage.calls_detail.map((row) => "<tr><td>" + (row.label || "") + "</td><td>" + (row.kind || "") + "</td><td>" + (row.input_tokens || 0) + "</td><td>" + (row.output_tokens || 0) + "</td></tr>").join("") +
         "</tbody></table></details>"
       : "";
-    return '<article class="card"><div class="kicker"><span>' + label + "</span><span>" + badge + review + live + beta + '</span></div>' + stale + "<h3>" + item.headline + "</h3><p>" + item.body + '</p><div class="chips">' + chips + "</div>" + usageLine + callTable + '<details class="why"><summary>Why we say this</summary>' + (sources || '<p class="muted">No source linked.</p>') + "</details>" + logLink + logPath + "</article>";
+    return '<article class="card"><div class="kicker"><span>' + label + "</span><span>" + badge + review + live + beta + '</span></div>' + stale + "<h3>" + item.headline + "</h3><p>" + item.body + "</p>" + vizHtml + driverHtml + '<div class="chips">' + chips + "</div>" + usageLine + callTable + '<details class="why"><summary>Why we say this</summary>' + (sources || '<p class="muted">No source linked.</p>') + "</details>" + logLink + logPath + "</article>";
   }
 
   function render() {

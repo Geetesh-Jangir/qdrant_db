@@ -28,16 +28,36 @@ class SectorQuery:
 
 
 PUBLISHERS: tuple[Publisher, ...] = (
+    # Indian business dailies / financial portals
     Publisher("economictimes.indiatimes.com", ("economic times",)),
     Publisher("livemint.com", ("livemint", "mint")),
     Publisher("business-standard.com", ("business standard",)),
     Publisher("moneycontrol.com", ("moneycontrol",)),
     Publisher("thehindubusinessline.com", ("businessline", "hindu business line")),
     Publisher("financialexpress.com", ("financial express",)),
-    Publisher("reuters.com", ("reuters",)),
-    Publisher("bloomberg.com", ("bloomberg",)),
     Publisher("cnbctv18.com", ("cnbc-tv18", "cnbc tv18", "cnbctv18")),
     Publisher("ndtvprofit.com", ("ndtv profit",)),
+    Publisher("zeebiz.com", ("zee business", "zeebiz")),
+    Publisher("businesstoday.in", ("business today",)),
+    Publisher("fortuneindia.com", ("fortune india",)),
+    Publisher("thehindu.com", ("the hindu",)),
+    Publisher("indianexpress.com", ("indian express",)),
+    Publisher("outlookbusiness.com", ("outlook business",)),
+
+    # Global wires / financial press (often syndicated into Indian coverage)
+    Publisher("reuters.com", ("reuters",)),
+    Publisher("bloomberg.com", ("bloomberg",)),
+    Publisher("wsj.com", ("wall street journal", "wsj")),
+    Publisher("ft.com", ("financial times", "ft")),
+    Publisher("cnbc.com", ("cnbc",)),
+    Publisher("apnews.com", ("associated press", "ap")),
+
+    # Regulators / exchanges / official sources (highest trust, useful for corroboration)
+    Publisher("sebi.gov.in", ("sebi",)),
+    Publisher("rbi.org.in", ("rbi", "reserve bank of india")),
+    Publisher("nseindia.com", ("nse", "national stock exchange")),
+    Publisher("bseindia.com", ("bse", "bombay stock exchange")),
+    Publisher("pib.gov.in", ("pib", "press information bureau")),
 )
 
 # Google queries are phrases, not the raw sector label. Keywords are the

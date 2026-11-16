@@ -5,15 +5,16 @@ from __future__ import annotations
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any, Literal
 
-from news_pipeline.config import MACRO_ENTITIES, SECTOR_QUERIES
+from news_pipeline.config import MACRO_ENTITIES, SECTOR_BELLWETHERS, SECTOR_QUERIES
 
 from ai_insight.common.clustering import Cluster, cluster_rows, rank_clusters
 from ai_insight.common.evidence import EvidenceArticle, enforce_prompt_budget, pick_evidence
 from ai_insight.common.qdrant_access import GateConfig, fetch_entity_rows
 from ai_insight.common.retrieval_plan import RELAXED_GATE, SectionRetrieval, _tag_rows
-from ai_insight.common.sector_indices import IndexSeries, fetch_ohlc, load_catalog
+from ai_insight.common.sector_indices import IndexSeries, fetch_ohlc, load_catalog, news_sectors_for_index
 
 EntityType = Literal["macro", "sector"]
 
@@ -50,6 +51,168 @@ def slug(name: str) -> str:
 
 
 SECTOR_INDEX_GATE = GateConfig(min_relevance=2, min_impact=1, min_about=0.45)
+SECTOR_RELAXED_GATE = GateConfig(min_relevance=2, min_impact=1, min_about=0.35)
+HOLDING_READTHROUGH_GATE = GateConfig(min_relevance=2, min_impact=1, min_about=0.4)
+_BELLWETHER_HOLDINGS_LIMIT = 5
+_MIN_SECTOR_ROWS_BEFORE_HOLDINGS = 3
+
+
+@lru_cache(maxsize=1)
+def _qdrant_holding_names() -> frozenset[str]:
+    """All instrument names in the holdings aggregate (not the pipeline holdings_limit subset)."""
+    import csv
+
+    from news_pipeline.config import Settings
+
+    path = Settings().path(Settings().holdings_csv)
+    names: set[str] = set()
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            raw = str(row.get("instrument_name") or "").strip()
+            if raw:
+                names.add(raw)
+    return frozenset(names)
+
+
+# Qdrant entity_names are case-sensitive; these match live corpus tags.
+_SECTOR_QDRANT_HOLDINGS: dict[str, tuple[str, ...]] = {
+    "It - Software": (
+        "Tata Consultancy Services Limited",
+        "Infosys Limited",
+        "Wipro Ltd.",
+        "Tech Mahindra Limited",
+    ),
+}
+
+_BELLWETHER_SEARCH: dict[str, str] = {
+    "tcs": "tata consultancy services",
+    "infosys": "infosys",
+    "hcl tech": "hcl technologies",
+    "wipro": "wipro",
+    "tech mahindra": "tech mahindra",
+}
+
+
+def _resolve_bellwether(label: str, corpus: set[str]) -> str | None:
+    from lib.portfolio_scope import match_holding_to_corpus_entity
+    from news_pipeline.sources.universe import canonical_key
+
+    hit = match_holding_to_corpus_entity(label, corpus)
+    if hit in corpus:
+        lowered = hit.lower()
+        if not any(bad in lowered for bad in ("future", "covered call", "eq -")):
+            return hit
+    needle = _BELLWETHER_SEARCH.get(label.casefold(), canonical_key(label))
+    if not needle:
+        return None
+
+    def rank(name: str) -> tuple[int, int, int, str]:
+        lowered = name.lower()
+        if any(bad in lowered for bad in ("future", "covered call", " #", "eq -", " ~~")):
+            return (3, 0, len(name), name)
+        if re.search(r"\d", name):
+            return (2, 0, len(name), name)
+        if name.isupper() and len(name) > 12:
+            return (2, 0, len(name), name)
+        if lowered.startswith("eq "):
+            return (2, 0, len(name), name)
+        key = canonical_key(name)
+        if needle in key or all(token in key for token in needle.split() if len(token) > 2):
+            titleish = 1 if re.match(r"^[A-Z][a-z].*(Limited|Ltd\.?)$", name) else 0
+            return (0, titleish, -len(name), name)
+        return (1, 0, len(name), name)
+
+    ordered = sorted(corpus, key=rank)
+    if ordered and rank(ordered[0])[0] == 0:
+        return ordered[0]
+    return None
+
+
+def bellwether_holdings(sector_name: str, *, limit: int = _BELLWETHER_HOLDINGS_LIMIT) -> list[str]:
+    corpus = set(_qdrant_holding_names())
+    fixed = _SECTOR_QDRANT_HOLDINGS.get(sector_name)
+    if fixed:
+        return [name for name in fixed if name in corpus][:limit]
+    raw = str(SECTOR_BELLWETHERS.get(sector_name) or "").strip()
+    if not raw:
+        return []
+    resolved: list[str] = []
+    for part in raw.split(","):
+        label = part.strip()
+        if not label:
+            continue
+        name = _resolve_bellwether(label, corpus)
+        if name and name not in resolved:
+            resolved.append(name)
+        if len(resolved) >= limit:
+            break
+    return resolved
+
+
+def _sectorize_holding_rows(rows: list[dict[str, Any]], sector_name: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        entity = dict(item.get("entity") or {})
+        entity["bellwether"] = str(entity.get("name") or "")
+        entity["name"] = sector_name
+        item["entity"] = entity
+        out.append(item)
+    return out
+
+
+def _merge_pack_clusters(pack: EntityPack, extra_rows: list[dict[str, Any]], *, top_clusters: int, prefix: str) -> EntityPack:
+    if not extra_rows:
+        return pack
+    merged = list(pack.rows) + list(extra_rows)
+    clusters = rank_clusters(cluster_rows(merged, top_clusters=max(top_clusters * 3, 4)))[:top_clusters]
+    for cluster in clusters:
+        cluster.cluster_id = f"{prefix}#{cluster.cluster_id}"
+    diag = dict(pack.diagnostics)
+    diag["holding_rows"] = len(extra_rows)
+    return EntityPack(
+        entity_name=pack.entity_name,
+        entity_type=pack.entity_type,
+        clusters=clusters,
+        rows=merged,
+        diagnostics=diag,
+    )
+
+
+def fetch_sector_news_pack(
+    ctx,
+    sector_name: str,
+    window: tuple[str, str],
+    today: tuple[str, str],
+    *,
+    top_clusters: int = 12,
+    client: Any | None = None,
+    gate: GateConfig | None = None,
+) -> EntityPack:
+    """Sector entities first; bellwether holdings when sector tags are weak (common for Nifty IT)."""
+    gate = gate or SECTOR_INDEX_GATE
+    pack = fetch_sector_pack(ctx, sector_name, window, today, top_clusters=top_clusters, client=client, gate=gate)
+    if not pack.rows:
+        pack = fetch_entity_pack(
+            ctx,
+            sector_name,
+            "sector",
+            window,
+            top_clusters=top_clusters,
+            client=client,
+            gate=SECTOR_RELAXED_GATE,
+        )
+        pack.rows = _tag_rows(pack.rows, window, today)
+    holdings = bellwether_holdings(sector_name)
+    if holdings and len(pack.rows) < _MIN_SECTOR_ROWS_BEFORE_HOLDINGS:
+        hold = fetch_entity_rows("holding", window, holdings, gate=HOLDING_READTHROUGH_GATE, client=client, log=ctx.log)
+        extra = _sectorize_holding_rows(_tag_rows(hold.rows, window, today), sector_name)
+        prefix = slug(sector_name)
+        pack = _merge_pack_clusters(pack, extra, top_clusters=top_clusters, prefix=prefix)
+        pack.diagnostics = {**pack.diagnostics, "holdings_passed": hold.diagnostics.entities_passed}
+    if not pack.rows:
+        pack = fetch_sector_pack(ctx, sector_name, window, today, top_clusters=top_clusters, client=client, gate=SECTOR_RELAXED_GATE)
+    return pack
 
 
 def fetch_entity_pack(
@@ -195,16 +358,16 @@ def sector_names_for_pulse(ctx) -> tuple[list[str], list[str], dict[str, Any]]:
         meta["best_index"] = {
             "display": best.spec.display,
             "week_change_pct": best.week_change_pct,
-            "sectors": best.spec.news_sectors,
+            "sectors": news_sectors_for_index(best.spec),
         }
-        best_names = list(best.spec.news_sectors)
+        best_names = list(news_sectors_for_index(best.spec))
     if worst is not None:
         meta["worst_index"] = {
             "display": worst.spec.display,
             "week_change_pct": worst.week_change_pct,
-            "sectors": worst.spec.news_sectors,
+            "sectors": news_sectors_for_index(worst.spec),
         }
-        worst_names = list(worst.spec.news_sectors)
+        worst_names = list(news_sectors_for_index(worst.spec))
     return best_names, worst_names, meta
 
 
@@ -243,7 +406,7 @@ def fetch_sector_pulse_sectors(
 
     week, today = plan_window(ctx, "sector_leaderboard")
     packs = [
-        fetch_sector_pack(ctx, name, week, today, top_clusters=top_clusters, client=client)
+        fetch_sector_news_pack(ctx, name, week, today, top_clusters=top_clusters, client=client)
         for name in sector_names
         if name in SECTOR_QUERIES
     ]
@@ -259,12 +422,11 @@ def fetch_sector_index(ctx, sector_names: list[str], client: Any | None = None) 
         if name not in SECTOR_QUERIES:
             ctx.log.line("INDEX_NEWS", f"skip unknown sector key {name!r}")
             continue
-        pack = fetch_sector_pack(ctx, name, week, today, top_clusters=12, client=client, gate=SECTOR_INDEX_GATE)
-        if not pack.rows:
-            pack = fetch_sector_pack(ctx, name, week, today, top_clusters=12, client=client, gate=RELAXED_GATE)
+        pack = fetch_sector_news_pack(ctx, name, week, today, top_clusters=12, client=client)
         ctx.log.line(
             "INDEX_NEWS",
-            f"sector={name} passed={pack.diagnostics.get('passed', 0)} clusters={len(pack.clusters)}",
+            f"sector={name} rows={len(pack.rows)} clusters={len(pack.clusters)} "
+            f"holdings={pack.diagnostics.get('holdings_passed', 0)}",
         )
         packs.append(pack)
     return packs_to_section(ctx, packs, week, today, per_cluster=3, max_clusters=24)
@@ -278,9 +440,14 @@ __all__ = [
     "fetch_fii_dii",
     "fetch_market_driver",
     "fetch_macro_packs",
+    "bellwether_holdings",
     "fetch_sector_index",
+    "fetch_sector_news_pack",
     "fetch_sector_pulse_sectors",
     "merge_evidence",
     "sector_names_for_pulse",
     "week_index_movers",
+    "HOLDING_READTHROUGH_GATE",
+    "SECTOR_INDEX_GATE",
+    "SECTOR_RELAXED_GATE",
 ]

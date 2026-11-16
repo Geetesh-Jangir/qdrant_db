@@ -1,16 +1,16 @@
 {
-  "trade_date": "13-Nov-2026",
+  "trade_date": "16-Nov-2026",
   "fii": {
     "category": "FII/FPI",
-    "buy_inr_crore": 18339.57,
-    "sell_inr_crore": 12603.02,
-    "net_inr_crore": 5736.55
+    "buy_inr_crore": 15636.88,
+    "sell_inr_crore": 10772.2,
+    "net_inr_crore": 4864.68
   },
   "dii": {
     "category": "DII",
-    "buy_inr_crore": 11745.95,
-    "sell_inr_crore": 13999.53,
-    "net_inr_crore": -2253.58
+    "buy_inr_crore": 11752.03,
+    "sell_inr_crore": 15271.08,
+    "net_inr_crore": -3519.05
   },
   "source": "nseindia.com:fiidiiTradeReact",
   "status": "ok",

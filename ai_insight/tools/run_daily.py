@@ -82,7 +82,7 @@ def run_daily(*, dry_run: bool = False, simulate_failure: str = "", max_wait_sec
             notify_failure(f"{name} simulated failure")
             continue
         started = time.perf_counter()
-        command = [sys.executable, "-m", f"ai_insight.{name}.run", "--date", day]
+        command = [sys.executable, "-m", f"ai_insight.{name}.run", "--date", day, "--force"]
         completed = subprocess.run(command, check=False, env=child_env)
         code = int(completed.returncode)
         status = "ok" if code == 0 else "failed"

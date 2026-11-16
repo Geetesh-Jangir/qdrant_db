@@ -88,9 +88,26 @@ def load_catalog(path: Path | None = None, *, include_weak: bool = False) -> lis
                 scope_note=row.get("scope_note") or "",
             )
         else:
+            row_fit = row.get("fit") or "exact"
+            if row_fit == "exact":
+                if current.fit != "exact":
+                    current.news_sectors = [row["sector"]]
+                elif row["sector"] not in current.news_sectors:
+                    current.news_sectors.insert(0, row["sector"])
+                current.fit = "exact"  # type: ignore[misc]
+                continue
+            if current.fit == "exact" and row_fit != "exact":
+                continue
             if row["sector"] not in current.news_sectors:
                 current.news_sectors.append(row["sector"])
     return list(grouped.values())
+
+
+def news_sectors_for_index(spec: IndexSpec) -> list[str]:
+    """Qdrant sector entity names used for retrieval (proxies dropped in load_catalog)."""
+    if spec.display == "Nifty IT":
+        return ["It - Software"]
+    return list(spec.news_sectors)
 
 
 def series_is_usable(rows: list[dict[str, Any]], trading_date: date) -> tuple[bool, str]:

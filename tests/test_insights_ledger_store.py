@@ -8,7 +8,7 @@ from ai_insight.common.schemas import Envelope, Meta, UsageMeta
 from ai_insight.fii_dii_flow_narrative.collector import append_record
 
 
-def test_load_best_detail_stale_when_live_failed(tmp_path):
+def test_load_best_detail_prefers_newest_not_older_ok(tmp_path):
     ok = Envelope(
         insight_id="market_driver_digest",
         trading_date="2026-11-16",
@@ -18,13 +18,21 @@ def test_load_best_detail_stale_when_live_failed(tmp_path):
         body="body",
         meta=Meta(run_mode="scheduled"),
     )
-    bad = ok.model_copy(update={"status": "failed", "headline": "", "body": "", "meta": Meta(run_mode="live")})
+    bad = ok.model_copy(
+        update={
+            "as_of_ist": "2026-11-16T18:00:00+05:30",
+            "status": "failed",
+            "headline": "",
+            "body": "",
+            "meta": Meta(run_mode="live"),
+        }
+    )
     save(ok, root=tmp_path, live=False)
     save(bad, root=tmp_path, live=True)
     detail = load_best_detail("market_driver_digest", "2026-11-16", root=tmp_path)
     assert detail.envelope is not None
-    assert detail.envelope.status == "ok"
-    assert detail.stale is True
+    assert detail.envelope.status == "failed"
+    assert detail.stale is False
 
 
 def test_fii_history_keeps_revision(tmp_path):
