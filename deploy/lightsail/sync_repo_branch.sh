@@ -5,6 +5,17 @@ set -euo pipefail
 
 BRANCH="${1:?usage: sync_repo_branch.sh <branch>}"
 
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+# Runtime failure ledgers on the server are often untracked; v2 tracks empty seeds in git.
+for f in data/news_failures/google.json data/news_failures/source.json; do
+  path="${ROOT}/${f}"
+  if [[ -f "${path}" ]] && ! git ls-files --error-unmatch "${f}" &>/dev/null; then
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    mv "${path}" "${path}.server-backup.${stamp}"
+    echo "==> Backed up untracked ${f} -> ${f}.server-backup.${stamp}"
+  fi
+done
+
 # Deploy servers often drift (chmod, index cache, edited scripts). Untracked .env is kept.
 git restore . 2>/dev/null || git checkout -- .
 
