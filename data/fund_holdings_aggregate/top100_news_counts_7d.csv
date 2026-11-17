@@ -1,0 +1,101 @@
+rank,fund_count,articles_7d,qdrant_entity,instrument_name
+1,2928,17,State Bank of India,State Bank of India
+2,1858,19,ICICI Bank Limited,ICICI Bank Limited
+3,1771,16,HDFC Bank Limited,HDFC Bank Limited
+4,1697,13,Bharti Airtel Limited,Bharti Airtel Limited
+5,1591,19,ICICI Bank Limited,ICICI Bank Ltd.
+6,1583,7,Reliance Industries Limited,Reliance Industries Limited
+7,1537,18,Axis Bank Limited,Axis Bank Limited
+8,1534,3,Infosys Limited,Infosys Limited
+9,1519,4,Maruti Suzuki India Limited,Maruti Suzuki India Limited
+10,1473,16,Larsen & Toubro Limited,Larsen & Toubro Limited
+11,1435,6,Eternal Limited,Eternal Limited
+12,1401,2,NTPC Limited,NTPC Limited
+13,1378,8,Mahindra & Mahindra Limited,Mahindra & Mahindra Limited
+14,1375,13,Bharti Airtel Limited,Bharti Airtel Ltd.
+15,1330,16,HDFC Bank Limited,HDFC Bank Ltd.
+16,1309,18,Axis Bank Limited,Axis Bank Ltd.
+17,1296,13,Kotak Mahindra Bank Limited,Kotak Mahindra Bank Limited
+18,1253,8,Mahindra & Mahindra Limited,Mahindra & Mahindra Ltd.
+19,1219,7,Reliance Industries Limited,Reliance Industries Ltd.
+20,1185,3,Infosys Limited,Infosys Ltd.
+21,1176,3,Shriram Finance Limited,Shriram Finance Limited
+22,1120,7,Bajaj Finance Limited,Bajaj Finance Limited
+23,1115,4,Sun Pharmaceutical Industries Limited,Sun Pharmaceutical Industries Limited
+24,1084,4,Sun Pharmaceutical Industries Limited,Sun Pharmaceutical Industries Ltd.
+25,1065,7,Tech Mahindra Limited,Tech Mahindra Limited
+26,1057,7,Bharat Electronics Limited,Bharat Electronics Limited
+27,1056,16,Larsen & Toubro Limited,Larsen & Toubro Ltd.
+28,1042,7,Bharat Electronics Limited,Bharat Electronics Ltd.
+29,1029,3,ITC Limited,ITC Limited
+30,1027,3,Titan Company Limited,Titan Company Limited
+31,1015,5,GE Vernova T&D India Limited,GE Vernova T&D India Limited
+32,985,6,Hindustan Unilever Ltd.,Hindustan Unilever Ltd.
+33,983,19,Tata Steel Ltd.,Tata Steel Ltd.
+34,979,7,Coforge Limited,Coforge Limited
+35,966,7,Bajaj Finance Limited,Bajaj Finance Ltd.
+36,961,5,Hindalco Industries Ltd.,Hindalco Industries Ltd.
+37,957,6,Eternal Limited,Eternal Ltd.
+38,956,8,Ultratech Cement Ltd.,Ultratech Cement Ltd.
+39,949,9,Bank of Baroda,Bank of Baroda
+40,944,2,NTPC Limited,NTPC Ltd.
+41,937,3,ITC Limited,ITC Ltd.
+42,935,0,Apollo Hospitals Enterprise Limited,Apollo Hospitals Enterprise Limited
+43,934,6,TVS Motor Company Ltd.,TVS Motor Company Ltd.
+44,929,9,Tata Consultancy Services Limited,Tata Consultancy Services Limited
+45,928,9,Tata Consultancy Services Limited,Tata Consultancy Services Ltd.
+46,924,13,Kotak Mahindra Bank Limited,Kotak Mahindra Bank Ltd.
+47,921,7,Tech Mahindra Limited,Tech Mahindra Ltd.
+48,916,13,InterGlobe Aviation Limited,InterGlobe Aviation Limited
+49,914,0,Divi's Laboratories Limited,Divi's Laboratories Limited
+50,910,14,Bajaj Auto Limited,Bajaj Auto Limited
+51,908,4,Maruti Suzuki India Limited,Maruti Suzuki India Ltd.
+52,903,6,Hindustan Unilever Limited,Hindustan Unilever Limited
+53,902,8,UltraTech Cement Limited,UltraTech Cement Limited
+54,877,9,Hindustan Aeronautics Limited,Hindustan Aeronautics Limited
+55,877,19,Tata Steel Limited,Tata Steel Limited
+56,869,12,One 97 Communications Limited,One 97 Communications Limited
+57,864,4,HCL Technologies Ltd.,HCL Technologies Ltd.
+58,861,6,TVS Motor Company Limited,TVS Motor Company Limited
+59,856,5,Hindalco Industries Limited,Hindalco Industries Limited
+60,831,3,Titan Company Limited,Titan Company Ltd.
+61,823,6,Canara Bank,Canara Bank
+62,816,5,PB Fintech Limited,PB Fintech Limited
+63,808,3,Shriram Finance Limited,Shriram Finance Ltd.
+64,801,0,Torrent Pharmaceuticals Limited,Torrent Pharmaceuticals Limited
+65,800,0,Torrent Pharmaceuticals Limited,Torrent Pharmaceuticals Ltd.
+66,796,0,Apollo Hospitals Enterprise Ltd.,Apollo Hospitals Enterprise Ltd.
+67,796,0,United Spirits Limited,United Spirits Limited
+68,794,12,Eicher Motors Ltd.,Eicher Motors Ltd.
+69,787,1,Max Financial Services Limited,Max Financial Services Limited
+70,782,12,Eicher Motors Limited,Eicher Motors Limited
+71,782,5,Punjab National Bank,Punjab National Bank
+72,778,1,SBI Life Insurance Company Limited,SBI Life Insurance Company Limited
+73,775,1,The Federal Bank Limited,The Federal Bank Limited
+74,774,1,Cummins India Limited,Cummins India Limited
+75,772,0,Cipla Limited,Cipla Limited
+76,766,6,Asian Paints Limited,Asian Paints Limited
+77,749,1,Cummins India Limited,Cummins India Ltd.
+78,744,0,Cipla Ltd.,Cipla Ltd.
+79,743,1,RBL Bank Limited,RBL Bank Limited
+80,731,2,Indus Towers Limited,Indus Towers Limited
+81,724,0,Britannia Industries Ltd.,Britannia Industries Ltd.
+82,707,3,Bharat Heavy Electricals Limited,Bharat Heavy Electricals Limited
+83,705,1,Trent Limited,Trent Limited
+84,703,0,Coal India Limited,Coal India Limited
+85,703,12,JSW Steel Limited,JSW Steel Limited
+86,702,4,Indian Bank,Indian Bank
+87,693,3,Bajaj Finserv Limited,Bajaj Finserv Limited
+88,685,1,Max Healthcare Institute Limited,Max Healthcare Institute Limited
+89,679,1,Varun Beverages Limited,Varun Beverages Limited
+90,672,0,Power Grid Corporation of India Limited,Power Grid Corporation of India Limited
+91,669,1,Dixon Technologies (India) Limited,Dixon Technologies (India) Limited
+92,666,0,Divi's Laboratories Ltd.,Divi's Laboratories Ltd.
+93,665,1,Adani Enterprises Limited,Adani Enterprises Limited
+94,665,5,Tata Consumer Products Limited,Tata Consumer Products Limited
+95,665,6,Union Bank of India,Union Bank of India
+96,655,9,Aurobindo Pharma Limited,Aurobindo Pharma Limited
+97,655,0,Oil & Natural Gas Corporation Limited,Oil & Natural Gas Corporation Limited
+98,654,4,IndusInd Bank Limited,IndusInd Bank Limited
+99,651,6,Grasim Industries Limited,Grasim Industries Limited
+100,651,12,JSW Steel Limited,JSW Steel Ltd.

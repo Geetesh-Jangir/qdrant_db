@@ -1,0 +1,501 @@
+Stock Name,Multi-Query,Sector
+State Bank of India,"""State Bank of India""",Banks
+ICICI Bank Ltd.,"""ICICI Bank Ltd."" OR ""ICICI Bank""",Banks
+HDFC Bank Ltd.,"""HDFC Bank Ltd."" OR ""HDFC Bank""",Banks
+Bharti Airtel Ltd.,"""Bharti Airtel Ltd."" OR ""Bharti Airtel""",Telecom - Services
+Reliance Industries Ltd.,"""Reliance Industries Ltd."" OR ""Reliance Industries""",Petroleum Products
+Axis Bank Ltd.,"""Axis Bank Ltd."" OR ""Axis Bank""",Banks
+Infosys Ltd.,"""Infosys Ltd."" OR ""Infosys""",IT - Software
+Maruti Suzuki India Ltd.,"""Maruti Suzuki India Ltd."" OR ""Maruti Suzuki India""",Automobiles
+Larsen & Toubro Ltd.,"""Larsen & Toubro Ltd."" OR ""Larsen & Toubro""",Construction
+Eternal Ltd.,"""Eternal Ltd."" OR ""Eternal""",Retailing
+NTPC Ltd.,"""NTPC Ltd."" OR ""NTPC""",Power
+Mahindra & Mahindra Ltd.,"""Mahindra & Mahindra Ltd."" OR ""Mahindra & Mahindra""",Automobiles
+Kotak Mahindra Bank Ltd.,"""Kotak Mahindra Bank Ltd."" OR ""Kotak Mahindra Bank""",Banks
+Shriram Finance Ltd.,"""Shriram Finance Ltd."" OR ""Shriram Finance""",Finance
+Bajaj Finance Ltd.,"""Bajaj Finance Ltd."" OR ""Bajaj Finance""",Finance
+Sun Pharmaceutical Industries Ltd.,"""Sun Pharmaceutical Industries Ltd."" OR ""Sun Pharmaceutical Industries""",Pharmaceuticals & Biotechnology
+Tech Mahindra Ltd.,"""Tech Mahindra Ltd."" OR ""Tech Mahindra""",IT - Software
+Bharat Electronics Ltd.,"""Bharat Electronics Ltd."" OR ""Bharat Electronics""",Aerospace & Defense
+ITC Ltd.,"""ITC Ltd."" OR ""ITC""",Diversified FMCG
+Titan Company Ltd.,"""Titan Company Ltd."" OR ""Titan""",Consumer Durables
+GE Vernova T&D India Limited,"""GE Vernova T&D India Limited"" OR ""GE Vernova T&D India""",Electrical Equipment
+Hindustan Unilever Limited,"""Hindustan Unilever Limited"" OR ""Hindustan Unilever""",Diversified FMCG
+Tata Steel Limited,"""Tata Steel Limited"" OR ""Tata Steel""",Ferrous Metals
+Coforge Limited,"""Coforge Limited"" OR ""Coforge""",IT - Software
+Hindalco Industries Limited,"""Hindalco Industries Limited"" OR ""Hindalco Industries""",Non - Ferrous Metals
+UltraTech Cement Limited,"""UltraTech Cement Limited"" OR ""UltraTech Cement""",Cement & Cement Products
+Bank of Baroda,"""Bank of Baroda""",Banks
+Apollo Hospitals Enterprise Ltd.,"""Apollo Hospitals Enterprise Ltd."" OR ""Apollo Hospitals Enterprise""",Healthcare Services
+TVS Motor Company Limited,"""TVS Motor Company Limited"" OR ""TVS Motor""",Automobiles
+Tata Consultancy Services Ltd.,"""Tata Consultancy Services Ltd."" OR ""Tata Consultancy Services""",IT - Software
+InterGlobe Aviation Limited,"""InterGlobe Aviation Limited"" OR ""InterGlobe Aviation""",Transport Services
+Divi's Laboratories Ltd.,"""Divi's Laboratories Ltd."" OR ""Divi's Laboratories""",Pharmaceuticals & Biotechnology
+Bajaj Auto Ltd.,"""Bajaj Auto Ltd."" OR ""Bajaj Auto""",Automobiles
+Hindustan Aeronautics Limited,"""Hindustan Aeronautics Limited"" OR ""Hindustan Aeronautics""",Aerospace & Defense
+One 97 Communications Limited,"""One 97 Communications Limited"" OR ""One 97 Communications""",Financial Technology (Fintech)
+HCL Technologies Limited,"""HCL Technologies Limited"" OR ""HCL Technologies""",IT - Software
+Canara Bank,"""Canara Bank""",Banks
+PB Fintech Limited,"""PB Fintech Limited"" OR ""PB Fintech""",Financial Technology (Fintech)
+Torrent Pharmaceuticals Ltd.,"""Torrent Pharmaceuticals Ltd."" OR ""Torrent Pharmaceuticals""",Pharmaceuticals & Biotechnology
+United Spirits Limited,"""United Spirits Limited"" OR ""United Spirits""",Beverages
+Eicher Motors Limited,"""Eicher Motors Limited"" OR ""Eicher Motors""",Automobiles
+Max Financial Services Limited,"""Max Financial Services Limited"" OR ""Max Financial Services""",Insurance
+Punjab National Bank,"""Punjab National Bank""",Banks
+SBI Life Insurance Company Limited,"""SBI Life Insurance Company Limited"" OR ""SBI Life Insurance""",Insurance
+The Federal Bank Ltd.,"""The Federal Bank Ltd."" OR ""The Federal Bank""",Banks
+Cummins India Ltd.,"""Cummins India Ltd."" OR ""Cummins India""",Industrial Products
+Cipla Ltd.,"""Cipla Ltd."" OR ""Cipla""",Pharmaceuticals & Biotechnology
+Asian Paints Ltd.,"""Asian Paints Ltd."" OR ""Asian Paints""",Consumer Durables
+RBL Bank Limited,"""RBL Bank Limited"" OR ""RBL Bank""",Banks
+Indus Towers Limited,"""Indus Towers Limited"" OR ""Indus Towers""",Telecom - Services
+Britannia Industries Limited,"""Britannia Industries Limited"" OR ""Britannia Industries""",Food Products
+Bharat Heavy Electricals Ltd.,"""Bharat Heavy Electricals Ltd."" OR ""Bharat Heavy Electricals""",Electrical Equipment
+Trent Ltd.,"""Trent Ltd."" OR ""Trent""",Retailing
+Coal India Ltd.,"""Coal India Ltd."" OR ""Coal India""",Consumable Fuels
+JSW Steel Ltd.,"""JSW Steel Ltd."" OR ""JSW Steel""",Ferrous Metals
+Indian Bank,"""Indian Bank""",Banks
+Bajaj Finserv Ltd.,"""Bajaj Finserv Ltd."" OR ""Bajaj Finserv""",Finance
+Max Healthcare Institute Limited,"""Max Healthcare Institute Limited"" OR ""Max Healthcare Institute""",Healthcare Services
+Varun Beverages Limited,"""Varun Beverages Limited"" OR ""Varun Beverages""",Beverages
+Power Grid Corporation of India Ltd.,"""Power Grid Corporation of India Ltd."" OR ""Power Grid Corporation of India""",Power
+Dixon Technologies (India) Limited,"""Dixon Technologies (India) Limited"" OR ""Dixon Technologies (India)""",Consumer Durables
+Adani Enterprises Limited,"""Adani Enterprises Limited"" OR ""Adani Enterprises""",Metals & Minerals Trading
+Tata Consumer Products Limited,"""Tata Consumer Products Limited"" OR ""Tata Consumer Products""",Agricultural Food & other Products
+Union Bank of India,"""Union Bank of India""",Banks
+Aurobindo Pharma Limited,"""Aurobindo Pharma Limited"" OR ""Aurobindo Pharma""",Pharmaceuticals & Biotechnology
+Oil & Natural Gas Corporation Ltd.,"""Oil & Natural Gas Corporation Ltd."" OR ""Oil & Natural Gas Corporation""",Oil
+IndusInd Bank Limited,"""IndusInd Bank Limited"" OR ""IndusInd Bank""",Banks
+Grasim Industries Ltd.,"""Grasim Industries Ltd."" OR ""Grasim Industries""",Cement & Cement Products
+Life Insurance Corporation Of India,"""Life Insurance Corporation Of India""",Insurance
+Fortis Healthcare Limited,"""Fortis Healthcare Limited"" OR ""Fortis Healthcare""",Healthcare Services
+Samvardhana Motherson International Ltd.,"""Samvardhana Motherson International Ltd."" OR ""Samvardhana Motherson International""",Auto Components
+Solar Industries India Ltd.,"""Solar Industries India Ltd."" OR ""Solar Industries India""",Chemicals & Petrochemicals
+CG Power and Industrial Solutions Limited,"""CG Power and Industrial Solutions Limited"" OR ""CG Power and Industrial Solutions""",Electrical Equipment
+HDFC Life Insurance Company Ltd.,"""HDFC Life Insurance Company Ltd."" OR ""HDFC Life Insurance""",Insurance
+FSN E-Commerce Ventures Limited,"""FSN E-Commerce Ventures Limited"" OR ""FSN E-Commerce Ventures""",Retailing
+The Indian Hotels Company Limited,"""The Indian Hotels Company Limited"" OR ""The Indian Hotels""",Leisure Services
+Hero MotoCorp Limited,"""Hero MotoCorp Limited"" OR ""Hero MotoCorp""",Automobiles
+Radico Khaitan Limited,"""Radico Khaitan Limited"" OR ""Radico Khaitan""",Beverages
+Bharat Petroleum Corporation Ltd.,"""Bharat Petroleum Corporation Ltd."" OR ""Bharat Petroleum Corporation""",Petroleum Products
+Multi Commodity Exchange of India Limited,"""Multi Commodity Exchange of India Limited"" OR ""Multi Commodity Exchange of India""",Capital Markets
+Nestle India Limited,"""Nestle India Limited"" OR ""Nestle India""",Food Products
+AU Small Finance Bank Limited,"""AU Small Finance Bank Limited"" OR ""AU Small Finance Bank""",Banks
+Tata Motors Passenger Vehicles Limited,"""Tata Motors Passenger Vehicles Limited"" OR ""Tata Motors Passenger Vehicles""",Automobiles
+ABB India Ltd.,"""ABB India Ltd."" OR ""ABB India""",Electrical Equipment
+Ambuja Cements Ltd.,"""Ambuja Cements Ltd."" OR ""Ambuja Cements""",Cement & Cement Products
+Vedanta Aluminium Metal Limited,"""Vedanta Aluminium Metal Limited"" OR ""Vedanta Aluminium Metal""",Non - Ferrous Metals
+Glenmark Pharmaceuticals Limited,"""Glenmark Pharmaceuticals Limited"" OR ""Glenmark Pharmaceuticals""",Pharmaceuticals & Biotechnology
+Persistent Systems Ltd.,"""Persistent Systems Ltd."" OR ""Persistent Systems""",IT - Software
+Cholamandalam Investment and Finance Company Ltd,"""Cholamandalam Investment and Finance Company Ltd"" OR ""Cholamandalam Investment and Finance""",Finance
+Hitachi Energy India Limited,"""Hitachi Energy India Limited"" OR ""Hitachi Energy India""",Electrical Equipment
+Power Finance Corporation Ltd.,"""Power Finance Corporation Ltd."" OR ""Power Finance Corporation""",Finance
+Godrej Consumer Products Ltd.,"""Godrej Consumer Products Ltd."" OR ""Godrej Consumer Products""",Personal Products
+PNB Housing Finance Limited,"""PNB Housing Finance Limited"" OR ""PNB Housing Finance""",Finance
+Adani Ports and Special Economic Zone Limited,"""Adani Ports and Special Economic Zone Limited"" OR ""Adani Ports and Special Economic Zone""",Transport Infrastructure
+Tata Motors Ltd,"""Tata Motors Ltd"" OR ""Tata Motors""","Agricultural, Commercial & Construction Vehicles"
+Biocon Ltd.,"""Biocon Ltd."" OR ""Biocon""",Pharmaceuticals & Biotechnology
+Bosch Limited,"""Bosch Limited"" OR ""Bosch""",Auto Components
+Lupin Ltd.,"""Lupin Ltd."" OR ""Lupin""",Pharmaceuticals & Biotechnology
+DLF Limited,"""DLF Limited"" OR ""DLF""",Realty
+Pidilite Industries Limited,"""Pidilite Industries Limited"" OR ""Pidilite Industries""",Chemicals & Petrochemicals
+Bharat Forge Limited,"""Bharat Forge Limited"" OR ""Bharat Forge""",Auto Components
+Marico Limited,"""Marico Limited"" OR ""Marico""",Agricultural Food & other Products
+Info Edge (India) Limited,"""Info Edge (India) Limited"" OR ""Info Edge (India)""",Retailing
+Billionbrains Garage Ventures Ltd.,"""Billionbrains Garage Ventures Ltd."" OR ""Billionbrains Garage Ventures""",Capital Markets
+Mankind Pharma Limited,"""Mankind Pharma Limited"" OR ""Mankind Pharma""",Pharmaceuticals & Biotechnology
+Zydus Lifesciences Limited,"""Zydus Lifesciences Limited"" OR ""Zydus Lifesciences""",Pharmaceuticals & Biotechnology
+Navin Fluorine International Limited,"""Navin Fluorine International Limited"" OR ""Navin Fluorine International""",Chemicals & Petrochemicals
+Ashok Leyland Ltd.,"""Ashok Leyland Ltd."" OR ""Ashok Leyland""","Agricultural, Commercial & Construction Vehicles"
+IDFC First Bank Limited,"""IDFC First Bank Limited"" OR ""IDFC First Bank""",Banks
+Bank of Maharashtra,"""Bank of Maharashtra""",Banks
+Ather Energy Limited,"""Ather Energy Limited"" OR ""Ather Energy""",Automobiles
+Avenue Supermarts Ltd.,"""Avenue Supermarts Ltd."" OR ""Avenue Supermarts""",Retailing
+Jio Financial Services Limited,"""Jio Financial Services Limited"" OR ""Jio Financial Services""",Finance
+Bank of India,"""Bank of India""",Banks
+Ajanta Pharma Ltd.,"""Ajanta Pharma Ltd."" OR ""Ajanta Pharma""",Pharmaceuticals & Biotechnology
+Polycab India Limited,"""Polycab India Limited"" OR ""Polycab India""",Industrial Products
+Alkem Laboratories Limited,"""Alkem Laboratories Limited"" OR ""Alkem Laboratories""",Pharmaceuticals & Biotechnology
+Delhivery Limited,"""Delhivery Limited"" OR ""Delhivery""",Transport Services
+Muthoot Finance Ltd.,"""Muthoot Finance Ltd."" OR ""Muthoot Finance""",Finance
+Prestige Estates Projects Limited,"""Prestige Estates Projects Limited"" OR ""Prestige Estates Projects""",Realty
+BSE Limited,"""BSE Limited"" OR ""BSE""",Capital Markets
+Mphasis Ltd.,"""Mphasis Ltd."" OR ""Mphasis""",IT - Software
+Aditya Birla Capital Limited,"""Aditya Birla Capital Limited"" OR ""Aditya Birla Capital""",Finance
+Amber Enterprises India Limited,"""Amber Enterprises India Limited"" OR ""Amber Enterprises India""",Consumer Durables
+Dr. Reddy's Laboratories Limited,"""Dr. Reddy's Laboratories Limited"" OR ""Dr. Reddy's Laboratories""",Pharmaceuticals & Biotechnology
+Jindal Steel Ltd.,"""Jindal Steel Ltd."" OR ""Jindal Steel""",Ferrous Metals
+HDFC Asset Management Company Limited,"""HDFC Asset Management Company Limited"" OR ""HDFC Asset Management""",Capital Markets
+Hindustan Petroleum Corporation Limited,"""Hindustan Petroleum Corporation Limited"" OR ""Hindustan Petroleum""",Petroleum Products
+Oil India Limited,"""Oil India Limited"" OR ""Oil India""",Oil
+Vishal Mega Mart Limited,"""Vishal Mega Mart Limited"" OR ""Vishal Mega Mart""",Retailing
+Adani Energy Solutions Limited,"""Adani Energy Solutions Limited"" OR ""Adani Energy Solutions""",Power
+Hindustan Zinc Limited,"""Hindustan Zinc Limited"" OR ""Hindustan Zinc""",Non - Ferrous Metals
+Steel Authority of India Limited,"""Steel Authority of India Limited"" OR ""Steel Authority of India""",Ferrous Metals
+Tata Power Company Limited,"""Tata Power Company Limited"" OR ""Tata Power""",Power
+Karur Vysya Bank Limited,"""Karur Vysya Bank Limited"" OR ""Karur Vysya Bank""",Banks
+Sona Blw Precision Forgings Ltd.,"""Sona Blw Precision Forgings Ltd."" OR ""Sona Blw Precision Forgings""",Auto Components
+The Phoenix Mills Ltd.,"""The Phoenix Mills Ltd."" OR ""The Phoenix Mills""",Realty
+Adani Power Limited,"""Adani Power Limited"" OR ""Adani Power""",Power
+JSW Energy Limited,"""JSW Energy Limited"" OR ""JSW Energy""",Power
+APL Apollo Tubes Limited,"""APL Apollo Tubes Limited"" OR ""APL Apollo Tubes""",Industrial Products
+NMDC Limited,"""NMDC Limited"" OR ""NMDC""",Minerals & Mining
+GAIL (India) Ltd.,"""GAIL (India) Ltd."" OR ""GAIL (India)""",Gas
+KEI Industries Ltd.,"""KEI Industries Ltd."" OR ""KEI Industries""",Industrial Products
+UNO Minda Limited,"""UNO Minda Limited"" OR ""UNO Minda""",Auto Components
+Crompton Greaves Consumer Electricals Limited,"""Crompton Greaves Consumer Electricals Limited"" OR ""Crompton Greaves Consumer Electricals""",Consumer Durables
+National Aluminium Company Ltd.,"""National Aluminium Company Ltd."" OR ""National Aluminium""",Non - Ferrous Metals
+Adani Green Energy Limited,"""Adani Green Energy Limited"" OR ""Adani Green Energy""",Power
+Schaeffler India Ltd.,"""Schaeffler India Ltd."" OR ""Schaeffler India""",Auto Components
+Coromandel International Limited,"""Coromandel International Limited"" OR ""Coromandel International""",Fertilizers & Agrochemicals
+Jubilant Foodworks Limited,"""Jubilant Foodworks Limited"" OR ""Jubilant Foodworks""",Leisure Services
+PG Electroplast Limited,"""PG Electroplast Limited"" OR ""PG Electroplast""",Consumer Durables
+UPL Ltd.,"""UPL Ltd."" OR ""UPL""",Fertilizers & Agrochemicals
+Vedanta Ltd.,"""Vedanta Ltd."" OR ""Vedanta""",Diversified Metals
+SRF Ltd.,"""SRF Ltd."" OR ""SRF""",Chemicals & Petrochemicals
+L&T Finance Limited,"""L&T Finance Limited"" OR ""L&T Finance""",Finance
+Godrej Properties Limited,"""Godrej Properties Limited"" OR ""Godrej Properties""",Realty
+Bandhan Bank Limited,"""Bandhan Bank Limited"" OR ""Bandhan Bank""",Banks
+Apar Industries Limited,"""Apar Industries Limited"" OR ""Apar Industries""",Electrical Equipment
+Dabur India Ltd.,"""Dabur India Ltd."" OR ""Dabur India""",Personal Products
+Page Industries Limited,"""Page Industries Limited"" OR ""Page Industries""",Textiles & Apparels
+Aditya Infotech Limited,"""Aditya Infotech Limited"" OR ""Aditya Infotech""",Industrial Manufacturing
+Ujjivan Small Finance Bank Limited,"""Ujjivan Small Finance Bank Limited"" OR ""Ujjivan Small Finance Bank""",Banks
+Container Corporation of India Limited,"""Container Corporation of India Limited"" OR ""Container Corporation of India""",Transport Services
+LG Electronics India Ltd.,"""LG Electronics India Ltd."" OR ""LG Electronics India""",Consumer Durables
+Acutaas Chemicals Limited,"""Acutaas Chemicals Limited"" OR ""Acutaas Chemicals""",Pharmaceuticals & Biotechnology
+Vodafone Idea Limited,"""Vodafone Idea Limited"" OR ""Vodafone Idea""",Telecom - Services
+Swiggy Limited,"""Swiggy Limited"" OR ""Swiggy""",Retailing
+Computer Age Management Services Limited,"""Computer Age Management Services Limited"" OR ""Computer Age Management Services""",Capital Markets
+Lenskart Solutions Ltd.,"""Lenskart Solutions Ltd."" OR ""Lenskart Solutions""",Retailing
+Hyundai Motor India Ltd.,"""Hyundai Motor India Ltd."" OR ""Hyundai Motor India""",Automobiles
+Havells India Ltd.,"""Havells India Ltd."" OR ""Havells India""",Consumer Durables
+IPCA Laboratories Limited,"""IPCA Laboratories Limited"" OR ""IPCA Laboratories""",Pharmaceuticals & Biotechnology
+Angel One Limited,"""Angel One Limited"" OR ""Angel One""",Capital Markets
+Laurus Labs Limited,"""Laurus Labs Limited"" OR ""Laurus Labs""",Pharmaceuticals & Biotechnology
+Supreme Industries Limited,"""Supreme Industries Limited"" OR ""Supreme Industries""",Industrial Products
+Siemens Energy India Limited,"""Siemens Energy India Limited"" OR ""Siemens Energy India""",Electrical Equipment
+JK Cement Ltd.,"""JK Cement Ltd."" OR ""JK Cement""",Cement & Cement Products
+Thermax Ltd.,"""Thermax Ltd."" OR ""Thermax""",Electrical Equipment
+Petronet LNG Limited,"""Petronet LNG Limited"" OR ""Petronet LNG""",Gas
+Krishna Institute Of Medical Sciences Limited,"""Krishna Institute Of Medical Sciences Limited"" OR ""Krishna Institute Of Medical Sciences""",Healthcare Services
+Voltas Limited,"""Voltas Limited"" OR ""Voltas""",Consumer Durables
+Indian Oil Corporation Limited,"""Indian Oil Corporation Limited"" OR ""Indian Oil""",Petroleum Products
+Carborundum Universal Ltd.,"""Carborundum Universal Ltd."" OR ""Carborundum Universal""",Industrial Products
+Suzlon Energy Limited,"""Suzlon Energy Limited"" OR ""Suzlon Energy""",Electrical Equipment
+ICICI Lombard General Insurance Company Limited,"""ICICI Lombard General Insurance Company Limited"" OR ""ICICI Lombard General Insurance""",Insurance
+Sai Life Sciences Limited,"""Sai Life Sciences Limited"" OR ""Sai Life Sciences""",Pharmaceuticals & Biotechnology
+City Union Bank Limited,"""City Union Bank Limited"" OR ""City Union Bank""",Banks
+Meesho Ltd,"""Meesho Ltd"" OR ""Meesho""",Retailing
+PI Industries Ltd.,"""PI Industries Ltd."" OR ""PI Industries""",Fertilizers & Agrochemicals
+Endurance Technologies Ltd.,"""Endurance Technologies Ltd."" OR ""Endurance Technologies""",Auto Components
+Wipro Ltd.,"""Wipro Ltd."" OR ""Wipro""",IT - Software
+Syngene International Limited,"""Syngene International Limited"" OR ""Syngene International""",Healthcare Services
+Oberoi Realty Limited,"""Oberoi Realty Limited"" OR ""Oberoi Realty""",Realty
+GMR Airports Limited,"""GMR Airports Limited"" OR ""GMR Airports""",Transport Infrastructure
+Abbott India Limited,"""Abbott India Limited"" OR ""Abbott India""",Pharmaceuticals & Biotechnology
+Siemens Ltd.,"""Siemens Ltd."" OR ""Siemens""",Electrical Equipment
+Cholamandalam Financial Holdings Limited,"""Cholamandalam Financial Holdings Limited"" OR ""Cholamandalam Financial Holdings""",Finance
+Indus Infra Trust,"""Indus Infra Trust""",Transport Infrastructure
+Raajmarg Infra Investment Trust,"""Raajmarg Infra Investment Trust""",Transport Infrastructure
+TD Power Systems Limited,"""TD Power Systems Limited"" OR ""TD Power Systems""",Electrical Equipment
+LIC Housing Finance Limited,"""LIC Housing Finance Limited"" OR ""LIC Housing Finance""",Finance
+Gland Pharma Limited,"""Gland Pharma Limited"" OR ""Gland Pharma""",Pharmaceuticals & Biotechnology
+Oracle Financial Services Software Ltd.,"""Oracle Financial Services Software Ltd."" OR ""Oracle Financial Services Software""",IT - Software
+Anthem Biosciences Limited,"""Anthem Biosciences Limited"" OR ""Anthem Biosciences""",Pharmaceuticals & Biotechnology
+Global Health Limited,"""Global Health Limited"" OR ""Global Health""",Healthcare Services
+Premier Energies Limited,"""Premier Energies Limited"" OR ""Premier Energies""",Electrical Equipment
+Colgate Palmolive (India) Limited,"""Colgate Palmolive (India) Limited"" OR ""Colgate Palmolive (India)""",Personal Products
+Blue Star Limited,"""Blue Star Limited"" OR ""Blue Star""",Consumer Durables
+Kirloskar Oil Engines Limited,"""Kirloskar Oil Engines Limited"" OR ""Kirloskar Oil Engines""",Industrial Products
+Hindustan Copper Limited,"""Hindustan Copper Limited"" OR ""Hindustan Copper""",Non - Ferrous Metals
+Tube Investments of India Limited,"""Tube Investments of India Limited"" OR ""Tube Investments of India""",Auto Components
+360 ONE WAM LIMITED,"""360 ONE WAM LIMITED"" OR ""360 ONE WAM""",Capital Markets
+Nippon Life India Asset Management Limited,"""Nippon Life India Asset Management Limited"" OR ""Nippon Life India Asset Management""",Capital Markets
+Torrent Power Ltd.,"""Torrent Power Ltd."" OR ""Torrent Power""",Power
+NHPC Ltd.,"""NHPC Ltd."" OR ""NHPC""",Power
+Manappuram Finance Limited,"""Manappuram Finance Limited"" OR ""Manappuram Finance""",Finance
+Shree Cement Ltd.,"""Shree Cement Ltd."" OR ""Shree Cement""",Cement & Cement Products
+Bharti Hexacom Limited,"""Bharti Hexacom Limited"" OR ""Bharti Hexacom""",Telecom - Services
+Embassy Office Parks REIT,"""Embassy Office Parks REIT""",Realty
+Timken India Ltd.,"""Timken India Ltd."" OR ""Timken India""",Industrial Products
+SBI Life Insurance Co. Ltd.,"""SBI Life Insurance Co. Ltd."" OR ""SBI Life Insurance Co""",Insurance
+Craftsman Automation Ltd.,"""Craftsman Automation Ltd."" OR ""Craftsman Automation""",Auto Components
+REC Limited,"""REC Limited"" OR ""REC""",Finance
+Yes Bank Limited,"""Yes Bank Limited"" OR ""Yes Bank""",Banks
+K.P.R. Mill Ltd.,"""K.P.R. Mill Ltd."" OR ""K.P.R. Mill""",Textiles & Apparels
+Bharat Dynamics Limited,"""Bharat Dynamics Limited"" OR ""Bharat Dynamics""",Aerospace & Defense
+Linde India Limited,"""Linde India Limited"" OR ""Linde India""",Chemicals & Petrochemicals
+Indian Energy Exchange Limited,"""Indian Energy Exchange Limited"" OR ""Indian Energy Exchange""",Capital Markets
+Welspun Corp Limited,"""Welspun Corp Limited"" OR ""Welspun""",Industrial Products
+Aster DM Quality Care Limited,"""Aster DM Quality Care Limited"" OR ""Aster DM Quality Care""",Healthcare Services
+ICICI Prudential Life Insurance Company Ltd.,"""ICICI Prudential Life Insurance Company Ltd."" OR ""ICICI Prudential Life Insurance""",Insurance
+General Insurance Corporation of India,"""General Insurance Corporation of India"" OR ""General Insurance of India""",Insurance
+Cholamandalam Investment & Finance Co. Ltd.,"""Cholamandalam Investment & Finance Co. Ltd."" OR ""Cholamandalam Investment & Finance Co""",Finance
+Cohance Lifesciences Limited,"""Cohance Lifesciences Limited"" OR ""Cohance Lifesciences""",Pharmaceuticals & Biotechnology
+Piramal Finance Limited,"""Piramal Finance Limited"" OR ""Piramal Finance""",Finance
+Jyoti CNC Automation Ltd,"""Jyoti CNC Automation Ltd"" OR ""Jyoti CNC Automation""",Industrial Manufacturing
+AIA Engineering Ltd.,"""AIA Engineering Ltd."" OR ""AIA Engineering""",Industrial Products
+eClerx Services Limited,"""eClerx Services Limited"" OR ""eClerx Services""",Commercial Services & Supplies
+Mazagon Dock Shipbuilders Limited,"""Mazagon Dock Shipbuilders Limited"" OR ""Mazagon Dock Shipbuilders""",Industrial Manufacturing
+Belrise Industries Ltd.,"""Belrise Industries Ltd."" OR ""Belrise Industries""",Auto Components
+JSW Infrastructure Ltd,"""JSW Infrastructure Ltd"" OR ""JSW Infrastructure""",Transport Infrastructure
+Godfrey Phillips India Limited,"""Godfrey Phillips India Limited"" OR ""Godfrey Phillips India""",Cigarettes & Tobacco Products
+ITC Hotels Limited,"""ITC Hotels Limited"" OR ""ITC Hotels""",Leisure Services
+Astral Ltd.,"""Astral Ltd."" OR ""Astral""",Industrial Products
+Balkrishna Industries Ltd.,"""Balkrishna Industries Ltd."" OR ""Balkrishna Industries""",Auto Components
+Cochin Shipyard Limited,"""Cochin Shipyard Limited"" OR ""Cochin Shipyard""",Industrial Manufacturing
+Pine Labs Limited,"""Pine Labs Limited"" OR ""Pine Labs""",Financial Technology (Fintech)
+LTM Limited,"""LTM Limited"" OR ""LTM""",IT - Software
+Kaynes Technology India Limited,"""Kaynes Technology India Limited"" OR ""Kaynes Technology India""",Industrial Manufacturing
+NTPC Green Energy Limited,"""NTPC Green Energy Limited"" OR ""NTPC Green Energy""",Power
+Sagility Limited,"""Sagility Limited"" OR ""Sagility""",IT - Services
+Sundaram Finance Limited,"""Sundaram Finance Limited"" OR ""Sundaram Finance""",Finance
+Neuland Laboratories Limited,"""Neuland Laboratories Limited"" OR ""Neuland Laboratories""",Pharmaceuticals & Biotechnology
+Whirlpool of India Ltd.,"""Whirlpool of India Ltd."" OR ""Whirlpool of India""",Consumer Durables
+KFin Technologies Limited,"""KFin Technologies Limited"" OR ""KFin Technologies""",Capital Markets
+United Breweries Ltd.,"""United Breweries Ltd."" OR ""United Breweries""",Beverages
+NBCC (India) Limited,"""NBCC (India) Limited"" OR ""NBCC (India)""",Construction
+Gabriel India Ltd.,"""Gabriel India Ltd."" OR ""Gabriel India""",Auto Components
+Piramal Pharma Limited,"""Piramal Pharma Limited"" OR ""Piramal Pharma""",Pharmaceuticals & Biotechnology
+KPIT Technologies Limited,"""KPIT Technologies Limited"" OR ""KPIT Technologies""",IT - Software
+Apollo Tyres Ltd.,"""Apollo Tyres Ltd."" OR ""Apollo Tyres""",Auto Components
+Vijaya Diagnostic Centre Limited,"""Vijaya Diagnostic Centre Limited"" OR ""Vijaya Diagnostic Centre""",Healthcare Services
+Central Depository Services (India) Limited,"""Central Depository Services (India) Limited"" OR ""Central Depository Services (India)""",Capital Markets
+Redington Limited,"""Redington Limited"" OR ""Redington""",Commercial Services & Supplies
+Inox Wind Limited,"""Inox Wind Limited"" OR ""Inox Wind""",Electrical Equipment
+Manipal Health Enterprises Ltd,"""Manipal Health Enterprises Ltd"" OR ""Manipal Health Enterprises""",Healthcare Services
+3M India Limited,"""3M India Limited"" OR ""3M India""",Diversified
+BEML Limited,"""BEML Limited"" OR ""BEML""","Agricultural, Commercial & Construction Vehicles"
+Dr. Lal Path Labs Limited,"""Dr. Lal Path Labs Limited"" OR ""Dr. Lal Path Labs""",Healthcare Services
+Motilal Oswal Financial Services Ltd.,"""Motilal Oswal Financial Services Ltd."" OR ""Motilal Oswal Financial Services""",Capital Markets
+NLC India Limited,"""NLC India Limited"" OR ""NLC India""",Power
+SBI Cards & Payment Services Ltd.,"""SBI Cards & Payment Services Ltd."" OR ""SBI Cards & Payment Services""",Finance
+ZF Commercial Vehicle Control Systems India Limited,"""ZF Commercial Vehicle Control Systems India Limited"" OR ""ZF Commercial Vehicle Control Systems India""",Auto Components
+Aadhar Housing Finance Limited,"""Aadhar Housing Finance Limited"" OR ""Aadhar Housing Finance""",Finance
+Emami Limited,"""Emami Limited"" OR ""Emami""",Personal Products
+Doms Industries Limited,"""Doms Industries Limited"" OR ""Doms Industries""",Household Products
+Hexaware Technologies Ltd.,"""Hexaware Technologies Ltd."" OR ""Hexaware Technologies""",IT - Software
+ICICI Prudential Asset Management Company Limited,"""ICICI Prudential Asset Management Company Limited"" OR ""ICICI Prudential Asset Management""",Capital Markets
+Sobha Limited,"""Sobha Limited"" OR ""Sobha""",Realty
+Triveni Turbine Ltd.,"""Triveni Turbine Ltd."" OR ""Triveni Turbine""",Electrical Equipment
+Aarti Industries Ltd.,"""Aarti Industries Ltd."" OR ""Aarti Industries""",Chemicals & Petrochemicals
+ACC Ltd.,"""ACC Ltd."" OR ""ACC""",Cement & Cement Products
+Devyani International Limited,"""Devyani International Limited"" OR ""Devyani International""",Leisure Services
+Jindal Stainless Ltd.,"""Jindal Stainless Ltd."" OR ""Jindal Stainless""",Ferrous Metals
+Sterlite Technologies Limited,"""Sterlite Technologies Limited"" OR ""Sterlite Technologies""",Telecom - Equipment & Accessories
+Honeywell Automation India Ltd.,"""Honeywell Automation India Ltd."" OR ""Honeywell Automation India""",Industrial Manufacturing
+MRF Limited,"""MRF Limited"" OR ""MRF""",Auto Components
+Anand Rathi Wealth Limited,"""Anand Rathi Wealth Limited"" OR ""Anand Rathi Wealth""",Capital Markets
+Exide Industries Limited,"""Exide Industries Limited"" OR ""Exide Industries""",Auto Components
+Aditya Birla Real Estate Limited,"""Aditya Birla Real Estate Limited"" OR ""Aditya Birla Real Estate""",Realty
+Aditya Birla Sun Life AMC Limited,"""Aditya Birla Sun Life AMC Limited"" OR ""Aditya Birla Sun Life AMC""",Capital Markets
+Kalyan Jewellers India Limited,"""Kalyan Jewellers India Limited"" OR ""Kalyan Jewellers India""",Consumer Durables
+Brigade Enterprises Ltd.,"""Brigade Enterprises Ltd."" OR ""Brigade Enterprises""",Realty
+Dalmia Bharat Limited,"""Dalmia Bharat Limited"" OR ""Dalmia Bharat""",Cement & Cement Products
+Leela Palaces Hotels & Resorts Limited,"""Leela Palaces Hotels & Resorts Limited"" OR ""Leela Palaces Hotels & Resorts""",Leisure Services
+Tata Communications Limited,"""Tata Communications Limited"" OR ""Tata Communications""",Telecom - Services
+IIFL Finance Limited,"""IIFL Finance Limited"" OR ""IIFL Finance""",Finance
+INDO-MIM Ltd.,"""INDO-MIM Ltd."" OR ""INDO-MIM""",Industrial Manufacturing
+Motherson Sumi Wiring India Ltd.,"""Motherson Sumi Wiring India Ltd."" OR ""Motherson Sumi Wiring India""",Auto Components
+Rainbow Childrens Medicare Limited,"""Rainbow Childrens Medicare Limited"" OR ""Rainbow Childrens Medicare""",Healthcare Services
+GlaxoSmithKline Pharmaceuticals Limited,"""GlaxoSmithKline Pharmaceuticals Limited"" OR ""GlaxoSmithKline Pharmaceuticals""",Pharmaceuticals & Biotechnology
+Kajaria Ceramics Limited,"""Kajaria Ceramics Limited"" OR ""Kajaria Ceramics""",Consumer Durables
+HDB Financial Services Ltd.,"""HDB Financial Services Ltd."" OR ""HDB Financial Services""",Finance
+Poonawalla Fincorp Limited,"""Poonawalla Fincorp Limited"" OR ""Poonawalla Fincorp""",Finance
+V-Guard Industries Ltd.,"""V-Guard Industries Ltd."" OR ""V-Guard Industries""",Consumer Durables
+Aditya Vision Ltd,"""Aditya Vision Ltd"" OR ""Aditya Vision""",Retailing
+Lloyds Metals And Energy Limited,"""Lloyds Metals And Energy Limited"" OR ""Lloyds Metals And Energy""",Minerals & Mining
+Cyient Limited,"""Cyient Limited"" OR ""Cyient""",IT - Services
+Sumitomo Chemical India Limited,"""Sumitomo Chemical India Limited"" OR ""Sumitomo Chemical India""",Fertilizers & Agrochemicals
+Balrampur Chini Mills Limited,"""Balrampur Chini Mills Limited"" OR ""Balrampur Chini Mills""",Agricultural Food & other Products
+Patanjali Foods Limited,"""Patanjali Foods Limited"" OR ""Patanjali Foods""",Agricultural Food & other Products
+TBO Tek Limited,"""TBO Tek Limited"" OR ""TBO Tek""",Leisure Services
+Urban Company Ltd.,"""Urban Company Ltd."" OR ""Urban""",Retailing
+Adani Port & Special Economic Zone Ltd,"""Adani Port & Special Economic Zone Ltd"" OR ""Adani Port & Special Economic Zone""",Transport Infrastructure
+Dhoot Transmission Ltd,"""Dhoot Transmission Ltd"" OR ""Dhoot Transmission""",Auto Components
+HDFC Asset Management Co. Ltd.,"""HDFC Asset Management Co. Ltd."" OR ""HDFC Asset Management Co""",Capital Markets
+MTAR Technologies Limited,"""MTAR Technologies Limited"" OR ""MTAR Technologies""",Electrical Equipment
+Tenneco Clean Air India Limited,"""Tenneco Clean Air India Limited"" OR ""Tenneco Clean Air India""",Auto Components
+Kalpataru Projects International Ltd,"""Kalpataru Projects International Ltd"" OR ""Kalpataru Projects International""",Construction
+KEC International Limited,"""KEC International Limited"" OR ""KEC International""",Construction
+Gujarat Fluorochemicals Limited,"""Gujarat Fluorochemicals Limited"" OR ""Gujarat Fluorochemicals""",Chemicals & Petrochemicals
+Atul Ltd.,"""Atul Ltd."" OR ""Atul""",Chemicals & Petrochemicals
+Bajaj Holdings & Investment Ltd.,"""Bajaj Holdings & Investment Ltd."" OR ""Bajaj Holdings & Investment""",Finance
+Tata Capital Limited,"""Tata Capital Limited"" OR ""Tata Capital""",Finance
+Brookfield India Real Estate Trust,"""Brookfield India Real Estate Trust""",Realty
+Jubilant Ingrevia Limited,"""Jubilant Ingrevia Limited"" OR ""Jubilant Ingrevia""",Chemicals & Petrochemicals
+Deepak Nitrite Ltd.,"""Deepak Nitrite Ltd."" OR ""Deepak Nitrite""",Chemicals & Petrochemicals
+Home First Finance Company India Ltd.,"""Home First Finance Company India Ltd."" OR ""Home First Finance Company India""",Finance
+JSW Cement Ltd.,"""JSW Cement Ltd."" OR ""JSW Cement""",Cement & Cement Products
+Rail Vikas Nigam Limited,"""Rail Vikas Nigam Limited"" OR ""Rail Vikas Nigam""",Construction
+Shree Cements Ltd.,"""Shree Cements Ltd."" OR ""Shree Cements""",Cement & Cement Products
+Berger Paints (I) Limited,"""Berger Paints (I) Limited"" OR ""Berger Paints (I)""",Consumer Durables
+Grindwell Norton Ltd.,"""Grindwell Norton Ltd."" OR ""Grindwell Norton""",Industrial Products
+Bayer Cropscience Limited,"""Bayer Cropscience Limited"" OR ""Bayer Cropscience""",Fertilizers & Agrochemicals
+CESC Ltd.,"""CESC Ltd."" OR ""CESC""",Power
+Schneider Electric Infrastructure Ltd.,"""Schneider Electric Infrastructure Ltd."" OR ""Schneider Electric Infrastructure""",Electrical Equipment
+Data Patterns (India) Limited,"""Data Patterns (India) Limited"" OR ""Data Patterns (India)""",Aerospace & Defense
+Divis Laboratories Ltd.,"""Divis Laboratories Ltd."" OR ""Divis Laboratories""",Pharmaceuticals & Biotechnology
+Narayana Hrudayalaya Limited,"""Narayana Hrudayalaya Limited"" OR ""Narayana Hrudayalaya""",Healthcare Services
+Knowledge Realty Trust,"""Knowledge Realty Trust""",Realty
+The Jammu & Kashmir Bank Limited,"""The Jammu & Kashmir Bank Limited"" OR ""The Jammu & Kashmir Bank""",Banks
+Onesource Specialty Pharma Limited,"""Onesource Specialty Pharma Limited"" OR ""Onesource Specialty Pharma""",Pharmaceuticals & Biotechnology
+Honasa Consumer Limited,"""Honasa Consumer Limited"" OR ""Honasa Consumer""",Personal Products
+Indraprastha Gas Ltd.,"""Indraprastha Gas Ltd."" OR ""Indraprastha Gas""",Gas
+CreditAccess Grameen Limited,"""CreditAccess Grameen Limited"" OR ""CreditAccess Grameen""",Finance
+CIE Automotive India Ltd,"""CIE Automotive India Ltd"" OR ""CIE Automotive India""",Auto Components
+Lodha Developers Limited,"""Lodha Developers Limited"" OR ""Lodha Developers""",Realty
+Minda Corporation Limited,"""Minda Corporation Limited"" OR ""Minda""",Auto Components
+CEAT Limited,"""CEAT Limited"" OR ""CEAT""",Auto Components
+Escorts Kubota Limited,"""Escorts Kubota Limited"" OR ""Escorts Kubota""","Agricultural, Commercial & Construction Vehicles"
+ICICI Prudential Asset Mgmt Co Ltd.,"""ICICI Prudential Asset Mgmt Co Ltd."" OR ""ICICI Prudential Asset Mgmt Co""",Capital Markets
+Shaily Engineering Plastics Limited,"""Shaily Engineering Plastics Limited"" OR ""Shaily Engineering Plastics""",Consumer Durables
+Gillette India Limited,"""Gillette India Limited"" OR ""Gillette India""",Personal Products
+Mahindra & Mahindra Financial Services Limited,"""Mahindra & Mahindra Financial Services Limited"" OR ""Mahindra & Mahindra Financial Services""",Finance
+Physicswallah Ltd.,"""Physicswallah Ltd."" OR ""Physicswallah""",Other Consumer Services
+Tata Chemicals Ltd.,"""Tata Chemicals Ltd."" OR ""Tata Chemicals""",Chemicals & Petrochemicals
+Berger Paints India Ltd.,"""Berger Paints India Ltd."" OR ""Berger Paints India""",Consumer Durables
+Chalet Hotels Ltd.,"""Chalet Hotels Ltd."" OR ""Chalet Hotels""",Leisure Services
+Pfizer Limited,"""Pfizer Limited"" OR ""Pfizer""",Pharmaceuticals & Biotechnology
+Indegene Limited,"""Indegene Limited"" OR ""Indegene""",Healthcare Services
+Tata Power Co Ltd,"""Tata Power Co Ltd"" OR ""Tata Power Co""",Power
+R R Kabel Limited,"""R R Kabel Limited"" OR ""R R Kabel""",Industrial Products
+Sansera Engineering Limited,"""Sansera Engineering Limited"" OR ""Sansera Engineering""",Auto Components
+Shiprocket Ltd.,"""Shiprocket Ltd."" OR ""Shiprocket""",Transport Services
+Voltamp Transformers Ltd.,"""Voltamp Transformers Ltd."" OR ""Voltamp Transformers""",Electrical Equipment
+Zensar Technologies Ltd.,"""Zensar Technologies Ltd."" OR ""Zensar Technologies""",IT - Software
+Acme Solar Holdings Ltd,"""Acme Solar Holdings Ltd"" OR ""Acme Solar Holdings""",Power
+CCL Products (India) Limited,"""CCL Products (India) Limited"" OR ""CCL Products (India)""",Agricultural Food & other Products
+Sky Gold And Diamonds Limited,"""Sky Gold And Diamonds Limited"" OR ""Sky Gold And Diamonds""",Consumer Durables
+Eris Lifesciences Limited,"""Eris Lifesciences Limited"" OR ""Eris Lifesciences""",Pharmaceuticals & Biotechnology
+Tata Elxsi Ltd.,"""Tata Elxsi Ltd."" OR ""Tata Elxsi""",IT - Software
+Aavas Financiers Ltd.,"""Aavas Financiers Ltd."" OR ""Aavas Financiers""",Finance
+ICICI Prudential AMC Ltd,"""ICICI Prudential AMC Ltd"" OR ""ICICI Prudential AMC""",Capital Markets
+L&T Technology Services Ltd.,"""L&T Technology Services Ltd."" OR ""L&T Technology Services""",IT - Services
+Mahanagar Gas Limited,"""Mahanagar Gas Limited"" OR ""Mahanagar Gas""",Gas
+Gokaldas Exports Ltd.,"""Gokaldas Exports Ltd."" OR ""Gokaldas Exports""",Textiles & Apparels
+S.J.S. Enterprises Limited,"""S.J.S. Enterprises Limited"" OR ""S.J.S. Enterprises""",Auto Components
+SBI Funds Management Limited,"""SBI Funds Management Limited"" OR ""SBI Funds Management""",Capital Markets
+Sun TV Network Limited,"""Sun TV Network Limited"" OR ""Sun TV Network""",Entertainment
+Cemindia Projects Ltd,"""Cemindia Projects Ltd"" OR ""Cemindia Projects""",Construction
+Central Depository Services (I) Ltd.,"""Central Depository Services (I) Ltd."" OR ""Central Depository Services (I)""",Capital Markets
+Emcure Pharmaceuticals Limited,"""Emcure Pharmaceuticals Limited"" OR ""Emcure Pharmaceuticals""",Pharmaceuticals & Biotechnology
+Awfis Space Solutions Limited,"""Awfis Space Solutions Limited"" OR ""Awfis Space Solutions""",Commercial Services & Supplies
+Cholamandalam Invest & Finance Co Ltd,"""Cholamandalam Invest & Finance Co Ltd"" OR ""Cholamandalam Invest & Finance Co""",Finance
+Motherson Sumi Systems Ltd.,"""Motherson Sumi Systems Ltd."" OR ""Motherson Sumi Systems""",Auto Ancillaries
+Castrol India Limited,"""Castrol India Limited"" OR ""Castrol India""",Petroleum Products
+CRISIL Ltd.,"""CRISIL Ltd."" OR ""CRISIL""",Finance
+Titagarh Rail Systems Limited,"""Titagarh Rail Systems Limited"" OR ""Titagarh Rail Systems""",Industrial Manufacturing
+Engineers India Limited,"""Engineers India Limited"" OR ""Engineers India""",Construction
+HFCL Limited,"""HFCL Limited"" OR ""HFCL""",Telecom - Services
+Prudent Corporate Advisory Services Ltd,"""Prudent Corporate Advisory Services Ltd"" OR ""Prudent Corporate Advisory Services""",Capital Markets
+Affle 3i Limited,"""Affle 3i Limited"" OR ""Affle 3i""",IT - Services
+Elgi Equipments Limited,"""Elgi Equipments Limited"" OR ""Elgi Equipments""",Industrial Products
+Inventurus Knowledge Solutions Ltd.,"""Inventurus Knowledge Solutions Ltd."" OR ""Inventurus Knowledge Solutions""",IT - Services
+JSW Dulux Limited,"""JSW Dulux Limited"" OR ""JSW Dulux""",Consumer Durables
+The Great Eastern Shipping Company Limited,"""The Great Eastern Shipping Company Limited"" OR ""The Great Eastern Shipping""",Transport Services
+The Ramco Cements Limited,"""The Ramco Cements Limited"" OR ""The Ramco Cements""",Cement & Cement Products
+Arvind Fashions Limited,"""Arvind Fashions Limited"" OR ""Arvind Fashions""",Retailing
+Bikaji Foods International Ltd.,"""Bikaji Foods International Ltd."" OR ""Bikaji Foods International""",Food Products
+Five Star Business Finance Limited,"""Five Star Business Finance Limited"" OR ""Five Star Business Finance""",Finance
+HEG Limited,"""HEG Limited"" OR ""HEG""",Industrial Products
+Afcons Infrastructure Limited,"""Afcons Infrastructure Limited"" OR ""Afcons Infrastructure""",Construction
+Century Plyboards (India) Ltd.,"""Century Plyboards (India) Ltd."" OR ""Century Plyboards (India)""",Consumer Durables
+Diamond Power Infrastructure Limited,"""Diamond Power Infrastructure Limited"" OR ""Diamond Power Infrastructure""",Electrical Equipment
+Rubicon Research Limited,"""Rubicon Research Limited"" OR ""Rubicon Research""",Pharmaceuticals & Biotechnology
+Wockhardt Ltd.,"""Wockhardt Ltd."" OR ""Wockhardt""",Pharmaceuticals & Biotechnology
+Firstsource Solutions Limited,"""Firstsource Solutions Limited"" OR ""Firstsource Solutions""",Commercial Services & Supplies
+Symbiotec Pharmalab Limited,"""Symbiotec Pharmalab Limited"" OR ""Symbiotec Pharmalab""",Pharmaceuticals & Biotechnology
+Travel Food Services Limited,"""Travel Food Services Limited"" OR ""Travel Food Services""",Leisure Services
+UCO Bank,"""UCO Bank""",Banks
+Cube Highways Trust,"""Cube Highways Trust""",Transport Infrastructure
+Sonata Software Limited,"""Sonata Software Limited"" OR ""Sonata Software""",IT - Software
+Thyrocare Technologies Limited,"""Thyrocare Technologies Limited"" OR ""Thyrocare Technologies""",Healthcare Services
+Can Fin Homes Limited,"""Can Fin Homes Limited"" OR ""Can Fin Homes""",Finance
+Equitas Small Finance Bank Limited,"""Equitas Small Finance Bank Limited"" OR ""Equitas Small Finance Bank""",Banks
+Nuvoco Vistas Corporation Ltd.,"""Nuvoco Vistas Corporation Ltd."" OR ""Nuvoco Vistas""",Cement & Cement Products
+Aptus Value Housing Finance India Ltd.,"""Aptus Value Housing Finance India Ltd."" OR ""Aptus Value Housing Finance India""",Finance
+EIH Ltd.,"""EIH Ltd."" OR ""EIH""",Leisure Services
+GO Digit General Insurance Ltd.,"""GO Digit General Insurance Ltd."" OR ""GO Digit General Insurance""",Insurance
+ICICI Lombard General Insurance Co. Ltd.,"""ICICI Lombard General Insurance Co. Ltd."" OR ""ICICI Lombard General Insurance Co""",Insurance
+Indigo Paints Limited,"""Indigo Paints Limited"" OR ""Indigo Paints""",Consumer Durables
+Shadowfax Technologies Limited,"""Shadowfax Technologies Limited"" OR ""Shadowfax Technologies""",Transport Services
+Brainbees Solutions Ltd.,"""Brainbees Solutions Ltd."" OR ""Brainbees Solutions""",Retailing
+Emmvee Photovoltaic Power Limited,"""Emmvee Photovoltaic Power Limited"" OR ""Emmvee Photovoltaic Power""",Electrical Equipment
+Indian Overseas Bank,"""Indian Overseas Bank""",Banks
+Metropolis Healthcare Limited,"""Metropolis Healthcare Limited"" OR ""Metropolis Healthcare""",Healthcare Services
+Fractal Analytics Ltd,"""Fractal Analytics Ltd"" OR ""Fractal Analytics""",IT - Software
+Jubilant Pharmova Limited,"""Jubilant Pharmova Limited"" OR ""Jubilant Pharmova""",Pharmaceuticals & Biotechnology
+Birlasoft Limited,"""Birlasoft Limited"" OR ""Birlasoft""",IT - Software
+Arvind Limited,"""Arvind Limited"" OR ""Arvind""",Textiles & Apparels
+Cube Highways Trust-InvIT Fund,"""Cube Highways Trust-InvIT Fund""",Transport Infrastructure
+Healthcare Global Enterprises Limited,"""Healthcare Global Enterprises Limited"" OR ""Healthcare Global Enterprises""",Healthcare Services
+Sanofi Consumer Healthcare India Limited,"""Sanofi Consumer Healthcare India Limited"" OR ""Sanofi Consumer Healthcare India""",Pharmaceuticals & Biotechnology
+Syrma SGS Technology Limited,"""Syrma SGS Technology Limited"" OR ""Syrma SGS Technology""",Industrial Manufacturing
+Alembic Pharmaceuticals Limited,"""Alembic Pharmaceuticals Limited"" OR ""Alembic Pharmaceuticals""",Pharmaceuticals & Biotechnology
+Nuvama Wealth Management Limited,"""Nuvama Wealth Management Limited"" OR ""Nuvama Wealth Management""",Capital Markets
+Poly Medicure Limited,"""Poly Medicure Limited"" OR ""Poly Medicure""",Healthcare Equipment & Supplies
+LTIMindtree Ltd,"""LTIMindtree Ltd"" OR ""LTIMindtree""",IT - Software
+Vardhman Textiles Limited,"""Vardhman Textiles Limited"" OR ""Vardhman Textiles""",Textiles & Apparels
+Elecon Engineering Company Limited,"""Elecon Engineering Company Limited"" OR ""Elecon Engineering""",Electrical Equipment
+SBI ALTERNATIVE INVESTMENT FUND,"""SBI ALTERNATIVE INVESTMENT FUND""",Alternative Investment Fund
+Clean Science and Technology Limited,"""Clean Science and Technology Limited"" OR ""Clean Science and Technology""",Chemicals & Petrochemicals
+Garware Hi-Tech Films Ltd.,"""Garware Hi-Tech Films Ltd."" OR ""Garware Hi-Tech Films""",Industrial Products
+Himadri Speciality Chemical Limited,"""Himadri Speciality Chemical Limited"" OR ""Himadri Speciality Chemical""",Chemicals & Petrochemicals
+Housing & Urban Development Corporation Limited,"""Housing & Urban Development Corporation Limited"" OR ""Housing & Urban Development""",Finance
+UTI Asset Management Company Limited,"""UTI Asset Management Company Limited"" OR ""UTI Asset Management""",Capital Markets
+Amara Raja Energy & Mobility Ltd,"""Amara Raja Energy & Mobility Ltd"" OR ""Amara Raja Energy & Mobility""",Auto Components
+Concord Biotech Limited,"""Concord Biotech Limited"" OR ""Concord Biotech""",Pharmaceuticals & Biotechnology
+Inter Globe Aviation Ltd,"""Inter Globe Aviation Ltd"" OR ""Inter Globe Aviation""",Transport Services
+Lemon Tree Hotels Limited,"""Lemon Tree Hotels Limited"" OR ""Lemon Tree Hotels""",Leisure Services
+Blue Dart Express Ltd.,"""Blue Dart Express Ltd."" OR ""Blue Dart Express""",Transport Services
+EID Parry India Limited,"""EID Parry India Limited"" OR ""EID Parry India""",Food Products
+Granules India Limited,"""Granules India Limited"" OR ""Granules India""",Pharmaceuticals & Biotechnology
+Zydus Wellness Limited,"""Zydus Wellness Limited"" OR ""Zydus Wellness""",Food Products
+Nexus Select Trust,"""Nexus Select Trust""",Units of Real Estate Investment Trust (REITs)
+Swan Corp Limited,"""Swan Corp Limited"" OR ""Swan""",Chemicals & Petrochemicals
+Tata Technologies Limited,"""Tata Technologies Limited"" OR ""Tata Technologies""",IT - Services
+Eternal Ltd (Previously Zomato Ltd),"""Eternal Ltd (Previously Zomato Ltd)"" OR ""Eternal (Previously Zomato )""",Retailing
+Natco Pharma Limited,"""Natco Pharma Limited"" OR ""Natco Pharma""",Pharmaceuticals & Biotechnology
+Netweb Technologies India Limited,"""Netweb Technologies India Limited"" OR ""Netweb Technologies India""",IT - Services
+Wework India Management Limited,"""Wework India Management Limited"" OR ""Wework India Management""",Commercial Services & Supplies
+Aegis Vopak Terminals Limited,"""Aegis Vopak Terminals Limited"" OR ""Aegis Vopak Terminals""",Oil
+IndiGrid Infrastructure Trust,"""IndiGrid Infrastructure Trust""",Power
+Ratnamani Metals & Tubes Ltd.,"""Ratnamani Metals & Tubes Ltd."" OR ""Ratnamani Metals & Tubes""",Industrial Products
+Indiamart Intermesh Ltd.,"""Indiamart Intermesh Ltd."" OR ""Indiamart Intermesh""",Retailing
+Milky Mist Dairy Food Ltd.,"""Milky Mist Dairy Food Ltd."" OR ""Milky Mist Dairy Food""",Food Products
+Power Mech Projects Ltd.,"""Power Mech Projects Ltd."" OR ""Power Mech Projects""",Construction
+Sapphire Foods India Limited,"""Sapphire Foods India Limited"" OR ""Sapphire Foods India""",Leisure Services
+Intellect Design Arena Limited,"""Intellect Design Arena Limited"" OR ""Intellect Design Arena""",IT - Software
+Aether Industries Ltd.,"""Aether Industries Ltd."" OR ""Aether Industries""",Chemicals & Petrochemicals
+Central Bank of India,"""Central Bank of India""",Banks
+Chennai Petroleum Corporation Ltd.,"""Chennai Petroleum Corporation Ltd."" OR ""Chennai Petroleum""",Petroleum Products
+National Highways Infra Trust,"""National Highways Infra Trust""",Transport Infrastructure
+Safari Industries (India) Limited,"""Safari Industries (India) Limited"" OR ""Safari Industries (India)""",Consumer Durables
+Quality Power Electrical Eqp Ltd,"""Quality Power Electrical Eqp Ltd"" OR ""Quality Power Electrical Eqp""",Electrical Equipment
+Sedemac Mechatronics Limited,"""Sedemac Mechatronics Limited"" OR ""Sedemac Mechatronics""",Auto Components
+SPR Auto Technologies Ltd,"""SPR Auto Technologies Ltd"" OR ""SPR Auto Technologies""",Auto Components
+The India Cements Limited,"""The India Cements Limited"" OR ""The India Cements""",Cement & Cement Products
+Aditya Birla Lifestyle Brands Ltd.,"""Aditya Birla Lifestyle Brands Ltd."" OR ""Aditya Birla Lifestyle Brands""",Retailing
+Allied Blenders And Distillers Limited,"""Allied Blenders And Distillers Limited"" OR ""Allied Blenders And Distillers""",Beverages
+Gujarat Energy Ltd.,"""Gujarat Energy Ltd."" OR ""Gujarat Energy""",Gas
+Newgen Software Technologies Limited,"""Newgen Software Technologies Limited"" OR ""Newgen Software Technologies""",IT - Software
+Jindal Steel & Power Ltd,"""Jindal Steel & Power Ltd"" OR ""Jindal Steel & Power""",Ferrous Metals
+Paradeep Phosphates Limited,"""Paradeep Phosphates Limited"" OR ""Paradeep Phosphates""",Fertilizers & Agrochemicals
+Star Health And Allied Insurance Company Limited,"""Star Health And Allied Insurance Company Limited"" OR ""Star Health And Allied Insurance""",Insurance
+Bajaj Housing Finance Ltd.,"""Bajaj Housing Finance Ltd."" OR ""Bajaj Housing Finance""",Finance
+Brookfield India Real Estate Trust REIT,"""Brookfield India Real Estate Trust REIT""",Units of Real Estate Investment Trust (REITs)
+Indian Railway Finance Corporation Ltd.,"""Indian Railway Finance Corporation Ltd."" OR ""Indian Railway Finance""",Finance
+Jindal Saw Ltd.,"""Jindal Saw Ltd."" OR ""Jindal Saw""",Industrial Products
+USHA MARTIN LTD,"""USHA MARTIN LTD"" OR ""USHA MARTIN""",INDUSTRIAL PRODUCTS
+Bata India Ltd.,"""Bata India Ltd."" OR ""Bata India""",Consumer Durables
+Entero Healthcare Solutions Ltd,"""Entero Healthcare Solutions Ltd"" OR ""Entero Healthcare Solutions""",Retailing
+NCC Limited,"""NCC Limited"" OR ""NCC""",Construction
+Thangamayil Jewellery Limited,"""Thangamayil Jewellery Limited"" OR ""Thangamayil Jewellery""",Consumer Durables
+Zee Entertainment Enterprises Limited,"""Zee Entertainment Enterprises Limited"" OR ""Zee Entertainment Enterprises""",Entertainment
+Asahi India Glass Limited,"""Asahi India Glass Limited"" OR ""Asahi India Glass""",Auto Components
+AWL Agri Business Limited,"""AWL Agri Business Limited"" OR ""AWL Agri Business""",Agricultural Food & other Products
+Cartrade Tech Limited,"""Cartrade Tech Limited"" OR ""Cartrade Tech""",Retailing
+Finolex Cables Limited,"""Finolex Cables Limited"" OR ""Finolex Cables""",Industrial Products
+Force Motors Ltd.,"""Force Motors Ltd."" OR ""Force Motors""",Automobiles

@@ -97,9 +97,14 @@ Pipeline keys already in `.env` are reused (`QDRANT_*`, `JEV_*` if you use Jev).
 
 ---
 
-## Daily ingest (17:10 IST / 5:10 PM, once per day)
+## Daily ingest (13:00 IST and 17:10 IST, twice per day)
 
-`install.sh` installs one cron job for user `ubuntu`: **17:10 IST (5:10 PM)**. Ubuntu cron does not accept `CRON_TZ`, so on a UTC Lightsail clock the line is `40 11` (11:40 UTC = 17:10 IST).
+`install.sh` runs `install-daily-cron.sh`, which installs **two** UTC cron lines for user `ubuntu` (no `CRON_TZ` on stock Ubuntu cron):
+
+| UTC cron   | IST        | Marker               |
+|------------|------------|----------------------|
+| `30 7`     | 1:00 PM    | `# news-daily-noon`  |
+| `40 11`    | 5:10 PM    | `# news-daily-evening` |
 
 Each run uses:
 

@@ -459,7 +459,8 @@ class Settings(BaseSettings):
         ),
     )
 
-    holdings_limit: int = 5
+    # Max 500 matches data/fund_holdings_aggregate/stock_multi_query_sector.xlsx.
+    holdings_limit: int = Field(default=5, le=500)
     sectors_limit: int = 2
     title_noul_min: float = 0.5
     about_name_min: float = 0.7
@@ -504,6 +505,9 @@ class Settings(BaseSettings):
     embed_batch: int = 32
 
     holdings_csv: str = "data/fund_holdings_aggregate/aggregated_holdings.csv"
+    stock_multi_query_sector_xlsx: str = (
+        "data/fund_holdings_aggregate/stock_multi_query_sector.xlsx"
+    )
     sectors_csv: str = "data/fund_holdings_aggregate/aggregated_sectors.csv"
     # When empty (default), load_universe loads top holdings (holdings_limit) and top sectors (sectors_limit).
     # To load a specific investor portfolio universe instead, set PORTFOLIO_JSON in .env (e.g. investor_data/mohit/portfolio.json).

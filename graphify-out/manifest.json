@@ -843,9 +843,9 @@
     "semantic_hash": "6ba2d125ff5c0408fd057b92f2bfff88"
   },
   "news_pipeline/config.py": {
-    "mtime": 1794835573.5993621,
-    "seen": 1794836278.7523253,
-    "ast_hash": "278c5ef49e5f7cf2272107188415b6e9",
+    "mtime": 1794898722.5264652,
+    "seen": 1794898754.0501852,
+    "ast_hash": "3763d4e3a7c8e13e58de7a2e286dda98",
     "semantic_hash": ""
   },
   "news_pipeline/day_report.py": {
@@ -1077,9 +1077,9 @@
     "semantic_hash": ""
   },
   "news_pipeline/sources/universe.py": {
-    "mtime": 1794646893.5852993,
-    "seen": 1794647087.0324037,
-    "ast_hash": "67d85330cee75d8f58a147c61231ea44",
+    "mtime": 1794898718.192647,
+    "seen": 1794898754.0562122,
+    "ast_hash": "13ab69fcbb6080b41b63aaf6765570ad",
     "semantic_hash": ""
   },
   "news_pipeline/storage/article_merge.py": {
@@ -3415,8 +3415,8 @@
     "semantic_hash": ""
   },
   "data/ai_insight/fii_dii_latest.json": {
-    "mtime": 1794835239.406507,
-    "seen": 1794836278.7358449,
+    "mtime": 1794836854.603294,
+    "seen": 1794898754.032437,
     "ast_hash": "2fd6f631c2a76b372e87597e0cb55cee",
     "semantic_hash": ""
   },
@@ -3811,15 +3811,15 @@
     "semantic_hash": ""
   },
   "tests/test_sector_leaderboard_run.py": {
-    "mtime": 1794836245.1810558,
-    "seen": 1794836278.8119013,
-    "ast_hash": "25edb7633bd6c142650dcd036b5fc133",
+    "mtime": 1794836727.6127973,
+    "seen": 1794898754.1174603,
+    "ast_hash": "8f09eaf1a7fc92cf526fb1871ddc9067",
     "semantic_hash": ""
   },
   "tests/test_sector_leaderboard_score.py": {
-    "mtime": 1794836245.3283591,
-    "seen": 1794836278.8119042,
-    "ast_hash": "7a5fb77252f7552f6cbbc9a823c81a4a",
+    "mtime": 1794836727.773751,
+    "seen": 1794898754.1174638,
+    "ast_hash": "6b424f5f78f6775d1349bccfd07b3857",
     "semantic_hash": ""
   },
   "ai_insight/additional_insights/__init__.py": {
@@ -4009,15 +4009,15 @@
     "semantic_hash": ""
   },
   "ai_insight/sector_leaderboard/prompt.py": {
-    "mtime": 1794830070.6991677,
-    "seen": 1794833038.8893971,
-    "ast_hash": "00b2f38646c4ede96f1fec54f23c7035",
+    "mtime": 1794836714.072631,
+    "seen": 1794898754.0217614,
+    "ast_hash": "1fb27df1a23b12b36e5f1faca4fb7b83",
     "semantic_hash": ""
   },
   "ai_insight/sector_leaderboard/run.py": {
-    "mtime": 1794836245.1434183,
-    "seen": 1794836278.7256913,
-    "ast_hash": "f0d33b1715f4bdeb33dc7d470154d605",
+    "mtime": 1794836714.0823164,
+    "seen": 1794898754.021766,
+    "ast_hash": "b844c19b24d95e9474327d39e9756f58",
     "semantic_hash": ""
   },
   "ai_insight/sector_leaderboard/schema.py": {
@@ -4027,9 +4027,9 @@
     "semantic_hash": ""
   },
   "ai_insight/sector_leaderboard/score.py": {
-    "mtime": 1794836230.9029193,
-    "seen": 1794836278.7258418,
-    "ast_hash": "8cdac13c19b9da4fdac651f2b8545b84",
+    "mtime": 1794836700.5905952,
+    "seen": 1794898754.0219278,
+    "ast_hash": "cd57c775aed187953ded43db4f07734e",
     "semantic_hash": ""
   },
   "ai_insight/tools/__init__.py": {
@@ -4075,9 +4075,9 @@
     "semantic_hash": ""
   },
   "news_rag/static/insights.js": {
-    "mtime": 1794836238.772702,
-    "seen": 1794836278.7835064,
-    "ast_hash": "68d87b06bdd4d188ab4909e5f05e31b4",
+    "mtime": 1794836721.5994134,
+    "seen": 1794898754.0835078,
+    "ast_hash": "8443e2480ca11955cf25f9c80a0aa5c8",
     "semantic_hash": ""
   },
   "scripts/run_insights_daily.sh": {
@@ -4228,6 +4228,24 @@
     "mtime": 1794833963.2552438,
     "seen": 1794833994.4224062,
     "ast_hash": "85ec819a7dd9c3177d0bd60748bfaa81",
+    "semantic_hash": ""
+  },
+  "news_pipeline/sources/stock_multi_query.py": {
+    "mtime": 1794898717.2932107,
+    "seen": 1794898754.0562084,
+    "ast_hash": "ed02191d617ce20946e003a994aabeab",
+    "semantic_hash": ""
+  },
+  "scripts/expand_stock_multi_query_sector.py": {
+    "mtime": 1794898720.9409437,
+    "seen": 1794898754.086925,
+    "ast_hash": "1d92560e113dfe21b7e6c233e247be24",
+    "semantic_hash": ""
+  },
+  "tests/test_stock_multi_query_universe.py": {
+    "mtime": 1794898723.072004,
+    "seen": 1794898754.118077,
+    "ast_hash": "6592c83de0780d461ac8ba8537a1555c",
     "semantic_hash": ""
   },
   "cloudflare/scrape-worker/package-lock.json": {

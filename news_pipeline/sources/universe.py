@@ -87,6 +87,12 @@ def _is_exchange_label(name: str) -> bool:
 
 
 def load_holdings(settings: Settings) -> list[dict]:
+    from news_pipeline.sources.stock_multi_query import load_holdings_rows_from_xlsx
+
+    xlsx_rows = load_holdings_rows_from_xlsx(settings)
+    if xlsx_rows:
+        return build_holding_entities(xlsx_rows)
+
     path = settings.path(settings.holdings_csv)
     grouped: dict[str, dict] = {}
     with path.open(encoding="utf-8", newline="") as handle:
@@ -146,12 +152,13 @@ def build_holding_entities(rows: list[dict]) -> list[dict]:
                     continue
                 negatives.append(alias)
         display = row["short"] if _is_exchange_label(row["name"]) else row["name"]
+        query = (row.get("query") or "").strip() or _holding_query(row)
         entities.append(
             {
                 "name": display,
                 "type": "holding",
                 "industry": row.get("industry") or "",
-                "query": _holding_query(row),
+                "query": query,
                 "aliases": row["aliases"],
                 "negative_aliases": negatives,
                 "keywords": [],

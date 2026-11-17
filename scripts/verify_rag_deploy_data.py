@@ -17,6 +17,7 @@ REQUIRED = [
 
 # Improves sector breakdown and legacy paths; stock holder scans use live RupeeStop API if absent.
 OPTIONAL = [
+    "data/fund_holdings_aggregate/stock_multi_query_sector.xlsx",
     "data/fund_holdings_aggregate/aggregated_holdings.csv",
     "data/fund_holdings_aggregate/sector_isin_percentages.json",
     "data/fund_holdings_aggregate/portfolio_news_scope.json",
