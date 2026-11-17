@@ -1,0 +1,41 @@
+{
+  "run_id": "20261117T103242Z_5d2d",
+  "calendar_day": "2026-11-17",
+  "news_date_range": "",
+  "entities": [
+    {
+      "name": "ICICI Bank Ltd.",
+      "type": "holding",
+      "rss_items": 23,
+      "dropped_before_resolve": 14,
+      "resolve_failed": 0,
+      "google_kept": 9,
+      "skipped_existing": 1,
+      "title_dedupe_dropped": 0,
+      "after_title_dedupe": 5,
+      "after_title_jev": 5,
+      "scrape_dropped": 0,
+      "scrape_drop_reasons": {},
+      "scraped": 5,
+      "after_body_jev": 5,
+      "upserted": 0
+    },
+    {
+      "name": "State Bank of India",
+      "type": "holding",
+      "rss_items": 22,
+      "dropped_before_resolve": 18,
+      "resolve_failed": 0,
+      "google_kept": 4,
+      "skipped_existing": 3,
+      "title_dedupe_dropped": 0,
+      "after_title_dedupe": 1,
+      "after_title_jev": 1,
+      "scrape_dropped": 0,
+      "scrape_drop_reasons": {},
+      "scraped": 1,
+      "after_body_jev": 1,
+      "upserted": 0
+    }
+  ]
+}

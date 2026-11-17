@@ -1,0 +1,8 @@
+2026-11-17T07:58:45Z run started run_id=20261117T075845Z
+2026-11-17T07:58:45Z google_rss_test started (no jev/qdrant)
+2026-11-17T07:58:47Z entities=3
+2026-11-17T07:59:14Z fetch filter entity=State Bank of India rss_items=23 dropped_publisher=18 dropped_pre_resolve=0 resolve_calls=5 kept=5 max_items_per_query=unlimited
+2026-11-17T07:59:14Z fetch entity=State Bank of India type=holding ok items=5
+2026-11-17T08:00:44Z fetch entity=ICICI Bank Ltd. type=holding FAIL error=Google News blocked this IP (circuit open)
+2026-11-17T08:00:44Z fetch entity=HDFC Bank Ltd. type=holding FAIL error=Google News circuit open; retry after ~899s cool-down
+2026-11-17T08:00:44Z run finished total_seconds=118.36 steps_total_sec=0 llm_calls=0 input_tokens=0 output_tokens=0 total_input_cost_usd=0.000000

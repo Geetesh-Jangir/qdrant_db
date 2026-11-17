@@ -1,0 +1,3715 @@
+{
+  "summary": {
+    "total": 100,
+    "yfinance_ok": 99,
+    "yfinance_missing": 1,
+    "field_keys_seen_when_ok": [
+      "beta",
+      "currency",
+      "dividendYield",
+      "exchange",
+      "fiftyTwoWeekHigh",
+      "fiftyTwoWeekLow",
+      "industry",
+      "latestClose",
+      "latestCloseDate",
+      "longName",
+      "marketCap",
+      "priceToBook",
+      "regularMarketPreviousClose",
+      "regularMarketPrice",
+      "sector",
+      "shortName",
+      "symbol",
+      "trailingPE"
+    ]
+  },
+  "yfinance_ok": [
+    {
+      "instrument_name": "ICICI Bank Limited",
+      "symbol": "ICICIBANK",
+      "yfinance_ticker": "ICICIBANK.NS"
+    },
+    {
+      "instrument_name": "HDFC Bank Limited",
+      "symbol": "HDFCBANK",
+      "yfinance_ticker": "HDFCBANK.NS"
+    },
+    {
+      "instrument_name": "Bharti Airtel Limited",
+      "symbol": "BHARTIARTL",
+      "yfinance_ticker": "BHARTIARTL.NS"
+    },
+    {
+      "instrument_name": "State Bank of India",
+      "symbol": "SBIN",
+      "yfinance_ticker": "SBIN.NS"
+    },
+    {
+      "instrument_name": "Reliance Industries Limited",
+      "symbol": "RELIANCE",
+      "yfinance_ticker": "RELIANCE.NS"
+    },
+    {
+      "instrument_name": "Axis Bank Limited",
+      "symbol": "AXISBANK",
+      "yfinance_ticker": "AXISBANK.NS"
+    },
+    {
+      "instrument_name": "Larsen & Toubro Limited",
+      "symbol": "LT",
+      "yfinance_ticker": "LT.NS"
+    },
+    {
+      "instrument_name": "Infosys Limited",
+      "symbol": "INFY",
+      "yfinance_ticker": "INFY.NS"
+    },
+    {
+      "instrument_name": "Mahindra & Mahindra Limited",
+      "symbol": "M&M",
+      "yfinance_ticker": "M&M.NS"
+    },
+    {
+      "instrument_name": "Kotak Mahindra Bank Limited",
+      "symbol": "KOTAKBANK",
+      "yfinance_ticker": "KOTAKBANK.NS"
+    },
+    {
+      "instrument_name": "Eternal Limited",
+      "symbol": "ETERNAL",
+      "yfinance_ticker": "ETERNAL.NS"
+    },
+    {
+      "instrument_name": "NTPC Limited",
+      "symbol": "NTPC",
+      "yfinance_ticker": "NTPC.NS"
+    },
+    {
+      "instrument_name": "Maruti Suzuki India Limited",
+      "symbol": "MARUTI",
+      "yfinance_ticker": "MARUTI.NS"
+    },
+    {
+      "instrument_name": "Bajaj Finance Limited",
+      "symbol": "BAJFINANCE",
+      "yfinance_ticker": "BAJFINANCE.NS"
+    },
+    {
+      "instrument_name": "Sun Pharmaceutical Industries Limited",
+      "symbol": "SUNPHARMA",
+      "yfinance_ticker": "SUNPHARMA.NS"
+    },
+    {
+      "instrument_name": "Shriram Finance Limited",
+      "symbol": "SHRIRAMFIN",
+      "yfinance_ticker": "SHRIRAMFIN.NS"
+    },
+    {
+      "instrument_name": "Bharat Electronics Limited",
+      "symbol": "BEL",
+      "yfinance_ticker": "BEL.NS"
+    },
+    {
+      "instrument_name": "ITC Limited",
+      "symbol": "ITC",
+      "yfinance_ticker": "ITC.NS"
+    },
+    {
+      "instrument_name": "Ultratech Cement Ltd.",
+      "symbol": "ULTRACEMCO",
+      "yfinance_ticker": "ULTRACEMCO.NS"
+    },
+    {
+      "instrument_name": "InterGlobe Aviation Limited",
+      "symbol": "INDIGO",
+      "yfinance_ticker": "INDIGO.NS"
+    },
+    {
+      "instrument_name": "Tata Consultancy Services Limited",
+      "symbol": "TCS",
+      "yfinance_ticker": "TCS.NS"
+    },
+    {
+      "instrument_name": "Tech Mahindra Limited",
+      "symbol": "TECHM",
+      "yfinance_ticker": "TECHM.NS"
+    },
+    {
+      "instrument_name": "Titan Company Limited",
+      "symbol": "TITAN",
+      "yfinance_ticker": "TITAN.NS"
+    },
+    {
+      "instrument_name": "Tata Steel Ltd.",
+      "symbol": "TATASTEEL",
+      "yfinance_ticker": "TATASTEEL.NS"
+    },
+    {
+      "instrument_name": "TVS Motor Company Ltd.",
+      "symbol": "TVSMOTOR",
+      "yfinance_ticker": "TVSMOTOR.NS"
+    },
+    {
+      "instrument_name": "Hindustan Unilever Ltd.",
+      "symbol": "HINDUNILVR",
+      "yfinance_ticker": "HINDUNILVR.NS"
+    },
+    {
+      "instrument_name": "Hindalco Industries Ltd.",
+      "symbol": "HINDALCO",
+      "yfinance_ticker": "HINDALCO.NS"
+    },
+    {
+      "instrument_name": "Apollo Hospitals Enterprise Limited",
+      "symbol": "APOLLOHOSP",
+      "yfinance_ticker": "APOLLOHOSP.NS"
+    },
+    {
+      "instrument_name": "SBI Life Insurance Company Limited",
+      "symbol": "SBILIFE",
+      "yfinance_ticker": "SBILIFE.NS"
+    },
+    {
+      "instrument_name": "Torrent Pharmaceuticals Limited",
+      "symbol": "TORNTPHARM",
+      "yfinance_ticker": "TORNTPHARM.NS"
+    },
+    {
+      "instrument_name": "Cummins India Limited",
+      "symbol": "CUMMINSIND",
+      "yfinance_ticker": "CUMMINSIND.NS"
+    },
+    {
+      "instrument_name": "Multi Commodity Exchange of India Limited",
+      "symbol": "MCX",
+      "yfinance_ticker": "MCX.NS"
+    },
+    {
+      "instrument_name": "Divi's Laboratories Limited",
+      "symbol": "DIVISLAB",
+      "yfinance_ticker": "DIVISLAB.NS"
+    },
+    {
+      "instrument_name": "Cipla Limited",
+      "symbol": "CIPLA",
+      "yfinance_ticker": "CIPLA.NS"
+    },
+    {
+      "instrument_name": "Coforge Limited",
+      "symbol": "COFORGE",
+      "yfinance_ticker": "COFORGE.NS"
+    },
+    {
+      "instrument_name": "PB Fintech Limited",
+      "symbol": "POLICYBZR",
+      "yfinance_ticker": "POLICYBZR.NS"
+    },
+    {
+      "instrument_name": "Eicher Motors Ltd.",
+      "symbol": "EICHERMOT",
+      "yfinance_ticker": "EICHERMOT.NS"
+    },
+    {
+      "instrument_name": "One 97 Communications Limited",
+      "symbol": "PAYTM",
+      "yfinance_ticker": "PAYTM.NS"
+    },
+    {
+      "instrument_name": "Hindustan Aeronautics Limited",
+      "symbol": "HAL",
+      "yfinance_ticker": "HAL.NS"
+    },
+    {
+      "instrument_name": "HCL Technologies Ltd.",
+      "symbol": "HCLTECH",
+      "yfinance_ticker": "HCLTECH.NS"
+    },
+    {
+      "instrument_name": "Bajaj Auto Limited",
+      "symbol": "BAJAJ-AUTO",
+      "yfinance_ticker": "BAJAJ-AUTO.NS"
+    },
+    {
+      "instrument_name": "Samvardhana Motherson International Limited",
+      "symbol": "MOTHERSON",
+      "yfinance_ticker": "MOTHERSON.NS"
+    },
+    {
+      "instrument_name": "Varun Beverages Limited",
+      "symbol": "VBL",
+      "yfinance_ticker": "VBL.NS"
+    },
+    {
+      "instrument_name": "The Federal Bank Limited",
+      "symbol": "FEDERALBNK",
+      "yfinance_ticker": "FEDERALBNK.NS"
+    },
+    {
+      "instrument_name": "Asian Paints Limited",
+      "symbol": "ASIANPAINT",
+      "yfinance_ticker": "ASIANPAINT.NS"
+    },
+    {
+      "instrument_name": "Max Financial Services Limited",
+      "symbol": "MFSL",
+      "yfinance_ticker": "MFSL.NS"
+    },
+    {
+      "instrument_name": "Power Grid Corporation of India Limited",
+      "symbol": "POWERGRID",
+      "yfinance_ticker": "POWERGRID.NS"
+    },
+    {
+      "instrument_name": "Oil & Natural Gas Corporation Limited",
+      "symbol": "ONGC",
+      "yfinance_ticker": "ONGC.NS"
+    },
+    {
+      "instrument_name": "Trent Limited",
+      "symbol": "TRENT",
+      "yfinance_ticker": "TRENT.NS"
+    },
+    {
+      "instrument_name": "Bharat Heavy Electricals Limited",
+      "symbol": "BHEL",
+      "yfinance_ticker": "BHEL.NS"
+    },
+    {
+      "instrument_name": "Bajaj Finserv Limited",
+      "symbol": "BAJAJFINSV",
+      "yfinance_ticker": "BAJAJFINSV.NS"
+    },
+    {
+      "instrument_name": "United Spirits Limited",
+      "symbol": "UNITDSPR",
+      "yfinance_ticker": "UNITDSPR.NS"
+    },
+    {
+      "instrument_name": "Britannia Industries Ltd.",
+      "symbol": "BRITANNIA",
+      "yfinance_ticker": "BRITANNIA.NS"
+    },
+    {
+      "instrument_name": "HDFC Life Insurance Company Limited",
+      "symbol": "HDFCLIFE",
+      "yfinance_ticker": "HDFCLIFE.NS"
+    },
+    {
+      "instrument_name": "IndusInd Bank Limited",
+      "symbol": "INDUSINDBK",
+      "yfinance_ticker": "INDUSINDBK.NS"
+    },
+    {
+      "instrument_name": "JSW Steel Limited",
+      "symbol": "JSWSTEEL",
+      "yfinance_ticker": "JSWSTEEL.NS"
+    },
+    {
+      "instrument_name": "Cholamandalam Investment and Finance Company Ltd",
+      "symbol": "CHOLAFIN",
+      "yfinance_ticker": "CHOLAFIN.NS"
+    },
+    {
+      "instrument_name": "CG Power and Industrial Solutions Ltd.",
+      "symbol": "CGPOWER",
+      "yfinance_ticker": "CGPOWER.NS"
+    },
+    {
+      "instrument_name": "Coal India Limited",
+      "symbol": "COALINDIA",
+      "yfinance_ticker": "COALINDIA.NS"
+    },
+    {
+      "instrument_name": "Tata Motors Ltd",
+      "symbol": "TMCV",
+      "yfinance_ticker": "TMCV.NS"
+    },
+    {
+      "instrument_name": "Dixon Technologies (India) Limited",
+      "symbol": "DIXON",
+      "yfinance_ticker": "DIXON.NS"
+    },
+    {
+      "instrument_name": "Grasim Industries Limited",
+      "symbol": "GRASIM",
+      "yfinance_ticker": "GRASIM.NS"
+    },
+    {
+      "instrument_name": "Indus Towers Limited",
+      "symbol": "INDUSTOWER",
+      "yfinance_ticker": "INDUSTOWER.NS"
+    },
+    {
+      "instrument_name": "Max Healthcare Institute Limited",
+      "symbol": "MAXHEALTH",
+      "yfinance_ticker": "MAXHEALTH.NS"
+    },
+    {
+      "instrument_name": "BSE Limited",
+      "symbol": "BSE",
+      "yfinance_ticker": "BSE.NS"
+    },
+    {
+      "instrument_name": "Persistent Systems Ltd.",
+      "symbol": "PERSISTENT",
+      "yfinance_ticker": "PERSISTENT.NS"
+    },
+    {
+      "instrument_name": "Solar Industries India Limited",
+      "symbol": "SOLARINDS",
+      "yfinance_ticker": "SOLARINDS.NS"
+    },
+    {
+      "instrument_name": "Adani Ports and Special Economic Zone Limited",
+      "symbol": "ADANIPORTS",
+      "yfinance_ticker": "ADANIPORTS.NS"
+    },
+    {
+      "instrument_name": "Hero MotoCorp Limited",
+      "symbol": "HEROMOTOCO",
+      "yfinance_ticker": "HEROMOTOCO.NS"
+    },
+    {
+      "instrument_name": "Tata Consumer Products Limited",
+      "symbol": "TATACONSUM",
+      "yfinance_ticker": "TATACONSUM.NS"
+    },
+    {
+      "instrument_name": "The Indian Hotels Company Limited",
+      "symbol": "INDHOTEL",
+      "yfinance_ticker": "INDHOTEL.NS"
+    },
+    {
+      "instrument_name": "Bharat Petroleum Corporation Ltd.",
+      "symbol": "BPCL",
+      "yfinance_ticker": "BPCL.NS"
+    },
+    {
+      "instrument_name": "Ashok Leyland Ltd.",
+      "symbol": "ASHOKLEY",
+      "yfinance_ticker": "ASHOKLEY.NS"
+    },
+    {
+      "instrument_name": "Info Edge (India) Limited",
+      "symbol": "NAUKRI",
+      "yfinance_ticker": "NAUKRI.NS"
+    },
+    {
+      "instrument_name": "Bank of Baroda",
+      "symbol": "BANKBARODA",
+      "yfinance_ticker": "BANKBARODA.NS"
+    },
+    {
+      "instrument_name": "ICICI Lombard General Insurance Company Limited",
+      "symbol": "ICICIGI",
+      "yfinance_ticker": "ICICIGI.NS"
+    },
+    {
+      "instrument_name": "FSN E-Commerce Ventures Ltd.",
+      "symbol": "NYKAA",
+      "yfinance_ticker": "NYKAA.NS"
+    },
+    {
+      "instrument_name": "Marico Limited",
+      "symbol": "MARICO",
+      "yfinance_ticker": "MARICO.NS"
+    },
+    {
+      "instrument_name": "RBL Bank Limited",
+      "symbol": "RBLBANK",
+      "yfinance_ticker": "RBLBANK.NS"
+    },
+    {
+      "instrument_name": "Adani Enterprises Limited",
+      "symbol": "ADANIENT",
+      "yfinance_ticker": "ADANIENT.NS"
+    },
+    {
+      "instrument_name": "Nestle India Ltd.",
+      "symbol": "NESTLEIND",
+      "yfinance_ticker": "NESTLEIND.NS"
+    },
+    {
+      "instrument_name": "Sona Blw Precision Forgings Ltd.",
+      "symbol": "SONACOMS",
+      "yfinance_ticker": "SONACOMS.NS"
+    },
+    {
+      "instrument_name": "Swiggy Limited",
+      "symbol": "SWIGGY",
+      "yfinance_ticker": "SWIGGY.NS"
+    },
+    {
+      "instrument_name": "Tata Power Company Limited",
+      "symbol": "TATAPOWER",
+      "yfinance_ticker": "TATAPOWER.NS"
+    },
+    {
+      "instrument_name": "Life Insurance Corporation Of India",
+      "symbol": "LICI",
+      "yfinance_ticker": "LICI.NS"
+    },
+    {
+      "instrument_name": "Mphasis Ltd.",
+      "symbol": "MPHASIS",
+      "yfinance_ticker": "MPHASIS.NS"
+    },
+    {
+      "instrument_name": "Aurobindo Pharma Limited",
+      "symbol": "AUROPHARMA",
+      "yfinance_ticker": "AUROPHARMA.NS"
+    },
+    {
+      "instrument_name": "Bharat Forge Limited",
+      "symbol": "BHARATFORG",
+      "yfinance_ticker": "BHARATFORG.NS"
+    },
+    {
+      "instrument_name": "Fortis Healthcare Limited",
+      "symbol": "FORTIS",
+      "yfinance_ticker": "FORTIS.NS"
+    },
+    {
+      "instrument_name": "AU Small Finance Bank Limited",
+      "symbol": "AUBANK",
+      "yfinance_ticker": "AUBANK.NS"
+    },
+    {
+      "instrument_name": "Power Finance Corporation Ltd.",
+      "symbol": "PFC",
+      "yfinance_ticker": "PFC.NS"
+    },
+    {
+      "instrument_name": "Ambuja Cements Ltd.",
+      "symbol": "AMBUJACEM",
+      "yfinance_ticker": "AMBUJACEM.NS"
+    },
+    {
+      "instrument_name": "Tata Motors Passenger Vehicles Limited",
+      "symbol": "TMPV",
+      "yfinance_ticker": "TMPV.NS"
+    },
+    {
+      "instrument_name": "Radico Khaitan Limited",
+      "symbol": "RADICO",
+      "yfinance_ticker": "RADICO.NS"
+    },
+    {
+      "instrument_name": "HDFC Asset Management Company Limited",
+      "symbol": "HDFCAMC",
+      "yfinance_ticker": "HDFCAMC.NS"
+    },
+    {
+      "instrument_name": "Lupin Ltd.",
+      "symbol": "LUPIN",
+      "yfinance_ticker": "LUPIN.NS"
+    },
+    {
+      "instrument_name": "Hindustan Petroleum Corporation Limited",
+      "symbol": "HINDPETRO",
+      "yfinance_ticker": "HINDPETRO.NS"
+    },
+    {
+      "instrument_name": "ABB India Ltd.",
+      "symbol": "ABB",
+      "yfinance_ticker": "ABB.NS"
+    },
+    {
+      "instrument_name": "The Phoenix Mills Ltd.",
+      "symbol": "PHOENIXLTD",
+      "yfinance_ticker": "PHOENIXLTD.NS"
+    }
+  ],
+  "yfinance_missing": [
+    {
+      "instrument_name": "GE Vernova T&D India Limited",
+      "symbol": "GVTD",
+      "scripCode": "522275",
+      "tickers_tried": [
+        "GVTD.NS",
+        "GVTD.BO"
+      ],
+      "error": "no data"
+    }
+  ],
+  "details": [
+    {
+      "instrument_name": "ICICI Bank Limited",
+      "symbol": "ICICIBANK",
+      "scripCode": "532174",
+      "tickers_tried": [
+        "ICICIBANK.NS",
+        "ICICIBANK.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ICICIBANK.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ICICIBANK.NS",
+        "shortName": "ICICI BANK LTD.",
+        "longName": "ICICI Bank Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 11563325980672,
+        "regularMarketPrice": 1610.3,
+        "regularMarketPreviousClose": 1585.0,
+        "fiftyTwoWeekHigh": 1616.0,
+        "fiftyTwoWeekLow": 1187.6,
+        "trailingPE": 19.775269,
+        "priceToBook": 2.9590821,
+        "dividendYield": 0.76,
+        "beta": 0.193,
+        "latestClose": 1610.300048828125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "HDFC Bank Limited",
+      "symbol": "HDFCBANK",
+      "scripCode": "500180",
+      "tickers_tried": [
+        "HDFCBANK.NS",
+        "HDFCBANK.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HDFCBANK.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HDFCBANK.NS",
+        "shortName": "HDFC BANK LTD",
+        "longName": "HDFC Bank Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 12620529664000,
+        "regularMarketPrice": 817.8,
+        "regularMarketPreviousClose": 816.5,
+        "fiftyTwoWeekHigh": 1017.5,
+        "fiftyTwoWeekLow": 669.2,
+        "trailingPE": 17.87541,
+        "priceToBook": 2.071224,
+        "dividendYield": 1.59,
+        "beta": 0.394,
+        "latestClose": 817.7999877929688,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bharti Airtel Limited",
+      "symbol": "BHARTIARTL",
+      "scripCode": "532454",
+      "tickers_tried": [
+        "BHARTIARTL.NS",
+        "BHARTIARTL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BHARTIARTL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BHARTIARTL.NS",
+        "shortName": "BHARTI AIRTEL LIMITED",
+        "longName": "Bharti Airtel Limited",
+        "sector": "Communication Services",
+        "industry": "Telecom Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 13457864785920,
+        "regularMarketPrice": 2156.9,
+        "regularMarketPreviousClose": 2153.5,
+        "fiftyTwoWeekHigh": 2174.5,
+        "fiftyTwoWeekLow": 1726.3,
+        "trailingPE": 42.46702,
+        "priceToBook": 8.51063,
+        "dividendYield": 1.11,
+        "beta": -0.033,
+        "latestClose": 2157.10009765625,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "State Bank of India",
+      "symbol": "SBIN",
+      "scripCode": "500112",
+      "tickers_tried": [
+        "SBIN.NS",
+        "SBIN.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "SBIN.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "SBIN.NS",
+        "shortName": "STATE BANK OF INDIA",
+        "longName": "State Bank of India",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 10229831958528,
+        "regularMarketPrice": 1108.25,
+        "regularMarketPreviousClose": 1090.5,
+        "fiftyTwoWeekHigh": 1234.7,
+        "fiftyTwoWeekLow": 933.9,
+        "trailingPE": 11.312137,
+        "priceToBook": 1.5232463,
+        "dividendYield": 1.59,
+        "beta": 0.379,
+        "latestClose": 1108.3499755859375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Reliance Industries Limited",
+      "symbol": "RELIANCE",
+      "scripCode": "500325",
+      "tickers_tried": [
+        "RELIANCE.NS",
+        "RELIANCE.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "RELIANCE.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "RELIANCE.NS",
+        "shortName": "RELIANCE INDUSTRIES LTD",
+        "longName": "Reliance Industries Limited",
+        "sector": "Energy",
+        "industry": "Oil & Gas Refining & Marketing",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 18573317636096,
+        "regularMarketPrice": 1372.5,
+        "regularMarketPreviousClose": 1344.8,
+        "fiftyTwoWeekHigh": 1611.8,
+        "fiftyTwoWeekLow": 1152.2,
+        "trailingPE": 22.618654,
+        "priceToBook": 1.966569,
+        "dividendYield": 0.45,
+        "beta": 0.183,
+        "latestClose": 1372.5999755859375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Axis Bank Limited",
+      "symbol": "AXISBANK",
+      "scripCode": "532215",
+      "tickers_tried": [
+        "AXISBANK.NS",
+        "AXISBANK.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "AXISBANK.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "AXISBANK.NS",
+        "shortName": "AXIS BANK LIMITED",
+        "longName": "Axis Bank Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 4276173930496,
+        "regularMarketPrice": 1373.0,
+        "regularMarketPreviousClose": 1342.4,
+        "fiftyTwoWeekHigh": 1418.3,
+        "fiftyTwoWeekLow": 1150.3,
+        "trailingPE": 14.327455,
+        "priceToBook": 1.8481426,
+        "dividendYield": 0.07,
+        "beta": 0.383,
+        "latestClose": 1373.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Larsen & Toubro Limited",
+      "symbol": "LT",
+      "scripCode": "500510",
+      "tickers_tried": [
+        "LT.NS",
+        "LT.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "LT.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "LT.NS",
+        "shortName": "LARSEN & TOUBRO LTD.",
+        "longName": "Larsen & Toubro Limited",
+        "sector": "Industrials",
+        "industry": "Engineering & Construction",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 5780377960448,
+        "regularMarketPrice": 4201.2,
+        "regularMarketPreviousClose": 4140.0,
+        "fiftyTwoWeekHigh": 4440.0,
+        "fiftyTwoWeekLow": 3288.1,
+        "trailingPE": 32.361732,
+        "priceToBook": 5.113948,
+        "dividendYield": 0.92,
+        "beta": 0.495,
+        "latestClose": 4201.2001953125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Infosys Limited",
+      "symbol": "INFY",
+      "scripCode": "500209",
+      "tickers_tried": [
+        "INFY.NS",
+        "INFY.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "INFY.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "INFY.NS",
+        "shortName": "INFOSYS LIMITED",
+        "longName": "Infosys Limited",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 4570849738752,
+        "regularMarketPrice": 1128.5,
+        "regularMarketPreviousClose": 1145.1,
+        "fiftyTwoWeekHigh": 1728.0,
+        "fiftyTwoWeekLow": 980.4,
+        "trailingPE": 15.026631,
+        "priceToBook": 4.690508,
+        "dividendYield": 4.54,
+        "beta": 0.02,
+        "latestClose": 1128.5,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Mahindra & Mahindra Limited",
+      "symbol": "M&M",
+      "scripCode": "500520",
+      "tickers_tried": [
+        "M&M.NS",
+        "M&M.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "M&M.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "M&M.NS",
+        "shortName": "MAHINDRA & MAHINDRA LTD",
+        "longName": "Mahindra & Mahindra Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 4121015877632,
+        "regularMarketPrice": 3432.0,
+        "regularMarketPreviousClose": 3339.0,
+        "fiftyTwoWeekHigh": 3839.9,
+        "fiftyTwoWeekLow": 2744.3,
+        "trailingPE": 19.878366,
+        "priceToBook": 3.91826,
+        "dividendYield": 0.99,
+        "beta": 0.289,
+        "latestClose": 3432.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Kotak Mahindra Bank Limited",
+      "symbol": "KOTAKBANK",
+      "scripCode": "500247",
+      "tickers_tried": [
+        "KOTAKBANK.NS",
+        "KOTAKBANK.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "KOTAKBANK.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "KOTAKBANK.NS",
+        "shortName": "KOTAK MAHINDRA BANK LTD",
+        "longName": "Kotak Mahindra Bank Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 4964225646592,
+        "regularMarketPrice": 499.0,
+        "regularMarketPreviousClose": 494.2,
+        "fiftyTwoWeekHigh": 499.9,
+        "fiftyTwoWeekLow": 345.5,
+        "trailingPE": 23.123262,
+        "priceToBook": 2.545399,
+        "dividendYield": 0.13,
+        "beta": 0.257,
+        "latestClose": 499.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Eternal Limited",
+      "symbol": "ETERNAL",
+      "scripCode": "543320",
+      "tickers_tried": [
+        "ETERNAL.NS",
+        "ETERNAL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ETERNAL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ETERNAL.NS",
+        "shortName": "ETERNAL LIMITED",
+        "longName": "Eternal Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Internet Retail",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3453869096960,
+        "regularMarketPrice": 374.9,
+        "regularMarketPreviousClose": 371.1,
+        "fiftyTwoWeekHigh": 378.0,
+        "fiftyTwoWeekLow": 212.6,
+        "trailingPE": 707.3585,
+        "priceToBook": 10.702867,
+        "dividendYield": 0.0,
+        "beta": 0.245,
+        "latestClose": 374.8999938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "NTPC Limited",
+      "symbol": "NTPC",
+      "scripCode": "532555",
+      "tickers_tried": [
+        "NTPC.NS",
+        "NTPC.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "NTPC.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "NTPC.NS",
+        "shortName": "NTPC LTD",
+        "longName": "NTPC Limited",
+        "sector": "Utilities",
+        "industry": "Utilities - Regulated Electric",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3116508643328,
+        "regularMarketPrice": 321.4,
+        "regularMarketPreviousClose": 321.25,
+        "fiftyTwoWeekHigh": 414.4,
+        "fiftyTwoWeekLow": 292.05,
+        "trailingPE": 10.486134,
+        "priceToBook": 1.4598075,
+        "dividendYield": 3.74,
+        "beta": 0.347,
+        "latestClose": 321.3999938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Maruti Suzuki India Limited",
+      "symbol": "MARUTI",
+      "scripCode": "532500",
+      "tickers_tried": [
+        "MARUTI.NS",
+        "MARUTI.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "MARUTI.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "MARUTI.NS",
+        "shortName": "MARUTI SUZUKI INDIA LTD.",
+        "longName": "Maruti Suzuki India Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3974362824704,
+        "regularMarketPrice": 12641.0,
+        "regularMarketPreviousClose": 12571.0,
+        "fiftyTwoWeekHigh": 17370.0,
+        "fiftyTwoWeekLow": 10985.0,
+        "trailingPE": 29.546783,
+        "priceToBook": 3.646018,
+        "dividendYield": 1.11,
+        "beta": 0.263,
+        "latestClose": 12641.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bajaj Finance Limited",
+      "symbol": "BAJFINANCE",
+      "scripCode": "500034",
+      "tickers_tried": [
+        "BAJFINANCE.NS",
+        "BAJFINANCE.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BAJFINANCE.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BAJFINANCE.NS",
+        "shortName": "BAJAJ FINANCE LIMITED",
+        "longName": "Bajaj Finance Limited",
+        "sector": "Financial Services",
+        "industry": "Credit Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 6978240774144,
+        "regularMarketPrice": 1121.2,
+        "regularMarketPreviousClose": 1110.0,
+        "fiftyTwoWeekHigh": 1176.4,
+        "fiftyTwoWeekLow": 787.9,
+        "trailingPE": 32.23692,
+        "priceToBook": 5.663942,
+        "dividendYield": 0.49,
+        "beta": 0.312,
+        "latestClose": 1121.199951171875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Sun Pharmaceutical Industries Limited",
+      "symbol": "SUNPHARMA",
+      "scripCode": "524715",
+      "tickers_tried": [
+        "SUNPHARMA.NS",
+        "SUNPHARMA.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "SUNPHARMA.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "SUNPHARMA.NS",
+        "shortName": "SUN PHARMACEUTICAL IND L",
+        "longName": "Sun Pharmaceutical Industries Limited",
+        "sector": "Healthcare",
+        "industry": "Drug Manufacturers - Specialty & Generic",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 4506190872576,
+        "regularMarketPrice": 1878.1,
+        "regularMarketPreviousClose": 1867.5,
+        "fiftyTwoWeekHigh": 2046.9,
+        "fiftyTwoWeekLow": 1583.7,
+        "trailingPE": 40.81939,
+        "priceToBook": 5.0398636,
+        "dividendYield": 0.86,
+        "beta": 0.132,
+        "latestClose": 1878.0999755859375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Shriram Finance Limited",
+      "symbol": "SHRIRAMFIN",
+      "scripCode": "511218",
+      "tickers_tried": [
+        "SHRIRAMFIN.NS",
+        "SHRIRAMFIN.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "SHRIRAMFIN.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "SHRIRAMFIN.NS",
+        "shortName": "SHRIRAM FINANCE LIMITED",
+        "longName": "Shriram Finance Limited",
+        "sector": "Financial Services",
+        "industry": "Credit Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2325492793344,
+        "regularMarketPrice": 988.25,
+        "regularMarketPreviousClose": 978.4,
+        "fiftyTwoWeekHigh": 1153.7,
+        "fiftyTwoWeekLow": 808.6,
+        "trailingPE": 16.470833,
+        "priceToBook": 2.0861876,
+        "dividendYield": 1.28,
+        "beta": 0.668,
+        "latestClose": 988.25,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bharat Electronics Limited",
+      "symbol": "BEL",
+      "scripCode": "500049",
+      "tickers_tried": [
+        "BEL.NS",
+        "BEL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BEL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BEL.NS",
+        "shortName": "BHARAT ELECTRONICS LTD",
+        "longName": "Bharat Electronics Limited",
+        "sector": "Industrials",
+        "industry": "Aerospace & Defense",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2923546279936,
+        "regularMarketPrice": 399.95,
+        "regularMarketPreviousClose": 401.4,
+        "fiftyTwoWeekHigh": 473.45,
+        "fiftyTwoWeekLow": 354.55,
+        "trailingPE": 45.708572,
+        "priceToBook": 11.117752,
+        "dividendYield": 0.62,
+        "beta": 0.332,
+        "latestClose": 399.95001220703125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "ITC Limited",
+      "symbol": "ITC",
+      "scripCode": "500875",
+      "tickers_tried": [
+        "ITC.NS",
+        "ITC.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ITC.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ITC.NS",
+        "shortName": "ITC LTD",
+        "longName": "ITC Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Tobacco",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3692759351296,
+        "regularMarketPrice": 294.65,
+        "regularMarketPreviousClose": 295.1,
+        "fiftyTwoWeekHigh": 412.0,
+        "fiftyTwoWeekLow": 252.8,
+        "trailingPE": 19.55209,
+        "priceToBook": 5.1812057,
+        "dividendYield": 5.42,
+        "beta": -0.067,
+        "latestClose": 294.6499938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Ultratech Cement Ltd.",
+      "symbol": "ULTRACEMCO",
+      "scripCode": "532538",
+      "tickers_tried": [
+        "ULTRACEMCO.NS",
+        "ULTRACEMCO.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ULTRACEMCO.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ULTRACEMCO.NS",
+        "shortName": "ULTRATECH CEMENT LIMITED",
+        "longName": "UltraTech Cement Limited",
+        "sector": "Basic Materials",
+        "industry": "Building Materials",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3624346320896,
+        "regularMarketPrice": 12325.0,
+        "regularMarketPreviousClose": 12270.0,
+        "fiftyTwoWeekHigh": 13110.0,
+        "fiftyTwoWeekLow": 10325.0,
+        "trailingPE": 41.79383,
+        "priceToBook": 4.92692,
+        "dividendYield": 1.96,
+        "beta": 0.462,
+        "latestClose": 12325.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "InterGlobe Aviation Limited",
+      "symbol": "INDIGO",
+      "scripCode": "539448",
+      "tickers_tried": [
+        "INDIGO.NS",
+        "INDIGO.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "INDIGO.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "INDIGO.NS",
+        "shortName": "INTERGLOBE AVIATION LTD",
+        "longName": "InterGlobe Aviation Limited",
+        "sector": "Industrials",
+        "industry": "Airlines",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2184633122816,
+        "regularMarketPrice": 5649.9,
+        "regularMarketPreviousClose": 5544.0,
+        "fiftyTwoWeekHigh": 5970.0,
+        "fiftyTwoWeekLow": 3895.2,
+        "priceToBook": 43.73766,
+        "dividendYield": 0.0,
+        "beta": 0.603,
+        "latestClose": 5649.89990234375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Tata Consultancy Services Limited",
+      "symbol": "TCS",
+      "scripCode": "532540",
+      "tickers_tried": [
+        "TCS.NS",
+        "TCS.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TCS.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TCS.NS",
+        "shortName": "TATA CONSULTANCY SERV LT",
+        "longName": "Tata Consultancy Services Limited",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 8743108476928,
+        "regularMarketPrice": 2416.5,
+        "regularMarketPreviousClose": 2405.0,
+        "fiftyTwoWeekHigh": 3350.0,
+        "fiftyTwoWeekLow": 1976.8,
+        "trailingPE": 16.938875,
+        "priceToBook": 7.348022,
+        "dividendYield": 2.0,
+        "beta": 0.075,
+        "latestClose": 2417.300048828125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Tech Mahindra Limited",
+      "symbol": "TECHM",
+      "scripCode": "532755",
+      "tickers_tried": [
+        "TECHM.NS",
+        "TECHM.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TECHM.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TECHM.NS",
+        "shortName": "TECH MAHINDRA LIMITED",
+        "longName": "Tech Mahindra Limited",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1719279681536,
+        "regularMarketPrice": 1754.0,
+        "regularMarketPreviousClose": 1776.4,
+        "fiftyTwoWeekHigh": 1860.0,
+        "fiftyTwoWeekLow": 1304.1,
+        "trailingPE": 28.38647,
+        "priceToBook": 5.2372437,
+        "dividendYield": 2.87,
+        "beta": 0.069,
+        "latestClose": 1754.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Titan Company Limited",
+      "symbol": "TITAN",
+      "scripCode": "500114",
+      "tickers_tried": [
+        "TITAN.NS",
+        "TITAN.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TITAN.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TITAN.NS",
+        "shortName": "TITAN COMPANY LIMITED",
+        "longName": "Titan Company Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Luxury Goods",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 4356082237440,
+        "regularMarketPrice": 4909.3,
+        "regularMarketPreviousClose": 4910.0,
+        "fiftyTwoWeekHigh": 5186.7,
+        "fiftyTwoWeekLow": 3751.0,
+        "trailingPE": 62.79483,
+        "priceToBook": 23.860046,
+        "dividendYield": 0.31,
+        "beta": 0.238,
+        "latestClose": 4910.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Tata Steel Ltd.",
+      "symbol": "TATASTEEL",
+      "scripCode": "500470",
+      "tickers_tried": [
+        "TATASTEEL.NS",
+        "TATASTEEL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TATASTEEL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TATASTEEL.NS",
+        "shortName": "TATA STEEL LIMITED",
+        "longName": "Tata Steel Limited",
+        "sector": "Basic Materials",
+        "industry": "Steel",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2270374133760,
+        "regularMarketPrice": 182.04,
+        "regularMarketPreviousClose": 182.26,
+        "fiftyTwoWeekHigh": 224.4,
+        "fiftyTwoWeekLow": 160.06,
+        "trailingPE": 19.574192,
+        "priceToBook": 2.1884017,
+        "dividendYield": 2.19,
+        "beta": 0.805,
+        "latestClose": 182.0399932861328,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "TVS Motor Company Ltd.",
+      "symbol": "TVSMOTOR",
+      "scripCode": "532343",
+      "tickers_tried": [
+        "TVSMOTOR.NS",
+        "TVSMOTOR.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TVSMOTOR.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TVSMOTOR.NS",
+        "shortName": "TVS MOTOR COMPANY  LTD",
+        "longName": "TVS Motor Company Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2134431105024,
+        "regularMarketPrice": 4491.4,
+        "regularMarketPreviousClose": 4453.0,
+        "fiftyTwoWeekHigh": 4636.1,
+        "fiftyTwoWeekLow": 3228.0,
+        "trailingPE": 55.23798,
+        "priceToBook": 18.805845,
+        "dividendYield": 0.27,
+        "beta": -0.032,
+        "latestClose": 4491.39990234375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Hindustan Unilever Ltd.",
+      "symbol": "HINDUNILVR",
+      "scripCode": "500696",
+      "tickers_tried": [
+        "HINDUNILVR.NS",
+        "HINDUNILVR.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HINDUNILVR.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HINDUNILVR.NS",
+        "shortName": "HINDUSTAN UNILEVER LTD.",
+        "longName": "Hindustan Unilever Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Household & Personal Products",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 4731372044288,
+        "regularMarketPrice": 2013.7,
+        "regularMarketPreviousClose": 2000.3,
+        "fiftyTwoWeekHigh": 2488.0,
+        "fiftyTwoWeekLow": 1758.2,
+        "trailingPE": 44.709145,
+        "priceToBook": 9.693087,
+        "dividendYield": 2.05,
+        "beta": 0.314,
+        "latestClose": 2013.699951171875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Hindalco Industries Ltd.",
+      "symbol": "HINDALCO",
+      "scripCode": "500440",
+      "tickers_tried": [
+        "HINDALCO.NS",
+        "HINDALCO.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HINDALCO.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HINDALCO.NS",
+        "shortName": "HINDALCO  INDUSTRIES  LTD",
+        "longName": "Hindalco Industries Limited",
+        "sector": "Basic Materials",
+        "industry": "Aluminum",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2058122035200,
+        "regularMarketPrice": 927.15,
+        "regularMarketPreviousClose": 923.3,
+        "fiftyTwoWeekHigh": 1176.0,
+        "fiftyTwoWeekLow": 771.85,
+        "trailingPE": 10.519061,
+        "priceToBook": 1.2890332,
+        "dividendYield": 0.54,
+        "beta": 0.926,
+        "latestClose": 927.1500244140625,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Apollo Hospitals Enterprise Limited",
+      "symbol": "APOLLOHOSP",
+      "scripCode": "508869",
+      "tickers_tried": [
+        "APOLLOHOSP.NS",
+        "APOLLOHOSP.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "APOLLOHOSP.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "APOLLOHOSP.NS",
+        "shortName": "APOLLO HOSPITALS ENTER. L",
+        "longName": "Apollo Hospitals Enterprise Limited",
+        "sector": "Healthcare",
+        "industry": "Medical Care Facilities",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1265808179200,
+        "regularMarketPrice": 8803.5,
+        "regularMarketPreviousClose": 8771.0,
+        "fiftyTwoWeekHigh": 9070.5,
+        "fiftyTwoWeekLow": 6696.5,
+        "trailingPE": 56.29196,
+        "priceToBook": 11.9347,
+        "dividendYield": 0.23,
+        "beta": 0.249,
+        "latestClose": 8803.5,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "SBI Life Insurance Company Limited",
+      "symbol": "SBILIFE",
+      "scripCode": "540719",
+      "tickers_tried": [
+        "SBILIFE.NS",
+        "SBILIFE.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "SBILIFE.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "SBILIFE.NS",
+        "shortName": "SBI LIFE INSURANCE CO LTD",
+        "longName": "SBI Life Insurance Company Limited",
+        "sector": "Financial Services",
+        "industry": "Insurance - Life",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1815167238144,
+        "regularMarketPrice": 1809.0,
+        "regularMarketPreviousClose": 1827.7,
+        "fiftyTwoWeekHigh": 2132.0,
+        "fiftyTwoWeekLow": 1607.7,
+        "trailingPE": 68.36735,
+        "priceToBook": 8.8435,
+        "dividendYield": 0.15,
+        "beta": 0.368,
+        "latestClose": 1809.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Torrent Pharmaceuticals Limited",
+      "symbol": "TORNTPHARM",
+      "scripCode": "500420",
+      "tickers_tried": [
+        "TORNTPHARM.NS",
+        "TORNTPHARM.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TORNTPHARM.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TORNTPHARM.NS",
+        "shortName": "TORRENT PHARMACEUTICALS L",
+        "longName": "Torrent Pharmaceuticals Limited",
+        "sector": "Healthcare",
+        "industry": "Drug Manufacturers - Specialty & Generic",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1767151108096,
+        "regularMarketPrice": 4645.9,
+        "regularMarketPreviousClose": 4691.2,
+        "fiftyTwoWeekHigh": 5250.0,
+        "fiftyTwoWeekLow": 3672.3,
+        "trailingPE": 78.478035,
+        "priceToBook": 9.6107025,
+        "dividendYield": 0.81,
+        "beta": 0.173,
+        "latestClose": 4645.89990234375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Cummins India Limited",
+      "symbol": "CUMMINSIND",
+      "scripCode": "500480",
+      "tickers_tried": [
+        "CUMMINSIND.NS",
+        "CUMMINSIND.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "CUMMINSIND.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "CUMMINSIND.NS",
+        "shortName": "CUMMINS INDIA LTD",
+        "longName": "Cummins India Limited",
+        "sector": "Industrials",
+        "industry": "Specialty Industrial Machinery",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1129811804160,
+        "regularMarketPrice": 4075.8,
+        "regularMarketPreviousClose": 4233.0,
+        "fiftyTwoWeekHigh": 6100.0,
+        "fiftyTwoWeekLow": 3883.1,
+        "trailingPE": 50.16987,
+        "priceToBook": 13.610408,
+        "dividendYield": 1.56,
+        "beta": 0.553,
+        "latestClose": 4075.800048828125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Multi Commodity Exchange of India Limited",
+      "symbol": "MCX",
+      "scripCode": "534091",
+      "tickers_tried": [
+        "MCX.NS",
+        "MCX.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "MCX.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "MCX.NS",
+        "shortName": "MULTI COMMODITY EXCHANGE",
+        "longName": "Multi Commodity Exchange of India Limited",
+        "sector": "Financial Services",
+        "industry": "Financial Data & Stock Exchanges",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 945978015744,
+        "regularMarketPrice": 3716.8,
+        "regularMarketPreviousClose": 3729.6,
+        "fiftyTwoWeekHigh": 3767.4,
+        "fiftyTwoWeekLow": 1921.4,
+        "trailingPE": 64.11592,
+        "priceToBook": 19.012056,
+        "dividendYield": 0.21,
+        "beta": 0.703,
+        "latestClose": 3716.800048828125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Divi's Laboratories Limited",
+      "symbol": "DIVISLAB",
+      "scripCode": "532488",
+      "tickers_tried": [
+        "DIVISLAB.NS",
+        "DIVISLAB.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "DIVISLAB.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "DIVISLAB.NS",
+        "shortName": "DIVI S LABORATORIES LTD",
+        "longName": "Divi's Laboratories Limited",
+        "sector": "Healthcare",
+        "industry": "Drug Manufacturers - Specialty & Generic",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2969929777152,
+        "regularMarketPrice": 11187.5,
+        "regularMarketPreviousClose": 11080.0,
+        "fiftyTwoWeekHigh": 11824.0,
+        "fiftyTwoWeekLow": 5647.5,
+        "trailingPE": 88.27823,
+        "priceToBook": 16.48809,
+        "dividendYield": 0.27,
+        "beta": 0.179,
+        "latestClose": 11187.5,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Cipla Limited",
+      "symbol": "CIPLA",
+      "scripCode": "500087",
+      "tickers_tried": [
+        "CIPLA.NS",
+        "CIPLA.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "CIPLA.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "CIPLA.NS",
+        "shortName": "CIPLA LTD",
+        "longName": "Cipla Limited",
+        "sector": "Healthcare",
+        "industry": "Drug Manufacturers - Specialty & Generic",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1122156544000,
+        "regularMarketPrice": 1389.0,
+        "regularMarketPreviousClose": 1394.5,
+        "fiftyTwoWeekHigh": 1539.7,
+        "fiftyTwoWeekLow": 1165.7,
+        "trailingPE": 38.75558,
+        "priceToBook": 3.1702702,
+        "dividendYield": 0.93,
+        "beta": 0.101,
+        "latestClose": 1389.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Coforge Limited",
+      "symbol": "COFORGE",
+      "scripCode": "532541",
+      "tickers_tried": [
+        "COFORGE.NS",
+        "COFORGE.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "COFORGE.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "COFORGE.NS",
+        "shortName": "COFORGE LIMITED",
+        "longName": "Coforge Limited",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 904114012160,
+        "regularMarketPrice": 2040.6,
+        "regularMarketPreviousClose": 2010.0,
+        "fiftyTwoWeekHigh": 2127.9,
+        "fiftyTwoWeekLow": 1008.1,
+        "trailingPE": 39.67723,
+        "priceToBook": 4.0442276,
+        "dividendYield": 0.8,
+        "beta": 0.268,
+        "latestClose": 2040.5999755859375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "PB Fintech Limited",
+      "symbol": "POLICYBZR",
+      "scripCode": "543390",
+      "tickers_tried": [
+        "POLICYBZR.NS",
+        "POLICYBZR.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "POLICYBZR.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "POLICYBZR.NS",
+        "shortName": "PB FINTECH LIMITED",
+        "longName": "PB Fintech Limited",
+        "sector": "Financial Services",
+        "industry": "Insurance Brokers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 486218170368,
+        "regularMarketPrice": 1046.7,
+        "regularMarketPreviousClose": 1081.2,
+        "fiftyTwoWeekHigh": 1964.2,
+        "fiftyTwoWeekLow": 916.0,
+        "trailingPE": 60.433025,
+        "priceToBook": 6.2281694,
+        "dividendYield": 0.0,
+        "beta": 0.454,
+        "latestClose": 1046.800048828125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Eicher Motors Ltd.",
+      "symbol": "EICHERMOT",
+      "scripCode": "505200",
+      "tickers_tried": [
+        "EICHERMOT.NS",
+        "EICHERMOT.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "EICHERMOT.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "EICHERMOT.NS",
+        "shortName": "EICHER MOTORS LTD",
+        "longName": "Eicher Motors Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2148609687552,
+        "regularMarketPrice": 7826.0,
+        "regularMarketPreviousClose": 7599.0,
+        "fiftyTwoWeekHigh": 8230.0,
+        "fiftyTwoWeekLow": 6442.0,
+        "trailingPE": 35.74985,
+        "priceToBook": 8.282306,
+        "dividendYield": 1.08,
+        "beta": 0.226,
+        "latestClose": 7826.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "One 97 Communications Limited",
+      "symbol": "PAYTM",
+      "scripCode": "543396",
+      "tickers_tried": [
+        "PAYTM.NS",
+        "PAYTM.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "PAYTM.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "PAYTM.NS",
+        "shortName": "ONE 97 COMMUNICATIONS LTD",
+        "longName": "One97 Communications Limited",
+        "sector": "Technology",
+        "industry": "Software - Infrastructure",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1217937276928,
+        "regularMarketPrice": 1902.5,
+        "regularMarketPreviousClose": 1890.8,
+        "fiftyTwoWeekHigh": 1960.0,
+        "fiftyTwoWeekLow": 930.6,
+        "trailingPE": 144.34749,
+        "priceToBook": 7.3566093,
+        "dividendYield": 0.0,
+        "beta": -0.229,
+        "latestClose": 1902.5,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Hindustan Aeronautics Limited",
+      "symbol": "HAL",
+      "scripCode": "541154",
+      "tickers_tried": [
+        "HAL.NS",
+        "HAL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HAL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HAL.NS",
+        "shortName": "HINDUSTAN AERONAUTICS LTD",
+        "longName": "Hindustan Aeronautics Limited",
+        "sector": "Industrials",
+        "industry": "Aerospace & Defense",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3179490050048,
+        "regularMarketPrice": 4754.2,
+        "regularMarketPreviousClose": 4789.0,
+        "fiftyTwoWeekHigh": 5149.9,
+        "fiftyTwoWeekLow": 3479.1,
+        "trailingPE": 33.16267,
+        "priceToBook": 7.2270846,
+        "dividendYield": 0.94,
+        "beta": 0.464,
+        "latestClose": 4754.2001953125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "HCL Technologies Ltd.",
+      "symbol": "HCLTECH",
+      "scripCode": "532281",
+      "tickers_tried": [
+        "HCLTECH.NS",
+        "HCLTECH.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HCLTECH.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HCLTECH.NS",
+        "shortName": "HCL TECHNOLOGIES LTD",
+        "longName": "HCL Technologies Limited",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3679927926784,
+        "regularMarketPrice": 1359.6,
+        "regularMarketPreviousClose": 1384.6,
+        "fiftyTwoWeekHigh": 1780.1,
+        "fiftyTwoWeekLow": 1030.0,
+        "trailingPE": 20.115402,
+        "priceToBook": 4.9133735,
+        "dividendYield": 3.47,
+        "beta": -0.051,
+        "latestClose": 1359.5999755859375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bajaj Auto Limited",
+      "symbol": "BAJAJ-AUTO",
+      "scripCode": "532977",
+      "tickers_tried": [
+        "BAJAJ-AUTO.NS",
+        "BAJAJ-AUTO.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BAJAJ-AUTO.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BAJAJ-AUTO.NS",
+        "shortName": "BAJAJ AUTO LIMITED",
+        "longName": "Bajaj Auto Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2972553052160,
+        "regularMarketPrice": 10817.0,
+        "regularMarketPreviousClose": 10734.0,
+        "fiftyTwoWeekHigh": 12470.0,
+        "fiftyTwoWeekLow": 8624.0,
+        "trailingPE": 23.073807,
+        "priceToBook": 8.148903,
+        "dividendYield": 1.4,
+        "beta": 0.632,
+        "latestClose": 10819.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "GE Vernova T&D India Limited",
+      "symbol": "GVTD",
+      "scripCode": "522275",
+      "tickers_tried": [
+        "GVTD.NS",
+        "GVTD.BO"
+      ],
+      "yfinance_available": false,
+      "yfinance_ticker": null,
+      "yfinance_error": "no data",
+      "yfinance_fields": {}
+    },
+    {
+      "instrument_name": "Samvardhana Motherson International Limited",
+      "symbol": "MOTHERSON",
+      "scripCode": "517334",
+      "tickers_tried": [
+        "MOTHERSON.NS",
+        "MOTHERSON.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "MOTHERSON.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "MOTHERSON.NS",
+        "shortName": "SAMVRDHNA MTHRSN INTL LTD",
+        "longName": "Samvardhana Motherson International Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Parts",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1745338630144,
+        "regularMarketPrice": 164.18,
+        "regularMarketPreviousClose": 162.98,
+        "fiftyTwoWeekHigh": 173.27,
+        "fiftyTwoWeekLow": 102.82,
+        "trailingPE": 36.64732,
+        "priceToBook": 3.8308794,
+        "dividendYield": 0.31,
+        "beta": 1.041,
+        "latestClose": 164.17999267578125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Varun Beverages Limited",
+      "symbol": "VBL",
+      "scripCode": "540180",
+      "tickers_tried": [
+        "VBL.NS",
+        "VBL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "VBL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "VBL.NS",
+        "shortName": "VARUN BEVERAGES LIMITED",
+        "longName": "Varun Beverages Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Beverages - Non-Alcoholic",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1460561117184,
+        "regularMarketPrice": 431.8,
+        "regularMarketPreviousClose": 437.0,
+        "fiftyTwoWeekHigh": 555.8,
+        "fiftyTwoWeekLow": 381.0,
+        "trailingPE": 149.41176,
+        "priceToBook": 6.708511,
+        "dividendYield": 0.46,
+        "beta": 0.346,
+        "latestClose": 431.79998779296875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "The Federal Bank Limited",
+      "symbol": "FEDERALBNK",
+      "scripCode": "500469",
+      "tickers_tried": [
+        "FEDERALBNK.NS",
+        "FEDERALBNK.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "FEDERALBNK.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "FEDERALBNK.NS",
+        "shortName": "FEDERAL BANK LTD",
+        "longName": "The Federal Bank Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 900089905152,
+        "regularMarketPrice": 364.3,
+        "regularMarketPreviousClose": 362.0,
+        "fiftyTwoWeekHigh": 371.7,
+        "fiftyTwoWeekLow": 235.27,
+        "trailingPE": 17.840351,
+        "priceToBook": 2.1037495,
+        "dividendYield": 0.33,
+        "beta": 0.217,
+        "latestClose": 364.29998779296875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Asian Paints Limited",
+      "symbol": "ASIANPAINT",
+      "scripCode": "500820",
+      "tickers_tried": [
+        "ASIANPAINT.NS",
+        "ASIANPAINT.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ASIANPAINT.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ASIANPAINT.NS",
+        "shortName": "ASIAN PAINTS LIMITED",
+        "longName": "Asian Paints Limited",
+        "sector": "Basic Materials",
+        "industry": "Specialty Chemicals",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2534947160064,
+        "regularMarketPrice": 2644.8,
+        "regularMarketPreviousClose": 2572.9,
+        "fiftyTwoWeekHigh": 2985.7,
+        "fiftyTwoWeekLow": 2115.0,
+        "trailingPE": 52.885426,
+        "priceToBook": 11.662045,
+        "dividendYield": 1.12,
+        "beta": 0.311,
+        "latestClose": 2644.800048828125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Max Financial Services Limited",
+      "symbol": "MFSL",
+      "scripCode": "500271",
+      "tickers_tried": [
+        "MFSL.NS",
+        "MFSL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "MFSL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "MFSL.NS",
+        "shortName": "MAX FINANCIAL SERV LTD",
+        "longName": "Max Financial Services Limited",
+        "sector": "Financial Services",
+        "industry": "Insurance - Life",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 495239725056,
+        "regularMarketPrice": 1435.0,
+        "regularMarketPreviousClose": 1427.4,
+        "fiftyTwoWeekHigh": 1892.5,
+        "fiftyTwoWeekLow": 1172.6,
+        "trailingPE": 272.29602,
+        "priceToBook": 8.607865,
+        "dividendYield": 0.0,
+        "beta": 0.742,
+        "latestClose": 1435.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Power Grid Corporation of India Limited",
+      "symbol": "POWERGRID",
+      "scripCode": "532898",
+      "tickers_tried": [
+        "POWERGRID.NS",
+        "POWERGRID.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "POWERGRID.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "POWERGRID.NS",
+        "shortName": "POWER GRID CORP. LTD.",
+        "longName": "Power Grid Corporation of India Limited",
+        "sector": "Utilities",
+        "industry": "Utilities - Regulated Electric",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2397695639552,
+        "regularMarketPrice": 257.8,
+        "regularMarketPreviousClose": 262.2,
+        "fiftyTwoWeekHigh": 324.95,
+        "fiftyTwoWeekLow": 242.3,
+        "trailingPE": 14.799081,
+        "priceToBook": 2.2444324,
+        "dividendYield": 4.58,
+        "beta": 0.203,
+        "latestClose": 257.79998779296875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Oil & Natural Gas Corporation Limited",
+      "symbol": "ONGC",
+      "scripCode": "500312",
+      "tickers_tried": [
+        "ONGC.NS",
+        "ONGC.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ONGC.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ONGC.NS",
+        "shortName": "OIL AND NATURAL GAS CORP.",
+        "longName": "Oil and Natural Gas Corporation Limited",
+        "sector": "Energy",
+        "industry": "Oil & Gas Integrated",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2826537009152,
+        "regularMarketPrice": 224.68,
+        "regularMarketPreviousClose": 226.99,
+        "fiftyTwoWeekHigh": 307.5,
+        "fiftyTwoWeekLow": 218.53,
+        "trailingPE": 5.712687,
+        "priceToBook": 0.705589,
+        "dividendYield": 9.36,
+        "beta": 0.142,
+        "latestClose": 224.67999267578125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Trent Limited",
+      "symbol": "TRENT",
+      "scripCode": "500251",
+      "tickers_tried": [
+        "TRENT.NS",
+        "TRENT.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TRENT.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TRENT.NS",
+        "shortName": "TRENT LTD",
+        "longName": "Trent Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Apparel Retail",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1703143931904,
+        "regularMarketPrice": 3194.0,
+        "regularMarketPreviousClose": 3203.7,
+        "fiftyTwoWeekHigh": 4417.8,
+        "fiftyTwoWeekLow": 2183.6667,
+        "trailingPE": 89.84529,
+        "priceToBook": 21.914236,
+        "dividendYield": 0.12,
+        "beta": 0.305,
+        "latestClose": 3194.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bharat Heavy Electricals Limited",
+      "symbol": "BHEL",
+      "scripCode": "500103",
+      "tickers_tried": [
+        "BHEL.NS",
+        "BHEL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BHEL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BHEL.NS",
+        "shortName": "BHEL",
+        "longName": "Bharat Heavy Electricals Limited",
+        "sector": "Industrials",
+        "industry": "Specialty Industrial Machinery",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1505644118016,
+        "regularMarketPrice": 432.4,
+        "regularMarketPreviousClose": 430.1,
+        "fiftyTwoWeekHigh": 464.0,
+        "fiftyTwoWeekLow": 239.17,
+        "trailingPE": 52.285366,
+        "priceToBook": 5.622375,
+        "dividendYield": 0.33,
+        "beta": 0.896,
+        "latestClose": 432.3999938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bajaj Finserv Limited",
+      "symbol": "BAJAJFINSV",
+      "scripCode": "532978",
+      "tickers_tried": [
+        "BAJAJFINSV.NS",
+        "BAJAJFINSV.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BAJAJFINSV.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BAJAJFINSV.NS",
+        "shortName": "BAJAJ FINSERV LTD.",
+        "longName": "Bajaj Finserv Ltd.",
+        "sector": "Financial Services",
+        "industry": "Financial Conglomerates",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2989257129984,
+        "regularMarketPrice": 1868.0,
+        "regularMarketPreviousClose": 1848.2,
+        "fiftyTwoWeekHigh": 2118.5,
+        "fiftyTwoWeekLow": 1597.0,
+        "trailingPE": 27.976637,
+        "priceToBook": 3.5623565,
+        "dividendYield": 0.07,
+        "beta": 0.397,
+        "latestClose": 1868.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "United Spirits Limited",
+      "symbol": "UNITDSPR",
+      "scripCode": "532432",
+      "tickers_tried": [
+        "UNITDSPR.NS",
+        "UNITDSPR.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "UNITDSPR.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "UNITDSPR.NS",
+        "shortName": "UNITED SPIRITS LIMITED",
+        "longName": "United Spirits Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Beverages - Wineries & Distilleries",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1025320026112,
+        "regularMarketPrice": 1444.0,
+        "regularMarketPreviousClose": 1446.0,
+        "fiftyTwoWeekHigh": 1563.4,
+        "fiftyTwoWeekLow": 1210.8,
+        "trailingPE": 62.18777,
+        "priceToBook": 11.31165,
+        "dividendYield": 1.18,
+        "beta": 0.189,
+        "latestClose": 1444.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Britannia Industries Ltd.",
+      "symbol": "BRITANNIA",
+      "scripCode": "500825",
+      "tickers_tried": [
+        "BRITANNIA.NS",
+        "BRITANNIA.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BRITANNIA.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BRITANNIA.NS",
+        "shortName": "BRITANNIA INDUSTRIES LTD",
+        "longName": "Britannia Industries Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Packaged Foods",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1132080922624,
+        "regularMarketPrice": 4700.0,
+        "regularMarketPreviousClose": 4754.0,
+        "fiftyTwoWeekHigh": 6271.0,
+        "fiftyTwoWeekLow": 4499.9,
+        "trailingPE": 42.4226,
+        "priceToBook": 26.644596,
+        "dividendYield": 1.9,
+        "beta": 0.421,
+        "latestClose": 4700.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "HDFC Life Insurance Company Limited",
+      "symbol": "HDFCLIFE",
+      "scripCode": "540777",
+      "tickers_tried": [
+        "HDFCLIFE.NS",
+        "HDFCLIFE.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HDFCLIFE.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HDFCLIFE.NS",
+        "shortName": "HDFC LIFE INS CO LTD",
+        "longName": "HDFC Life Insurance Company Limited",
+        "sector": "Financial Services",
+        "industry": "Insurance - Life",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1291208359936,
+        "regularMarketPrice": 594.5,
+        "regularMarketPreviousClose": 604.5,
+        "fiftyTwoWeekHigh": 788.5,
+        "fiftyTwoWeekLow": 508.05,
+        "trailingPE": 62.77719,
+        "priceToBook": 6.807122,
+        "dividendYield": 0.35,
+        "beta": 0.493,
+        "latestClose": 594.5,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "IndusInd Bank Limited",
+      "symbol": "INDUSINDBK",
+      "scripCode": "532187",
+      "tickers_tried": [
+        "INDUSINDBK.NS",
+        "INDUSINDBK.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "INDUSINDBK.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "INDUSINDBK.NS",
+        "shortName": "INDUSIND BANK LIMITED",
+        "longName": "IndusInd Bank Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 722773606400,
+        "regularMarketPrice": 927.65,
+        "regularMarketPreviousClose": 914.55,
+        "fiftyTwoWeekHigh": 1077.85,
+        "fiftyTwoWeekLow": 750.5,
+        "trailingPE": 24.126139,
+        "priceToBook": 1.0639921,
+        "dividendYield": 0.16,
+        "beta": 0.499,
+        "latestClose": 927.6500244140625,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "JSW Steel Limited",
+      "symbol": "JSWSTEEL",
+      "scripCode": "500228",
+      "tickers_tried": [
+        "JSWSTEEL.NS",
+        "JSWSTEEL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "JSWSTEEL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "JSWSTEEL.NS",
+        "shortName": "JSW STEEL LIMITED",
+        "longName": "JSW Steel Limited",
+        "sector": "Basic Materials",
+        "industry": "Steel",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3253318713344,
+        "regularMarketPrice": 1332.3,
+        "regularMarketPreviousClose": 1334.6,
+        "fiftyTwoWeekHigh": 1370.0,
+        "fiftyTwoWeekLow": 1073.2,
+        "trailingPE": 11.455718,
+        "priceToBook": 2.869753,
+        "dividendYield": 0.53,
+        "beta": 0.591,
+        "latestClose": 1332.300048828125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Cholamandalam Investment and Finance Company Ltd",
+      "symbol": "CHOLAFIN",
+      "scripCode": "511243",
+      "tickers_tried": [
+        "CHOLAFIN.NS",
+        "CHOLAFIN.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "CHOLAFIN.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "CHOLAFIN.NS",
+        "shortName": "CHOLAMANDALAM IN & FIN CO",
+        "longName": "Cholamandalam Investment and Finance Company Limited",
+        "sector": "Financial Services",
+        "industry": "Credit Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1613546651648,
+        "regularMarketPrice": 1881.2,
+        "regularMarketPreviousClose": 1849.8,
+        "fiftyTwoWeekHigh": 1952.5,
+        "fiftyTwoWeekLow": 1299.4,
+        "trailingPE": 25.773394,
+        "priceToBook": 4.652566,
+        "dividendYield": 0.11,
+        "beta": 0.46,
+        "latestClose": 1881.199951171875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "CG Power and Industrial Solutions Ltd.",
+      "symbol": "CGPOWER",
+      "scripCode": "500093",
+      "tickers_tried": [
+        "CGPOWER.NS",
+        "CGPOWER.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "CGPOWER.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "CGPOWER.NS",
+        "shortName": "CG POWER AND IND SOL LTD",
+        "longName": "CG Power and Industrial Solutions Limited",
+        "sector": "Industrials",
+        "industry": "Electrical Equipment & Parts",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1265670684672,
+        "regularMarketPrice": 803.35,
+        "regularMarketPreviousClose": 818.7,
+        "fiftyTwoWeekHigh": 980.9,
+        "fiftyTwoWeekLow": 525.5,
+        "trailingPE": 92.12729,
+        "priceToBook": 14.456281,
+        "dividendYield": 0.16,
+        "beta": 0.574,
+        "latestClose": 803.3499755859375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Coal India Limited",
+      "symbol": "COALINDIA",
+      "scripCode": "533278",
+      "tickers_tried": [
+        "COALINDIA.NS",
+        "COALINDIA.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "COALINDIA.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "COALINDIA.NS",
+        "shortName": "COAL INDIA LTD",
+        "longName": "Coal India Limited",
+        "sector": "Energy",
+        "industry": "Thermal Coal",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2412091801600,
+        "regularMarketPrice": 391.4,
+        "regularMarketPreviousClose": 397.5,
+        "fiftyTwoWeekHigh": 491.25,
+        "fiftyTwoWeekLow": 369.6,
+        "trailingPE": 7.2294054,
+        "priceToBook": 1.8928878,
+        "dividendYield": 10.31,
+        "beta": 0.051,
+        "latestClose": 391.3999938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Tata Motors Ltd",
+      "symbol": "TMCV",
+      "scripCode": "544569",
+      "tickers_tried": [
+        "TMCV.NS",
+        "TMCV.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TMCV.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TMCV.NS",
+        "shortName": "TATA MOTORS LIMITED",
+        "longName": "Tata Motors Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1641437986816,
+        "regularMarketPrice": 445.7,
+        "regularMarketPreviousClose": 428.25,
+        "fiftyTwoWeekHigh": 509.0,
+        "fiftyTwoWeekLow": 310.0,
+        "trailingPE": 25.98834,
+        "priceToBook": 10.746751,
+        "dividendYield": 0.93,
+        "latestClose": 445.70001220703125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Dixon Technologies (India) Limited",
+      "symbol": "DIXON",
+      "scripCode": "540699",
+      "tickers_tried": [
+        "DIXON.NS",
+        "DIXON.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "DIXON.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "DIXON.NS",
+        "shortName": "DIXON TECHNO (INDIA) LTD",
+        "longName": "Dixon Technologies (India) Limited",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 800233553920,
+        "regularMarketPrice": 13082.0,
+        "regularMarketPreviousClose": 12890.0,
+        "fiftyTwoWeekHigh": 15775.0,
+        "fiftyTwoWeekLow": 9600.0,
+        "trailingPE": 45.98889,
+        "priceToBook": 11.339768,
+        "dividendYield": 0.08,
+        "beta": -0.02,
+        "latestClose": 13082.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Grasim Industries Limited",
+      "symbol": "GRASIM",
+      "scripCode": "500300",
+      "tickers_tried": [
+        "GRASIM.NS",
+        "GRASIM.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "GRASIM.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "GRASIM.NS",
+        "shortName": "GRASIM INDUSTRIES LTD",
+        "longName": "Grasim Industries Limited",
+        "sector": "Basic Materials",
+        "industry": "Building Materials",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2087164182528,
+        "regularMarketPrice": 3077.1,
+        "regularMarketPreviousClose": 3084.4,
+        "fiftyTwoWeekHigh": 3411.1,
+        "fiftyTwoWeekLow": 2502.5,
+        "trailingPE": 42.589622,
+        "priceToBook": 1.9504709,
+        "dividendYield": 0.32,
+        "beta": 0.402,
+        "latestClose": 3077.10009765625,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Indus Towers Limited",
+      "symbol": "INDUSTOWER",
+      "scripCode": "534816",
+      "tickers_tried": [
+        "INDUSTOWER.NS",
+        "INDUSTOWER.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "INDUSTOWER.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "INDUSTOWER.NS",
+        "shortName": "INDUS TOWERS LIMITED",
+        "longName": "Indus Towers Limited",
+        "sector": "Communication Services",
+        "industry": "Telecom Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1034482286592,
+        "regularMarketPrice": 392.15,
+        "regularMarketPreviousClose": 396.2,
+        "fiftyTwoWeekHigh": 481.5,
+        "fiftyTwoWeekLow": 355.55,
+        "trailingPE": 14.55102,
+        "priceToBook": 2.620658,
+        "dividendYield": 3.53,
+        "beta": 0.181,
+        "latestClose": 392.1499938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Max Healthcare Institute Limited",
+      "symbol": "MAXHEALTH",
+      "scripCode": "543220",
+      "tickers_tried": [
+        "MAXHEALTH.NS",
+        "MAXHEALTH.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "MAXHEALTH.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "MAXHEALTH.NS",
+        "shortName": "MAX HEALTHCARE INS LTD",
+        "longName": "Max Healthcare Institute Limited",
+        "sector": "Healthcare",
+        "industry": "Medical Care Facilities",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 994302230528,
+        "regularMarketPrice": 1021.55,
+        "regularMarketPreviousClose": 1009.9,
+        "fiftyTwoWeekHigh": 1185.4,
+        "fiftyTwoWeekLow": 797.0,
+        "trailingPE": 72.29653,
+        "priceToBook": 8.780653,
+        "dividendYield": 0.2,
+        "beta": 0.182,
+        "latestClose": 1021.5499877929688,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "BSE Limited",
+      "symbol": "BSE",
+      "scripCode": null,
+      "tickers_tried": [
+        "BSE.NS",
+        "BSE.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BSE.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BSE.NS",
+        "shortName": "BSE LIMITED",
+        "longName": "BSE Limited",
+        "sector": "Financial Services",
+        "industry": "Financial Data & Stock Exchanges",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1568389332992,
+        "regularMarketPrice": 3861.8,
+        "regularMarketPreviousClose": 3887.4,
+        "fiftyTwoWeekHigh": 4446.8,
+        "fiftyTwoWeekLow": 2377.4,
+        "trailingPE": 51.614544,
+        "priceToBook": 17.227028,
+        "dividendYield": 0.26,
+        "beta": 0.43,
+        "latestClose": 3861.199951171875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Persistent Systems Ltd.",
+      "symbol": "PERSISTENT",
+      "scripCode": "533179",
+      "tickers_tried": [
+        "PERSISTENT.NS",
+        "PERSISTENT.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "PERSISTENT.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "PERSISTENT.NS",
+        "shortName": "PERSISTENT SYSTEMS LTD",
+        "longName": "Persistent Systems Limited",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 977516625920,
+        "regularMarketPrice": 5939.0,
+        "regularMarketPreviousClose": 5978.5,
+        "fiftyTwoWeekHigh": 6599.0,
+        "fiftyTwoWeekLow": 4244.5,
+        "trailingPE": 51.737957,
+        "priceToBook": 10.907314,
+        "dividendYield": 0.6,
+        "beta": 0.056,
+        "latestClose": 5939.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Solar Industries India Limited",
+      "symbol": "SOLARINDS",
+      "scripCode": "532725",
+      "tickers_tried": [
+        "SOLARINDS.NS",
+        "SOLARINDS.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "SOLARINDS.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "SOLARINDS.NS",
+        "shortName": "SOLAR INDUSTRIES (I) LTD",
+        "longName": "Solar Industries India Limited",
+        "sector": "Basic Materials",
+        "industry": "Specialty Chemicals",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1708723666944,
+        "regularMarketPrice": 18883.0,
+        "regularMarketPreviousClose": 18820.0,
+        "fiftyTwoWeekHigh": 22700.0,
+        "fiftyTwoWeekLow": 11646.0,
+        "trailingPE": 75.48972,
+        "priceToBook": 22.267138,
+        "dividendYield": 0.06,
+        "beta": 0.355,
+        "latestClose": 18883.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Adani Ports and Special Economic Zone Limited",
+      "symbol": "ADANIPORTS",
+      "scripCode": "532921",
+      "tickers_tried": [
+        "ADANIPORTS.NS",
+        "ADANIPORTS.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ADANIPORTS.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ADANIPORTS.NS",
+        "shortName": "ADANI PORT & SEZ LTD",
+        "longName": "Adani Ports and Special Economic Zone Limited",
+        "sector": "Industrials",
+        "industry": "Marine Shipping",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 4414385422336,
+        "regularMarketPrice": 1916.0,
+        "regularMarketPreviousClose": 1893.0,
+        "fiftyTwoWeekHigh": 1979.0,
+        "fiftyTwoWeekLow": 1292.0,
+        "trailingPE": 31.97597,
+        "priceToBook": 4.3178144,
+        "dividendYield": 0.4,
+        "beta": 0.453,
+        "latestClose": 1916.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Hero MotoCorp Limited",
+      "symbol": "HEROMOTOCO",
+      "scripCode": "500182",
+      "tickers_tried": [
+        "HEROMOTOCO.NS",
+        "HEROMOTOCO.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HEROMOTOCO.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HEROMOTOCO.NS",
+        "shortName": "HERO MOTOCORP LIMITED",
+        "longName": "Hero MotoCorp Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1074969051136,
+        "regularMarketPrice": 5370.5,
+        "regularMarketPreviousClose": 5359.5,
+        "fiftyTwoWeekHigh": 6388.5,
+        "fiftyTwoWeekLow": 4671.5,
+        "trailingPE": 17.837452,
+        "priceToBook": 4.592157,
+        "dividendYield": 3.45,
+        "beta": 0.462,
+        "latestClose": 5370.5,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Tata Consumer Products Limited",
+      "symbol": "TATACONSUM",
+      "scripCode": "500800",
+      "tickers_tried": [
+        "TATACONSUM.NS",
+        "TATACONSUM.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TATACONSUM.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TATACONSUM.NS",
+        "shortName": "TATA CONSUMER PRODUCT LTD",
+        "longName": "Tata Consumer Products Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Packaged Foods",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1100247859200,
+        "regularMarketPrice": 1111.7,
+        "regularMarketPreviousClose": 1117.5,
+        "fiftyTwoWeekHigh": 1282.7,
+        "fiftyTwoWeekLow": 916.0,
+        "trailingPE": 64.74665,
+        "priceToBook": 4.9694242,
+        "dividendYield": 0.89,
+        "beta": 0.336,
+        "latestClose": 1111.699951171875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "The Indian Hotels Company Limited",
+      "symbol": "INDHOTEL",
+      "scripCode": "500850",
+      "tickers_tried": [
+        "INDHOTEL.NS",
+        "INDHOTEL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "INDHOTEL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "INDHOTEL.NS",
+        "shortName": "THE INDIAN HOTELS CO. LTD",
+        "longName": "The Indian Hotels Company Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Lodging",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1281444806656,
+        "regularMarketPrice": 900.25,
+        "regularMarketPreviousClose": 886.0,
+        "fiftyTwoWeekHigh": 909.65,
+        "fiftyTwoWeekLow": 565.0,
+        "trailingPE": 57.96845,
+        "priceToBook": 9.394533,
+        "dividendYield": 0.37,
+        "beta": -0.16,
+        "latestClose": 900.25,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bharat Petroleum Corporation Ltd.",
+      "symbol": "BPCL",
+      "scripCode": "500547",
+      "tickers_tried": [
+        "BPCL.NS",
+        "BPCL.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BPCL.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BPCL.NS",
+        "shortName": "BHARAT PETROLEUM CORP  LT",
+        "longName": "Bharat Petroleum Corporation Limited",
+        "sector": "Energy",
+        "industry": "Oil & Gas Refining & Marketing",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1331487440896,
+        "regularMarketPrice": 306.9,
+        "regularMarketPreviousClose": 305.3,
+        "fiftyTwoWeekHigh": 391.65,
+        "fiftyTwoWeekLow": 266.6,
+        "trailingPE": 8.38983,
+        "priceToBook": 1.2925643,
+        "dividendYield": 6.55,
+        "beta": 0.836,
+        "latestClose": 306.8999938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Ashok Leyland Ltd.",
+      "symbol": "ASHOKLEY",
+      "scripCode": "500477",
+      "tickers_tried": [
+        "ASHOKLEY.NS",
+        "ASHOKLEY.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ASHOKLEY.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ASHOKLEY.NS",
+        "shortName": "ASHOK LEYLAND LTD",
+        "longName": "Ashok Leyland Limited",
+        "sector": "Industrials",
+        "industry": "Farm & Heavy Construction Machinery",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 963429662720,
+        "regularMarketPrice": 164.02,
+        "regularMarketPreviousClose": 167.49,
+        "fiftyTwoWeekHigh": 215.42,
+        "fiftyTwoWeekLow": 138.03,
+        "trailingPE": 27.066008,
+        "priceToBook": 7.3239565,
+        "dividendYield": 2.09,
+        "beta": 0.464,
+        "latestClose": 164.02000427246094,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Info Edge (India) Limited",
+      "symbol": "NAUKRI",
+      "scripCode": "532777",
+      "tickers_tried": [
+        "NAUKRI.NS",
+        "NAUKRI.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "NAUKRI.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "NAUKRI.NS",
+        "shortName": "INFO EDGE (I) LTD",
+        "longName": "Info Edge (India) Limited",
+        "sector": "Communication Services",
+        "industry": "Internet Content & Information",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 754474483712,
+        "regularMarketPrice": 1164.3,
+        "regularMarketPreviousClose": 1169.9,
+        "fiftyTwoWeekHigh": 1402.8,
+        "fiftyTwoWeekLow": 908.3,
+        "trailingPE": 42.852413,
+        "priceToBook": 1.6344265,
+        "dividendYield": 0.97,
+        "beta": 0.311,
+        "latestClose": 1164.300048828125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bank of Baroda",
+      "symbol": "BANKBARODA",
+      "scripCode": "532134",
+      "tickers_tried": [
+        "BANKBARODA.NS",
+        "BANKBARODA.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BANKBARODA.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BANKBARODA.NS",
+        "shortName": "BANK OF BARODA",
+        "longName": "Bank of Baroda Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1417987620864,
+        "regularMarketPrice": 274.2,
+        "regularMarketPreviousClose": 270.2,
+        "fiftyTwoWeekHigh": 325.5,
+        "fiftyTwoWeekLow": 223.82,
+        "trailingPE": 7.172378,
+        "priceToBook": 0.8111731,
+        "dividendYield": 3.15,
+        "beta": 0.38,
+        "latestClose": 274.20001220703125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "ICICI Lombard General Insurance Company Limited",
+      "symbol": "ICICIGI",
+      "scripCode": "540716",
+      "tickers_tried": [
+        "ICICIGI.NS",
+        "ICICIGI.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ICICIGI.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ICICIGI.NS",
+        "shortName": "ICICI LOMBARD GIC LIMITED",
+        "longName": "ICICI Lombard General Insurance Company Limited",
+        "sector": "Financial Services",
+        "industry": "Insurance - Diversified",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 844458819584,
+        "regularMarketPrice": 1690.0,
+        "regularMarketPreviousClose": 1709.4,
+        "fiftyTwoWeekHigh": 2059.4,
+        "fiftyTwoWeekLow": 1423.1,
+        "trailingPE": 33.55172,
+        "priceToBook": 4.0415826,
+        "dividendYield": 0.82,
+        "beta": 0.43,
+        "latestClose": 1690.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "FSN E-Commerce Ventures Ltd.",
+      "symbol": "NYKAA",
+      "scripCode": "543384",
+      "tickers_tried": [
+        "NYKAA.NS",
+        "NYKAA.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "NYKAA.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "NYKAA.NS",
+        "shortName": "FSN E COMMERCE VENTURES",
+        "longName": "FSN E-Commerce Ventures Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Internet Retail",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1027370450944,
+        "regularMarketPrice": 358.55,
+        "regularMarketPreviousClose": 360.85,
+        "fiftyTwoWeekHigh": 366.7,
+        "fiftyTwoWeekLow": 232.0,
+        "trailingPE": 317.30087,
+        "priceToBook": 62.39993,
+        "dividendYield": 0.0,
+        "beta": 0.302,
+        "latestClose": 358.54998779296875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Marico Limited",
+      "symbol": "MARICO",
+      "scripCode": "531642",
+      "tickers_tried": [
+        "MARICO.NS",
+        "MARICO.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "MARICO.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "MARICO.NS",
+        "shortName": "MARICO LIMITED",
+        "longName": "Marico Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Household & Personal Products",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1191622213632,
+        "regularMarketPrice": 918.05,
+        "regularMarketPreviousClose": 913.65,
+        "fiftyTwoWeekHigh": 925.0,
+        "fiftyTwoWeekLow": 707.25,
+        "trailingPE": 59.00064,
+        "priceToBook": 25.149988,
+        "dividendYield": 0.44,
+        "beta": 0.154,
+        "latestClose": 918.0499877929688,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "RBL Bank Limited",
+      "symbol": "RBLBANK",
+      "scripCode": "540065",
+      "tickers_tried": [
+        "RBLBANK.NS",
+        "RBLBANK.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "RBLBANK.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "RBLBANK.NS",
+        "shortName": "RBL BANK LIMITED",
+        "longName": "RBL Bank Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 605590519808,
+        "regularMarketPrice": 389.95,
+        "regularMarketPreviousClose": 381.9,
+        "fiftyTwoWeekHigh": 429.6,
+        "fiftyTwoWeekLow": 287.2,
+        "trailingPE": 27.873482,
+        "priceToBook": 1.3888888,
+        "dividendYield": 0.26,
+        "beta": 0.757,
+        "latestClose": 389.95001220703125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Adani Enterprises Limited",
+      "symbol": "ADANIENT",
+      "scripCode": "512599",
+      "tickers_tried": [
+        "ADANIENT.NS",
+        "ADANIENT.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ADANIENT.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ADANIENT.NS",
+        "shortName": "ADANI ENTERPRISES LIMITED",
+        "longName": "Adani Enterprises Limited",
+        "sector": "Energy",
+        "industry": "Thermal Coal",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 3677658284032,
+        "regularMarketPrice": 2716.7,
+        "regularMarketPreviousClose": 2659.0,
+        "fiftyTwoWeekHigh": 3245.0,
+        "fiftyTwoWeekLow": 1753.0,
+        "trailingPE": 57.913025,
+        "priceToBook": 3.7449408,
+        "dividendYield": 0.05,
+        "beta": 0.866,
+        "latestClose": 2716.699951171875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Nestle India Ltd.",
+      "symbol": "NESTLEIND",
+      "scripCode": "500790",
+      "tickers_tried": [
+        "NESTLEIND.NS",
+        "NESTLEIND.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "NESTLEIND.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "NESTLEIND.NS",
+        "shortName": "NESTLE INDIA LIMITED",
+        "longName": "Nestlé India Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Packaged Foods",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 2490032455680,
+        "regularMarketPrice": 1291.3,
+        "regularMarketPreviousClose": 1297.0,
+        "fiftyTwoWeekHigh": 1553.0,
+        "fiftyTwoWeekLow": 1147.4,
+        "trailingPE": 61.05438,
+        "priceToBook": 43.066303,
+        "dividendYield": 0.93,
+        "beta": 0.479,
+        "latestClose": 1291.0999755859375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Sona Blw Precision Forgings Ltd.",
+      "symbol": "SONACOMS",
+      "scripCode": "543300",
+      "tickers_tried": [
+        "SONACOMS.NS",
+        "SONACOMS.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "SONACOMS.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "SONACOMS.NS",
+        "shortName": "SONA BLW PRECISION FRGS L",
+        "longName": "Sona BLW Precision Forgings Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Parts",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 560877928448,
+        "regularMarketPrice": 897.15,
+        "regularMarketPreviousClose": 899.0,
+        "fiftyTwoWeekHigh": 934.9,
+        "fiftyTwoWeekLow": 437.7,
+        "trailingPE": 74.762505,
+        "priceToBook": 8.71849,
+        "dividendYield": 0.4,
+        "beta": 0.479,
+        "latestClose": 897.1500244140625,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Swiggy Limited",
+      "symbol": "SWIGGY",
+      "scripCode": "544285",
+      "tickers_tried": [
+        "SWIGGY.NS",
+        "SWIGGY.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "SWIGGY.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "SWIGGY.NS",
+        "shortName": "SWIGGY LIMITED",
+        "longName": "Swiggy Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Internet Retail",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 494774681600,
+        "regularMarketPrice": 188.64,
+        "regularMarketPreviousClose": 190.7,
+        "fiftyTwoWeekHigh": 421.6,
+        "fiftyTwoWeekLow": 174.2,
+        "priceToBook": 2.9707553,
+        "dividendYield": 0.0,
+        "beta": 0.626,
+        "latestClose": 188.63999938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Tata Power Company Limited",
+      "symbol": "TATAPOWER",
+      "scripCode": "500400",
+      "tickers_tried": [
+        "TATAPOWER.NS",
+        "TATAPOWER.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TATAPOWER.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TATAPOWER.NS",
+        "shortName": "TATA POWER CO LTD",
+        "longName": "The Tata Power Company Limited",
+        "sector": "Utilities",
+        "industry": "Utilities - Independent Power Producers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1098877239296,
+        "regularMarketPrice": 343.9,
+        "regularMarketPreviousClose": 345.5,
+        "fiftyTwoWeekHigh": 464.9,
+        "fiftyTwoWeekLow": 333.2,
+        "trailingPE": 25.549776,
+        "priceToBook": 2.6511152,
+        "dividendYield": 0.72,
+        "beta": 0.397,
+        "latestClose": 343.8999938964844,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Life Insurance Corporation Of India",
+      "symbol": "LICI",
+      "scripCode": "543526",
+      "tickers_tried": [
+        "LICI.NS",
+        "LICI.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "LICI.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "LICI.NS",
+        "shortName": "LIFE INSURA CORP OF INDIA",
+        "longName": "Life Insurance Corporation of India",
+        "sector": "Financial Services",
+        "industry": "Insurance - Life",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 5069485375488,
+        "regularMarketPrice": 400.75,
+        "regularMarketPreviousClose": 400.0,
+        "fiftyTwoWeekHigh": 460.5,
+        "fiftyTwoWeekLow": 360.75,
+        "trailingPE": 8.163577,
+        "priceToBook": 3.0044382,
+        "dividendYield": 2.5,
+        "beta": 0.535,
+        "latestClose": 400.75,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Mphasis Ltd.",
+      "symbol": "MPHASIS",
+      "scripCode": "526299",
+      "tickers_tried": [
+        "MPHASIS.NS",
+        "MPHASIS.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "MPHASIS.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "MPHASIS.NS",
+        "shortName": "MPHASIS LIMITED",
+        "longName": "Mphasis Limited",
+        "sector": "Technology",
+        "industry": "Information Technology Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 459449729024,
+        "regularMarketPrice": 2405.2,
+        "regularMarketPreviousClose": 2432.9,
+        "fiftyTwoWeekHigh": 2975.0,
+        "fiftyTwoWeekLow": 2013.0,
+        "trailingPE": 22.752813,
+        "priceToBook": 4.2534156,
+        "dividendYield": 2.55,
+        "beta": 0.394,
+        "latestClose": 2405.199951171875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Aurobindo Pharma Limited",
+      "symbol": "AUROPHARMA",
+      "scripCode": "524804",
+      "tickers_tried": [
+        "AUROPHARMA.NS",
+        "AUROPHARMA.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "AUROPHARMA.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "AUROPHARMA.NS",
+        "shortName": "AUROBINDO PHARMA LTD",
+        "longName": "Aurobindo Pharma Limited",
+        "sector": "Healthcare",
+        "industry": "Drug Manufacturers - Specialty & Generic",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1031134773248,
+        "regularMarketPrice": 1792.1,
+        "regularMarketPreviousClose": 1794.0,
+        "fiftyTwoWeekHigh": 1859.9,
+        "fiftyTwoWeekLow": 1106.0,
+        "trailingPE": 25.953655,
+        "priceToBook": 2.6172512,
+        "dividendYield": 0.78,
+        "beta": 0.021,
+        "latestClose": 1792.0999755859375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Bharat Forge Limited",
+      "symbol": "BHARATFORG",
+      "scripCode": "500493",
+      "tickers_tried": [
+        "BHARATFORG.NS",
+        "BHARATFORG.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "BHARATFORG.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "BHARATFORG.NS",
+        "shortName": "BHARAT FORGE LTD",
+        "longName": "Bharat Forge Limited",
+        "sector": "Industrials",
+        "industry": "Metal Fabrication",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 839291830272,
+        "regularMarketPrice": 1717.5,
+        "regularMarketPreviousClose": 1715.0,
+        "fiftyTwoWeekHigh": 2295.0,
+        "fiftyTwoWeekLow": 1323.8,
+        "trailingPE": 120.27311,
+        "priceToBook": 7.1367426,
+        "dividendYield": 0.5,
+        "beta": 0.535,
+        "latestClose": 1717.5,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Fortis Healthcare Limited",
+      "symbol": "FORTIS",
+      "scripCode": "532843",
+      "tickers_tried": [
+        "FORTIS.NS",
+        "FORTIS.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "FORTIS.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "FORTIS.NS",
+        "shortName": "FORTIS HEALTHCARE LTD",
+        "longName": "Fortis Healthcare Limited",
+        "sector": "Healthcare",
+        "industry": "Medical Care Facilities",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 607779028992,
+        "regularMarketPrice": 805.05,
+        "regularMarketPreviousClose": 803.2,
+        "fiftyTwoWeekHigh": 1010.1,
+        "fiftyTwoWeekLow": 704.95,
+        "trailingPE": 58.50654,
+        "priceToBook": 5.7971063,
+        "dividendYield": 0.12,
+        "beta": 0.671,
+        "latestClose": 805.0499877929688,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "AU Small Finance Bank Limited",
+      "symbol": "AUBANK",
+      "scripCode": "540611",
+      "tickers_tried": [
+        "AUBANK.NS",
+        "AUBANK.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "AUBANK.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "AUBANK.NS",
+        "shortName": "AU SMALL FINANCE BANK LTD",
+        "longName": "AU Small Finance Bank Limited",
+        "sector": "Financial Services",
+        "industry": "Banks - Regional",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 748216844288,
+        "regularMarketPrice": 998.4,
+        "regularMarketPreviousClose": 971.35,
+        "fiftyTwoWeekHigh": 1144.1,
+        "fiftyTwoWeekLow": 831.65,
+        "trailingPE": 24.057833,
+        "priceToBook": 3.4321074,
+        "dividendYield": 0.1,
+        "beta": 0.608,
+        "latestClose": 998.4000244140625,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Power Finance Corporation Ltd.",
+      "symbol": "PFC",
+      "scripCode": "532810",
+      "tickers_tried": [
+        "PFC.NS",
+        "PFC.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "PFC.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "PFC.NS",
+        "shortName": "POWER FIN CORP LTD.",
+        "longName": "Power Finance Corporation Limited",
+        "sector": "Financial Services",
+        "industry": "Credit Services",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1087218515968,
+        "regularMarketPrice": 329.45,
+        "regularMarketPreviousClose": 332.8,
+        "fiftyTwoWeekHigh": 486.5,
+        "fiftyTwoWeekLow": 310.3,
+        "trailingPE": 4.127929,
+        "priceToBook": 0.74023896,
+        "dividendYield": 4.93,
+        "beta": 0.606,
+        "latestClose": 329.45001220703125,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Ambuja Cements Ltd.",
+      "symbol": "AMBUJACEM",
+      "scripCode": "500425",
+      "tickers_tried": [
+        "AMBUJACEM.NS",
+        "AMBUJACEM.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "AMBUJACEM.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "AMBUJACEM.NS",
+        "shortName": "AMBUJA CEMENTS LTD",
+        "longName": "Ambuja Cements Limited",
+        "sector": "Basic Materials",
+        "industry": "Building Materials",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 966221168640,
+        "regularMarketPrice": 388.85,
+        "regularMarketPreviousClose": 382.0,
+        "fiftyTwoWeekHigh": 573.1,
+        "fiftyTwoWeekLow": 341.0,
+        "trailingPE": 34.503105,
+        "priceToBook": 1.6124084,
+        "dividendYield": 0.52,
+        "beta": 0.209,
+        "latestClose": 388.8500061035156,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Tata Motors Passenger Vehicles Limited",
+      "symbol": "TMPV",
+      "scripCode": "500570",
+      "tickers_tried": [
+        "TMPV.NS",
+        "TMPV.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "TMPV.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "TMPV.NS",
+        "shortName": "TATA MOTORS PASS VEH LTD",
+        "longName": "Tata Motors Passenger Vehicles Limited",
+        "sector": "Consumer Cyclical",
+        "industry": "Auto Manufacturers",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 957775740928,
+        "regularMarketPrice": 260.05,
+        "regularMarketPreviousClose": 262.4,
+        "fiftyTwoWeekHigh": 408.0,
+        "fiftyTwoWeekLow": 259.1,
+        "priceToBook": 0.9109219,
+        "dividendYield": 1.14,
+        "beta": 0.829,
+        "latestClose": 260.04998779296875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Radico Khaitan Limited",
+      "symbol": "RADICO",
+      "scripCode": "532497",
+      "tickers_tried": [
+        "RADICO.NS",
+        "RADICO.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "RADICO.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "RADICO.NS",
+        "shortName": "RADICO KHAITAN LTD",
+        "longName": "Radico Khaitan Limited",
+        "sector": "Consumer Defensive",
+        "industry": "Beverages - Wineries & Distilleries",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 621963837440,
+        "regularMarketPrice": 4641.9,
+        "regularMarketPreviousClose": 4665.0,
+        "fiftyTwoWeekHigh": 4747.0,
+        "fiftyTwoWeekLow": 2500.0,
+        "trailingPE": 78.080734,
+        "priceToBook": 16.948353,
+        "dividendYield": 0.19,
+        "beta": 0.521,
+        "latestClose": 4641.89990234375,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "HDFC Asset Management Company Limited",
+      "symbol": "HDFCAMC",
+      "scripCode": "541729",
+      "tickers_tried": [
+        "HDFCAMC.NS",
+        "HDFCAMC.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HDFCAMC.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HDFCAMC.NS",
+        "shortName": "HDFC AMC LIMITED",
+        "longName": "HDFC Asset Management Company Limited",
+        "sector": "Financial Services",
+        "industry": "Asset Management",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1166699528192,
+        "regularMarketPrice": 2719.0,
+        "regularMarketPreviousClose": 2650.0,
+        "fiftyTwoWeekHigh": 2901.5,
+        "fiftyTwoWeekLow": 2205.6,
+        "trailingPE": 39.26921,
+        "priceToBook": 13.529786,
+        "dividendYield": 2.04,
+        "beta": 0.517,
+        "latestClose": 2719.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Lupin Ltd.",
+      "symbol": "LUPIN",
+      "scripCode": "500257",
+      "tickers_tried": [
+        "LUPIN.NS",
+        "LUPIN.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "LUPIN.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "LUPIN.NS",
+        "shortName": "LUPIN LIMITED",
+        "longName": "Lupin Limited",
+        "sector": "Healthcare",
+        "industry": "Drug Manufacturers - Specialty & Generic",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 892361572352,
+        "regularMarketPrice": 1951.4,
+        "regularMarketPreviousClose": 1976.7,
+        "fiftyTwoWeekHigh": 2529.5,
+        "fiftyTwoWeekLow": 1892.9,
+        "trailingPE": 17.164219,
+        "priceToBook": 3.70935,
+        "dividendYield": 0.91,
+        "beta": 0.162,
+        "latestClose": 1951.4000244140625,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "Hindustan Petroleum Corporation Limited",
+      "symbol": "HINDPETRO",
+      "scripCode": "500104",
+      "tickers_tried": [
+        "HINDPETRO.NS",
+        "HINDPETRO.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "HINDPETRO.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "HINDPETRO.NS",
+        "shortName": "HINDUSTAN PETROLEUM CORP",
+        "longName": "Hindustan Petroleum Corporation Limited",
+        "sector": "Energy",
+        "industry": "Oil & Gas Refining & Marketing",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 839532347392,
+        "regularMarketPrice": 394.55,
+        "regularMarketPreviousClose": 386.95,
+        "fiftyTwoWeekHigh": 508.45,
+        "fiftyTwoWeekLow": 316.2,
+        "trailingPE": 58.45185,
+        "priceToBook": 1.5931308,
+        "dividendYield": 6.27,
+        "beta": 0.919,
+        "latestClose": 394.54998779296875,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "ABB India Ltd.",
+      "symbol": "ABB",
+      "scripCode": "500002",
+      "tickers_tried": [
+        "ABB.NS",
+        "ABB.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "ABB.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "ABB.NS",
+        "shortName": "ABB INDIA LIMITED",
+        "longName": "ABB India Limited",
+        "sector": "Industrials",
+        "industry": "Specialty Industrial Machinery",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 1469796450304,
+        "regularMarketPrice": 6936.0,
+        "regularMarketPreviousClose": 6895.0,
+        "fiftyTwoWeekHigh": 7924.5,
+        "fiftyTwoWeekLow": 4637.5,
+        "trailingPE": 92.652954,
+        "priceToBook": 15.743921,
+        "dividendYield": 0.43,
+        "beta": 0.498,
+        "latestClose": 6936.0,
+        "latestCloseDate": "2026-11-17"
+      }
+    },
+    {
+      "instrument_name": "The Phoenix Mills Ltd.",
+      "symbol": "PHOENIXLTD",
+      "scripCode": "503100",
+      "tickers_tried": [
+        "PHOENIXLTD.NS",
+        "PHOENIXLTD.BO"
+      ],
+      "yfinance_available": true,
+      "yfinance_ticker": "PHOENIXLTD.NS",
+      "yfinance_error": null,
+      "yfinance_fields": {
+        "symbol": "PHOENIXLTD.NS",
+        "shortName": "THE PHOENIX MILLS LTD",
+        "longName": "The Phoenix Mills Limited",
+        "sector": "Real Estate",
+        "industry": "Real Estate - Diversified",
+        "currency": "INR",
+        "exchange": "NSI",
+        "marketCap": 797832380416,
+        "regularMarketPrice": 2230.5,
+        "regularMarketPreviousClose": 2202.0,
+        "fiftyTwoWeekHigh": 2300.0,
+        "fiftyTwoWeekLow": 1465.6,
+        "trailingPE": 59.670944,
+        "priceToBook": 8.764174,
+        "dividendYield": 0.11,
+        "beta": 0.337,
+        "latestClose": 2230.5,
+        "latestCloseDate": "2026-11-17"
+      }
+    }
+  ]
+}

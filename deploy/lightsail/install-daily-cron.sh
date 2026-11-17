@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Install news ingest crons on UTC Lightsail clock (no CRON_TZ on stock Ubuntu cron).
-#   07:30 UTC = 13:00 IST (1:00 PM)  — news-daily-noon
-#   11:40 UTC = 17:10 IST (5:10 PM)  — news-daily-evening
+#   02:30 UTC = 08:00 IST — news-daily-morning
+#   11:30 UTC = 17:00 IST (5:00 PM) — news-daily-evening
 set -euo pipefail
 
 NEWS_RAG_DIR="${NEWS_RAG_DIR:-/opt/news-rag}"
 SERVICE_USER="${SERVICE_USER:-ubuntu}"
 SCRIPT="${NEWS_RAG_DIR}/deploy/lightsail/run-daily-pipeline.sh"
-MARK_NOON="# news-daily-noon"
+MARK_MORNING="# news-daily-morning"
 MARK_EVENING="# news-daily-evening"
+# Legacy markers (remove old crontab lines from previous schedules)
+MARK_NOON="# news-daily-noon"
 
 if [[ ! -f "${SCRIPT}" ]]; then
   echo "!! Missing ${SCRIPT}"
@@ -21,17 +23,18 @@ if id "${SERVICE_USER}" &>/dev/null; then
 fi
 
 CRON_LOG="${NEWS_RAG_DIR}/data/news_runs_daily/cron/cron.log"
-LINE_NOON="30 7 * * * /bin/bash ${SCRIPT} >> ${CRON_LOG} 2>&1 ${MARK_NOON}"
-LINE_EVENING="40 11 * * * /bin/bash ${SCRIPT} >> ${CRON_LOG} 2>&1 ${MARK_EVENING}"
+LINE_MORNING="30 2 * * * /bin/bash ${SCRIPT} >> ${CRON_LOG} 2>&1 ${MARK_MORNING}"
+LINE_EVENING="30 11 * * * /bin/bash ${SCRIPT} >> ${CRON_LOG} 2>&1 ${MARK_EVENING}"
 
 CURRENT="$(crontab -u "${SERVICE_USER}" -l 2>/dev/null || true)"
 FILTERED="$(printf '%s\n' "${CURRENT}" \
-  | grep -v "${MARK_NOON}" \
+  | grep -v "${MARK_MORNING}" \
   | grep -v "${MARK_EVENING}" \
+  | grep -v "${MARK_NOON}" \
   | grep -v 'run-daily-pipeline.sh' \
   || true)"
 TMP="$(mktemp)"
-printf '%s\n%s\n%s\n' "${FILTERED}" "${LINE_NOON}" "${LINE_EVENING}" | sed '/^$/d' > "${TMP}"
+printf '%s\n%s\n%s\n' "${FILTERED}" "${LINE_MORNING}" "${LINE_EVENING}" | sed '/^$/d' > "${TMP}"
 
 if ! crontab -u "${SERVICE_USER}" "${TMP}"; then
   echo "!! crontab rejected this file:"
@@ -42,6 +45,6 @@ fi
 rm -f "${TMP}"
 
 echo "==> News crons for ${SERVICE_USER}:"
-echo "    07:30 UTC = 13:00 IST (1:00 PM)  ${MARK_NOON}"
-echo "    11:40 UTC = 17:10 IST (5:10 PM) ${MARK_EVENING}"
+echo "    02:30 UTC = 08:00 IST  ${MARK_MORNING}"
+echo "    11:30 UTC = 17:00 IST  ${MARK_EVENING}"
 crontab -u "${SERVICE_USER}" -l

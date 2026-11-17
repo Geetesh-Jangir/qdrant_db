@@ -97,28 +97,31 @@ Pipeline keys already in `.env` are reused (`QDRANT_*`, `JEV_*` if you use Jev).
 
 ---
 
-## Daily ingest (13:00 IST and 17:10 IST, twice per day)
+## Daily ingest (08:00 IST and 17:00 IST, twice per day)
 
 `install.sh` runs `install-daily-cron.sh`, which installs **two** UTC cron lines for user `ubuntu` (no `CRON_TZ` on stock Ubuntu cron):
 
-| UTC cron   | IST        | Marker               |
-|------------|------------|----------------------|
-| `30 7`     | 1:00 PM    | `# news-daily-noon`  |
-| `40 11`    | 5:10 PM    | `# news-daily-evening` |
+| UTC cron   | IST        | Marker                  |
+|------------|------------|-------------------------|
+| `30 2`     | 8:00 AM    | `# news-daily-morning`  |
+| `30 11`    | 5:00 PM    | `# news-daily-evening`  |
 
 Each run uses:
 
 - `GOOGLE_NEWS_WHEN=1d` and an empty `NEWS_DATE_RANGE` (Google `when:1d`, not `after`/`before`)
 - `NEWS_WINDOW_HOURS=24`
-- `HOLDINGS_LIMIT=500`, `SECTORS_LIMIT=30`, macros on
+- `HOLDINGS_LIMIT=250`, `SECTORS_LIMIT=30`, macros on
+- `FETCH_WORKERS=1`, `SCRAPE_WORKERS=2`, `SCRAPE_DOMAIN_GAP_SEC=1.5` (reduces Google 429 / circuit trips)
 - `NEWS_CORPUS_MODE=true` so existing articles stay
+
+Publisher pages still scrape when the Google circuit is open; only `news.google.com` fetches are paused (`lib/fetch.py`).
 
 Historical backfill is unchanged and still writes under `data/news_runs/YYYY-MM-DD/`. Daily logs are separate:
 
 - Pipeline files: `/opt/news-rag/data/news_runs_daily/`
 - Cron wrapper: `/opt/news-rag/data/news_runs_daily/cron/daily_*.log`
 
-If a backfill or another pipeline process is already running when the daily slot starts, that run **skips** and does not start later when backfill ends. The next 17:10 IST slot tries again. Run it by hand after backfill finishes if you do not want to wait. A 500/30 run can take hours and shares RAM with Ask.
+If a backfill or another pipeline process is already running when the daily slot starts, that run **skips** and does not start later when backfill ends. The next 17:00 IST slot tries again. Run it by hand after backfill finishes if you do not want to wait. A 250/30 run typically takes 30–90 minutes and shares RAM with Ask. Avoid extra manual full runs on the same day unless the previous run shows `upserted > 0` in `run_summary.json`.
 
 Every cron slot appends one line to `/opt/news-rag/data/news_runs_daily/cron/cron.log` (`daily success`, `daily failed`, or `daily skipped`). The full pipeline output for that slot is `daily_<utcstamp>.log` in the same folder. Cron also copies its output into `cron.log`.
 

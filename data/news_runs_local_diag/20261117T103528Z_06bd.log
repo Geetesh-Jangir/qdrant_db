@@ -1,0 +1,132 @@
+2026-11-17T10:35:28Z run started run_id=20261117T103528Z_06bd
+2026-11-17T10:35:28Z qdrant target host=0290840c-f2e8-4b44-a553-5722fb7a8fbe.eu-central-1-0.aws.cloud.qdrant.io collection=news_articles cloud=True news_corpus_mode=True
+2026-11-17T10:35:28Z fetch window google=when:1d news_window_hours=24 holdings_limit=2 sectors_limit=0 run_subdir=(flat)
+2026-11-17T10:35:28Z scrape workspace cleared files=1 dir=data/news_scrape_cache
+2026-11-17T10:35:32Z qdrant collection ready points_count=14746
+2026-11-17T10:35:32Z step started name=load_universe
+2026-11-17T10:35:33Z load_universe finished holdings=2 sectors=0 macros=0 total=2 google=when:1d news_window_hours=24
+2026-11-17T10:35:33Z load_universe entity name=State Bank of India type=holding industry=Banks query='"State Bank of India"' fund_count=2928
+2026-11-17T10:35:33Z load_universe entity name=ICICI Bank Ltd. type=holding industry=Banks query='"ICICI Bank Ltd." OR "ICICI Bank"' fund_count=1858
+2026-11-17T10:35:33Z load_universe sector_query_gaps total=255 (sectors in CSV without SECTOR_QUERIES mapping)
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Agricultural Food & Other Products' fund_count=2715
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Industrial Manufacturing' fund_count=2656
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Transport Infrastructure' fund_count=2583
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Personal Products' fund_count=2250
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Oil' fund_count=2192
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Fertilizers & Agrochemicals' fund_count=2048
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='It - Services' fund_count=1948
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Textiles & Apparels' fund_count=1931
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Gas' fund_count=1780
+2026-11-17T10:35:33Z load_universe sector_query_gap sector='Consumable Fuels' fund_count=1498
+2026-11-17T10:35:33Z step finished name=load_universe seconds=0.942 cumulative_steps_sec=0.942
+2026-11-17T10:35:33Z step started name=fetch_google_news
+2026-11-17T10:35:33Z fetch_google_news started entities=2 workers=1 google=when:1d news_window_hours=24
+2026-11-17T10:35:50Z fetch filter entity=State Bank of India rss_items=22 dropped_publisher=18 dropped_pre_resolve=0 resolve_calls=4 kept=4 max_items_per_query=unlimited
+2026-11-17T10:35:50Z fetch entity=State Bank of India type=holding ok items=4
+2026-11-17T10:36:34Z fetch filter entity=ICICI Bank Ltd. rss_items=22 dropped_publisher=12 dropped_pre_resolve=0 resolve_calls=10 kept=10 max_items_per_query=unlimited
+2026-11-17T10:36:34Z fetch entity=ICICI Bank Ltd. type=holding ok items=10
+2026-11-17T10:36:34Z fetch_google_news progress done=2/2 items_so_far=14 failures=0
+2026-11-17T10:36:34Z fetch_google_news finished items=14 entity_failures=0 google_blocked=False
+2026-11-17T10:36:34Z step finished name=fetch_google_news seconds=60.771 cumulative_steps_sec=61.713
+2026-11-17T10:36:34Z step started name=skip_known_urls
+2026-11-17T10:36:34Z skip_known_urls started raw_hits=14
+2026-11-17T10:36:34Z skip_known_urls merged unique_urls=13 multi_entity_urls=1 known_url_merges=4 new_urls=9
+2026-11-17T10:36:34Z skip_known_urls queue_entity_merge url=https://livemint.com/money/bank-holiday-on-friday-20-november-branches-closed-in-dehradun-uttarakhand-due-to-this-festival-no-cheque-clearances-11794839699625.html matches=[State Bank of India]
+2026-11-17T10:36:34Z skip_known_urls queue_entity_merge url=https://business-standard.com/markets/news/nifty-bank-hits-record-high-tops-62-000-hdfc-bank-jumps-20-from-oct-low-126111700237_1.html matches=[State Bank of India]
+2026-11-17T10:36:34Z skip_known_urls queue_entity_merge url=https://bfsi.economictimes.indiatimes.com/amp/articles/rbi-flags-risk-to-future-bank-rescues-in-supreme-court-review-plea-on-yes-banks-rs-8415-crore-at-1-bonds/135887009 matches=[State Bank of India]
+2026-11-17T10:36:34Z skip_known_urls queue_entity_merge url=https://financialexpress.com/market/bank-nifty-hits-all-time-high-jumps-10-in-1-month-5-reasons-fuelling-the-surge-4386586 matches=[ICICI Bank Ltd.]
+2026-11-17T10:36:34Z step finished name=skip_known_urls seconds=0.605 cumulative_steps_sec=62.318
+2026-11-17T10:36:35Z step started name=dedupe_and_alias
+2026-11-17T10:36:35Z dedupe_and_alias started candidate_urls=9 title_similarity=80 recent_title_hours=720 alias_gate=off
+2026-11-17T10:36:56Z dedupe_and_alias corpus_entries_loaded count=14746 hours=all limit=unlimited
+2026-11-17T10:36:57Z dedupe_and_alias recent_titles entity=State Bank of India count=193
+2026-11-17T10:36:57Z dedupe_and_alias recent_titles entity=ICICI Bank Ltd. count=5
+2026-11-17T10:36:58Z dedupe_and_alias redirect_story alias_url=https://cnbctv18.com/access/exclusive/icici-bank-reliance-cdsl-indian-hotels-force-motors-top-stock-picks-buy-sell-20035718.htm/amp canonical_url=https://cnbctv18.com/access/exclusive/icici-bank-reliance-cdsl-indian-hotels-force-motors-top-stock-picks-buy-sell-20035718.htm title=Top stock picks: Analysts recommend ICICI Bank, Reliance, CDSL, Indian Hotels and Force Motors - CNBC TV18
+2026-11-17T10:36:59Z dedupe_and_alias redirect_story alias_url=https://bfsi.economictimes.indiatimes.com/articles/why-are-foreign-investors-lapping-up-bank-stocks/135900688 canonical_url=https://financialexpress.com/market/global-markets/dollar-up-4-rupee-down-5-9-why-foreign-investors-are-selling-indian-stocks/4360248 title=Why are foreign investors lapping up bank stocks? - bfsi.economictimes.indiatimes.com
+2026-11-17T10:36:59Z dedupe_and_alias redirect_story alias_url=https://economictimes.com/wealth/save/chhath-puja-bank-holiday-on-november-16-2026-are-sbi-hdfc-bank-icici-bank-pnb-and-other-banks-closed-for-chhath-puja/articleshow/135768760.cms canonical_url=https://cnbctv18.com/personal-finance/bank-holiday-this-week-november-2-to-8-when-will-sbi-hdfc-icici-and-other-banks-be-closed-check-full-list-city-wise-20024105.htm title=Chhath Puja bank holiday: Are SBI, HDFC Bank, ICICI Bank, PNB and other banks closed for Chhath Puja? - The Economic ...
+2026-11-17T10:36:59Z dedupe_and_alias finished urls_before=9 urls_after=6 urls_dropped=0 canonical_merges=3
+2026-11-17T10:36:59Z step finished name=dedupe_and_alias seconds=24.558 cumulative_steps_sec=86.876
+2026-11-17T10:36:59Z step started name=jev_title_screen
+2026-11-17T10:36:59Z jev_title_screen started candidate_urls=6 entities=2
+2026-11-17T10:36:59Z jev_title_screen entity=State Bank of India type=holding titles_in_call=1
+2026-11-17T10:37:00Z llm call stage=jev_title_screen entity=State Bank of India titles=1 input_tokens=1241 output_tokens=21 call_input_cost_usd=0.000052 total_llm_calls=1 total_input_tokens=1241 total_output_tokens=21 total_input_cost_usd=0.000052 duration_sec=0.471
+2026-11-17T10:37:00Z jev_title_screen result entity=State Bank of India verdict=fail noul=0.0200 title=Sensex zooms 800 pts intraday, Nifty tops 25,500: 5 factors behind bull run - Business Standard
+2026-11-17T10:37:00Z jev_title_screen entity=ICICI Bank Ltd. type=holding titles_in_call=6
+2026-11-17T10:37:00Z llm call stage=jev_title_screen entity=ICICI Bank Ltd. titles=6 input_tokens=5875 output_tokens=106 call_input_cost_usd=0.000247 total_llm_calls=2 total_input_tokens=7116 total_output_tokens=127 total_input_cost_usd=0.000299 duration_sec=0.386
+2026-11-17T10:37:00Z jev_title_screen result entity=ICICI Bank Ltd. verdict=fail noul=0.0100 title=Nifty Hits 25,500 After Nine Months. Here's The Level That Could Decide What Happens Next - NDTV Profit
+2026-11-17T10:37:00Z jev_title_screen result entity=ICICI Bank Ltd. verdict=fail noul=0.0100 title=Sanofi India Investor Analysis | StockIQ - The Economic Times
+2026-11-17T10:37:00Z jev_title_screen result entity=ICICI Bank Ltd. verdict=fail noul=0.0200 title=Sensex zooms 800 pts intraday, Nifty tops 25,500: 5 factors behind bull run - Business Standard
+2026-11-17T10:37:00Z jev_title_screen result entity=ICICI Bank Ltd. verdict=fail noul=0.0200 title=Nifty recovers all losses made since US-Iran war began - Here are key reasons why - CNBC TV18
+2026-11-17T10:37:00Z jev_title_screen result entity=ICICI Bank Ltd. verdict=fail noul=0.0200 title=NSE joins Rs 5 lakh crore m-cap club, overtakes LIC in valuation - The Economic Times
+2026-11-17T10:37:00Z jev_title_screen result entity=ICICI Bank Ltd. verdict=pass noul=0.9000 title=ICICI Bank To Probe Whistleblower’s Complaint Against CEO Chanda Kochhar - NDTV Profit
+2026-11-17T10:37:00Z jev_title_screen finished unique_urls_kept=6
+2026-11-17T10:37:00Z jev_title_screen industry_stats industry=Banks pass=1 fail=6
+2026-11-17T10:37:00Z step finished name=jev_title_screen seconds=1.091 cumulative_steps_sec=87.967
+2026-11-17T10:37:00Z step started name=scrape_bodies
+2026-11-17T10:37:00Z scrape_bodies started urls=6 workers=2
+2026-11-17T10:37:02Z scrape url=https://ndtvprofit.com/markets/nifty-hits-25-500-after-nine-months-heres-the-level-that-could-decide-what-happens-next-12338277 status=ok chars=4272
+2026-11-17T10:37:02Z scrape url=https://business-standard.com/markets/news/sensex-zooms-800-pts-intraday-nifty-tops-25-500-5-factors-behind-bull-run-126111700469_1.html status=ok chars=4132
+2026-11-17T10:37:03Z scrape url=https://cnbctv18.com/market/nifty-50-index-all-us-iran-war-losses-recovered-nifty-bank-record-high-key-reasons-why-20035657.htm status=ok chars=3088
+2026-11-17T10:37:04Z scrape url=https://economictimes.com/markets/stocks/news/nse-joins-rs-5-lakh-crore-m-cap-club/articleshow/135906983.cms status=ok chars=2150
+2026-11-17T10:37:04Z scrape url=https://economictimes.com/markets/stockiq/sanofi-india-ltd/investor-analysis/13607 status=ok chars=225
+2026-11-17T10:37:04Z scrape url=https://ndtvprofit.com/business/icici-bank-to-probe-ceo-chanda-kochhar-on-whistleblower-complaint-10432231 status=ok chars=5250
+2026-11-17T10:37:04Z scrape keep url=https://ndtvprofit.com/markets/nifty-hits-25-500-after-nine-months-heres-the-level-that-could-decide-what-happens-next-12338277 chars=4272 status=ok
+2026-11-17T10:37:04Z scrape keep url=https://economictimes.com/markets/stockiq/sanofi-india-ltd/investor-analysis/13607 chars=122 status=ok
+2026-11-17T10:37:04Z scrape keep url=https://business-standard.com/markets/news/sensex-zooms-800-pts-intraday-nifty-tops-25-500-5-factors-behind-bull-run-126111700469_1.html chars=4132 status=ok
+2026-11-17T10:37:04Z scrape keep url=https://cnbctv18.com/market/nifty-50-index-all-us-iran-war-losses-recovered-nifty-bank-record-high-key-reasons-why-20035657.htm chars=3088 status=ok
+2026-11-17T10:37:04Z scrape keep url=https://economictimes.com/markets/stocks/news/nse-joins-rs-5-lakh-crore-m-cap-club/articleshow/135906983.cms chars=2150 status=ok
+2026-11-17T10:37:04Z scrape keep url=https://ndtvprofit.com/business/icici-bank-to-probe-ceo-chanda-kochhar-on-whistleblower-complaint-10432231 chars=5250 status=ok
+2026-11-17T10:37:04Z scrape_bodies finished kept=6 of=6
+2026-11-17T10:37:04Z step finished name=scrape_bodies seconds=3.809 cumulative_steps_sec=91.776
+2026-11-17T10:37:04Z step started name=jev_article_scores
+2026-11-17T10:37:04Z jev_article_scores started articles=6 about_name_min=0.7 relevance_min=2
+2026-11-17T10:37:04Z jev_article_scores article url=https://ndtvprofit.com/markets/nifty-hits-25-500-after-nine-months-heres-the-level-that-could-decide-what-happens-next-12338277 title=Nifty Hits 25,500 After Nine Months. Here's The Level That Could Decide What Happens Next - NDTV Profit entities=[ICICI Bank Ltd.]
+2026-11-17T10:37:05Z llm call stage=jev_article_scores url=https://ndtvprofit.com/markets/nifty-hits-25-500-after-nine-months-heres-the-level-that-could-decide-what-happens-next-12338277 input_tokens=6138 output_tokens=233 call_input_cost_usd=0.000258 total_llm_calls=3 total_input_tokens=13254 total_output_tokens=360 total_input_cost_usd=0.000557 duration_sec=0.389
+2026-11-17T10:37:05Z jev_article_scores keep entity=ICICI Bank Ltd. url=https://ndtvprofit.com/markets/nifty-hits-25-500-after-nine-months-heres-the-level-that-could-decide-what-happens-next-12338277 relevance=1 impact=0 direction=positive event=price_recap
+2026-11-17T10:37:05Z jev_article_scores article url=https://economictimes.com/markets/stockiq/sanofi-india-ltd/investor-analysis/13607 title=Sanofi India Investor Analysis | StockIQ - The Economic Times entities=[ICICI Bank Ltd.]
+2026-11-17T10:37:05Z llm call stage=jev_article_scores url=https://economictimes.com/markets/stockiq/sanofi-india-ltd/investor-analysis/13607 input_tokens=4838 output_tokens=233 call_input_cost_usd=0.000203 total_llm_calls=4 total_input_tokens=18092 total_output_tokens=593 total_input_cost_usd=0.000760 duration_sec=0.351
+2026-11-17T10:37:05Z jev_article_scores keep entity=ICICI Bank Ltd. url=https://economictimes.com/markets/stockiq/sanofi-india-ltd/investor-analysis/13607 relevance=0 impact=0 direction=unclear event=opinion
+2026-11-17T10:37:05Z jev_article_scores article url=https://business-standard.com/markets/news/sensex-zooms-800-pts-intraday-nifty-tops-25-500-5-factors-behind-bull-run-126111700469_1.html title=Sensex zooms 800 pts intraday, Nifty tops 25,500: 5 factors behind bull run - Business Standard entities=[State Bank of India, ICICI Bank Ltd.]
+2026-11-17T10:37:05Z llm call stage=jev_article_scores url=https://business-standard.com/markets/news/sensex-zooms-800-pts-intraday-nifty-tops-25-500-5-factors-behind-bull-run-126111700469_1.html input_tokens=10334 output_tokens=460 call_input_cost_usd=0.000434 total_llm_calls=5 total_input_tokens=28426 total_output_tokens=1053 total_input_cost_usd=0.001194 duration_sec=0.394
+2026-11-17T10:37:05Z jev_article_scores keep entity=State Bank of India url=https://business-standard.com/markets/news/sensex-zooms-800-pts-intraday-nifty-tops-25-500-5-factors-behind-bull-run-126111700469_1.html relevance=0 impact=0 direction=unclear event=macro
+2026-11-17T10:37:05Z jev_article_scores keep entity=ICICI Bank Ltd. url=https://business-standard.com/markets/news/sensex-zooms-800-pts-intraday-nifty-tops-25-500-5-factors-behind-bull-run-126111700469_1.html relevance=0 impact=0 direction=unclear event=macro
+2026-11-17T10:37:05Z jev_article_scores article url=https://cnbctv18.com/market/nifty-50-index-all-us-iran-war-losses-recovered-nifty-bank-record-high-key-reasons-why-20035657.htm title=Nifty recovers all losses made since US-Iran war began - Here are key reasons why - CNBC TV18 entities=[ICICI Bank Ltd.]
+2026-11-17T10:37:06Z llm call stage=jev_article_scores url=https://cnbctv18.com/market/nifty-50-index-all-us-iran-war-losses-recovered-nifty-bank-record-high-key-reasons-why-20035657.htm input_tokens=5595 output_tokens=233 call_input_cost_usd=0.000235 total_llm_calls=6 total_input_tokens=34021 total_output_tokens=1286 total_input_cost_usd=0.001429 duration_sec=0.35
+2026-11-17T10:37:06Z jev_article_scores keep entity=ICICI Bank Ltd. url=https://cnbctv18.com/market/nifty-50-index-all-us-iran-war-losses-recovered-nifty-bank-record-high-key-reasons-why-20035657.htm relevance=1 impact=0 direction=positive event=price_recap
+2026-11-17T10:37:06Z jev_article_scores article url=https://economictimes.com/markets/stocks/news/nse-joins-rs-5-lakh-crore-m-cap-club/articleshow/135906983.cms title=NSE joins Rs 5 lakh crore m-cap club, overtakes LIC in valuation - The Economic Times entities=[ICICI Bank Ltd.]
+2026-11-17T10:37:06Z llm call stage=jev_article_scores url=https://economictimes.com/markets/stocks/news/nse-joins-rs-5-lakh-crore-m-cap-club/articleshow/135906983.cms input_tokens=5376 output_tokens=234 call_input_cost_usd=0.000226 total_llm_calls=7 total_input_tokens=39397 total_output_tokens=1520 total_input_cost_usd=0.001655 duration_sec=0.418
+2026-11-17T10:37:06Z jev_article_scores keep entity=ICICI Bank Ltd. url=https://economictimes.com/markets/stocks/news/nse-joins-rs-5-lakh-crore-m-cap-club/articleshow/135906983.cms relevance=0 impact=0 direction=unclear event=price_recap
+2026-11-17T10:37:06Z jev_article_scores article url=https://ndtvprofit.com/business/icici-bank-to-probe-ceo-chanda-kochhar-on-whistleblower-complaint-10432231 title=ICICI Bank To Probe Whistleblower’s Complaint Against CEO Chanda Kochhar - NDTV Profit entities=[ICICI Bank Ltd.]
+2026-11-17T10:37:07Z llm call stage=jev_article_scores url=https://ndtvprofit.com/business/icici-bank-to-probe-ceo-chanda-kochhar-on-whistleblower-complaint-10432231 input_tokens=5897 output_tokens=231 call_input_cost_usd=0.000248 total_llm_calls=8 total_input_tokens=45294 total_output_tokens=1751 total_input_cost_usd=0.001902 duration_sec=0.493
+2026-11-17T10:37:07Z jev_article_scores keep entity=ICICI Bank Ltd. url=https://ndtvprofit.com/business/icici-bank-to-probe-ceo-chanda-kochhar-on-whistleblower-complaint-10432231 relevance=4 impact=2 direction=negative event=operations
+2026-11-17T10:37:07Z jev_article_scores finished articles_kept=6 of=6
+2026-11-17T10:37:07Z step finished name=jev_article_scores seconds=2.637 cumulative_steps_sec=94.413
+2026-11-17T10:37:07Z step started name=embed_and_upsert
+2026-11-17T10:37:07Z embed_and_upsert started candidates=6
+2026-11-17T10:37:07Z embed_and_upsert queued url=https://ndtvprofit.com/markets/nifty-hits-25-500-after-nine-months-heres-the-level-that-could-decide-what-happens-next-12338277 entities=['ICICI Bank Ltd.'] industries=['Banks'] holdings=['ICICI Bank Ltd.'] max_impact=0 title=Nifty Hits 25,500 After Nine Months. Here's The Level That Could Decide What Happens Next - NDTV Profit
+2026-11-17T10:37:07Z embed_and_upsert queued url=https://economictimes.com/markets/stockiq/sanofi-india-ltd/investor-analysis/13607 entities=['ICICI Bank Ltd.'] industries=['Banks'] holdings=['ICICI Bank Ltd.'] max_impact=0 title=Sanofi India Investor Analysis | StockIQ - The Economic Times
+2026-11-17T10:37:07Z embed_and_upsert queued url=https://business-standard.com/markets/news/sensex-zooms-800-pts-intraday-nifty-tops-25-500-5-factors-behind-bull-run-126111700469_1.html entities=['State Bank of India', 'ICICI Bank Ltd.'] industries=['Banks'] holdings=['ICICI Bank Ltd.', 'State Bank of India'] max_impact=0 title=Sensex zooms 800 pts intraday, Nifty tops 25,500: 5 factors behind bull run - Business Standard
+2026-11-17T10:37:07Z embed_and_upsert queued url=https://cnbctv18.com/market/nifty-50-index-all-us-iran-war-losses-recovered-nifty-bank-record-high-key-reasons-why-20035657.htm entities=['ICICI Bank Ltd.'] industries=['Banks'] holdings=['ICICI Bank Ltd.'] max_impact=0 title=Nifty recovers all losses made since US-Iran war began - Here are key reasons why - CNBC TV18
+2026-11-17T10:37:07Z embed_and_upsert queued url=https://economictimes.com/markets/stocks/news/nse-joins-rs-5-lakh-crore-m-cap-club/articleshow/135906983.cms entities=['ICICI Bank Ltd.'] industries=['Banks'] holdings=['ICICI Bank Ltd.'] max_impact=0 title=NSE joins Rs 5 lakh crore m-cap club, overtakes LIC in valuation - The Economic Times
+2026-11-17T10:37:07Z embed_and_upsert queued url=https://ndtvprofit.com/business/icici-bank-to-probe-ceo-chanda-kochhar-on-whistleblower-complaint-10432231 entities=['ICICI Bank Ltd.'] industries=['Banks'] holdings=['ICICI Bank Ltd.'] max_impact=2 title=ICICI Bank To Probe Whistleblower’s Complaint Against CEO Chanda Kochhar - NDTV Profit
+2026-11-17T10:37:07Z embedding encode started documents=6 batch=32
+2026-11-17T10:37:07Z embedding model loading model=BAAI/bge-small-en-v1.5 cached_on_disk=true device=cpu
+2026-11-17T10:37:38Z embedding model ready model=BAAI/bge-small-en-v1.5 load_seconds=31.434
+2026-11-17T10:37:39Z embedding encode finished vectors=6
+2026-11-17T10:37:39Z qdrant upsert starting host=0290840c-f2e8-4b44-a553-5722fb7a8fbe.eu-central-1-0.aws.cloud.qdrant.io collection=news_articles cloud=True articles=6
+2026-11-17T10:37:40Z qdrant upsert finished written=6 collection_points_count=14752
+2026-11-17T10:37:40Z step finished name=embed_and_upsert seconds=33.239 cumulative_steps_sec=127.652
+2026-11-17T10:37:40Z step started name=merge_entity_links
+2026-11-17T10:37:40Z merge_entity_links started tasks=7
+2026-11-17T10:37:40Z merge_entity_links skip url=https://livemint.com/money/bank-holiday-on-friday-20-november-branches-closed-in-dehradun-uttarakhand-due-to-this-festival-no-cheque-clearances-11794839699625.html reason=no_new_entities_or_aliases
+2026-11-17T10:37:40Z merge_entity_links skip url=https://business-standard.com/markets/news/nifty-bank-hits-record-high-tops-62-000-hdfc-bank-jumps-20-from-oct-low-126111700237_1.html reason=no_new_entities_or_aliases
+2026-11-17T10:37:41Z merge_entity_links skip url=https://bfsi.economictimes.indiatimes.com/amp/articles/rbi-flags-risk-to-future-bank-rescues-in-supreme-court-review-plea-on-yes-banks-rs-8415-crore-at-1-bonds/135887009 reason=no_new_entities_or_aliases
+2026-11-17T10:37:41Z merge_entity_links skip url=https://financialexpress.com/market/bank-nifty-hits-all-time-high-jumps-10-in-1-month-5-reasons-fuelling-the-surge-4386586 reason=no_new_entities_or_aliases
+2026-11-17T10:37:41Z merge_entity_links upserted url=https://cnbctv18.com/access/exclusive/icici-bank-reliance-cdsl-indian-hotels-force-motors-top-stock-picks-buy-sell-20035718.htm entity_names=['ICICI Bank Ltd.', 'Force Motors Ltd.'] alias_urls=['https://cnbctv18.com/access/exclusive/icici-bank-reliance-cdsl-indian-hotels-force-motors-top-stock-picks-buy-sell-20035718.htm/amp']
+2026-11-17T10:37:41Z merge_entity_links upserted url=https://financialexpress.com/market/global-markets/dollar-up-4-rupee-down-5-9-why-foreign-investors-are-selling-indian-stocks/4360248 entity_names=['Macro - Rupee / USD', 'Macro - Nifty 50', 'ICICI Bank Ltd.', 'Bank of Baroda', 'Canara Bank', 'Banks'] alias_urls=['https://bfsi.economictimes.indiatimes.com/articles/why-are-foreign-investors-lapping-up-bank-stocks/135900688']
+2026-11-17T10:37:42Z merge_entity_links upserted url=https://cnbctv18.com/personal-finance/bank-holiday-this-week-november-2-to-8-when-will-sbi-hdfc-icici-and-other-banks-be-closed-check-full-list-city-wise-20024105.htm entity_names=['ICICI Bank Limited', 'HDFC Bank Limited', 'ICICI Bank Ltd.', 'HDFC Bank Ltd.'] alias_urls=['https://economictimes.com/wealth/save/chhath-puja-bank-holiday-on-november-16-2026-are-sbi-hdfc-bank-icici-bank-pnb-and-other-banks-closed-for-chhath-puja/articleshow/135768760.cms', 'https://cnbctv18.com/personal-finance/bank-holidays-this-week-november-16-22-when-will-sbi-hdfc-icici-pnb-and-other-banks-be-closed-check-full-list-20034258.htm']
+2026-11-17T10:37:42Z merge_entity_links finished merged=3
+2026-11-17T10:37:42Z step finished name=merge_entity_links seconds=1.941 cumulative_steps_sec=129.593
+2026-11-17T10:37:42Z step started name=drop_old_points
+2026-11-17T10:37:42Z drop_old_points skipped news_corpus_mode=True retention_days=0
+2026-11-17T10:37:42Z step finished name=drop_old_points seconds=0.0 cumulative_steps_sec=129.593

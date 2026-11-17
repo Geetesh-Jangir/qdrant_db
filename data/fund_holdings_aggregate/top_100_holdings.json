@@ -1,0 +1,807 @@
+{
+  "source": "aggregated_holdings.csv",
+  "security_master": "security-master-list.json",
+  "count": 100,
+  "items": [
+    {
+      "instrument_name": "ICICI Bank Limited",
+      "sector_name": "Banks",
+      "indiceName": "Nifty Private Bank",
+      "scripCode": "532174",
+      "symbol": "ICICIBANK",
+      "status": "active"
+    },
+    {
+      "instrument_name": "HDFC Bank Limited",
+      "sector_name": "Banks",
+      "indiceName": "Nifty Private Bank",
+      "scripCode": "500180",
+      "symbol": "HDFCBANK",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bharti Airtel Limited",
+      "sector_name": "Telecom - Services",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "532454",
+      "symbol": "BHARTIARTL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "State Bank of India",
+      "sector_name": "Banks",
+      "indiceName": "Nifty PSU Bank",
+      "scripCode": "500112",
+      "symbol": "SBIN",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Reliance Industries Limited",
+      "sector_name": "Petroleum Products",
+      "indiceName": "Nifty Energy",
+      "scripCode": "500325",
+      "symbol": "RELIANCE",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Axis Bank Limited",
+      "sector_name": "Banks",
+      "indiceName": "Nifty Private Bank",
+      "scripCode": "532215",
+      "symbol": "AXISBANK",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Larsen & Toubro Limited",
+      "sector_name": "Construction",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "500510",
+      "symbol": "LT",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Infosys Limited",
+      "sector_name": "IT - Software",
+      "indiceName": "Nifty IT",
+      "scripCode": "500209",
+      "symbol": "INFY",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Mahindra & Mahindra Limited",
+      "sector_name": "Automobiles",
+      "indiceName": "Nifty Auto",
+      "scripCode": "500520",
+      "symbol": "M&M",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Kotak Mahindra Bank Limited",
+      "sector_name": "Banks",
+      "indiceName": "Nifty Private Bank",
+      "scripCode": "500247",
+      "symbol": "KOTAKBANK",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Eternal Limited",
+      "sector_name": "Retailing",
+      "indiceName": "Nifty IT",
+      "scripCode": "543320",
+      "symbol": "ETERNAL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "NTPC Limited",
+      "sector_name": "Power",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "532555",
+      "symbol": "NTPC",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Maruti Suzuki India Limited",
+      "sector_name": "Automobiles",
+      "indiceName": "Nifty Auto",
+      "scripCode": "532500",
+      "symbol": "MARUTI",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bajaj Finance Limited",
+      "sector_name": "Finance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "500034",
+      "symbol": "BAJFINANCE",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Sun Pharmaceutical Industries Limited",
+      "sector_name": "Pharmaceuticals & Biotechnology",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "524715",
+      "symbol": "SUNPHARMA",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Shriram Finance Limited",
+      "sector_name": "Finance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "511218",
+      "symbol": "SHRIRAMFIN",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bharat Electronics Limited",
+      "sector_name": "Aerospace & Defense",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "500049",
+      "symbol": "BEL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "ITC Limited",
+      "sector_name": "Diversified FMCG",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "500875",
+      "symbol": "ITC",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Ultratech Cement Ltd.",
+      "sector_name": "Cement & Cement Products",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "532538",
+      "symbol": "ULTRACEMCO",
+      "status": "active"
+    },
+    {
+      "instrument_name": "InterGlobe Aviation Limited",
+      "sector_name": "Transport Services",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "539448",
+      "symbol": "INDIGO",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Tata Consultancy Services Limited",
+      "sector_name": "IT - Software",
+      "indiceName": "Nifty IT",
+      "scripCode": "532540",
+      "symbol": "TCS",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Tech Mahindra Limited",
+      "sector_name": "IT - Software",
+      "indiceName": "Nifty IT",
+      "scripCode": "532755",
+      "symbol": "TECHM",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Titan Company Limited",
+      "sector_name": "Consumer Durables",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "500114",
+      "symbol": "TITAN",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Tata Steel Ltd.",
+      "sector_name": "Ferrous Metals",
+      "indiceName": "Nifty Metal",
+      "scripCode": "500470",
+      "symbol": "TATASTEEL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "TVS Motor Company Ltd.",
+      "sector_name": "Automobiles",
+      "indiceName": "Nifty Auto",
+      "scripCode": "532343",
+      "symbol": "TVSMOTOR",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Hindustan Unilever Ltd.",
+      "sector_name": "Diversified FMCG",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "500696",
+      "symbol": "HINDUNILVR",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Hindalco Industries Ltd.",
+      "sector_name": "Non - Ferrous Metals",
+      "indiceName": "Nifty Metal",
+      "scripCode": "500440",
+      "symbol": "HINDALCO",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Apollo Hospitals Enterprise Limited",
+      "sector_name": "Healthcare Services",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "508869",
+      "symbol": "APOLLOHOSP",
+      "status": "active"
+    },
+    {
+      "instrument_name": "SBI Life Insurance Company Limited",
+      "sector_name": "Insurance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "540719",
+      "symbol": "SBILIFE",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Torrent Pharmaceuticals Limited",
+      "sector_name": "Pharmaceuticals & Biotechnology",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "500420",
+      "symbol": "TORNTPHARM",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Cummins India Limited",
+      "sector_name": "Industrial Products",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "500480",
+      "symbol": "CUMMINSIND",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Multi Commodity Exchange of India Limited",
+      "sector_name": "Capital Markets",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "534091",
+      "symbol": "MCX",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Divi's Laboratories Limited",
+      "sector_name": "Pharmaceuticals & Biotechnology",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "532488",
+      "symbol": "DIVISLAB",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Cipla Limited",
+      "sector_name": "Pharmaceuticals & Biotechnology",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "500087",
+      "symbol": "CIPLA",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Coforge Limited",
+      "sector_name": "IT - Software",
+      "indiceName": "Nifty IT",
+      "scripCode": "532541",
+      "symbol": "COFORGE",
+      "status": "active"
+    },
+    {
+      "instrument_name": "PB Fintech Limited",
+      "sector_name": "Financial Technology (Fintech)",
+      "indiceName": "Nifty IT",
+      "scripCode": "543390",
+      "symbol": "POLICYBZR",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Eicher Motors Ltd.",
+      "sector_name": "Automobiles",
+      "indiceName": "Nifty Auto",
+      "scripCode": "505200",
+      "symbol": "EICHERMOT",
+      "status": "active"
+    },
+    {
+      "instrument_name": "One 97 Communications Limited",
+      "sector_name": "Financial Technology (Fintech)",
+      "indiceName": "Nifty IT",
+      "scripCode": "543396",
+      "symbol": "PAYTM",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Hindustan Aeronautics Limited",
+      "sector_name": "Aerospace & Defense",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "541154",
+      "symbol": "HAL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "HCL Technologies Ltd.",
+      "sector_name": "IT - Software",
+      "indiceName": "Nifty IT",
+      "scripCode": "532281",
+      "symbol": "HCLTECH",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bajaj Auto Limited",
+      "sector_name": "Automobiles",
+      "indiceName": "Nifty Auto",
+      "scripCode": "532977",
+      "symbol": "BAJAJ-AUTO",
+      "status": "active"
+    },
+    {
+      "instrument_name": "GE Vernova T&D India Limited",
+      "sector_name": "Electrical Equipment",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "522275",
+      "symbol": "GVTD",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Samvardhana Motherson International Limited",
+      "sector_name": "Auto Components",
+      "indiceName": "Nifty Auto",
+      "scripCode": "517334",
+      "symbol": "MOTHERSON",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Varun Beverages Limited",
+      "sector_name": "Beverages",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "540180",
+      "symbol": "VBL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "The Federal Bank Limited",
+      "sector_name": "Banks",
+      "indiceName": "Nifty Private Bank",
+      "scripCode": "500469",
+      "symbol": "FEDERALBNK",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Asian Paints Limited",
+      "sector_name": "Consumer Durables",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "500820",
+      "symbol": "ASIANPAINT",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Max Financial Services Limited",
+      "sector_name": "Insurance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "500271",
+      "symbol": "MFSL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Power Grid Corporation of India Limited",
+      "sector_name": "Power",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "532898",
+      "symbol": "POWERGRID",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Oil & Natural Gas Corporation Limited",
+      "sector_name": "Oil",
+      "indiceName": "Nifty Energy",
+      "scripCode": "500312",
+      "symbol": "ONGC",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Trent Limited",
+      "sector_name": "Retailing",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "500251",
+      "symbol": "TRENT",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bharat Heavy Electricals Limited",
+      "sector_name": "Electrical Equipment",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "500103",
+      "symbol": "BHEL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bajaj Finserv Limited",
+      "sector_name": "Finance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "532978",
+      "symbol": "BAJAJFINSV",
+      "status": "active"
+    },
+    {
+      "instrument_name": "United Spirits Limited",
+      "sector_name": "Beverages",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "532432",
+      "symbol": "UNITDSPR",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Britannia Industries Ltd.",
+      "sector_name": "Food Products",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "500825",
+      "symbol": "BRITANNIA",
+      "status": "active"
+    },
+    {
+      "instrument_name": "HDFC Life Insurance Company Limited",
+      "sector_name": "Insurance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "540777",
+      "symbol": "HDFCLIFE",
+      "status": "active"
+    },
+    {
+      "instrument_name": "IndusInd Bank Limited",
+      "sector_name": "Banks",
+      "indiceName": "Nifty Private Bank",
+      "scripCode": "532187",
+      "symbol": "INDUSINDBK",
+      "status": "active"
+    },
+    {
+      "instrument_name": "JSW Steel Limited",
+      "sector_name": "Ferrous Metals",
+      "indiceName": "Nifty Metal",
+      "scripCode": "500228",
+      "symbol": "JSWSTEEL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Cholamandalam Investment and Finance Company Ltd",
+      "sector_name": "Finance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "511243",
+      "symbol": "CHOLAFIN",
+      "status": "active"
+    },
+    {
+      "instrument_name": "CG Power and Industrial Solutions Ltd.",
+      "sector_name": "Electrical Equipment",
+      "indiceName": "Nifty 500",
+      "scripCode": "500093",
+      "symbol": "CGPOWER",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Coal India Limited",
+      "sector_name": "Consumable Fuels",
+      "indiceName": "Nifty Metal",
+      "scripCode": "533278",
+      "symbol": "COALINDIA",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Tata Motors Ltd",
+      "sector_name": "Agricultural, Commercial & Construction Vehicles",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "544569",
+      "symbol": "TMCV",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Dixon Technologies (India) Limited",
+      "sector_name": "Consumer Durables",
+      "indiceName": "Nifty 500",
+      "scripCode": "540699",
+      "symbol": "DIXON",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Grasim Industries Limited",
+      "sector_name": "Cement & Cement Products",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "500300",
+      "symbol": "GRASIM",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Indus Towers Limited",
+      "sector_name": "Telecom - Services",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "534816",
+      "symbol": "INDUSTOWER",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Max Healthcare Institute Limited",
+      "sector_name": "Healthcare Services",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "543220",
+      "symbol": "MAXHEALTH",
+      "status": "active"
+    },
+    {
+      "instrument_name": "BSE Limited",
+      "sector_name": "Capital Markets",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": null,
+      "symbol": "BSE",
+      "status": null
+    },
+    {
+      "instrument_name": "Persistent Systems Ltd.",
+      "sector_name": "IT - Software",
+      "indiceName": "Nifty IT",
+      "scripCode": "533179",
+      "symbol": "PERSISTENT",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Solar Industries India Limited",
+      "sector_name": "Chemicals & Petrochemicals",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "532725",
+      "symbol": "SOLARINDS",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Adani Ports and Special Economic Zone Limited",
+      "sector_name": "Transport Infrastructure",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "532921",
+      "symbol": "ADANIPORTS",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Hero MotoCorp Limited",
+      "sector_name": "Automobiles",
+      "indiceName": "Nifty Auto",
+      "scripCode": "500182",
+      "symbol": "HEROMOTOCO",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Tata Consumer Products Limited",
+      "sector_name": "Agricultural Food & other Products",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "500800",
+      "symbol": "TATACONSUM",
+      "status": "active"
+    },
+    {
+      "instrument_name": "The Indian Hotels Company Limited",
+      "sector_name": "Leisure Services",
+      "indiceName": "Nifty Midcap 150",
+      "scripCode": "500850",
+      "symbol": "INDHOTEL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bharat Petroleum Corporation Ltd.",
+      "sector_name": "Petroleum Products",
+      "indiceName": "Nifty Energy",
+      "scripCode": "500547",
+      "symbol": "BPCL",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Ashok Leyland Ltd.",
+      "sector_name": "Agricultural, Commercial & Construction Vehicles",
+      "indiceName": "Nifty Auto",
+      "scripCode": "500477",
+      "symbol": "ASHOKLEY",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Info Edge (India) Limited",
+      "sector_name": "Retailing",
+      "indiceName": "Nifty IT",
+      "scripCode": "532777",
+      "symbol": "NAUKRI",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bank of Baroda",
+      "sector_name": "Banks",
+      "indiceName": "Nifty PSU Bank",
+      "scripCode": "532134",
+      "symbol": "BANKBARODA",
+      "status": "active"
+    },
+    {
+      "instrument_name": "ICICI Lombard General Insurance Company Limited",
+      "sector_name": "Insurance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "540716",
+      "symbol": "ICICIGI",
+      "status": "active"
+    },
+    {
+      "instrument_name": "FSN E-Commerce Ventures Ltd.",
+      "sector_name": "Retailing",
+      "indiceName": "Nifty Midcap 150",
+      "scripCode": "543384",
+      "symbol": "NYKAA",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Marico Limited",
+      "sector_name": "Agricultural Food & other Products",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "531642",
+      "symbol": "MARICO",
+      "status": "active"
+    },
+    {
+      "instrument_name": "RBL Bank Limited",
+      "sector_name": "Banks",
+      "indiceName": "Nifty Private Bank",
+      "scripCode": "540065",
+      "symbol": "RBLBANK",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Adani Enterprises Limited",
+      "sector_name": "Metals & Minerals Trading",
+      "indiceName": "Nifty Metal",
+      "scripCode": "512599",
+      "symbol": "ADANIENT",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Nestle India Ltd.",
+      "sector_name": "Food Products",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "500790",
+      "symbol": "NESTLEIND",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Sona Blw Precision Forgings Ltd.",
+      "sector_name": "Auto Components",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "543300",
+      "symbol": "SONACOMS",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Swiggy Limited",
+      "sector_name": "Retailing",
+      "indiceName": "Nifty Midcap 150",
+      "scripCode": "544285",
+      "symbol": "SWIGGY",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Tata Power Company Limited",
+      "sector_name": "Power",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "500400",
+      "symbol": "TATAPOWER",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Life Insurance Corporation Of India",
+      "sector_name": "Insurance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "543526",
+      "symbol": "LICI",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Mphasis Ltd.",
+      "sector_name": "IT - Software",
+      "indiceName": "Nifty IT",
+      "scripCode": "526299",
+      "symbol": "MPHASIS",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Aurobindo Pharma Limited",
+      "sector_name": "Pharmaceuticals & Biotechnology",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "524804",
+      "symbol": "AUROPHARMA",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Bharat Forge Limited",
+      "sector_name": "Auto Components",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "500493",
+      "symbol": "BHARATFORG",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Fortis Healthcare Limited",
+      "sector_name": "Healthcare Services",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "532843",
+      "symbol": "FORTIS",
+      "status": "active"
+    },
+    {
+      "instrument_name": "AU Small Finance Bank Limited",
+      "sector_name": "Banks",
+      "indiceName": "Nifty Private Bank",
+      "scripCode": "540611",
+      "symbol": "AUBANK",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Power Finance Corporation Ltd.",
+      "sector_name": "Finance",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "532810",
+      "symbol": "PFC",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Ambuja Cements Ltd.",
+      "sector_name": "Cement & Cement Products",
+      "indiceName": "Nifty Next 50",
+      "scripCode": "500425",
+      "symbol": "AMBUJACEM",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Tata Motors Passenger Vehicles Limited",
+      "sector_name": "Automobiles",
+      "indiceName": "Nifty Auto",
+      "scripCode": "500570",
+      "symbol": "TMPV",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Radico Khaitan Limited",
+      "sector_name": "Beverages",
+      "indiceName": "Nifty FMCG",
+      "scripCode": "532497",
+      "symbol": "RADICO",
+      "status": "active"
+    },
+    {
+      "instrument_name": "HDFC Asset Management Company Limited",
+      "sector_name": "Capital Markets",
+      "indiceName": "Nifty Financial Services",
+      "scripCode": "541729",
+      "symbol": "HDFCAMC",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Lupin Ltd.",
+      "sector_name": "Pharmaceuticals & Biotechnology",
+      "indiceName": "Nifty Pharma",
+      "scripCode": "500257",
+      "symbol": "LUPIN",
+      "status": "active"
+    },
+    {
+      "instrument_name": "Hindustan Petroleum Corporation Limited",
+      "sector_name": "Petroleum Products",
+      "indiceName": "Nifty Energy",
+      "scripCode": "500104",
+      "symbol": "HINDPETRO",
+      "status": "active"
+    },
+    {
+      "instrument_name": "ABB India Ltd.",
+      "sector_name": "Electrical Equipment",
+      "indiceName": "Nifty Infrastructure",
+      "scripCode": "500002",
+      "symbol": "ABB",
+      "status": "active"
+    },
+    {
+      "instrument_name": "The Phoenix Mills Ltd.",
+      "sector_name": "Realty",
+      "indiceName": "Nifty Realty",
+      "scripCode": "503100",
+      "symbol": "PHOENIXLTD",
+      "status": "active"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from lib.fetch import thread_session
+from lib.google_guard import GoogleBlockedError
 from news_pipeline.entity_funnel import get_entity_funnel
 from news_pipeline.failure_ledger import is_source_exhausted, record_source_failure
 from news_pipeline.graph.state import PipelineState
@@ -51,6 +52,16 @@ def scrape_bodies(state: PipelineState) -> dict:
                 results[url] = record
                 if run_log is not None:
                     _log_scrape_record(run_log, url, record)
+            except GoogleBlockedError as exc:
+                message = str(exc)
+                errors.append({"stage": "scrape_bodies", "url": url, "error": message})
+                results[url] = {
+                    "status": "google_circuit_open",
+                    "error": message,
+                    "text": "",
+                }
+                if run_log is not None:
+                    run_log.write(f"scrape url={url} FAIL error={clip_log_text(message)}")
             except Exception as exc:
                 message = str(exc)
                 errors.append({"stage": "scrape_bodies", "url": url, "error": message})
@@ -94,6 +105,11 @@ def scrape_bodies(state: PipelineState) -> dict:
             if run_log is not None:
                 run_log.write(f"scrape drop url={url} reason=no_record")
             _drop("no_record", retriable=True)
+            continue
+        if record.get("status") == "google_circuit_open":
+            if run_log is not None:
+                run_log.write(f"scrape drop url={url} reason=google_circuit_open")
+            _drop("google_circuit_open", detail=record.get("error") or "", retriable=True)
             continue
         if record["status"] in ("fetch_failed", "resolve_failed"):
             if run_log is not None:

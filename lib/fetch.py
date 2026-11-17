@@ -108,10 +108,11 @@ def _handle_google_response(response: Any, url: str) -> tuple[bool, str | None]:
 
 def fetch_url(session: Client, url: str, timeout=DEFAULT_TIMEOUT, referer=None, retries=2):
     """GET a URL. Returns (final_url, html, error)."""
-    google_breaker.assert_allowed()
+    google = is_google_host(url)
+    if google:
+        google_breaker.assert_allowed()
     last_error = None
     current = session
-    google = is_google_host(url)
     for attempt in range(retries + 1):
         if attempt > 0 and not google:
             current = make_session(_RETRY_BROWSERS[(attempt - 1) % len(_RETRY_BROWSERS)])
@@ -173,8 +174,9 @@ def post_url(
     retries: int = 0,
 ) -> tuple[int, str, str | None]:
     """POST form data. Returns (status_code, body_text, error)."""
-    google_breaker.assert_allowed()
     google = is_google_host(url)
+    if google:
+        google_breaker.assert_allowed()
     last_error = None
     for attempt in range(retries + 1):
         if google:

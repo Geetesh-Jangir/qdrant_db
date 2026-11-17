@@ -28,13 +28,7 @@ on:
         required: false
         default: ""
         type: string
-  schedule:
-    # 06:00 UTC = 11:30 IST
-    - cron: "0 6 * * *"
-    # 07:30 UTC = 13:00 IST (1:00 PM)
-    - cron: "30 7 * * *"
-    # 11:40 UTC = 17:10 IST (5:10 PM) — aligned with Lightsail cron
-    - cron: "40 11 * * *"
+  # Scheduled runs disabled — use Lightsail cron only (workflow_dispatch still available).
 
 jobs:
   run-pipeline:
@@ -51,10 +45,13 @@ jobs:
       NEWS_CORPUS_MODE: "true"
       RETENTION_DAYS: "0"
       NEWS_DATE_RANGE: ${{ inputs.date_range }}
-      HOLDINGS_LIMIT: ${{ inputs.holdings_limit }}
+      HOLDINGS_LIMIT: ${{ inputs.holdings_limit || '250' }}
       SECTORS_LIMIT: ${{ inputs.sectors_limit }}
       GOOGLE_NEWS_WHEN: ${{ inputs.google_news_when || '1d' }}
       PORTFOLIO_JSON: ${{ inputs.portfolio_json }}
+      FETCH_WORKERS: "1"
+      SCRAPE_WORKERS: "2"
+      SCRAPE_DOMAIN_GAP_SEC: "1.5"
 
     steps:
       - name: Checkout repository

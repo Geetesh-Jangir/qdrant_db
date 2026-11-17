@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stock Holding Insights</title>
+  <link rel="stylesheet" href="/holding-insights/static/holding_insights.css?v=2" />
+</head>
+<body>
+  <div class="nav">
+    <a href="../">Ask a Question</a>
+    <a href="../insights">Market Insights</a>
+    <a href="holding-insights">Stock Holding Insights</a>
+    <a href="../fund">Fund News Brief</a>
+  </div>
+  <div class="sticky-bar">
+    <header>
+      <h1>Stock holding insights</h1>
+      <p class="muted">Short paragraph per stock from the last 7 days of news and prices.</p>
+    </header>
+    <div class="controls">
+      <div>
+        <label for="limit">Top stocks (max 99)</label>
+        <input type="number" id="limit" min="1" max="99" value="10" />
+      </div>
+      <button type="button" id="run">Run</button>
+    </div>
+    <div id="progress" class="progress" hidden></div>
+    <div id="error" class="err" hidden></div>
+  </div>
+  <main id="main"></main>
+  <script src="/static/rag-api.js?v=5"></script>
+  <script src="/holding-insights/static/holding_insights.js?v=4"></script>
+</body>
+</html>

@@ -16,6 +16,8 @@ from pydantic import BaseModel, Field
 from ai_insight.common.config import load_config
 from ai_insight.common.schemas import Envelope, InsightBundle
 from ai_insight.common.store import list_dates, load_best, load_best_detail, load_bundle
+from ai_insight.holding_insights.config import MAX_STOCK_LIMIT
+from ai_insight.holding_insights.job import HoldingJobBusy, get_holding_job_manager
 from ai_insight.jobs import MODULES, JobBusy, JobManager
 
 _SINGLE = ("market_driver_digest", "fii_dii_flow_narrative", "sector_leaderboard")
@@ -26,6 +28,10 @@ _manager: JobManager | None = None
 class GenerateRequest(BaseModel):
     date: str | None = None
     insights: list[str] | None = None
+
+
+class HoldingInsightsRunRequest(BaseModel):
+    limit: int = Field(default=10, ge=1, le=99)
 
 
 def create_router(check_token: Callable[..., None]) -> APIRouter:
@@ -154,7 +160,85 @@ def create_router(check_token: Callable[..., None]) -> APIRouter:
             raise HTTPException(status_code=404, detail="Unknown job") from exc
         return _job_payload(job)
 
+    @router.post("/api/holding-insights/run", status_code=202)
+    def holding_insights_run(
+        body: HoldingInsightsRunRequest | None = None,
+        authorization: str | None = Header(default=None),
+        x_app_token: str | None = Header(default=None),
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _guard(check_token, authorization, x_app_token, x_admin_token)
+        req = body or HoldingInsightsRunRequest()
+        if req.limit > MAX_STOCK_LIMIT:
+            raise HTTPException(status_code=400, detail=f"limit must be <= {MAX_STOCK_LIMIT}")
+        try:
+            job = get_holding_job_manager().start(req.limit)
+        except HoldingJobBusy as exc:
+            raise HTTPException(status_code=409, detail={"job_id": exc.job_id}) from exc
+        return {"job_id": job.job_id, "status": job.status, "started_at": job.started_at, "limit": req.limit}
+
+    @router.get("/api/holding-insights/jobs/latest")
+    def holding_insights_job_latest(
+        authorization: str | None = Header(default=None),
+        x_app_token: str | None = Header(default=None),
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _guard(check_token, authorization, x_app_token, x_admin_token)
+        job = get_holding_job_manager().latest()
+        if job is None:
+            return {"job_id": None, "status": "idle"}
+        return _holding_job_payload(job)
+
+    @router.get("/api/holding-insights/jobs/{job_id}")
+    def holding_insights_job_status(
+        job_id: str,
+        authorization: str | None = Header(default=None),
+        x_app_token: str | None = Header(default=None),
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _guard(check_token, authorization, x_app_token, x_admin_token)
+        try:
+            job = get_holding_job_manager().get(job_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Unknown job") from exc
+        return _holding_job_payload(job)
+
+    @router.get("/api/holding-insights/logs/{job_id}/{stock_id}")
+    def holding_insights_stock_log_json(
+        job_id: str,
+        stock_id: str,
+        authorization: str | None = Header(default=None),
+        x_app_token: str | None = Header(default=None),
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _guard(check_token, authorization, x_app_token, x_admin_token)
+        from ai_insight.holding_insights.stock_log import load_stock_log
+
+        doc = load_stock_log(job_id, stock_id.upper() if stock_id.islower() else stock_id)
+        if doc is None:
+            doc = load_stock_log(job_id, stock_id)
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Log not found")
+        return doc
+
     return router
+
+
+def _holding_job_payload(job) -> dict[str, Any]:
+    result = job.result or {}
+    return {
+        "job_id": job.job_id,
+        "status": job.status,
+        "started_at": job.started_at,
+        "finished_at": job.finished_at,
+        "limit": job.limit,
+        "progress": job.progress,
+        "insights": result.get("insights") or [],
+        "insufficient": result.get("insufficient") or [],
+        "counts": result.get("counts") or {},
+        "generated_on": result.get("generated_on"),
+        "usage_total": result.get("usage_total") or {},
+    }
 
 
 def public_projection(

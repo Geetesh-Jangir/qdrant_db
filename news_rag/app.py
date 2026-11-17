@@ -37,6 +37,7 @@ from news_rag.sector_fund_ranking import sector_ranking_data_available
 from news_rag.stock_fund_ranking import holdings_archive_available
 
 _STATIC = Path(__file__).resolve().parent / "static"
+_HI_STATIC = Path(__file__).resolve().parents[1] / "ai_insight" / "static"
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,9 @@ async def _unhandled_exception_handler(_request, exc: Exception) -> JSONResponse
 
 if _STATIC.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC)), name="static")
+
+if _HI_STATIC.is_dir():
+    app.mount("/holding-insights/static", StaticFiles(directory=str(_HI_STATIC)), name="holding-insights-static")
 
 
 class FundBriefRequest(BaseModel):
@@ -211,6 +215,21 @@ def query_log_page() -> FileResponse:
 @app.get("/market-insights")
 def insights_page() -> FileResponse:
     return _html_page("insights.html")
+
+
+@app.get("/holding-insights")
+def holding_insights_page() -> FileResponse:
+    from ai_insight.holding_insights.pages import holding_insights_page as _page
+
+    return _page()
+
+
+@app.get("/holding-insights/log/{job_id}/{stock_id}")
+def holding_insights_stock_log_page(job_id: str, stock_id: str) -> FileResponse:
+    from ai_insight.holding_insights.pages import holding_insights_stock_log_page as _page
+
+    _ = (job_id, stock_id)
+    return _page()
 
 
 @app.get("/insights/log/{insight_id}/{trading_date}/{run_id}")

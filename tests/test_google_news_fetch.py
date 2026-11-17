@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -111,6 +112,35 @@ class TestGoogleNewsFetch(unittest.TestCase):
         self.assertIsNone(_final)
         self.assertIn("block", (err or "").lower())
         self.assertEqual(session.get.call_count, 1)
+
+    @patch("lib.fetch.make_session")
+    def test_publisher_fetch_allowed_while_google_circuit_open(self, mock_make):
+        from lib.fetch import fetch_url
+
+        google_breaker._fails = 99
+        google_breaker._until = time.time() + 600
+        session = MagicMock()
+        response = MagicMock()
+        response.status_code = 200
+        response.url = "https://www.moneycontrol.com/story"
+        response.text = "<html>ok</html>"
+        response.headers = {}
+        session.get.return_value = response
+        mock_make.return_value = session
+
+        final, body, err = fetch_url(
+            session, "https://www.moneycontrol.com/news/story.html", retries=0
+        )
+        self.assertEqual(final, "https://www.moneycontrol.com/story")
+        self.assertIn("ok", body or "")
+        self.assertIsNone(err)
+
+        with self.assertRaises(GoogleBlockedError):
+            fetch_url(session, "https://news.google.com/rss/search?q=test", retries=0)
+
+        google_breaker.record_success()
+        google_breaker._fails = 0
+        google_breaker._until = 0.0
 
 
 if __name__ == "__main__":

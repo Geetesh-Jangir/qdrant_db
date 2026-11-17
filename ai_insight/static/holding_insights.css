@@ -1,0 +1,42 @@
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1e293b;
+  background: #f8fafc;
+}
+body { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+.sticky-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #f8fafc;
+  padding-bottom: 0.5rem;
+  margin: 0 -1.5rem 1rem;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+}
+.sticky-bar header { margin-bottom: 0.25rem; }
+.sticky-bar .controls { margin-top: 0.5rem; margin-bottom: 0; }
+.nav { display: flex; gap: 1rem; font-size: 0.9rem; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid #e2e8f0; }
+.nav a { color: #2563eb; text-decoration: none; font-weight: 500; }
+h1 { font-size: 1.5rem; margin: 0 0 0.5rem; }
+.muted { color: #64748b; font-size: 0.9rem; }
+.controls { display: flex; gap: 0.75rem; align-items: flex-end; flex-wrap: wrap; margin: 1rem 0; }
+label { font-size: 0.85rem; font-weight: 600; display: block; margin-bottom: 0.25rem; }
+input[type=number] { width: 5rem; padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 1rem; }
+button { background: #1d4ed8; color: #fff; border: none; border-radius: 8px; padding: 0.55rem 1rem; font-weight: 600; cursor: pointer; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.err { background: #fef2f2; color: #b91c1c; padding: 0.75rem; border-radius: 8px; margin: 0.75rem 0; }
+.progress { background: #eff6ff; color: #1e40af; padding: 0.75rem; border-radius: 8px; margin: 0.75rem 0; }
+.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 1rem; margin: 0.75rem 0; }
+.card h2 { font-size: 1.05rem; margin: 0 0 0.35rem; }
+.card p { margin: 0.35rem 0; line-height: 1.5; }
+.insuff h2 { font-size: 1.1rem; margin-top: 1.5rem; }
+.insuff li { margin: 0.25rem 0; }
+.usage { font-size: 0.85rem; color: #475569; margin-top: 0.75rem; }
+.log-link { font-size: 0.85rem; display: inline-block; margin-top: 0.5rem; }
+.log-pre { font-size: 0.8rem; background: #f1f5f9; padding: 0.75rem; border-radius: 8px; overflow-x: auto; white-space: pre-wrap; }
+.article-links { margin: 0.5rem 0 1rem 1.25rem; padding: 0; }
+.article-links li { margin: 0.35rem 0; line-height: 1.45; }
+.article-links a { color: #2563eb; font-weight: 500; }

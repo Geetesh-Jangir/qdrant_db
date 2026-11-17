@@ -1,0 +1,55 @@
+{
+  "run_id": "20261117T103242Z_5d2d",
+  "calendar_day": "2026-11-17",
+  "news_date_range": "",
+  "totals": {
+    "publishers_with_traffic": 6,
+    "urls_received": 12,
+    "urls_scraped": 5,
+    "urls_scrape_errors": 0
+  },
+  "publishers": [
+    {
+      "source": "business-standard.com",
+      "received": 2,
+      "scraped": 1,
+      "scrape_errors": 0,
+      "error_reasons": {}
+    },
+    {
+      "source": "cnbctv18.com",
+      "received": 2,
+      "scraped": 1,
+      "scrape_errors": 0,
+      "error_reasons": {}
+    },
+    {
+      "source": "economictimes.indiatimes.com",
+      "received": 4,
+      "scraped": 1,
+      "scrape_errors": 0,
+      "error_reasons": {}
+    },
+    {
+      "source": "financialexpress.com",
+      "received": 1,
+      "scraped": 0,
+      "scrape_errors": 0,
+      "error_reasons": {}
+    },
+    {
+      "source": "livemint.com",
+      "received": 1,
+      "scraped": 0,
+      "scrape_errors": 0,
+      "error_reasons": {}
+    },
+    {
+      "source": "ndtvprofit.com",
+      "received": 2,
+      "scraped": 2,
+      "scrape_errors": 0,
+      "error_reasons": {}
+    }
+  ]
+}
