@@ -82,6 +82,7 @@ def _write_stock_log(
     timeline: list[dict[str, str]],
     usage: dict[str, Any] | None,
     insight_lines: list[str] | None,
+    headline: str | None = None,
     news_summary: dict[str, Any] | None,
     price: dict[str, Any] | None,
     llm_preview: str,
@@ -96,6 +97,7 @@ def _write_stock_log(
         reason=reason,
         timeline=timeline,
         usage=usage,
+        headline=headline,
         insight_lines=insight_lines,
         news=news_summary,
         price=price,
@@ -190,7 +192,7 @@ def _process_stock(
     logs["article_ids_sent"] = [a.article_id for a in news.articles]
     user_prompt = build_user_prompt(stock.instrument_name, stock.sector_name, price, news.articles)
     logs["prompt_chars"] = len(user_prompt)
-    llm_out = call_holding_llm(user_prompt, dry_run=dry_run)
+    llm_out = call_holding_llm(user_prompt, week_change_pct=_week_change_pct(price), dry_run=dry_run)
     usage = llm_out.get("usage") or {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0}
     logs["raw_llm"] = llm_out.get("raw_text", "")[:4000]
     logs["retries"] = llm_out.get("retries", 0)
@@ -209,9 +211,8 @@ def _process_stock(
     )
 
     if llm_out.get("skip") or not llm_out.get("insight_lines"):
-        reason = llm_out.get("error") or "llm_skip"
-        if llm_out.get("reason_if_skipped"):
-            reason = "llm_skip"
+        detail = llm_out.get("reason_if_skipped")
+        reason = detail or llm_out.get("error") or "llm_skip"
         timeline.append({"step": "Result", "summary": f"No insight shown: {reason}."})
         log_url = _write_stock_log(
             job_id,
@@ -245,6 +246,7 @@ def _process_stock(
         timeline=timeline,
         usage=usage,
         insight_lines=llm_out["insight_lines"],
+        headline=llm_out.get("headline"),
         news_summary=news_summary,
         price=price,
         llm_preview=str(llm_out.get("raw_text") or ""),
@@ -256,6 +258,7 @@ def _process_stock(
         "sector": stock.sector_name,
         "generated_on": trading_date.isoformat(),
         "skip": False,
+        "headline": llm_out.get("headline"),
         "insight_lines": llm_out["insight_lines"],
         "model_used": llm_out.get("model_used"),
         "news_article_ids_used": logs["article_ids_sent"],

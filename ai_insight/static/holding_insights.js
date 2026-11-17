@@ -44,18 +44,6 @@
     );
   }
 
-  function weekChangeLine(row) {
-    var pct = row.week_change_pct;
-    if (pct == null && row.price_snapshot && row.price_snapshot.pattern_hints) {
-      pct = row.price_snapshot.pattern_hints.week_change_pct;
-    }
-    if (pct == null || pct === "") return "";
-    var n = Number(pct);
-    if (Number.isNaN(n)) return "";
-    var sign = n > 0 ? "+" : "";
-    return "<p class=\"week-change\">7-day change: <strong>" + sign + n + "%</strong></p>";
-  }
-
   function logLink(row) {
     if (!row.log_url) return "";
     return "<a class=\"log-link\" href=\"" + escapeHtml(row.log_url) + "\">View run log</a>";
@@ -85,8 +73,7 @@
         ", out: " + (payload.usage_total.output_tokens || 0) + "</p>";
     }
     insights.forEach(function (row) {
-      html += "<article class=\"card\"><h2>" + escapeHtml(row.stock_name || row.stock_id) + "</h2>";
-      html += weekChangeLine(row);
+      html += "<article class=\"card\"><h2>" + escapeHtml(row.headline || row.stock_name || row.stock_id) + "</h2>";
       var insightText = (row.insight_lines || []).join(" ");
       if (insightText) {
         html += "<p class=\"insight-body\">" + escapeHtml(insightText) + "</p>";
@@ -99,9 +86,6 @@
       html += "<section class=\"insuff\"><h2>Insufficient data</h2><ul>";
       insufficient.forEach(function (row) {
         html += "<li>" + escapeHtml(row.stock_name || row.stock_id) + " — " + escapeHtml(row.reason || "unknown");
-        if (row.week_change_pct != null) {
-          html += " <span class=\"muted\">(7d: " + (row.week_change_pct > 0 ? "+" : "") + row.week_change_pct + "%)</span>";
-        }
         if (row.detail) {
           html += " — <span class=\"muted\">" + escapeHtml(row.detail) + "</span>";
         }

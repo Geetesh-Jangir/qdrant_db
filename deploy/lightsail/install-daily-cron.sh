@@ -11,6 +11,7 @@ MARK_MORNING="# news-daily-morning"
 MARK_EVENING="# news-daily-evening"
 # Legacy markers (remove old crontab lines from previous schedules)
 MARK_NOON="# news-daily-noon"
+MARK_LEGACY_730="# news-daily-legacy-0730"
 
 if [[ ! -f "${SCRIPT}" ]]; then
   echo "!! Missing ${SCRIPT}"
@@ -31,7 +32,9 @@ FILTERED="$(printf '%s\n' "${CURRENT}" \
   | grep -v "${MARK_MORNING}" \
   | grep -v "${MARK_EVENING}" \
   | grep -v "${MARK_NOON}" \
+  | grep -v "${MARK_LEGACY_730}" \
   | grep -v 'run-daily-pipeline.sh' \
+  | grep -vE '^[0-9]+ 7 \* \* \*.*news' \
   || true)"
 TMP="$(mktemp)"
 printf '%s\n%s\n%s\n' "${FILTERED}" "${LINE_MORNING}" "${LINE_EVENING}" | sed '/^$/d' > "${TMP}"

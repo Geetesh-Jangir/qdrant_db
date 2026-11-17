@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from lib.extract import extract_article
-from lib.fetch import fetch_url
+from lib.fetch import fetch_publisher_url, fetch_url
 from lib.google_news import cached_resolve, is_google_news_article_url
 from news_pipeline.retry_backoff import sleep_before_attempt
 from news_pipeline.services import get_settings
@@ -41,9 +41,11 @@ def scrape_one(session, input_url, retries=2):
     last_error = None
     html = None
     final_url = None
+    use_google_fetch = is_google_news_article_url(resolved_url)
+    fetch_page = fetch_url if use_google_fetch else fetch_publisher_url
     for attempt in range(max_attempts):
         sleep_before_attempt(attempt, backoff_base)
-        final_url, html, error = fetch_url(session, resolved_url, referer=referer, retries=0)
+        final_url, html, error = fetch_page(session, resolved_url, referer=referer, retries=0)
         if not error and html:
             break
         last_error = error or "empty publisher page"

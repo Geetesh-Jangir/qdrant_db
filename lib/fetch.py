@@ -106,17 +106,40 @@ def _handle_google_response(response: Any, url: str) -> tuple[bool, str | None]:
     return False, None
 
 
+def fetch_publisher_url(
+    session: Client, url: str, timeout=DEFAULT_TIMEOUT, referer=None, retries=2
+):
+    """GET a publisher page. Ignores the Google News RSS circuit breaker."""
+    return _fetch_http_get(
+        session, url, timeout=timeout, referer=referer, retries=retries, google_rss=False
+    )
+
+
 def fetch_url(session: Client, url: str, timeout=DEFAULT_TIMEOUT, referer=None, retries=2):
-    """GET a URL. Returns (final_url, html, error)."""
+    """GET a URL. Returns (final_url, html, error). Google hosts use the circuit breaker."""
     google = is_google_host(url)
     if google:
         google_breaker.assert_allowed()
+    return _fetch_http_get(
+        session, url, timeout=timeout, referer=referer, retries=retries, google_rss=google
+    )
+
+
+def _fetch_http_get(
+    session: Client,
+    url: str,
+    *,
+    timeout=DEFAULT_TIMEOUT,
+    referer=None,
+    retries: int,
+    google_rss: bool,
+):
     last_error = None
     current = session
     for attempt in range(retries + 1):
-        if attempt > 0 and not google:
+        if attempt > 0 and not google_rss:
             current = make_session(_RETRY_BROWSERS[(attempt - 1) % len(_RETRY_BROWSERS)])
-        if google:
+        if google_rss:
             google_throttle()
         headers = {"Referer": referer} if referer else None
         try:
@@ -125,7 +148,7 @@ def fetch_url(session: Client, url: str, timeout=DEFAULT_TIMEOUT, referer=None, 
                 timeout=timeout,
                 headers=headers,
             )
-            if google:
+            if google_rss:
                 blocked, block_err = _handle_google_response(response, url)
                 if blocked:
                     last_error = block_err
@@ -150,16 +173,18 @@ def fetch_url(session: Client, url: str, timeout=DEFAULT_TIMEOUT, referer=None, 
             text = response.text or ""
             if not text.strip():
                 last_error = "empty page"
-                if attempt < retries and not google:
+                if attempt < retries and not google_rss:
                     _backoff(attempt)
                     continue
                 return str(response.url), None, last_error
             return str(response.url), text, None
         except GoogleBlockedError:
-            raise
+            if google_rss:
+                raise
+            last_error = "unexpected Google circuit during publisher fetch"
         except Exception as exc:
             last_error = str(exc)
-        if attempt < retries and not google:
+        if attempt < retries and not google_rss:
             _backoff(attempt)
     return None, None, last_error
 

@@ -72,6 +72,9 @@
         window: doc.news_summary.window,
       }, null, 2)) + "</pre></section>";
     }
+    if (doc.headline) {
+      html += "<section class=\"card\"><h2>Headline</h2><p class=\"insight-body\">" + escapeHtml(doc.headline) + "</p></section>";
+    }
     if (doc.insight_lines && doc.insight_lines.length) {
       html += "<section class=\"card\"><h2>Insight</h2>";
       html += "<p class=\"insight-body\">" + escapeHtml(doc.insight_lines.join(" ")) + "</p>";

@@ -70,6 +70,8 @@ def render_markdown(doc: dict[str, Any]) -> str:
                 f"- Model: {usage.get('model') or '—'}",
             ]
         )
+    if doc.get("headline"):
+        lines.extend(["", "## Headline", str(doc["headline"])])
     if doc.get("insight_lines"):
         lines.extend(["", "## Insight", " ".join(doc["insight_lines"])])
     articles = (doc.get("news_summary") or {}).get("articles_sent") or doc.get("articles_sent") or []
@@ -95,6 +97,7 @@ def build_log_document(
     timeline: list[dict[str, str]],
     usage: dict[str, Any] | None,
     insight_lines: list[str] | None,
+    headline: str | None = None,
     news: dict[str, Any] | None,
     price: dict[str, Any] | None,
     llm_response_preview: str,
@@ -107,6 +110,7 @@ def build_log_document(
         "reason": reason,
         "timeline": timeline,
         "usage": usage or {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0},
+        "headline": headline,
         "insight_lines": insight_lines,
         "news_summary": news,
         "price_summary": _price_summary(price),

@@ -146,8 +146,8 @@ pip install -r requirements.txt -r news_rag/requirements.txt
 deactivate
 sudo systemctl restart news-rag
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1/backfill
-# Re-apply daily cron if deploy/lightsail/install-daily-cron.sh changed (uses /bin/bash; survives 644 checkout)
-sudo NEWS_RAG_DIR=/opt/news-rag bash deploy/lightsail/install-daily-cron.sh
+# Re-apply daily cron + executable bits (after ingest/cron fixes)
+sudo NEWS_RAG_DIR=/opt/news-rag bash deploy/lightsail/fix-daily-ingest.sh
 # Insights cron: do not install on Lightsail until you ask for it (news cron only for now).
 # Script exists if needed later: deploy/lightsail/install-insights-cron.sh
 crontab -u ubuntu -l
@@ -193,6 +193,9 @@ python3 -c "import news_rag.app"   # shows import errors immediately
 | `origin/v2` is not a commit | Shallow/broken clone — **reclone** (below) or `git fetch origin +refs/heads/v2:refs/remotes/origin/v2 --depth 1` |
 | `sector_to_isin_weights` missing | `bash deploy/lightsail/sync_repo_branch.sh v2` |
 | Empty / no news answers | Ingest into Qdrant Cloud (`python -m news_pipeline` or CI) |
+| `Permission denied` on `run-daily-pipeline.sh` in `cron.log` | `bash deploy/lightsail/fix-daily-ingest.sh` (chmod + reinstall crons) |
+| `upserted=0`, `google_blocked`, scrape `circuit open` | Wait 15+ min; no extra manual daily runs; remove `HOLDINGS_LIMIT=500` from `.env`; optional `GOOGLE_HTTP_PROXY` |
+| Only evening cron runs (no 08:00 IST) | `bash deploy/lightsail/fix-daily-ingest.sh` then `crontab -u ubuntu -l` must show `30 2` and `30 11` |
 
 **Reclone when git is stuck** (keeps `.env`):
 
