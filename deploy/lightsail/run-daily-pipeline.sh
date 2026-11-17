@@ -60,6 +60,9 @@ if [[ ! -x "${VENV_PY}" ]]; then
   exit 1
 fi
 
+note "daily starting detail=${LOG}"
+echo "==> log file (tail -f this): ${LOG}"
+
 {
   echo "==> daily pipeline $(date -u -Iseconds)"
   echo "GOOGLE_NEWS_WHEN=${GOOGLE_NEWS_WHEN} NEWS_WINDOW_HOURS=${NEWS_WINDOW_HOURS}"
