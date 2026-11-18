@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 INSIGHT_ID = "market_driver_digest"
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v3"
 INDEX_ENTITIES = {"Macro - Nifty 50", "Macro - Sensex", "Macro - Bank Nifty"}
 
 DRAFT_SCHEMA: dict[str, Any] = {

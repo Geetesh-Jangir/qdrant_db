@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Portfolio Insights</title>
+  <link rel="stylesheet" href="/static/insights.css?v=1" />
+  <style>
+    .crn-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; margin-top: 1rem; }
+    .crn-row label { display: block; font-size: 0.85rem; color: #64748b; margin-bottom: 0.25rem; }
+    /* insights.css clamps h3 to 2 lines; portfolio headlines include long fund tails */
+    .card h3 {
+      display: block;
+      -webkit-line-clamp: unset;
+      -webkit-box-orient: unset;
+      overflow: visible;
+      line-height: 1.35;
+    }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="../">Ask a Question</a>
+    <a href="../insights">Market Insights</a>
+    <a href="../holding-insights">Stock Holding Insights</a>
+    <a href="portfolio-insights">Portfolio Insights</a>
+    <a href="../fund">Fund News Brief</a>
+  </div>
+  <header class="header">
+    <div>
+      <h1>Portfolio Insights</h1>
+      <p class="muted">Match today’s stored insights to a user’s top sectors and holdings (CRN).</p>
+      <p class="muted" id="trading-date">Trading day —</p>
+    </div>
+  </header>
+  <div id="ready-banner" class="banner progress" hidden></div>
+  <div class="crn-row">
+    <div style="flex: 1; min-width: 240px;">
+      <label for="crn">CRN</label>
+      <textarea id="crn" rows="2" placeholder="CRN-tlml4Ha1xs6U6UfFZizH8953" style="width: 100%; font: inherit; padding: 0.5rem; border-radius: 8px; border: 1px solid #e2e8f0;"></textarea>
+    </div>
+    <button type="button" id="create">Create insight</button>
+  </div>
+  <div id="error" class="err progress" hidden></div>
+  <main id="main"></main>
+  <script src="/static/rag-api.js?v=5"></script>
+  <script src="/portfolio-insights/static/portfolio_insights.js?v=2"></script>
+</body>
+</html>

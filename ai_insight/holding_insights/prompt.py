@@ -15,9 +15,10 @@ Output: ONLY one JSON object with keys skip, headline, insight, reason_if_skippe
 
 Headline (required when skip is false):
 - One short eye-catching line for the stock—not the body insight.
-- Format: "{Short stock name} up/down X% on/as/due to {driver from news}" using the EXACT week change % given in the user message (X must match; round to one decimal).
-- Driver must come only from supplied news (rates, regulation, earnings theme, governance, etc.)—no invented causes.
-- 5–14 words. No portfolio or fund language.
+- Format: "{Short name} gained/fell X% week — {short news why}, {portfolio hook ending with your}" using the EXACT week change % (one decimal, with % sign). Use "gained" or "fell"; say "week" once.
+- Pick a short hook for holders (e.g. "a plus for your", "worth tracking in your"). Final word must be your — no fund name after it.
+- Use "{name} gained/fell X% week —" not "this week". Keep the why to a few words; total headline ≤ 22 words when possible, never above 28.
+- Driver from news only. Avoid stiff "affecting your". No AMC or fund names in the headline.
 
 Field insight must be one plain paragraph (no line breaks): 2–3 short sentences, 24–36 words total — count before you answer. No bullets or markdown. Do not repeat the headline verbatim.
 
@@ -91,8 +92,8 @@ def build_user_prompt(
     week = hints.get("week_change_pct")
     short = stock_name.replace(" Limited", "").replace(" Ltd.", "").strip()
     lines.append(
-        f"Headline checklist: use short name \"{short}\"; week change is exactly {week}% — headline must show that % "
-        f"with up/down/flat and a news-based reason (on/as/due to/because of)."
+        f"Headline checklist: short name \"{short}\"; week change {week}% — gained/fell, week, news why, then hook ending with "
+        f"your (no fund name after your)."
     )
     lines.append(
         "Task: JSON headline + insight. insight = one readable paragraph, 24–36 words—stock impact from news; "

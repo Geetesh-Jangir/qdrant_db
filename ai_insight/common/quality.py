@@ -57,7 +57,7 @@ def run_quality_loop(
 ) -> LoopResult:
     """DryRunHalt propagates from the first model call so the runner can print the prompt."""
     evidence_text = format_evidence_block(evidence)
-    draft = _data(ctx.llm(spec.system_draft, spec.user_draft, spec.draft_schema, spec.max_tokens))
+    draft = _data(ctx.llm(spec.system_draft, spec.user_draft, spec.draft_schema, spec.max_tokens, kind="draft"))
     final = draft
     revised = None
     verdict: dict[str, Any] | None = None
@@ -69,6 +69,7 @@ def run_quality_loop(
                 _verify_user(spec.user_draft, draft, facts),
                 spec.verify_schema,
                 spec.max_tokens,
+                kind="verify",
             )
         )
         problems = _problems(verdict)
@@ -79,6 +80,7 @@ def run_quality_loop(
                     _verify_user(spec.user_draft, draft, facts) + "\n\nVERIFIER\n" + _dump(verdict),
                     spec.draft_schema,
                     spec.max_tokens,
+                    kind="revise",
                 )
             )
             final = revised
@@ -89,6 +91,7 @@ def run_quality_loop(
                         _verify_user(spec.user_draft, revised, facts),
                         spec.verify_schema,
                         spec.max_tokens,
+                        kind="verify",
                     )
                 )
                 problems = _problems(verdict)

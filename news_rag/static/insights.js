@@ -120,7 +120,7 @@
         const tone = row[2];
         const headlines = (block.headlines && block.headlines[key]) || [];
         if (!headlines.length) return;
-        lists += '<p class="driver-heading ' + tone + '">' + heading + "</p><ul class="driver-list">';
+        lists += '<p class="driver-heading ' + tone + '">' + heading + '</p><ul class="driver-list">';
         headlines.forEach(function (item) {
           const title = esc(item.title || "Story");
           const href = esc(item.url || "#");
@@ -297,11 +297,32 @@
   }
 
   createBtn.onclick = async function () {
-    const response = await fetch(api("api/insights/generate"), { method: "POST", headers: Object.assign({ "Content-Type": "application/json" }, headers()), body: "{}" });
-    const body = await response.json();
-    const jobId = body.job_id || (body.detail && body.detail.job_id);
-    if (jobId) poll(jobId);
-    else showError("Could not start a run.");
+    createBtn.disabled = true;
+    try {
+      const response = await fetch(api("api/insights/generate"), {
+        method: "POST",
+        headers: Object.assign({ "Content-Type": "application/json" }, headers()),
+        body: "{}",
+      });
+      const body = await (typeof parseRagJsonResponse === "function" ? parseRagJsonResponse(response) : response.json());
+      const detail = body.detail;
+      const jobId = body.job_id || (detail && detail.job_id) || (detail && typeof detail === "object" && detail.job_id);
+      if (jobId) {
+        await poll(jobId);
+        return;
+      }
+      if (response.status === 409 && detail && detail.job_id) {
+        await poll(detail.job_id);
+        return;
+      }
+      const msg = typeof detail === "string" ? detail : "Could not start a run.";
+      showError(msg);
+    } catch (err) {
+      showError(String(err.message || err));
+    } finally {
+      createBtn.disabled = false;
+      createBtn.textContent = "Create insights";
+    }
   };
   document.getElementById("prev").onclick = function () { if (payload && payload.prev_date) load(payload.prev_date); };
   document.getElementById("next").onclick = function () { if (payload && payload.next_date) load(payload.next_date); };

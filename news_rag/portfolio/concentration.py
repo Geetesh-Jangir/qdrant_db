@@ -43,6 +43,13 @@ def fetch_top_holdings(crn: str) -> dict[str, Any]:
     return data
 
 
+def row_fund_isins(row: dict[str, Any]) -> list[str]:
+    """Fund scheme ISINs on a top-holdings / sector_allocation row (list form only)."""
+    from ai_insight.portfolio_insights.personalize import fund_isins_from_row
+
+    return fund_isins_from_row(row)
+
+
 def project_concentration(raw: dict[str, Any], *, top_n: int = 6) -> dict[str, Any]:
     """Top weights across all instrument types, including cash and debt."""
     rows = raw.get("top_holdings") if isinstance(raw.get("top_holdings"), list) else []

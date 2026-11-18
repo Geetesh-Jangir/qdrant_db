@@ -10,7 +10,8 @@ from dataclasses import asdict
 from datetime import date
 from typing import Any, Callable
 
-from ai_insight.common.time_ist import ist_now
+from ai_insight.common.time_ist import fmt_ist, ist_now
+from ai_insight.holding_insights.atomic_io import atomic_write_json
 from ai_insight.holding_insights.config import (
     HOLDING_INSIGHT_GATE,
     HOLDING_LOOKBACK_DAYS,
@@ -86,6 +87,9 @@ def _write_stock_log(
     news_summary: dict[str, Any] | None,
     price: dict[str, Any] | None,
     llm_preview: str,
+    created_at: str | None = None,
+    llm_input: str | None = None,
+    llm_output: str | None = None,
 ) -> str | None:
     if not job_id:
         return None
@@ -93,6 +97,7 @@ def _write_stock_log(
         job_id=job_id,
         stock_id=stock.stock_id,
         stock_name=stock.instrument_name,
+        sector_name=stock.sector_name,
         outcome=outcome,
         reason=reason,
         timeline=timeline,
@@ -102,6 +107,9 @@ def _write_stock_log(
         news=news_summary,
         price=price,
         llm_response_preview=llm_preview,
+        created_at=created_at,
+        llm_input=llm_input,
+        llm_output=llm_output,
     )
     save_stock_log(job_id, stock.stock_id, doc)
     return log_page_path(job_id, stock.stock_id)
@@ -115,6 +123,7 @@ def _process_stock(
     job_id: str | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Return (insight_record, insufficient_record)."""
+    created_at = fmt_ist(ist_now())
     timeline: list[dict[str, str]] = []
     logs: dict[str, Any] = {}
     price = get_price_snapshot(stock.yfinance_ticker, trading_date=trading_date)
@@ -131,10 +140,13 @@ def _process_stock(
             news_summary=None,
             price=None,
             llm_preview="",
+            created_at=created_at,
         )
         return None, {
             "stock_id": stock.stock_id,
             "stock_name": stock.instrument_name,
+            "sector": stock.sector_name,
+            "created_at": created_at,
             "reason": "price_unavailable",
             "log_url": log_url,
         }
@@ -179,22 +191,30 @@ def _process_stock(
             news_summary=news_summary,
             price=price,
             llm_preview="(LLM not called — no news after filter)",
+            created_at=created_at,
         )
         return None, {
             "stock_id": stock.stock_id,
             "stock_name": stock.instrument_name,
+            "sector": stock.sector_name,
+            "created_at": created_at,
             "reason": "no_news_after_filter",
+            "price_snapshot": price,
+            "articles": news_summary.get("articles_sent") or [],
             "logs": logs,
             "log_url": log_url,
             "usage": {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0},
         }
 
+    articles_log = _articles_for_log(news.articles)
     logs["article_ids_sent"] = [a.article_id for a in news.articles]
     user_prompt = build_user_prompt(stock.instrument_name, stock.sector_name, price, news.articles)
     logs["prompt_chars"] = len(user_prompt)
+    logs["user_prompt"] = user_prompt[:32000]
     llm_out = call_holding_llm(user_prompt, week_change_pct=_week_change_pct(price), dry_run=dry_run)
     usage = llm_out.get("usage") or {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0}
-    logs["raw_llm"] = llm_out.get("raw_text", "")[:4000]
+    llm_raw = str(llm_out.get("raw_text") or "")
+    logs["raw_llm"] = llm_raw[:32000]
     logs["retries"] = llm_out.get("retries", 0)
     logs["skip_reason"] = llm_out.get("reason_if_skipped")
     logs["usage"] = usage
@@ -224,13 +244,21 @@ def _process_stock(
             insight_lines=None,
             news_summary=news_summary,
             price=price,
-            llm_preview=str(llm_out.get("raw_text") or ""),
+            llm_preview=llm_raw,
+            created_at=created_at,
+            llm_input=user_prompt,
+            llm_output=llm_raw,
         )
         return None, {
             "stock_id": stock.stock_id,
             "stock_name": stock.instrument_name,
+            "sector": stock.sector_name,
+            "created_at": created_at,
             "reason": reason,
             "detail": llm_out.get("reason_if_skipped"),
+            "price_snapshot": price,
+            "articles": articles_log,
+            "llm": {"user_prompt": user_prompt, "output_text": llm_raw},
             "logs": logs,
             "log_url": log_url,
             "usage": usage,
@@ -249,7 +277,10 @@ def _process_stock(
         headline=llm_out.get("headline"),
         news_summary=news_summary,
         price=price,
-        llm_preview=str(llm_out.get("raw_text") or ""),
+        llm_preview=llm_raw,
+        created_at=created_at,
+        llm_input=user_prompt,
+        llm_output=llm_raw,
     )
 
     record = {
@@ -257,11 +288,14 @@ def _process_stock(
         "stock_name": stock.instrument_name,
         "sector": stock.sector_name,
         "generated_on": trading_date.isoformat(),
+        "created_at": created_at,
         "skip": False,
         "headline": llm_out.get("headline"),
         "insight_lines": llm_out["insight_lines"],
         "model_used": llm_out.get("model_used"),
         "news_article_ids_used": logs["article_ids_sent"],
+        "articles": articles_log,
+        "llm": {"user_prompt": user_prompt, "output_text": llm_raw},
         "price_snapshot": price,
         "week_change_pct": _week_change_pct(price),
         "logs": logs,
@@ -317,9 +351,7 @@ def _persist_run_snapshot(job_id: str | None, snapshot: dict[str, Any]) -> None:
     root = holding_data_dir() / "runs"
     root.mkdir(parents=True, exist_ok=True)
     path = root / f"{job_id}.json"
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(snapshot, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_json(path, snapshot)
 
 
 def run_batch(
@@ -361,6 +393,7 @@ def run_batch(
                     {
                         "stock_id": stock.stock_id,
                         "stock_name": stock.instrument_name,
+                        "sector": stock.sector_name,
                         "reason": "processing_error",
                         "detail": str(exc)[:200],
                     }
@@ -390,6 +423,16 @@ def run_batch(
         insufficient=insufficient,
     )
     _persist_run_snapshot(job_id, outcome)
+    if not dry_run and int((outcome.get("counts") or {}).get("ok") or 0) > 0:
+        from ai_insight.holding_insights.daily_store import save_daily
+        from ai_insight.holding_insights.holding_stock_insights_store import (
+            build_holding_stock_insights_snapshot,
+            save_holding_stock_insights,
+        )
+
+        day = trading_date.isoformat()
+        save_daily(day, outcome)
+        save_holding_stock_insights(day, build_holding_stock_insights_snapshot(outcome))
     return outcome
 
 

@@ -34,6 +34,11 @@ class HoldingInsightsRunRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=99)
 
 
+class PortfolioComposeRequest(BaseModel):
+    crn: str = Field(min_length=3, max_length=64)
+    date: str | None = None
+
+
 def create_router(check_token: Callable[..., None]) -> APIRouter:
     router = APIRouter()
 
@@ -111,21 +116,6 @@ def create_router(check_token: Callable[..., None]) -> APIRouter:
             report[name] = {"last_date": days[-1] if days else None, "last_status": envelope.status if envelope else None}
         return {"insights": report}
 
-    @router.get("/api/insights/{insight_id}/latest")
-    def latest(insight_id: str, authorization: str | None = Header(default=None), x_app_token: str | None = Header(default=None), x_admin_token: str | None = Header(default=None)) -> dict[str, Any]:
-        _guard(check_token, authorization, x_app_token, x_admin_token)
-        if insight_id not in (*_SINGLE, *_BUNDLES):
-            raise HTTPException(status_code=404, detail="Unknown insight")
-        days = list_dates(insight_id, root=load_config().data_dir)
-        if not days:
-            raise HTTPException(status_code=404, detail="No insight for that id")
-        if insight_id in _BUNDLES:
-            return {"items": _project_bundle(insight_id, days[-1])}
-        projected = _project_single(insight_id, days[-1])
-        if projected is None:
-            raise HTTPException(status_code=404, detail="No insight for that id")
-        return projected
-
     @router.post("/api/insights/generate", status_code=202)
     def generate(body: GenerateRequest | None = None, authorization: str | None = Header(default=None), x_app_token: str | None = Header(default=None), x_admin_token: str | None = Header(default=None)) -> dict[str, Any]:
         _guard(check_token, authorization, x_app_token, x_admin_token)
@@ -159,6 +149,21 @@ def create_router(check_token: Callable[..., None]) -> APIRouter:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="Unknown job") from exc
         return _job_payload(job)
+
+    @router.get("/api/insights/{insight_id}/latest")
+    def latest(insight_id: str, authorization: str | None = Header(default=None), x_app_token: str | None = Header(default=None), x_admin_token: str | None = Header(default=None)) -> dict[str, Any]:
+        _guard(check_token, authorization, x_app_token, x_admin_token)
+        if insight_id not in (*_SINGLE, *_BUNDLES):
+            raise HTTPException(status_code=404, detail="Unknown insight")
+        days = list_dates(insight_id, root=load_config().data_dir)
+        if not days:
+            raise HTTPException(status_code=404, detail="No insight for that id")
+        if insight_id in _BUNDLES:
+            return {"items": _project_bundle(insight_id, days[-1])}
+        projected = _project_single(insight_id, days[-1])
+        if projected is None:
+            raise HTTPException(status_code=404, detail="No insight for that id")
+        return projected
 
     @router.post("/api/holding-insights/run", status_code=202)
     def holding_insights_run(
@@ -221,11 +226,55 @@ def create_router(check_token: Callable[..., None]) -> APIRouter:
             raise HTTPException(status_code=404, detail="Log not found")
         return doc
 
+    @router.get("/api/portfolio-insights/ready")
+    def portfolio_insights_ready(
+        date: str | None = None,
+        authorization: str | None = Header(default=None),
+        x_app_token: str | None = Header(default=None),
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _guard(check_token, authorization, x_app_token, x_admin_token)
+        from ai_insight.portfolio_insights.catalog import readiness, resolve_trading_date
+
+        trading_date = resolve_trading_date(date)
+        if not trading_date:
+            return {"trading_date": None, "ready": False, "missing": ["trading_date"], "details": {}}
+        result = readiness(trading_date)
+        return {
+            "trading_date": result.trading_date,
+            "ready": result.ready,
+            "missing": result.missing,
+            "details": result.details,
+        }
+
+    @router.post("/api/portfolio-insights/compose")
+    def portfolio_insights_compose(
+        body: PortfolioComposeRequest,
+        authorization: str | None = Header(default=None),
+        x_app_token: str | None = Header(default=None),
+        x_admin_token: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        _guard(check_token, authorization, x_app_token, x_admin_token)
+        from ai_insight.portfolio_insights.compose import compose_portfolio_insights
+
+        return JSONResponse(
+            compose_portfolio_insights(body.crn, body.date),
+            headers={"Cache-Control": "no-store"},
+        )
+
     return router
 
 
 def _holding_job_payload(job) -> dict[str, Any]:
     result = job.result or {}
+    path = get_holding_job_manager().root / f"{job.job_id}.json"
+    error = None
+    if path.is_file():
+        try:
+            meta = json.loads(path.read_text(encoding="utf-8"))
+            error = meta.get("error")
+        except (json.JSONDecodeError, OSError):
+            pass
     return {
         "job_id": job.job_id,
         "status": job.status,
@@ -233,6 +282,7 @@ def _holding_job_payload(job) -> dict[str, Any]:
         "finished_at": job.finished_at,
         "limit": job.limit,
         "progress": job.progress,
+        "error": error,
         "insights": result.get("insights") or [],
         "insufficient": result.get("insufficient") or [],
         "counts": result.get("counts") or {},

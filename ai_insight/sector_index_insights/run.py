@@ -13,6 +13,7 @@ from ai_insight.common.retrieval_plan import fetch_section, plan_window
 from ai_insight.common.quality import LoopSpec, run_quality_loop
 from ai_insight.common.runner import RunContext, run_bundle_insight
 from ai_insight.common.schemas import Chip, Envelope, InsightBundle, Meta, Source, Viz
+from ai_insight.common.sector_headline import primary_sector_headline_phrase
 from ai_insight.common.sector_indices import IndexSeries, fetch_ohlc, load_catalog, news_sectors_for_index
 from ai_insight.common.store import save_bundle
 from ai_insight.common.time_ist import ist_now
@@ -27,7 +28,11 @@ def build(ctx: RunContext, *, history=None, only: str = "") -> InsightBundle:
     items: list[Envelope] = []
     serieses: list[IndexSeries] = []
     skipped: list[str] = []
+    seen_index: set[str] = set()
     for spec in specs:
+        if spec.display in seen_index:
+            ctx.log.line("INDEX", f"skip duplicate {spec.display}")
+            continue
         series = fetch_ohlc(spec, ctx.trading_date, history=history)
         if series is None:
             skipped.append(spec.display)
@@ -35,6 +40,7 @@ def build(ctx: RunContext, *, history=None, only: str = "") -> InsightBundle:
             if ctx.artifacts is not None:
                 ctx.artifacts.warning(f"skipped index {spec.display}", step="yahoo")
             continue
+        seen_index.add(spec.display)
         ctx.log.line("INDEX", f"ok {spec.display} ticker={series.ticker} week={series.week_change_pct}%")
         serieses.append(series)
         item = _one(ctx, series)
@@ -84,13 +90,16 @@ def main(argv: list[str] | None = None) -> int:
 
 def _one(ctx: RunContext, series: IndexSeries) -> Envelope:
     news_sectors = news_sectors_for_index(series.spec)
+    sector_label = primary_sector_headline_phrase(list(series.spec.news_sectors))
     facts = {
         "trading_date": ctx.trading_date.isoformat(),
         "index": series.spec.display,
+        "index_display": series.spec.display,
+        "sector_headline_label": sector_label,
         "news_sector": news_sectors[0] if len(news_sectors) == 1 else news_sectors,
         "fit": series.spec.fit,
-        "sectors": news_sectors,
-        "catalog_sectors": series.spec.news_sectors,
+        "sectors": list(series.spec.news_sectors),
+        "catalog_sectors": list(series.spec.news_sectors),
         "ticker": series.ticker,
         "week_change_pct": series.week_change_pct,
         "today_change_pct": series.today_change_pct,
@@ -114,16 +123,18 @@ def _one(ctx: RunContext, series: IndexSeries) -> Envelope:
         change = series.week_change_pct or 0
         if not body.strip():
             body = (
-                f"{series.spec.display} moved {fmt_pct(change)} over the week "
+                f"The {sector_label} moved {fmt_pct(change)} over the week "
                 f"and {fmt_pct(series.today_change_pct or 0)} today."
             )
+        verb = "gained" if (change or 0) >= 0 else "fell"
+        fallback_hl = f"{sector_label} {verb} {abs(change or 0):.1f}% week"
         return Envelope(
             insight_id=INSIGHT_ID,
             trading_date=ctx.trading_date.isoformat(),
             as_of_ist=ist_now().isoformat(),
             status="ok",
             prominence="high" if abs(change) >= 2 else "normal",
-            headline=str(data.get("headline") or f"{series.spec.display} this week"),
+            headline=str(data.get("headline") or fallback_hl),
             body=body,
             chips=[
                 Chip(label="Week", value=fmt_pct(change), tone=_tone(change)),
@@ -136,9 +147,20 @@ def _one(ctx: RunContext, series: IndexSeries) -> Envelope:
         )
 
     if not ctx.llm or ctx.dry_run:
-        return compose({"headline": f"{series.spec.display} this week", "body": "Dry run.", "reason_unclear": True, "explanation_confidence": "low", "driver_cluster_ids": [], "direction": "up" if (series.week_change_pct or 0) >= 0 else "down", "implication": None})
+        dry_verb = "gained" if (series.week_change_pct or 0) >= 0 else "fell"
+        dry_hl = (
+            f"{sector_label} {dry_verb} {abs(series.week_change_pct or 0):.1f}% week"
+            if series.week_change_pct is not None
+            else f"{sector_label} this week"
+        )
+        return compose({"headline": dry_hl, "body": "Dry run.", "reason_unclear": True, "explanation_confidence": "low", "driver_cluster_ids": [], "direction": "up" if (series.week_change_pct or 0) >= 0 else "down", "implication": None})
     before = len(getattr(ctx, "llm_summaries", []) or [])
-    result = run_quality_loop(ctx, spec=LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose), facts=facts, evidence=evidence)
+    result = run_quality_loop(
+        ctx,
+        spec=LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose, max_tokens=550),
+        facts=facts,
+        evidence=evidence,
+    )
     env = result.envelope
     calls = list(getattr(ctx, "llm_summaries", []) or [])
     slice_calls = calls[before:]

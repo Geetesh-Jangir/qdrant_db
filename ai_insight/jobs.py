@@ -150,6 +150,14 @@ class JobManager:
         payload["finished_at"] = time.time()
         payload["results"] = results
         _write(path, payload)
+        try:
+            from ai_insight.common.market_daily_store import build_market_daily_snapshot, save_market_daily
+
+            snap = build_market_daily_snapshot(day)
+            if snap.get("common") or snap.get("sectors"):
+                save_market_daily(day, snap)
+        except Exception:
+            pass
         (self.root / ".lock").unlink(missing_ok=True)
 
     def _one(self, job_id: str, name: str, day: str) -> int:

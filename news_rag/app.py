@@ -103,6 +103,7 @@ if _STATIC.is_dir():
 
 if _HI_STATIC.is_dir():
     app.mount("/holding-insights/static", StaticFiles(directory=str(_HI_STATIC)), name="holding-insights-static")
+    app.mount("/portfolio-insights/static", StaticFiles(directory=str(_HI_STATIC)), name="portfolio-insights-static")
 
 
 class FundBriefRequest(BaseModel):
@@ -220,6 +221,13 @@ def insights_page() -> FileResponse:
 @app.get("/holding-insights")
 def holding_insights_page() -> FileResponse:
     from ai_insight.holding_insights.pages import holding_insights_page as _page
+
+    return _page()
+
+
+@app.get("/portfolio-insights")
+def portfolio_insights_page() -> FileResponse:
+    from ai_insight.portfolio_insights.pages import portfolio_insights_page as _page
 
     return _page()
 

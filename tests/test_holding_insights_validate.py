@@ -76,6 +76,16 @@ def test_headline_down_pct_without_minus_matches_negative_week():
     assert ok and reason is None and got_hl == hl and lines
 
 
+def test_headline_portfolio_hook_soft_word_budget():
+    insight = _sample_paragraph(3, 10)
+    hl = (
+        "HDFC Bank gained 1.05% week — margin repricing after RBI hikes, "
+        "a key theme to watch in your"
+    )
+    ok, lines, got_hl, reason = parse_insight_lines(_payload(insight, headline=hl), week_change_pct=1.05)
+    assert ok and reason is None and got_hl == hl and lines
+
+
 def test_headline_wrong_direction_with_matching_magnitude_fails():
     insight = _sample_paragraph(3, 10)
     hl = "Infosys up 4.35% as visa headlines dominate the narrative"

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 INSIGHT_ID = "fii_dii_flow_narrative"
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v3"
 NO_DRIVER = "News flow doesn't point to one clear driver today."
 
 MACRO_WHY = (

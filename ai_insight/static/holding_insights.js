@@ -34,14 +34,33 @@
     }
   }
 
+  function instrumentMeta(row) {
+    const name = row.stock_name || row.stock_id || "";
+    const id = row.stock_id && row.stock_id !== name ? row.stock_id : "";
+    const sector = row.sector || row.sector_name || "";
+    const bits = [];
+    if (name) bits.push("<strong>" + escapeHtml(name) + "</strong>");
+    if (id) bits.push("(" + escapeHtml(id) + ")");
+    if (sector) bits.push("Sector: " + escapeHtml(sector));
+    return bits.join(" · ");
+  }
+
   function usageBlock(row) {
     const u = row.usage || {};
-    if (!u.input_tokens && !u.output_tokens && !u.llm_calls) return "";
-    return (
-      "<p class=\"usage\">Tokens — in: <strong>" + (u.input_tokens || 0) +
-      "</strong>, out: <strong>" + (u.output_tokens || 0) +
-      "</strong>, calls: <strong>" + (u.llm_calls || 0) + "</strong></p>"
-    );
+    const meta = instrumentMeta(row);
+    const hasUsage = !!(u.input_tokens || u.output_tokens || u.llm_calls);
+    if (!meta && !hasUsage) return "";
+    let line = "<p class=\"usage\">";
+    if (meta) line += meta;
+    if (meta && hasUsage) line += " — ";
+    if (hasUsage) {
+      line +=
+        "Tokens — in: <strong>" + (u.input_tokens || 0) +
+        "</strong>, out: <strong>" + (u.output_tokens || 0) +
+        "</strong>, calls: <strong>" + (u.llm_calls || 0) + "</strong>";
+    }
+    line += "</p>";
+    return line;
   }
 
   function logLink(row) {
@@ -63,7 +82,13 @@
       html += "<p class=\"muted\">Run <code>" + escapeHtml(payload.job_id) + "</code>";
       if (payload.generated_on) html += " · " + escapeHtml(payload.generated_on);
       html += running ? " · <strong>in progress</strong>" : "";
+      if (payload.status === "failed" && payload.error) {
+        html += " · <strong class=\"err\">run failed</strong>";
+      }
       html += "</p>";
+      if (payload.status === "failed" && payload.error) {
+        html += "<p class=\"err\">" + escapeHtml(String(payload.error).slice(0, 280)) + "</p>";
+      }
     }
     if (payload.counts) {
       html += "<p class=\"muted\">OK: " + (payload.counts.ok || 0) + " · Insufficient: " + (payload.counts.insufficient || 0) + "</p>";
@@ -85,12 +110,21 @@
     if (insufficient.length) {
       html += "<section class=\"insuff\"><h2>Insufficient data</h2><ul>";
       insufficient.forEach(function (row) {
-        html += "<li>" + escapeHtml(row.stock_name || row.stock_id) + " — " + escapeHtml(row.reason || "unknown");
+        html += "<li>";
+        html += instrumentMeta(row) || escapeHtml(row.stock_name || row.stock_id);
+        html += " — " + escapeHtml(row.reason || "unknown");
         if (row.detail) {
           html += " — <span class=\"muted\">" + escapeHtml(row.detail) + "</span>";
         }
+        const u = row.usage || {};
+        if (u.input_tokens || u.output_tokens || u.llm_calls) {
+          html +=
+            " — <span class=\"muted\">Tokens in " + (u.input_tokens || 0) +
+            ", out " + (u.output_tokens || 0) +
+            ", calls " + (u.llm_calls || 0) + "</span>";
+        }
         if (row.log_url) {
-          html += ' <a class="log-link" href="' + escapeHtml(row.log_url) + '">log</a>';
+          html += ' — <a class="log-link" href="' + escapeHtml(row.log_url) + '">log</a>';
         }
         html += "</li>";
       });

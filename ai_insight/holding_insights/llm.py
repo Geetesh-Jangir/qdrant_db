@@ -19,7 +19,9 @@ INSIGHT_WORD_MAX = 40
 # If the model is slightly over budget, trim in-process (no second LLM call).
 INSIGHT_WORD_SOFT_MAX = 72
 HEADLINE_WORD_MIN = 5
-HEADLINE_WORD_MAX = 16
+HEADLINE_WORD_MAX = 28
+# Portfolio-hook headlines end with "your"; allow a few extra words before fund names are appended.
+HEADLINE_WORD_SOFT_MAX = 32
 
 
 def _as_paragraph(blob: str) -> str:
@@ -85,9 +87,23 @@ def _headline_week_matches(headline: str, week_change_pct: float | None) -> bool
     if not any(_pct_matches_week_change(p, target) for p in pcts):
         return False
     if target > 0.05:
-        return "up" in hl or "higher" in hl or "gain" in hl or "rise" in hl or "rally" in hl
+        return (
+            "up" in hl
+            or "higher" in hl
+            or "gain" in hl
+            or "gained" in hl
+            or "rise" in hl
+            or "rally" in hl
+        )
     if target < -0.05:
-        return "down" in hl or "lower" in hl or "fall" in hl or "drop" in hl or "slip" in hl
+        return (
+            "down" in hl
+            or "lower" in hl
+            or "fall" in hl
+            or "fell" in hl
+            or "drop" in hl
+            or "slip" in hl
+        )
     return "flat" in hl or "unchanged" in hl or "sideways" in hl or "up" in hl or "down" in hl
 
 
@@ -107,8 +123,12 @@ def parse_insight_lines(
     if not headline:
         return False, None, None, "empty_headline"
     hw = _word_count(headline)
-    if hw < HEADLINE_WORD_MIN or hw > HEADLINE_WORD_MAX:
+    if hw < HEADLINE_WORD_MIN:
         return False, None, None, f"expected_headline_{HEADLINE_WORD_MIN}_{HEADLINE_WORD_MAX}_words_got_{hw}"
+    if hw > HEADLINE_WORD_MAX:
+        tail_ok = headline.rstrip().casefold().endswith("your")
+        if not (tail_ok and hw <= HEADLINE_WORD_SOFT_MAX):
+            return False, None, None, f"expected_headline_{HEADLINE_WORD_MIN}_{HEADLINE_WORD_MAX}_words_got_{hw}"
     if not _headline_week_matches(headline, week_change_pct):
         return False, None, None, "headline_week_pct_mismatch"
     paragraph = _as_paragraph(blob)

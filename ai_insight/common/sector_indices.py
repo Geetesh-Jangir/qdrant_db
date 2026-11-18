@@ -97,6 +97,10 @@ def load_catalog(path: Path | None = None, *, include_weak: bool = False) -> lis
                 current.fit = "exact"  # type: ignore[misc]
                 continue
             if current.fit == "exact" and row_fit != "exact":
+                if row["sector"] not in current.news_sectors:
+                    current.news_sectors.append(row["sector"])
+                if row.get("scope_note") and not current.scope_note:
+                    current.scope_note = row.get("scope_note") or ""
                 continue
             if row["sector"] not in current.news_sectors:
                 current.news_sectors.append(row["sector"])

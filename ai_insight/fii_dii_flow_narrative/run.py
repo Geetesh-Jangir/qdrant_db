@@ -86,7 +86,7 @@ def build(ctx: RunContext) -> Envelope:
             clusters=clusters,
         )
 
-    spec = LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose)
+    spec = LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose, max_tokens=550)
     result = run_quality_loop(ctx, spec=spec, facts=facts, evidence=evidence)
     return result.envelope
 

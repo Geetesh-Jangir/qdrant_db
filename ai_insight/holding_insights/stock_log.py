@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ai_insight.holding_insights.atomic_io import atomic_write_json
 from ai_insight.holding_insights.config import holding_data_dir
 
 _STOCK_ID = re.compile(r"^[A-Z0-9][A-Z0-9&._-]{0,31}$")
@@ -29,9 +30,7 @@ def save_stock_log(job_id: str, stock_id: str, payload: dict[str, Any]) -> Path:
     if not _STOCK_ID.match(stock_id):
         raise ValueError("bad stock_id")
     path = stock_logs_dir(job_id) / f"{stock_id}.json"
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_json(path, payload)
     md = stock_logs_dir(job_id) / f"{stock_id}.md"
     md.write_text(render_markdown(payload), encoding="utf-8")
     return path
@@ -92,6 +91,7 @@ def build_log_document(
     job_id: str,
     stock_id: str,
     stock_name: str,
+    sector_name: str | None = None,
     outcome: str,
     reason: str | None,
     timeline: list[dict[str, str]],
@@ -101,20 +101,31 @@ def build_log_document(
     news: dict[str, Any] | None,
     price: dict[str, Any] | None,
     llm_response_preview: str,
+    created_at: str | None = None,
+    llm_input: str | None = None,
+    llm_output: str | None = None,
 ) -> dict[str, Any]:
+    raw_out = (llm_output if llm_output is not None else llm_response_preview) or ""
+    raw_in = llm_input or ""
     return {
         "job_id": job_id,
         "stock_id": stock_id,
         "stock_name": stock_name,
+        "sector_name": (sector_name or "").strip() or None,
+        "created_at": created_at,
         "outcome": outcome,
         "reason": reason,
         "timeline": timeline,
         "usage": usage or {"input_tokens": 0, "output_tokens": 0, "llm_calls": 0},
         "headline": headline,
         "insight_lines": insight_lines,
+        "insight": " ".join(insight_lines) if insight_lines else None,
         "news_summary": news,
+        "price": price,
         "price_summary": _price_summary(price),
-        "llm_response_preview": llm_response_preview[:2000],
+        "llm_input": raw_in[:32000],
+        "llm_output": raw_out[:32000],
+        "llm_response_preview": raw_out[:2000],
     }
 
 

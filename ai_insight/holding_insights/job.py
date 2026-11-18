@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import threading
@@ -12,8 +13,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from ai_insight.holding_insights.atomic_io import atomic_write_json
 from ai_insight.holding_insights.config import holding_data_dir
 from ai_insight.holding_insights.run import run_batch
+
+logger = logging.getLogger(__name__)
 
 
 class HoldingJobBusy(Exception):
@@ -127,17 +131,18 @@ class HoldingInsightsJobManager:
         prog_dir.mkdir(parents=True, exist_ok=True)
 
         def on_progress(done: int, total: int, stock_id: str, phase: str) -> None:
-            _write(
-                prog_dir / "progress.json",
-                {
-                    "done": done,
-                    "total": total,
-                    "last_stock_id": stock_id,
-                    "phase": phase,
-                    "heartbeat": time.time(),
-                },
-            )
-            _write(self.root / ".lock", {"job_id": job_id, "heartbeat": time.time()})
+            prog = {
+                "done": done,
+                "total": total,
+                "last_stock_id": stock_id,
+                "phase": phase,
+                "heartbeat": time.time(),
+            }
+            try:
+                atomic_write_json(prog_dir / "progress.json", prog)
+                atomic_write_json(self.root / ".lock", {"job_id": job_id, "heartbeat": time.time()})
+            except OSError as exc:
+                logger.warning("holding job %s progress write failed (will retry next stock): %s", job_id, exc)
 
         try:
             outcome = run_batch(limit, dry_run=dry_run, job_id=job_id, on_progress=on_progress)
@@ -167,7 +172,4 @@ def get_holding_job_manager() -> HoldingInsightsJobManager:
 
 
 def _write(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    atomic_write_json(path, payload)

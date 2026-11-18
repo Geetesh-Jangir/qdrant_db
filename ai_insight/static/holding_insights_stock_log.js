@@ -27,6 +27,14 @@
     let html = "";
     if (doc.usage) {
       html += "<section class=\"card\"><h2>LLM usage</h2>";
+      var inst = doc.stock_name || doc.stock_id || "";
+      if (inst || doc.sector_name) {
+        html += "<p class=\"usage\">";
+        if (inst) html += "<strong>" + escapeHtml(inst) + "</strong>";
+        if (doc.stock_id && doc.stock_id !== inst) html += " · (" + escapeHtml(doc.stock_id) + ")";
+        if (doc.sector_name) html += " · Sector: " + escapeHtml(doc.sector_name);
+        html += "</p>";
+      }
       html += "<p>Input tokens: <strong>" + (doc.usage.input_tokens || 0) + "</strong></p>";
       html += "<p>Output tokens: <strong>" + (doc.usage.output_tokens || 0) + "</strong></p>";
       html += "<p>LLM calls: <strong>" + (doc.usage.llm_calls || 0) + "</strong></p>";

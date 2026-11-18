@@ -60,7 +60,12 @@ def build(ctx: RunContext) -> Envelope:
         facts["observations"] = list(data.get("observations") or [])
         return _shell(ctx, status, facts, headline=headline, body=body, cluster_ids=list(data.get("cited_cluster_ids") or []), clusters=shown)
 
-    outcome = run_quality_loop(ctx, spec=LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose), facts=facts, evidence=evidence)
+    outcome = run_quality_loop(
+        ctx,
+        spec=LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose, max_tokens=550),
+        facts=facts,
+        evidence=evidence,
+    )
     return outcome.envelope
 
 
