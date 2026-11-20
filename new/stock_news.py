@@ -1,4 +1,4 @@
-"""Entity-scored news for gainer/loser stocks."""
+"""Entity-scored news for gainer/loser stocks (gated Qdrant only)."""
 
 from __future__ import annotations
 
@@ -6,17 +6,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from typing import Any, Literal
 
-from news_rag.holdings_market import fetch_dedicated_holding_news
 from news_rag.news_entity_resolve import resolve_corpus_entity
-from news_rag.query_plan import ScopeRefinement
-from news_rag.scoped_retrieve import retrieve_scoped_news
 
 from ai_insight.common.time_ist import ist_now
 from ai_insight.holding_insights.news import get_top_news, news_window
 
-from new.news_filter import merge_article_pool, rank_and_pick_articles
-
 Move = Literal["up", "down"]
+DEFAULT_PER_STOCK = 8
 
 
 def _slim_article(row: dict[str, Any]) -> dict[str, Any]:
@@ -31,15 +27,23 @@ def _slim_article(row: dict[str, Any]) -> dict[str, Any]:
         "published_at": row.get("published_at"),
         "direction": row.get("direction") or "unclear",
         "_pick_score": row.get("_pick_score"),
+        "relevancy_score": row.get("relevancy_score"),
+        "signed_score": row.get("signed_score"),
     }
 
 
-def _holding_rows(entity_name: str, trading_date: date | None = None) -> list[dict[str, Any]]:
+def _holding_rows(
+    entity_name: str,
+    *,
+    k: int = DEFAULT_PER_STOCK,
+    trading_date: date | None = None,
+) -> list[dict[str, Any]]:
+    """Top-k articles from gated Qdrant (signed_score, relevance, impact, about)."""
     today = trading_date or ist_now().date()
     window = news_window(today)
-    bundle = get_top_news(entity_name, window, k=30)
+    bundle = get_top_news(entity_name, window, k=k)
     rows: list[dict[str, Any]] = []
-    for art in bundle.articles:
+    for i, art in enumerate(bundle.articles):
         rows.append(
             {
                 "title": art.headline,
@@ -49,32 +53,12 @@ def _holding_rows(entity_name: str, trading_date: date | None = None) -> list[di
                 "direction": art.sentiment,
                 "max_impact": art.nav_impact_display,
                 "relevancy_score": art.relevancy_score,
+                "signed_score": art.signed_score,
+                "_pick_score": art.signed_score,
+                "_gate_rank": i + 1,
             }
         )
     return rows
-
-
-def _scoped_rows(
-    entity: str,
-    instrument_name: str,
-    move: Move,
-    *,
-    fund_name: str,
-    window_days: int,
-) -> list[dict[str, Any]]:
-    scope = ScopeRefinement(news_entities=[entity], news_topics=[], search_mode="event_plus_entities")
-    if move == "up":
-        query = f"{entity} India shares earnings upgrade order wins last week"
-    else:
-        query = f"{entity} India shares fall profit warning downgrade last week"
-    return retrieve_scoped_news(
-        query,
-        scope=scope,
-        question=f"{fund_name} {instrument_name}",
-        window_days=window_days,
-        min_impact=1,
-        vector_limit=40,
-    )
 
 
 def fetch_stock_news(
@@ -83,20 +67,12 @@ def fetch_stock_news(
     *,
     fund_name: str = "",
     window_days: int = 10,
-    limit: int = 8,
+    limit: int = DEFAULT_PER_STOCK,
 ) -> list[dict[str, Any]]:
     entity = resolve_corpus_entity(instrument_name) or instrument_name
-    gated = _holding_rows(entity)
-    scoped = _scoped_rows(entity, instrument_name, move, fund_name=fund_name, window_days=window_days)
-    legacy = fetch_dedicated_holding_news(
-        instrument_name,
-        fund_name or instrument_name,
-        window_days=max(window_days, 10),
-        limit=limit + 12,
-    )
-    pool = merge_article_pool(gated, scoped, legacy)
-    ranked = rank_and_pick_articles(instrument_name, move, pool, limit=limit)
-    return [_slim_article(r) for r in ranked]
+    want = max(1, min(int(limit), DEFAULT_PER_STOCK))
+    rows = _holding_rows(entity, k=want)
+    return [_slim_article(r) for r in rows]
 
 
 def _one_mover(
@@ -132,7 +108,7 @@ def news_for_movers(
     *,
     fund_name: str,
     window_days: int = 10,
-    per_stock: int = 8,
+    per_stock: int = DEFAULT_PER_STOCK,
 ) -> list[dict[str, Any]]:
     tasks: list[tuple[dict[str, Any], Move]] = []
     for row in gainers:
