@@ -73,11 +73,16 @@
     }
     var f = item.facts || {};
     var n = item.narrative || {};
+    var navLine =
+      f.nav_1w_pct != null
+        ? "<p class='muted fund-nav-week'>Fund NAV, last week: <strong>" + pctFmt(f.nav_1w_pct) + "</strong></p>"
+        : "";
     return (
       "<article class='card fund-card'>" +
       "<h3>" +
       esc(n.headline || f.scheme_name) +
       "</h3>" +
+      navLine +
       structuredInsight(n) +
       "</article>"
     );

@@ -11,7 +11,7 @@ from new.equity_week_llm import equity_week_llm_kwargs
 from news_rag.llm_client import LlmCallResult, call_json_llm
 
 Move = Literal["up", "down"]
-_MAX_WHY_WORDS = 75
+_MAX_WHY_WORDS = 95
 _NUM_IN_PROSE = re.compile(
     r"\b\d{1,3}(?:[.,]\d+)?\s*%|\b₹\s*[\d,]+|(?:\d+,?)+\s*(?:crore|lakh|million|billion)\b",
     re.I,
@@ -28,8 +28,9 @@ _SYSTEM = """You explain why a stock in a mutual fund had the week it had, for t
 Output JSON only: {"why": string, "skip": boolean}
 
 When skip is false:
-- why is 2–4 short sentences (about 45–75 words). Plain English.
-- Explain the business/market story and cause → effect. Mention timing vs the week's price path in words (e.g. "jumped after results, eased later") — no daily price table in the text.
+- why is 2–4 short sentences (about 50–90 words). Very simple English — like explaining to a friend who does not follow markets daily.
+- Explain the business/market story and cause → effect. Mention timing in words if relevant (e.g. "jumped after results, eased later").
+- If you use a finance term (credit cost, net interest margin, return on assets, valuation, FII flows, organic growth, coking coal, etc.), add a brief plain-language gloss in the same sentence (what it means for the company or share price).
 - Do NOT put percentages, rupee amounts, or precise statistics in why (the stock's week % is shown separately in the UI).
 - No portfolio-weight or fund-impact math. No "the article". No buy/sell advice.
 
@@ -150,7 +151,7 @@ def explain_one_block(block: dict[str, Any], *, dry_run: bool = False) -> dict[s
         result = call_json_llm(
             system_prompt=_SYSTEM,
             user_content=user,
-            max_tokens=280,
+            max_tokens=320,
             stage="equity_fund_week_stock",
             response_schema={
                 "type": "object",

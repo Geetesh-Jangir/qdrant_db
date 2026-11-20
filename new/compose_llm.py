@@ -23,8 +23,8 @@ Return JSON with:
 
 TOP SUMMARY — four parts (plain English, name stocks + brief reason, NOT sector buckets like "consumer durables"):
 
-summary_opener — one sentence:
-"[scheme_name], which makes up [portfolio_pct_of_book]% of your portfolio, [gained slightly / lost a little / was about flat] this week, supported by [2–3 gainer names] and short reasons (e.g. strong buying in X, higher electronics revenue at Y)."
+summary_opener — one sentence (MUST include fund week NAV change from nav_change_1w_pct once, e.g. "NAV up 0.4% for the week" or "NAV slipped 0.3%"):
+"[scheme_name], which makes up [portfolio_pct_of_book]% of your portfolio, [gained slightly / lost a little / was about flat] this week with NAV [up/down] [nav_change_1w_pct]%, supported by [2–3 gainer names] and short reasons in everyday words."
 
 summary_losses — one sentence:
 "Losses in [loser names] weighed on returns, with [one combined reason — fuel costs, stake sale, weak profits]."
@@ -43,6 +43,8 @@ STYLE (do not copy names blindly — use FACTS):
 
 DETAIL BODY — gainers/losers with has_news only; change_1w_pct in JSON; why 2–4 sentences, no heavy numbers in why text.
 
+READABILITY: Write for a first-time investor. Short sentences. If you use a finance term (credit cost, net interest margin, return on assets, valuation, FII/foreign flows, organic growth), add a few plain words in the same sentence saying what it means (e.g. "lower credit cost — fewer losses on bad loans").
+
 No buy/sell advice. No "the article says"."""
 
 _SUMMARY_ONLY_SYSTEM = """Write only the four top summary sentences for the fund owner.
@@ -50,6 +52,7 @@ _SUMMARY_ONLY_SYSTEM = """Write only the four top summary sentences for the fund
 Return JSON: {"summary_opener", "summary_losses", "summary_extra_drag", "summary_overall"}
 
 Follow the four-part format and STYLE in the user message. Use scheme_name and portfolio_pct from FACTS.
+Include nav_change_1w_pct in summary_opener. Use everyday words; briefly explain any jargon.
 Name real stocks from gainer_ideas and loser_ideas. Never ask for more data."""
 
 _REFUSAL = re.compile(
