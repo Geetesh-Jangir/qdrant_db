@@ -30,6 +30,18 @@ Hard bans — never write sentences like:
 If article_count is 0: explain only from FACTS bars (best/worst day, week %, where close sits in the range). Do not blame missing news.
 
 If article_count > 0: you must cite at least two themes from ARTICLES. Do not claim the feed is empty. Build the best story you can from the week.
+
+Four-beat flow (common insights): output four fields — what_happened, why, impacted, investor_meaning.
+- Each beat adds new information; do not repeat the headline or duplicate the same idea across beats.
+- Numbers live in chips/FACTS — mention each key number at most once across the full body.
+- Hedged links only: "may", "could", "often", "appears".
+"""
+
+FOUR_BEAT_FLOW = """Write four short paragraphs (beats), in order:
+1. what_happened — today's move or flow in plain words.
+2. why — news-backed reason (hedged); use ARTICLES.
+3. impacted — sectors, indices, or macro touched; tie FACTS to themes.
+4. investor_meaning — what this may mean for equity investors; no buy/sell advice.
 """
 
 _REFUSAL = re.compile(

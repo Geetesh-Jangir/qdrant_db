@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Equity fund week insights</title>
+  <link rel="stylesheet" href="/static/insights.css?v=1" />
+  <style>
+    .form-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: flex-end; margin: 1rem 0; }
+    .form-row label { display: block; font-size: 0.85rem; color: #64748b; margin-bottom: 0.25rem; }
+    table.hold { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    table.hold th, table.hold td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid #e2e8f0; }
+    .neg { color: #b91c1c; }
+    .pos { color: #15803d; }
+    .insight-body { font-size: 1.05rem; line-height: 1.65; margin: 1rem 0; color: #1e293b; }
+    .insight-body p { margin: 0 0 0.75rem; }
+    .tables-bottom { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e2e8f0; }
+    .table-title { margin: 0.75rem 0 0.25rem; font-size: 0.9rem; color: #64748b; font-weight: 600; }
+    .news-refs { margin: 0.75rem 0; font-size: 0.85rem; }
+    .fund-sub { margin-top: -0.35rem; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="../">Ask a Question</a>
+    <a href="../insights">Market Insights</a>
+    <a href="../portfolio-insights">Portfolio Insights</a>
+    <a href="equity-fund-week">Equity fund week</a>
+  </div>
+  <header class="header">
+    <div>
+      <h1>Equity fund week insights</h1>
+      <p class="muted">CRN → equity funds → 1-week NAV and holding moves with per-fund LLM summary.</p>
+    </div>
+  </header>
+  <div class="form-row">
+    <div style="flex: 1; min-width: 240px;">
+      <label for="crn">CRN</label>
+      <textarea id="crn" rows="2" placeholder="CRN-..." style="width: 100%; font: inherit; padding: 0.5rem; border-radius: 8px; border: 1px solid #e2e8f0;"></textarea>
+    </div>
+    <div>
+      <label for="top_n">Top N funds (optional)</label>
+      <input type="number" id="top_n" min="1" max="50" placeholder="all" style="width: 5rem; padding: 0.5rem;" />
+    </div>
+    <div>
+      <label for="dry_run"><input type="checkbox" id="dry_run" /> Dry run (no LLM/news)</label>
+    </div>
+    <button type="button" id="run">Run</button>
+  </div>
+  <div id="error" class="err progress" hidden></div>
+  <main id="main"></main>
+  <script src="/static/rag-api.js?v=5"></script>
+  <script src="/equity-fund-week/static/app.js?v=10"></script>
+</body>
+</html>

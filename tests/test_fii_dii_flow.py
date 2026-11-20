@@ -81,11 +81,22 @@ def test_no_driver_marks_degraded(tmp_path, monkeypatch):
     snap = SimpleNamespace(status="ok", data={"trade_date": "2026-11-16", "fii": {"net_inr_crore": -100, "buy_inr_crore": 1, "sell_inr_crore": 2}, "dii": {"net_inr_crore": 50, "buy_inr_crore": 2, "sell_inr_crore": 1}, "source": "nse"}, detail="", source="nse")
     monkeypatch.setattr("ai_insight.fii_dii_flow_narrative.run.get_fii_dii_today", lambda *a, **k: snap)
 
-    class Rows:
-        rows = []
-        diagnostics = SimpleNamespace(entities_passed=0, dropped={}, sample_dropped={})
+    from ai_insight.common.retrieval_plan import SectionRetrieval
 
-    monkeypatch.setattr("ai_insight.fii_dii_flow_narrative.run.fetch_entity_rows", lambda *a, **k: Rows())
+    empty_pack = SectionRetrieval([], [], [], ("2026-11-10T00:00:00Z", "2026-11-16T00:00:00Z"), ("", ""), {})
+    monkeypatch.setattr("ai_insight.fii_dii_flow_narrative.run.fetch_section", lambda *a, **k: empty_pack)
+    monkeypatch.setattr(
+        "ai_insight.fii_dii_flow_narrative.run.build_flow_datasets",
+        lambda *a, **k: {"fii_dii_daily": [], "flow_with_market": [], "data_limitations": []},
+    )
+    monkeypatch.setattr(
+        "ai_insight.fii_dii_flow_narrative.run.sector_names_for_pulse",
+        lambda *a, **k: ([], [], {}),
+    )
+    monkeypatch.setattr(
+        "ai_insight.fii_dii_flow_narrative.run.market_numbers",
+        lambda ctx: {"nifty_change_pct": 0.1, "news_note": "", "flow_note": ""},
+    )
 
     class Reply:
         def __init__(self, data):
@@ -94,7 +105,17 @@ def test_no_driver_marks_degraded(tmp_path, monkeypatch):
             self.request = {}
             self.raw_text = "{}"
 
-    draft = {"headline": "FIIs sold today", "body": "News flow doesn't point to one clear driver today.", "chosen_cluster_ids": [], "confidence": "low", "no_clear_driver": True, "implication": None, "observations": []}
+    draft = {
+        "headline": "FIIs sold today",
+        "paragraph": "News flow doesn't point to one clear driver today.",
+        "chosen_cluster_ids": [],
+        "confidence": "low",
+        "no_clear_driver": True,
+        "observations": [
+            "FIIs were net sellers on the latest flow date while the index move was modest.",
+            "No single news theme clearly explains the print.",
+        ],
+    }
     verdict = {"supported": True, "unsupported_claims": [], "too_long": False, "unclear_phrases": [], "revised": {}}
 
     def build(ctx):
@@ -119,8 +140,8 @@ def test_no_driver_marks_degraded(tmp_path, monkeypatch):
         now=datetime(2026, 11, 16, 18, 0, tzinfo=IST),
     )
     assert outcome.envelope is not None
-    assert outcome.envelope.status == "degraded"
-    assert "clear driver" in outcome.envelope.body
+    assert outcome.envelope.status == "ok"
+    assert "clear driver" in outcome.envelope.body.lower()
 
 
 def test_prefetch_always_calls_nse_even_when_today_on_file(tmp_path, monkeypatch):
@@ -166,6 +187,26 @@ def test_prefetch_skips_nse_on_holiday(tmp_path, monkeypatch):
     result = prefetch_fii_dii(date(2026, 11, 16), config=cfg)
     assert result.detail == "not_a_trading_day"
     assert not called
+
+
+def test_stockezee_backfill_net_only(tmp_path, monkeypatch):
+    from ai_insight.data import stockezee_fii_dii as sz
+    from ai_insight.data.fii_dii_backfill import backfill_stockezee_net
+
+    sample = [
+        sz.StockeZeeDay("2026-11-03", 100.0, -50.0),
+        sz.StockeZeeDay("2026-11-13", 200.0, 10.0),
+    ]
+    monkeypatch.setattr("ai_insight.data.fii_dii_backfill.fetch_stockezee_history", lambda **_: sample)
+    path = tmp_path / "hist.json"
+    report = backfill_stockezee_net(path, from_date=date(2026, 11, 1), before_date=date(2026, 11, 14))
+    assert report.added == 2
+    rows = json.loads(path.read_text(encoding="utf-8"))
+    row = next(r for r in rows if r["date"] == "2026-11-03")
+    assert row["fii"]["net"] == 100.0 and row["fii"]["buy"] is None
+    assert row["source"] == "stockezee.com:fii-dii-historical"
+    report2 = backfill_stockezee_net(path, from_date=date(2026, 11, 1), before_date=date(2026, 11, 14))
+    assert report2.added == 0 and report2.skipped == 2
 
 
 def test_circuit_opens_after_repeated_failures(monkeypatch):

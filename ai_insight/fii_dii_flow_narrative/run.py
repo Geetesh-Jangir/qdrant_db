@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from ai_insight.common.context import market_numbers, news_map_block
+from ai_insight.common.entity_retrieval import sector_names_for_pulse
+from ai_insight.common.narrative import sector_tilt_hint
 from ai_insight.common.display import fmt_inr_crore
 from ai_insight.common.flows import cumulative, history_path, load_flow_history
 from ai_insight.common.market_data import get_fii_dii_today
@@ -13,9 +15,19 @@ from ai_insight.common.quality import LoopSpec, run_quality_loop
 from ai_insight.common.runner import RunContext, cli_main
 from ai_insight.common.schemas import Chip, Envelope, Meta, Source, Viz
 from ai_insight.common.time_ist import ist_now
-from ai_insight.fii_dii_flow_narrative.aggregate import compute_flow_facts, fallback_headline
+from ai_insight.fii_dii_flow_narrative.aggregate import compute_flow_facts, fallback_headline, flow_period_totals
+from ai_insight.fii_dii_flow_narrative.flow_datasets import build_flow_datasets
 from ai_insight.fii_dii_flow_narrative.collector import _record, history_has_date, store_record_if_new
-from ai_insight.fii_dii_flow_narrative.prompt import PROMPT_VERSION, REVISE, SYSTEM, VERIFY, build_user
+from ai_insight.fii_dii_flow_narrative.prompt import (
+    PROMPT_VERSION,
+    REVISE,
+    SYSTEM,
+    VERIFY,
+    assemble_fii_body,
+    build_user,
+    normalize_fii_draft,
+    persist_fii_sections,
+)
 from ai_insight.fii_dii_flow_narrative.schema import DRAFT_SCHEMA, INSIGHT_ID, NO_DRIVER
 
 
@@ -52,12 +64,24 @@ def build(ctx: RunContext) -> Envelope:
     facts["fii_5d"] = cumulative(history, 5)
     facts["dii_5d"] = cumulative(history, 5, "dii_net")
     facts.update(market_numbers(ctx))
+    _best, _worst, week_meta = sector_names_for_pulse(ctx)
+    facts["week_pulse"] = week_meta
+    flow_history = [day for day in history if day.date and day.date <= trading_date]
+    facts["flow_totals"] = flow_period_totals(flow_history, trading_date)
+    facts["datasets"] = build_flow_datasets(ctx, flow_history, facts)
     pack = fetch_section(ctx, "fii_dii_flow_narrative", client=getattr(ctx, "qdrant", None))
     ctx.window = pack.window
-    clusters = pack.clusters[:5]
+    clusters = pack.clusters[:8]
     evidence = pack.evidence
     facts["article_count"] = len(evidence)
     facts["news_map"] = news_map_block(clusters)
+    facts["sector_tilt_hint"] = sector_tilt_hint(facts["news_map"], week_meta)
+    bank = facts.get("banknifty_history") or {}
+    for row in reversed(bank.get("daily") or []):
+        if row.get("date") == trading_date and row.get("change_pct") is not None:
+            facts["banknifty_change_pct"] = row.get("change_pct")
+            break
+    facts["nifty_change_pct"] = facts.get("nifty_change_pct") or facts.get("change_pct")
     ctx.emit_facts(facts)
     if ctx.artifacts is not None:
         ctx.artifacts.write_json("retrieval.json", pack.diagnostics)
@@ -67,14 +91,16 @@ def build(ctx: RunContext) -> Envelope:
     if ctx.artifacts is not None:
         ctx.artifacts.decision(ctx.decision)
 
+    ctx.draft_normalize = normalize_fii_draft
+
     def compose(data: dict[str, Any]) -> Envelope:
+        data = normalize_fii_draft(data)
         headline = str(data.get("headline") or "") or fallback_headline(facts)
-        body = str(data.get("body") or "")
+        body = assemble_fii_body(data)
         status = "ok" if body.strip() else "degraded"
         if not body.strip():
             body = NO_DRIVER
-        if facts.get("flow_lagged") and facts.get("flow_trade_date") and str(facts["flow_trade_date"]) not in body:
-            body = (body + f" Flow is as of {facts['flow_trade_date']}.").strip()
+        persist_fii_sections(facts, data)
         facts["observations"] = list(data.get("observations") or [])
         return _shell(
             ctx,
@@ -86,7 +112,7 @@ def build(ctx: RunContext) -> Envelope:
             clusters=clusters,
         )
 
-    spec = LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose, max_tokens=550)
+    spec = LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose, max_tokens=1600)
     result = run_quality_loop(ctx, spec=spec, facts=facts, evidence=evidence)
     return result.envelope
 

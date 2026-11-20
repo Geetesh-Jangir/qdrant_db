@@ -88,6 +88,11 @@ def build_market_daily_snapshot(trading_date: str) -> dict[str, Any]:
                 "headline": env.headline,
                 "body": env.body,
                 "insight": env.body,
+                "chips": [
+                    {"label": c.label, "value": c.value, "tone": c.tone}
+                    for c in (env.chips or [])
+                ],
+                "viz_type": getattr(env.viz, "type", None) or "",
                 **_usage(env.meta),
                 "articles": _articles(env.sources),
             }

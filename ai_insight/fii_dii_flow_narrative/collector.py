@@ -127,9 +127,16 @@ def import_csv(csv_path: Path, history: Path) -> ImportReport:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m ai_insight.fii_dii_flow_narrative.collector")
-    parser.add_argument("--date", required=True)
+    parser.add_argument("--date", default="", help="Trading day for single-day NSE collect (not needed for backfill modes).")
     parser.add_argument("--import-csv", default="")
     parser.add_argument("--backfill", action="store_true", help="Try NSE snapshot append for recent days (best effort).")
+    parser.add_argument(
+        "--backfill-stockezee",
+        action="store_true",
+        help="Append net-only StockeZee history for dates before full NSE rows exist.",
+    )
+    parser.add_argument("--stockezee-from", default="2026-11-01", help="Inclusive start date (ISO).")
+    parser.add_argument("--stockezee-before", default="2026-11-13", help="Exclusive end date; NSE keeps this day onward.")
     args = parser.parse_args(argv)
     cfg = load_config()
     path = history_path(cfg.data_dir)
@@ -145,6 +152,20 @@ def main(argv: list[str] | None = None) -> int:
         report = backfill_recent(path)
         print(f"backfill added={report.added} skipped={report.skipped}")
         return 0
+    if args.backfill_stockezee:
+        from ai_insight.data.fii_dii_backfill import backfill_stockezee_net
+
+        report = backfill_stockezee_net(
+            path,
+            from_date=date.fromisoformat(args.stockezee_from),
+            before_date=date.fromisoformat(args.stockezee_before),
+        )
+        print(f"stockezee added={report.added} skipped={report.skipped} warnings={len(report.warnings)}")
+        for warning in report.warnings:
+            print("warning:", warning)
+        return 0 if report.added or not report.warnings else 1
+    if not args.date:
+        parser.error("--date is required unless using --import-csv, --backfill, or --backfill-stockezee")
     result = collect(date.fromisoformat(args.date), history_path=path, config=cfg)
     print(f"{result.status} {result.detail}".strip())
     if result.status == "unavailable":

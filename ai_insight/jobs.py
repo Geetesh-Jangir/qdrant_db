@@ -18,6 +18,7 @@ from typing import Any, Callable
 from ai_insight.common.config import CommonConfig, load_config
 from ai_insight.common.jobs import JobProgress
 from ai_insight.common.runner import resolve_live_date
+from ai_insight.data.twelve_data_brent import sync_brent_history
 from ai_insight.fii_dii_flow_narrative.collector import prefetch_fii_dii
 
 MODULES = [
@@ -122,6 +123,10 @@ class JobManager:
         _write(path, payload)
         try:
             prefetch_fii_dii(resolved, config=self.config)
+        except Exception:
+            pass
+        try:
+            sync_brent_history(resolved, data_dir=self.config.data_dir)
         except Exception:
             pass
         results: dict[str, str] = {}

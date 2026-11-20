@@ -10,6 +10,7 @@ from ai_insight.data.nse_fii_dii import fetch_fii_dii_snapshot
 from ai_insight.data.macro_data import get_macro_snapshot, write_snapshot
 from ai_insight.data.official import fetch_official, numeric_from_fii_dii_snapshot
 from ai_insight.data.ask_market_bridge import fetch_ask_market_records, write_ask_market_snapshot
+from ai_insight.data.twelve_data_brent import sync_brent_history
 from ai_insight.data.yfinance_source import fetch_yfinance
 
 # News-only on purpose (no traded / official numeric series in this job).
@@ -67,6 +68,11 @@ def main() -> None:
     path = write_latest(records, root, fii_dii=fii_dii)
     macro_path = write_snapshot(get_macro_snapshot(), root)
     ask_market_path = write_ask_market_snapshot(root)
+    brent = sync_brent_history()
+    print(
+        f"brent history {brent.status} symbol={brent.symbol} "
+        f"added={brent.rows_added} ({brent.detail})"
+    )
     print(f"wrote {macro_path}")
     print(f"wrote {ask_market_path}")
     ok = [row.entity for row in records if row.status == "ok"]

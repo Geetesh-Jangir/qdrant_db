@@ -46,6 +46,7 @@ class RunContext:
     live: bool = False
     market_phase: str = ""
     llm_label: str = ""
+    draft_normalize: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 
     def scope(self, label: str) -> "RunContext":
         self.llm_label = label
@@ -408,6 +409,7 @@ def _bound_llm(ctx: RunContext) -> Callable[..., Any]:
                 max_tokens=max_tokens,
                 config=ctx.config,
                 kind=kind,
+                normalize=ctx.draft_normalize,
             )
         except Exception as exc:
             if ctx.artifacts is not None:

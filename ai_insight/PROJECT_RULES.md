@@ -38,7 +38,7 @@ These rules apply to every task in the Tier 1 insights series. Agents must follo
   "skip_reason": null,
   "prominence": "normal | high",
   "headline": "<= 12 words, plain English, no jargon",
-  "body": "<= 3 sentences AND <= 55 words total",
+  "body": "common insights: four beats (what / why / impacted / investor meaning), <= INSIGHTS_BODY_MAX_WORDS (default 110)",
   "chips": [{"label": "Nifty 50", "value": "-0.61%", "tone": "negative"}],
   "viz": {"type": "diverging_bars | flow_bars | index_move", "data": {}},
   "sources": [{"title": "", "url": "", "source": "", "published_at": ""}],
@@ -49,8 +49,8 @@ These rules apply to every task in the Tier 1 insights series. Agents must follo
 
 ## Writing-style contract
 
-- Headline + body ≤ 55 words, ≤ 3 sentences; every sentence adds new information.
-- Plain English; numbers in `chips`/`viz`; body explains WHY from news.
+- **Common insights** (`market_driver_digest`, `fii_dii_flow_narrative`, `sector_leaderboard`): body is four short paragraphs (what happened → why → what got impacted → what it may mean for investors), within `INSIGHTS_BODY_MAX_WORDS` / `INSIGHTS_BODY_MAX_SENTENCES`. Numbers live in `chips`/`viz`; prose links news to moves (hedged).
+- Plain English; body explains WHY from news.
 - 1–3 `sources` from cited clusters; no unsupported cause claims.
 - No advice, targets, or predictions; hedge implications.
 - No forced explanation — use `degraded` or plain uncertainty when news does not support a cause.

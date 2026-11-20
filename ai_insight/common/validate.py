@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ai_insight.common.config import load_config
+from ai_insight.common.narrative import repetition_score
 from ai_insight.common.schemas import Envelope, numeric_leaves
 
 _BANNED = ("should buy", "will rise", "guaranteed", "target price")
@@ -53,6 +54,7 @@ def validate_insight(envelope: Envelope, evidence_text: str = "") -> ValidationR
         _banned(text),
         _hedge(envelope.body),
         _move_size(envelope),
+        _repetition(envelope),
     ]
     errors = [f"{check.name}: {check.detail}" for check in checks if not check.passed]
     return ValidationResult(ok=not errors, checks=checks, errors=errors)
@@ -140,6 +142,15 @@ def _move_size(envelope: Envelope) -> CheckResult:
     if "edged" in text and not (0.25 <= magnitude <= 1):
         return CheckResult("move_size", False, "edged does not match the move")
     return CheckResult("move_size", True, "")
+
+
+def _repetition(envelope: Envelope) -> CheckResult:
+    beats = envelope.facts.get("narrative_beats")
+    if not isinstance(beats, dict):
+        return CheckResult("repetition", True, "")
+    score = repetition_score(beats)
+    ok = score < 0.55
+    return CheckResult("repetition", ok, f"overlap {score:.2f}")
 
 
 def _banned(text: str) -> CheckResult:

@@ -32,7 +32,7 @@ def load_common_cards(trading_date: str, limit: int) -> list[dict[str, Any]]:
                 "status": item.get("status"),
                 "headline": item.get("headline") or "",
                 "body": item.get("body") or item.get("insight") or "",
-                "chips": [],
+                "chips": item.get("chips") or [],
                 "usage": {
                     "input_tokens": item.get("input_tokens") or 0,
                     "output_tokens": item.get("output_tokens") or 0,

@@ -21,6 +21,8 @@ from ai_insight.common.time_ist import ist_now, session_window
 from ai_insight.common.trading_calendar import is_trading_day, prev_trading_day
 
 from ai_insight.sector_leaderboard.fetch import SectorFetch, fetch_sector_stories, fetch_targeted_sector_stories
+from ai_insight.common.narrative import assemble_body, narrative_limits, persist_narrative_beats
+from ai_insight.sector_leaderboard.narrative_prompt import NARRATIVE_SCHEMA, SYSTEM as NARRATIVE_SYSTEM, build_narrative_user
 from ai_insight.sector_leaderboard.prompt import PROMPT_VERSION, SYSTEM, build_user
 from ai_insight.sector_leaderboard.schema import INSIGHT_ID, SectorFacts, SectorScore, StoryScore, Themes, llm_schema
 from ai_insight.sector_leaderboard.score import (
@@ -37,7 +39,7 @@ from ai_insight.sector_leaderboard.score import (
 )
 from ai_insight.sector_leaderboard.score import prominence as score_prominence
 
-_WORD_LIMIT = 55
+_WORD_LIMIT, _SENTENCE_LIMIT = narrative_limits()
 _HEADLINE_LIMIT = 12
 _BANNED = ("should buy", "will rise", "guaranteed", "target price")
 _EXTRA_LEAD = "Several separate stories backed the lead."
@@ -94,7 +96,33 @@ def build(ctx: RunContext) -> Envelope:
         body = scrub_refusal_prose(_week_pulse_fallback(wm, ranking))
         headline = compose_headline(ranking.best, ranking.worst, ctx.trading_date, wm)
         return _pulse_envelope(ctx, "degraded" if problems else "ok", facts, ranking, headline, body, themes=None, problems=problems)
-    return _envelope(ctx, "ok", facts, ranking, themes=themes)
+    facts["article_count"] = len(evidence_best) + len(evidence_worst)
+    if ranking.best:
+        facts["best_sector_snapshot"] = {
+            "display": ranking.best.display,
+            "n_stories": ranking.best.n_stories,
+            "titles": [s.title for s in evidence_best[:4]],
+        }
+    if ranking.worst:
+        facts["worst_sector_snapshot"] = {
+            "display": ranking.worst.display,
+            "n_stories": ranking.worst.n_stories,
+            "titles": [s.title for s in evidence_worst[:4]],
+        }
+    narrative_body, narrative_degraded = _narrative(
+        ctx, facts, ranking, themes, evidence_best, evidence_worst
+    )
+    status = "degraded" if narrative_degraded else "ok"
+    problems = ["narrative_fallback"] if narrative_degraded else None
+    return _envelope(
+        ctx,
+        status,
+        facts,
+        ranking,
+        themes=themes,
+        narrative_body=narrative_body,
+        problems=problems,
+    )
 
 
 def compose_headline(
@@ -297,6 +325,51 @@ def main(argv: list[str] | None = None) -> int:
     return cli_main(INSIGHT_ID, build, argv)
 
 
+def _narrative(
+    ctx: RunContext,
+    facts: dict[str, Any],
+    ranking: Ranking,
+    themes: Themes,
+    best_stories: list[StoryScore],
+    worst_stories: list[StoryScore],
+) -> tuple[str, bool]:
+    blocks: list[str] = []
+    if best_stories:
+        blocks.append(build_user(ranking.best.display if ranking.best else None, best_stories, None, [], week_meta=facts.get("week_movers")))
+    if worst_stories:
+        blocks.append(build_user(None, [], ranking.worst.display if ranking.worst else None, worst_stories, week_meta=facts.get("week_movers")))
+    stories_block = "\n\n".join(blocks)
+    facts["best_theme"] = themes.best_theme
+    facts["worst_theme"] = themes.worst_theme
+    user = build_narrative_user(facts, stories_block)
+    for attempt in range(2):
+        try:
+            result = ctx.llm(NARRATIVE_SYSTEM, user, NARRATIVE_SCHEMA, 900)
+        except Exception:
+            continue
+        data = result.data if hasattr(result, "data") else result
+        if not isinstance(data, dict):
+            continue
+        body = assemble_body(data)
+        if body.strip():
+            persist_narrative_beats(facts, data)
+            return body, False
+    fallback = compose_body(
+        ranking.best,
+        ranking.worst,
+        themes.best_theme,
+        themes.worst_theme,
+        week_meta=facts.get("week_movers"),
+    )
+    investor = (
+        " For investors, week leadership can shift where returns come from — "
+        "it may be worth watching how your sectors line up with these moves."
+    )
+    if _fits(fallback + investor, _WORD_LIMIT):
+        fallback = fallback + investor
+    return scrub_refusal_prose(fallback), True
+
+
 def _themes(
     ctx: RunContext,
     ranking: Ranking,
@@ -356,6 +429,7 @@ def _envelope(
     themes: Themes | None,
     skip_reason: str | None = None,
     problems: list[str] | None = None,
+    narrative_body: str | None = None,
 ) -> Envelope:
     best = ranking.best
     worst = ranking.worst
@@ -378,12 +452,16 @@ def _envelope(
             facts["worst_theme"] = worst_theme
         wm = facts.get("week_movers") or {}
         headline = compose_headline(best, worst, ctx.trading_date, wm)
-        if status == "degraded":
+        if narrative_body and narrative_body.strip():
+            body = scrub_refusal_prose(narrative_body)
+            if problems:
+                validation = {"ok": False, "errors": list(problems)}
+        elif status == "degraded":
             body = _degraded_body(best, worst)
             validation = {"ok": False, "errors": list(problems or [])}
         else:
             body = scrub_refusal_prose(compose_body(best, worst, best_theme, worst_theme, week_meta=wm))
-            cluster_ids = list(themes.cited_cluster_ids) if themes else []
+        cluster_ids = list(themes.cited_cluster_ids) if themes else []
         chips = _chips(ranking, int(facts["sectors_with_news"]), week_meta=wm)
         viz_data = pulse_viz_data(
             ranking,

@@ -38,6 +38,7 @@ from news_rag.stock_fund_ranking import holdings_archive_available
 
 _STATIC = Path(__file__).resolve().parent / "static"
 _HI_STATIC = Path(__file__).resolve().parents[1] / "ai_insight" / "static"
+_NEW_STATIC = Path(__file__).resolve().parents[1] / "new" / "static"
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +105,9 @@ if _STATIC.is_dir():
 if _HI_STATIC.is_dir():
     app.mount("/holding-insights/static", StaticFiles(directory=str(_HI_STATIC)), name="holding-insights-static")
     app.mount("/portfolio-insights/static", StaticFiles(directory=str(_HI_STATIC)), name="portfolio-insights-static")
+
+if _NEW_STATIC.is_dir():
+    app.mount("/equity-fund-week/static", StaticFiles(directory=str(_NEW_STATIC)), name="equity-fund-week-static")
 
 
 class FundBriefRequest(BaseModel):
@@ -247,8 +251,10 @@ def insight_log_page(insight_id: str, trading_date: str, run_id: str) -> FileRes
 
 
 from ai_insight.api import create_router
+from new.router import create_equity_fund_week_router
 
 app.include_router(create_router(_check_token))
+app.include_router(create_equity_fund_week_router(_check_token))
 
 
 @app.get("/api/ask/memory/{query_id}")

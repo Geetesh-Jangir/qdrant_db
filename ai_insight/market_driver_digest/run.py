@@ -9,10 +9,13 @@ from typing import Any
 
 from ai_insight.common.config import CommonConfig, load_config
 from ai_insight.common.context import market_numbers, news_map_block
+from ai_insight.market_driver_digest.prompt import assemble_market_body, persist_market_sections
+from ai_insight.common.entity_retrieval import sector_names_for_pulse
 from ai_insight.common.display import fmt_inr_crore, fmt_pct
 from ai_insight.common.flows import history_path, load_flow_history
 from ai_insight.common.market_data import get_fii_dii_today, get_nifty, get_series
-from ai_insight.common.retrieval_plan import fetch_section
+from ai_insight.market_driver_digest.fetch import fetch_digest_news
+from ai_insight.market_driver_digest.macro_context import build_digest_datasets
 from ai_insight.common.quality import LoopSpec, run_quality_loop
 from ai_insight.common.runner import RunContext, cli_main
 from ai_insight.common.run_log import RunLog
@@ -20,7 +23,14 @@ from ai_insight.common.schemas import Chip, Envelope, Meta, Source, Viz
 from ai_insight.common.time_ist import ist_now, session_window
 from ai_insight.common.trading_calendar import is_trading_day, prev_trading_day
 from ai_insight.data.yfinance_source import YF_SERIES
-from ai_insight.market_driver_digest.prompt import PROMPT_VERSION, REVISE, SYSTEM, VERIFY, build_user
+from ai_insight.market_driver_digest.prompt import (
+    PROMPT_VERSION,
+    REVISE,
+    SYSTEM,
+    VERIFY,
+    build_user,
+    normalize_market_draft,
+)
 from ai_insight.market_driver_digest.rank import move_phrase, pick_drivers
 from ai_insight.market_driver_digest.schema import DRAFT_SCHEMA, INSIGHT_ID
 
@@ -31,7 +41,17 @@ def build(ctx: RunContext) -> Envelope:
         return _shell(ctx, "skipped", {"nifty_status": nifty.status}, skip_reason="nifty_stale" if nifty.status == "stale" else "nifty_unavailable")
     facts = _facts(ctx, nifty.data)
     facts.update(market_numbers(ctx))
-    pack = fetch_section(ctx, "market_driver_digest", client=getattr(ctx, "qdrant", None))
+    best_names, worst_names, week_meta = sector_names_for_pulse(ctx)
+    facts["week_pulse"] = week_meta
+    facts["datasets"] = build_digest_datasets(ctx)
+    _enrich_week_pulse_from_datasets(facts)
+    bank = facts.get("banknifty_history") or {}
+    for row in reversed(bank.get("daily") or []):
+        if row.get("date") == ctx.trading_date.isoformat() and row.get("change_pct") is not None:
+            facts["banknifty_change_pct"] = row.get("change_pct")
+            break
+    pulse_sectors = list(dict.fromkeys([*best_names, *worst_names]))
+    pack = fetch_digest_news(ctx, getattr(ctx, "qdrant", None), pulse_sectors)
     ctx.window = pack.window
     facts["article_count"] = len(pack.evidence)
     facts["news_map"] = news_map_block(pack.clusters)
@@ -47,9 +67,12 @@ def build(ctx: RunContext) -> Envelope:
     if not shown:
         return _fallback(ctx, facts, "degraded")
 
+    ctx.draft_normalize = normalize_market_draft
+
     def compose(data: dict[str, Any]) -> Envelope:
+        data = normalize_market_draft(data)
         headline = str(data.get("headline") or "") or _fallback_headline(facts)
-        body = str(data.get("body") or "")
+        body = assemble_market_body(data)
         weak = data.get("confidence") == "low" or drivers.used_recap_only
         status = "degraded" if weak and not body.strip() else "ok"
         if not body.strip():
@@ -57,12 +80,13 @@ def build(ctx: RunContext) -> Envelope:
                 f"Nifty {facts.get('phrase') or 'moved'} "
                 f"{fmt_pct(facts.get('nifty_change_pct') or 0)} to {facts.get('nifty_close')}."
             )
+        persist_market_sections(facts, data)
         facts["observations"] = list(data.get("observations") or [])
         return _shell(ctx, status, facts, headline=headline, body=body, cluster_ids=list(data.get("cited_cluster_ids") or []), clusters=shown)
 
     outcome = run_quality_loop(
         ctx,
-        spec=LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose, max_tokens=550),
+        spec=LoopSpec(SYSTEM, VERIFY, REVISE, build_user(facts, evidence), DRAFT_SCHEMA, compose, max_tokens=1200),
         facts=facts,
         evidence=evidence,
     )
@@ -98,6 +122,28 @@ def main(argv: list[str] | None = None) -> int:
         print(f"backtest report {path}")
         return 0
     return cli_main(INSIGHT_ID, build, argv)
+
+
+def _enrich_week_pulse_from_datasets(facts: dict[str, Any]) -> None:
+    datasets = facts.get("datasets") or {}
+    rank = datasets.get("sector_rank_week") or []
+    if not rank:
+        return
+    pulse = facts.setdefault("week_pulse", {})
+    if not pulse.get("best_index") and rank:
+        top = rank[0]
+        pulse["best_index"] = {
+            "display": top.get("display"),
+            "week_change_pct": top.get("week_change_pct"),
+        }
+    if not pulse.get("worst_index"):
+        negatives = [r for r in reversed(rank) if (r.get("week_change_pct") or 0) < 0]
+        if negatives:
+            bottom = negatives[0]
+            pulse["worst_index"] = {
+                "display": bottom.get("display"),
+                "week_change_pct": bottom.get("week_change_pct"),
+            }
 
 
 def _facts(ctx: RunContext, nifty: dict) -> dict:

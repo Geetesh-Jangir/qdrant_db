@@ -1,0 +1,1 @@
+"""CRN equity-fund week insights (isolated package under new/)."""

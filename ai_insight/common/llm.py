@@ -56,6 +56,7 @@ def generate_json(
     config: CommonConfig | None = None,
     call: Callable[..., Any] | None = None,
     kind: str = "draft",
+    normalize: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> LlmJsonResult:
     cfg = config or load_config()
     invoke = call or _default_call
@@ -89,6 +90,8 @@ def generate_json(
         if not isinstance(parsed, dict):
             last_error = "reply was not a JSON object"
         else:
+            if normalize is not None:
+                parsed = normalize(parsed)
             errors = list(validator.iter_errors(parsed))
             if not errors:
                 usage.provider = provider or usage.provider

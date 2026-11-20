@@ -45,6 +45,30 @@ def test_pick_evidence_keeps_top_by_weight():
     assert picked[0].full_text == "full a"
 
 
+def test_validator_accepts_multiparagraph_narrative():
+    beats = {
+        "what_happened": "Nifty edged up today.",
+        "why": "Crude cooled a little earlier this week.",
+        "impacted": "Energy names saw fewer negative headlines.",
+        "investor_meaning": "Volatility may ease slightly.",
+    }
+    body = "\n\n".join(beats.values())
+    env = Envelope(
+        insight_id="market_driver_digest",
+        trading_date="2026-11-16",
+        as_of_ist="2026-11-16T18:00:00+05:30",
+        status="ok",
+        headline="Nifty up today",
+        body=body,
+        chips=[Chip(label="Nifty 50", value="25000 (+0.5%)", tone="positive")],
+        sources=[Source(title="Oil", url="https://a", source="Mint", published_at="t")],
+        facts={"nifty_change_pct": 0.5, "narrative_beats": beats},
+        meta=Meta(),
+    )
+    result = validate_insight(env, "Crude cooled to 91 dollars.")
+    assert result.ok, result.errors
+
+
 def test_validator_accepts_numbers_from_evidence():
     env = Envelope(
         insight_id="fii_dii_flow_narrative",

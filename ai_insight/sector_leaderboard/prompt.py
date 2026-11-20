@@ -5,7 +5,7 @@ from __future__ import annotations
 from ai_insight.common.prose_guard import READER_VOICE
 from ai_insight.sector_leaderboard.schema import StoryScore
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v4"
 
 SYSTEM = """You write two short news themes for the week's winning and losing sectors.
 
