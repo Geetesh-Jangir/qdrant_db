@@ -11,6 +11,7 @@ from news_rag.llm_client import LlmCallResult, call_json_llm
 
 from new.equity_week_llm import equity_week_llm_kwargs
 from new.stock_explain import _short_name, clamp_why_paragraph, polish_why
+from new.week_window import strip_portfolio_pct_prose
 
 _COMPOSE_SYSTEM = """You compose the weekly mutual fund insight for a portfolio owner.
 
@@ -21,25 +22,28 @@ Return JSON with:
 - summary_opener, summary_losses, summary_extra_drag (optional empty), summary_overall
 - gainers[], losers[] for the detail section below the summary
 
-TOP SUMMARY — four parts (plain English, name stocks + brief reason, NOT sector buckets like "consumer durables"):
+TOP SUMMARY — one connected story (not ten separate stock blurbs). Four parts:
 
-summary_opener — one sentence (MUST include fund week NAV change from nav_change_1w_pct once, e.g. "NAV up 0.4% for the week" or "NAV slipped 0.3%"):
-"[scheme_name], which makes up [portfolio_pct_of_book]% of your portfolio, [gained slightly / lost a little / was about flat] this week with NAV [up/down] [nav_change_1w_pct]%, supported by [2–3 gainer names] and short reasons in everyday words."
+When sector_clusters in FACTS has has_news true, you MAY tie 2–3 named stocks to one verified sector driver from article_titles/snippets (e.g. banking strength). Do NOT invent a sector theme if has_news is false or sector_clusters is empty.
 
-summary_losses — one sentence:
-"Losses in [loser names] weighed on returns, with [one combined reason — fuel costs, stake sale, weak profits]."
+summary_opener — one sentence (MUST include fund week NAV change from nav_change_1w_pct once):
+"[scheme_name], which makes up [portfolio_pct_of_book]% of your portfolio, [gained slightly / lost a little / was about flat] this week with NAV [up/down] [nav_change_1w_pct]%, supported by [sector-backed driver when evidence exists, else 2–3 gainer names + brief reasons]."
+
+summary_losses — one sentence on offsetting weakness (sector or named losers):
+"Losses in [loser names or weak sector] weighed on returns, with [one combined news-backed reason]."
 
 summary_extra_drag — optional one sentence (empty string if nothing extra):
 "[Name] added to the decline as [specific reason from drafts]."
 
 summary_overall — one sentence starting with "Overall,":
-"Overall, gains in [names or themes] were [largely offset by / outweighed by] weakness in [names or themes], leaving the fund [marginally positive / slightly negative / about flat]."
+"Overall, gains in [drivers] were [largely offset by / outweighed by] weakness in [offsets], leaving the fund [marginally positive / slightly negative / about flat]."
+
+Use attribution.summary_line if present — do not claim you explained 100% of NAV when residual is large.
 
 STYLE (do not copy names blindly — use FACTS):
-"Invesco India Large & Mid Cap Fund, which makes up 41.4% of your portfolio, gained slightly this week, supported by strong buying in Max Healthcare and higher electronics revenue at Amber Enterprises."
-"Losses in Sai Life Sciences and InterGlobe Aviation weighed on returns, with rising airline fuel costs pressuring profitability."
-"Aditya Infotech added to the decline as a major shareholder sold a significant stake, overshadowing strong profit growth."
-"Overall, gains in healthcare and industrial holdings were largely offset by weakness in other stocks, leaving the fund marginally positive."
+"HSBC Value Fund gained 0.35% this week, supported by strength in banking stocks — several bank holdings benefited from firmer credit growth, while HDFC Bank rose on its own earnings update."
+"Losses in IT names weighed on returns, as softer client-spending news hit the sector."
+"Overall, gains in banking were partly offset by weakness in IT, leaving the fund marginally positive."
 
 DETAIL BODY — gainers/losers with has_news only; change_1w_pct in JSON; why 2–4 sentences, no heavy numbers in why text.
 
@@ -53,7 +57,7 @@ Return JSON: {"summary_opener", "summary_losses", "summary_extra_drag", "summary
 
 Follow the four-part format and STYLE in the user message. Use scheme_name and portfolio_pct from FACTS.
 Include nav_change_1w_pct in summary_opener. Use everyday words; briefly explain any jargon.
-Name real stocks from gainer_ideas and loser_ideas. Never ask for more data."""
+Name real stocks from gainer_ideas and loser_ideas. Use sector_clusters only when has_news is true. Never ask for more data."""
 
 _REFUSAL = re.compile(
     r"(do not have the fund|not provided|please send|cannot complete|share the fund details)",
@@ -162,7 +166,52 @@ def _theme_hint(why: str, *, max_words: int = 18) -> str:
     return clamp_why_paragraph(first, max_words=max_words)
 
 
-def _facts_payload(facts: dict[str, Any], gainers: list[dict[str, Any]], losers: list[dict[str, Any]]) -> dict[str, Any]:
+def _sector_themes_for_facts(sector_news: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for block in sector_news or []:
+        if not isinstance(block, dict):
+            continue
+        articles = block.get("articles") or []
+        has_news = bool(block.get("usable_news") and articles)
+        titles: list[str] = []
+        snippets: list[str] = []
+        for art in articles[:3]:
+            if not isinstance(art, dict):
+                continue
+            t = str(art.get("title") or "").strip()
+            if t:
+                titles.append(t[:220])
+            sn = str(art.get("snippet") or "").strip()
+            if sn:
+                snippets.append(sn[:280])
+        stocks = block.get("holding_names") or []
+        if not stocks and block.get("holdings"):
+            stocks = [
+                _short_name(str(h.get("instrument_name") or ""))
+                for h in block.get("holdings") or []
+                if isinstance(h, dict)
+            ]
+        out.append(
+            {
+                "sector": block.get("sector_key"),
+                "side": block.get("side"),
+                "stocks": stocks,
+                "trigger": block.get("trigger"),
+                "has_news": has_news,
+                "article_titles": titles,
+                "article_snippets": snippets,
+            }
+        )
+    return out
+
+
+def _facts_payload(
+    facts: dict[str, Any],
+    gainers: list[dict[str, Any]],
+    losers: list[dict[str, Any]],
+    *,
+    omit_portfolio_pct: bool = False,
+) -> dict[str, Any]:
     stock_news = facts.get("stock_news") or []
     drafts = []
     for block in stock_news:
@@ -183,31 +232,59 @@ def _facts_payload(facts: dict[str, Any], gainers: list[dict[str, Any]], losers:
         nav_f = float(nav) if nav is not None else None
     except (TypeError, ValueError):
         nav_f = None
-    return {
+    out: dict[str, Any] = {
         "scheme_name": _fund_display_name(scheme),
-        "portfolio_pct_of_book": facts.get("portfolio_pct"),
         "nav_change_1w_pct": nav_f,
         "gainer_ideas": [{"name": g["name"], "theme": _theme_hint(g["why"])} for g in gainers],
         "loser_ideas": [{"name": l["name"], "theme": _theme_hint(l["why"])} for l in losers],
         "draft_insights": drafts,
+        "sector_clusters": _sector_themes_for_facts(facts.get("sector_news") or []),
+        "attribution": facts.get("attribution") or {},
         "nav_daily": facts.get("nav_daily") or [],
         "prepared_gainers": gainers,
         "prepared_losers": losers,
     }
+    if not omit_portfolio_pct:
+        out["portfolio_pct_of_book"] = facts.get("portfolio_pct")
+    return out
 
 
-def _compose_user_message(facts: dict[str, Any], gainers: list[dict[str, Any]], losers: list[dict[str, Any]]) -> str:
-    payload = _facts_payload(facts, gainers, losers)
+def _compose_user_message(
+    facts: dict[str, Any],
+    gainers: list[dict[str, Any]],
+    losers: list[dict[str, Any]],
+    *,
+    omit_portfolio_pct: bool = False,
+) -> str:
+    payload = _facts_payload(facts, gainers, losers, omit_portfolio_pct=omit_portfolio_pct)
+    extra = (
+        "\n\nDo not mention portfolio weight or percent of the investor book."
+        if omit_portfolio_pct
+        else ""
+    )
     return (
         "FACTS:\n"
         f"{json.dumps(payload, ensure_ascii=False, indent=2)}\n\n"
-        "Fill all four summary_* fields using specific stock names from gainer_ideas / loser_ideas."
+        "Fill all four summary_* fields as one fund-level story. Use sector_clusters when has_news is true; "
+        "otherwise use gainer_ideas / loser_ideas stock names only."
+        f"{extra}"
     )
 
 
-def _summary_user_message(facts: dict[str, Any], gainers: list[dict[str, Any]], losers: list[dict[str, Any]]) -> str:
-    payload = _facts_payload(facts, gainers, losers)
-    return "FACTS:\n" + json.dumps(payload, ensure_ascii=False, indent=2)
+def _summary_user_message(
+    facts: dict[str, Any],
+    gainers: list[dict[str, Any]],
+    losers: list[dict[str, Any]],
+    *,
+    omit_portfolio_pct: bool = False,
+) -> str:
+    payload = _facts_payload(facts, gainers, losers, omit_portfolio_pct=omit_portfolio_pct)
+    extra = (
+        " Do not mention portfolio weight or percent of the book."
+        if omit_portfolio_pct
+        else ""
+    )
+    return "FACTS:\n" + json.dumps(payload, ensure_ascii=False, indent=2) + extra
 
 
 def _clean_summary_sentence(text: str, *, max_words: int = 65) -> str:
@@ -267,6 +344,26 @@ def _parse_mover_rows(
     return out or list(fallback)
 
 
+def _dry_mover_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for h in rows or []:
+        if not isinstance(h, dict):
+            continue
+        name = _short_name(str(h.get("instrument_name") or h.get("name") or ""))
+        if not name:
+            continue
+        ch = h.get("change_1w_pct")
+        try:
+            ch_f = round(float(ch), 2) if ch is not None else None
+        except (TypeError, ValueError):
+            ch_f = None
+        why = str(h.get("why") or "").strip()
+        if not why:
+            why = "Weekly price move from market data (dry run — no news or LLM)."
+        out.append({"name": name, "change_1w_pct": ch_f, "why": why})
+    return out
+
+
 def _insight_text(fund_summary: str, gainers: list[dict[str, Any]], losers: list[dict[str, Any]]) -> str:
     parts: list[str] = []
     if fund_summary:
@@ -304,6 +401,13 @@ def _package(
         for art in block.get("articles") or []:
             u = art.get("url")
             if u:
+                sources.append(str(u))
+    for block in facts.get("sector_news") or []:
+        if not block.get("usable_news"):
+            continue
+        for art in block.get("articles") or []:
+            u = art.get("url")
+            if u and str(u) not in sources:
                 sources.append(str(u))
     opening = fund_summary.split("\n\n")[0].strip() if fund_summary else ""
     insight = _insight_text(fund_summary, gainers, losers)
@@ -345,13 +449,17 @@ def _ensure_fund_summary(
     gainers: list[dict[str, Any]],
     losers: list[dict[str, Any]],
     parsed: dict[str, Any] | None,
+    *,
+    omit_portfolio_pct: bool = False,
 ) -> str:
     text = _join_summary(parsed or {})
+    if omit_portfolio_pct:
+        text = strip_portfolio_pct_prose(text)
     if _summary_ok(text):
         return text
     summary_only = _llm_call(
         _SUMMARY_ONLY_SYSTEM,
-        _summary_user_message(facts, gainers, losers),
+        _summary_user_message(facts, gainers, losers, omit_portfolio_pct=omit_portfolio_pct),
         _SUMMARY_SCHEMA,
         "equity_fund_week_summary",
     )
@@ -362,25 +470,51 @@ def _ensure_fund_summary(
     return text
 
 
-def compose_fund_narrative(facts: dict[str, Any], *, dry_run: bool = False) -> dict[str, Any]:
+def _finalize_summary(text: str, *, omit_portfolio_pct: bool) -> str:
+    if not omit_portfolio_pct:
+        return text
+    return strip_portfolio_pct_prose(text)
+
+
+def compose_fund_narrative(
+    facts: dict[str, Any],
+    *,
+    dry_run: bool = False,
+    omit_portfolio_pct: bool = False,
+) -> dict[str, Any]:
     scheme = str(facts.get("scheme_name") or "Fund")
     gainers, losers = _stock_entries(facts.get("stock_news") or [])
 
     if dry_run:
-        nav = facts.get("nav_1w_pct")
         label = _fund_display_name(scheme)
-        fund_summary = f"{label} week NAV about {nav}% (dry run)."
-        return _package(scheme, fund_summary, gainers, losers, facts, headline=f"{label} — week", source="dry_run")
+        g_rows = _dry_mover_rows(facts.get("gainers") or [])
+        l_rows = _dry_mover_rows(facts.get("losers") or [])
+        if not g_rows and not l_rows:
+            g_rows, l_rows = gainers, losers
+        attr = facts.get("attribution") or {}
+        summary_line = str(attr.get("summary_line") or "").strip()
+        nav = facts.get("nav_1w_pct")
+        if summary_line:
+            fund_summary = f"{summary_line} (Dry run — prices only.)"
+        elif nav is not None:
+            fund_summary = f"{label}: fund NAV moved {nav:+.2f}% over the last week (dry run — prices only)."
+        else:
+            fund_summary = f"{label} — weekly facts loaded (dry run — prices only)."
+        fund_summary = _finalize_summary(fund_summary, omit_portfolio_pct=omit_portfolio_pct)
+        return _package(scheme, fund_summary, g_rows, l_rows, facts, headline=f"{label} — week", source="dry_run")
 
     parsed = _llm_call(
         _COMPOSE_SYSTEM,
-        _compose_user_message(facts, gainers, losers),
+        _compose_user_message(facts, gainers, losers, omit_portfolio_pct=omit_portfolio_pct),
         _RESPONSE_SCHEMA,
         "equity_fund_week_compose",
     )
 
     if not parsed:
-        fund_summary = _ensure_fund_summary(facts, gainers, losers, None)
+        fund_summary = _finalize_summary(
+            _ensure_fund_summary(facts, gainers, losers, None, omit_portfolio_pct=omit_portfolio_pct),
+            omit_portfolio_pct=omit_portfolio_pct,
+        )
         return _package(
             scheme,
             fund_summary,
@@ -391,7 +525,10 @@ def compose_fund_narrative(facts: dict[str, Any], *, dry_run: bool = False) -> d
             source="stitched",
         )
 
-    fund_summary = _ensure_fund_summary(facts, gainers, losers, parsed)
+    fund_summary = _finalize_summary(
+        _ensure_fund_summary(facts, gainers, losers, parsed, omit_portfolio_pct=omit_portfolio_pct),
+        omit_portfolio_pct=omit_portfolio_pct,
+    )
     out_gainers = _parse_mover_rows(parsed.get("gainers"), fallback=gainers)
     out_losers = _parse_mover_rows(parsed.get("losers"), fallback=losers)
     headline = str(parsed.get("headline") or "").strip() or f"{_fund_display_name(scheme)} — week"

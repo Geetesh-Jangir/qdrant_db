@@ -30,13 +30,18 @@
   <header class="header">
     <div>
       <h1>Equity fund week insights</h1>
-      <p class="muted">CRN → equity funds → 1-week NAV and holding moves with per-fund LLM summary.</p>
+      <p class="muted">CRN or fund ISIN → last 7 days (settled) NAV, prices, and news → per-fund LLM summary.</p>
     </div>
   </header>
   <div class="form-row">
     <div style="flex: 1; min-width: 240px;">
-      <label for="crn">CRN</label>
+      <label for="crn">CRN (portfolio)</label>
       <textarea id="crn" rows="2" placeholder="CRN-..." style="width: 100%; font: inherit; padding: 0.5rem; border-radius: 8px; border: 1px solid #e2e8f0;"></textarea>
+    </div>
+    <div style="flex: 1; min-width: 240px;">
+      <label for="isin">Fund ISIN (single equity fund)</label>
+      <textarea id="isin" rows="2" placeholder="INF..." style="width: 100%; font: inherit; padding: 0.5rem; border-radius: 8px; border: 1px solid #e2e8f0;"></textarea>
+      <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0;">Equity schemes only. Fill CRN or ISIN, not both.</p>
     </div>
     <div>
       <label for="top_n">Top N funds (optional)</label>
@@ -50,6 +55,6 @@
   <div id="error" class="err progress" hidden></div>
   <main id="main"></main>
   <script src="/static/rag-api.js?v=5"></script>
-  <script src="/equity-fund-week/static/app.js?v=12"></script>
+  <script src="/equity-fund-week/static/app.js?v=14"></script>
 </body>
 </html>

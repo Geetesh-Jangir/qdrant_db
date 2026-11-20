@@ -8,8 +8,10 @@ from typing import Any, Literal
 
 from news_rag.news_entity_resolve import resolve_corpus_entity
 
-from ai_insight.common.time_ist import ist_now
-from ai_insight.holding_insights.news import get_top_news, news_window
+from ai_insight.common.time_ist import ist_now, rolling_window
+from ai_insight.holding_insights.news import get_top_news
+
+from new.week_window import EQUITY_WEEK_DAYS, equity_week_window, filter_articles_to_week
 
 Move = Literal["up", "down"]
 DEFAULT_PER_STOCK = 8
@@ -32,16 +34,24 @@ def _slim_article(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _news_window(trading_date: date, window_days: int) -> tuple[str, str]:
+    days = max(1, min(int(window_days), EQUITY_WEEK_DAYS))
+    if days == EQUITY_WEEK_DAYS:
+        return equity_week_window(trading_date)
+    return rolling_window(trading_date, days=days)
+
+
 def _holding_rows(
     entity_name: str,
     *,
     k: int = DEFAULT_PER_STOCK,
     trading_date: date | None = None,
+    window_days: int = EQUITY_WEEK_DAYS,
 ) -> list[dict[str, Any]]:
     """Top-k articles from gated Qdrant (signed_score, relevance, impact, about)."""
     today = trading_date or ist_now().date()
-    window = news_window(today)
-    bundle = get_top_news(entity_name, window, k=k)
+    window = _news_window(today, window_days)
+    bundle = get_top_news(entity_name, window, k=k, trading_date=None)
     rows: list[dict[str, Any]] = []
     for i, art in enumerate(bundle.articles):
         rows.append(
@@ -58,7 +68,7 @@ def _holding_rows(
                 "_gate_rank": i + 1,
             }
         )
-    return rows
+    return filter_articles_to_week(rows, window)
 
 
 def fetch_stock_news(
@@ -66,12 +76,13 @@ def fetch_stock_news(
     move: Move,
     *,
     fund_name: str = "",
-    window_days: int = 10,
+    window_days: int = EQUITY_WEEK_DAYS,
     limit: int = DEFAULT_PER_STOCK,
 ) -> list[dict[str, Any]]:
+    del move, fund_name  # entity retrieval is move-agnostic; fund name unused here
     entity = resolve_corpus_entity(instrument_name) or instrument_name
     want = max(1, min(int(limit), DEFAULT_PER_STOCK))
-    rows = _holding_rows(entity, k=want)
+    rows = _holding_rows(entity, k=want, window_days=window_days)
     return [_slim_article(r) for r in rows]
 
 
@@ -107,7 +118,7 @@ def news_for_movers(
     losers: list[dict[str, Any]],
     *,
     fund_name: str,
-    window_days: int = 10,
+    window_days: int = EQUITY_WEEK_DAYS,
     per_stock: int = DEFAULT_PER_STOCK,
 ) -> list[dict[str, Any]]:
     tasks: list[tuple[dict[str, Any], Move]] = []

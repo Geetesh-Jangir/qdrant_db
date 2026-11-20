@@ -6,7 +6,26 @@ from datetime import date
 
 import pytest
 
-from new.compose_llm import _stock_entries, compose_fund_narrative
+from new.compose_llm import (
+    _facts_payload,
+    _sector_themes_for_facts,
+    _stock_entries,
+    compose_fund_narrative,
+)
+from new.fund_by_isin import (
+    fund_row_from_detail,
+    is_equity_scheme_type,
+    load_equity_fund_by_isin,
+)
+from new.router import EquityFundWeekRequest
+from new.run import run_equity_fund_week_by_isin
+from new.sector_clusters import SectorCluster
+from new.sector_news import fetch_sector_cluster_news
+from new.week_window import (
+    EQUITY_WEEK_DAYS,
+    filter_articles_to_week,
+    strip_portfolio_pct_prose,
+)
 from new.equity_week_llm import equity_week_llm_kwargs
 from new.nav_settled import nav_daily_week_settled
 from new.stock_explain import clamp_why_paragraph, polish_why, scrub_recap_voice
@@ -138,6 +157,27 @@ def test_compose_structured_narrative():
     assert narr["narrative_source"] == "dry_run"
 
 
+def test_compose_dry_run_uses_holding_movers():
+    narr = compose_fund_narrative(
+        {
+            "scheme_name": "Test Fund",
+            "nav_1w_pct": 0.42,
+            "gainers": [
+                {"instrument_name": "State Bank of India", "change_1w_pct": 6.4, "impact_1w_pct": 0.2},
+            ],
+            "losers": [
+                {"instrument_name": "Tech Mahindra Limited", "change_1w_pct": -2.9, "impact_1w_pct": -0.08},
+            ],
+            "stock_news": [],
+            "attribution": {"summary_line": "Fund NAV moved +0.42% over the last week."},
+        },
+        dry_run=True,
+    )
+    assert len(narr["gainers"]) == 1 and narr["gainers"][0]["name"] == "State Bank of India"
+    assert len(narr["losers"]) == 1
+    assert "dry run" in narr["fund_summary"].lower()
+
+
 def test_news_filter_drops_weak():
     row = {
         "title": "Market wrap",
@@ -238,6 +278,23 @@ def test_equity_filter_from_workspace(monkeypatch):
     assert meta["equity_fund_count"] == 1
 
 
+def test_sector_themes_for_facts_payload():
+    sector_news = [
+        {
+            "sector_key": "Banks",
+            "side": "up",
+            "trigger": "pair",
+            "holding_names": ["SBI", "PNB"],
+            "usable_news": True,
+            "articles": [{"title": "Credit growth picks up", "snippet": "Banks lend more.", "url": "https://x"}],
+        }
+    ]
+    themes = _sector_themes_for_facts(sector_news)
+    assert themes[0]["has_news"] is True
+    assert themes[0]["sector"] == "Banks"
+    assert "Credit" in themes[0]["article_titles"][0]
+
+
 def test_cushion_logic():
     from new.fund_context import cushion_funds
 
@@ -248,3 +305,138 @@ def test_cushion_logic():
     nav = {"A": -1.2, "B": 2.5}
     cush = cushion_funds(funds[0], nav, funds, -1.2)
     assert cush and cush[0]["scheme_name"] == "Fund B"
+
+
+def test_is_equity_scheme_type():
+    assert is_equity_scheme_type({"scheme_type": "Equity"})
+    assert is_equity_scheme_type({"scheme_type": "equity"})
+    assert not is_equity_scheme_type({"scheme_type": "Debt"})
+
+
+def test_fund_row_from_detail():
+    row = fund_row_from_detail(
+        {
+            "isin": "INF123456789",
+            "fund_name": "Test Growth",
+            "category": "Large Cap",
+            "scheme_type": "Equity",
+        }
+    )
+    assert row.isin == "INF123456789"
+    assert row.scheme_name == "Test Growth"
+    assert row.portfolio_pct == 0.0
+
+
+def test_compose_omit_portfolio_facts_payload():
+    payload = _facts_payload(
+        {"scheme_name": "X", "nav_1w_pct": 1.0, "portfolio_pct": 12.0},
+        [],
+        [],
+        omit_portfolio_pct=True,
+    )
+    assert "portfolio_pct_of_book" not in payload
+
+
+def test_strip_portfolio_pct_prose():
+    raw = "ABC Fund, which makes up 12.5% of your portfolio, gained slightly this week."
+    out = strip_portfolio_pct_prose(raw)
+    assert "portfolio" not in out.lower()
+    assert "ABC Fund" in out
+
+
+def test_equity_week_request_validator():
+    with pytest.raises(ValueError):
+        EquityFundWeekRequest(crn="CRN-abc", isin="INF123456789")
+    with pytest.raises(ValueError):
+        EquityFundWeekRequest()
+    ok = EquityFundWeekRequest(isin="INF123456789")
+    assert ok.isin == "INF123456789"
+
+
+def test_run_by_isin_not_equity(monkeypatch):
+    def fake_detail(_isin: str):
+        return {"isin": "INF123456789", "fund_name": "Liquid", "scheme_type": "Debt", "category": "Liquid"}
+
+    monkeypatch.setattr("new.fund_by_isin.fetch_fund_detail_for_week", fake_detail)
+    out = run_equity_fund_week_by_isin("INF123456789")
+    assert out["status"] == "not_equity"
+
+
+def test_load_equity_fund_by_isin_ok(monkeypatch):
+    def fake_detail(_isin: str):
+        return {
+            "isin": "INF123456789",
+            "fund_name": "Bluechip",
+            "scheme_type": "Equity",
+            "category": "Large Cap",
+        }
+
+    monkeypatch.setattr("new.fund_by_isin.fetch_fund_detail_for_week", fake_detail)
+    fund, meta = load_equity_fund_by_isin("INF123456789")
+    assert fund.scheme_name == "Bluechip"
+    assert meta["mode"] == "isin"
+
+
+def test_filter_articles_to_week():
+    window = ("2026-11-10T00:00:00+05:30", "2026-11-17T23:59:59+05:30")
+    inside = [{"published_at": "2026-11-15T10:00:00+05:30", "title": "ok"}]
+    outside = [{"published_at": "2026-11-01T10:00:00+05:30", "title": "old"}]
+    kept = filter_articles_to_week(inside + outside, window)
+    assert len(kept) == 1
+    assert kept[0]["title"] == "ok"
+
+
+def test_sector_news_no_extended_window(monkeypatch):
+    calls: list[int] = []
+
+    def fake_layered(*, window_days: int, **kwargs):
+        del kwargs
+        calls.append(window_days)
+        return {"ok": True, "data": {"articles": []}}
+
+    monkeypatch.setattr("news_rag.tools.run_layered_news", fake_layered)
+    cluster = SectorCluster(
+        sector_key="Banks",
+        side="up",
+        holdings=[{"instrument_name": "HDFC Bank", "impact_1w_pct": 0.2}],
+        trigger="pair",
+    )
+    out = fetch_sector_cluster_news(
+        cluster,
+        fund_name="Test Fund",
+        window_days=EQUITY_WEEK_DAYS,
+        allow_extended_window=False,
+    )
+    assert out["window_days_used"] == EQUITY_WEEK_DAYS
+    assert calls == [EQUITY_WEEK_DAYS]
+
+
+def test_fund_context_uses_week_window(monkeypatch):
+    captured: dict[str, int] = {}
+
+    def fake_movers(*args, **kwargs):
+        captured["window_days"] = kwargs.get("window_days")
+        return []
+
+    def fake_sector(*args, **kwargs):
+        captured["sector_window"] = kwargs.get("window_days")
+        captured["allow_ext"] = kwargs.get("allow_extended_window")
+        return []
+
+    monkeypatch.setattr("new.fund_context.news_for_movers", fake_movers)
+    monkeypatch.setattr("new.fund_context.news_for_sector_clusters", fake_sector)
+    class _Idx:
+        def fetch_fund_detail_from_api(self, _isin: str):
+            return {}
+
+    monkeypatch.setattr("new.fund_context.get_fund_index", lambda: _Idx())
+    monkeypatch.setattr("new.fund_context.fetch_raw_nav_history", lambda _s: [])
+    monkeypatch.setattr("new.fund_context.lookup_instrument", lambda _n: None)
+
+    from new.fund_context import build_fund_facts
+
+    fund = FundRow("INF1", "F", "large cap", 0, 0)
+    build_fund_facts(fund, [fund], {"INF1": 0.1}, fetch_news=True, dry_run=False)
+    assert captured["window_days"] == EQUITY_WEEK_DAYS
+    assert captured["sector_window"] == EQUITY_WEEK_DAYS
+    assert captured["allow_ext"] is False

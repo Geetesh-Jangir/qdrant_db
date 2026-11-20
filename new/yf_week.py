@@ -8,6 +8,8 @@ from typing import Any
 
 from ai_insight.common.time_ist import ist_now
 
+from new.week_window import EQUITY_WEEK_DAYS
+
 logger = logging.getLogger(__name__)
 
 
@@ -72,11 +74,11 @@ def stock_daily_week_settled(
     ticker: str,
     *,
     as_of: date | None = None,
-    trading_days: int = 6,
+    trading_days: int = EQUITY_WEEK_DAYS,
 ) -> list[dict[str, Any]]:
     """Daily close (+ volume) for the last settled week, excluding today IST."""
     today = as_of or ist_now().date()
-    want = max(2, min(int(trading_days), 10))
+    want = max(2, min(int(trading_days), EQUITY_WEEK_DAYS))
     for sym in [ticker] if ticker.endswith((".NS", ".BO")) else [f"{ticker}.NS", f"{ticker}.BO"]:
         bars = _history_settled_bars(sym, today=today, with_volume=True)
         if len(bars) < want:

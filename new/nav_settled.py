@@ -8,6 +8,8 @@ from typing import Any
 from ai_insight.common.time_ist import ist_now
 from historical_data.nav_service import _calculate_window_stats
 
+from new.week_window import EQUITY_WEEK_DAYS
+
 
 def settled_nav_records(
     records_asc: list[dict[str, Any]],
@@ -30,7 +32,7 @@ def nav_change_1w_settled(
     trimmed = settled_nav_records(records_asc, as_of=as_of)
     if len(trimmed) < 2:
         return None
-    return _calculate_window_stats(trimmed, days=7)
+    return _calculate_window_stats(trimmed, days=EQUITY_WEEK_DAYS)
 
 
 def nav_daily_week_settled(

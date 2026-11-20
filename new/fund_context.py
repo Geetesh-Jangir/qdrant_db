@@ -8,11 +8,14 @@ from typing import Any
 
 from historical_data.nav_service import fetch_raw_nav_history
 from news_rag.fund_search import get_fund_index
+from new.sector_clusters import detect_sector_clusters
+from new.sector_news import news_for_sector_clusters
 from new.stock_news import news_for_movers
 
 from new.nav_settled import nav_change_1w_settled, nav_daily_week_settled
 from new.portfolio_equity import FundRow
 from new.security_master import lookup_instrument
+from new.week_window import EQUITY_WEEK_DAYS
 from new.yf_week import stock_change_1w_settled, stock_daily_week_settled
 
 TOP_MOVER_COUNT = 5
@@ -168,6 +171,8 @@ class FundFacts:
     drivers: list[dict[str, Any]] = field(default_factory=list)
     cushioned_by: list[dict[str, Any]] = field(default_factory=list)
     stock_news: list[dict[str, Any]] = field(default_factory=list)
+    sector_clusters: list[dict[str, Any]] = field(default_factory=list)
+    sector_news: list[dict[str, Any]] = field(default_factory=list)
     limits: list[str] = field(default_factory=list)
     attribution: dict[str, Any] = field(default_factory=dict)
     gainers: list[dict[str, Any]] = field(default_factory=list)
@@ -189,6 +194,8 @@ class FundFacts:
             "drivers": self.drivers,
             "cushioned_by": self.cushioned_by,
             "stock_news": self.stock_news,
+            "sector_clusters": self.sector_clusters,
+            "sector_news": self.sector_news,
             "nav_daily": self.nav_daily,
             "limits": self.limits,
         }
@@ -315,11 +322,44 @@ def build_fund_facts(
     _attach_daily_bars(enriched)
     gainers, losers = split_gainers_losers(enriched, limit=TOP_MOVER_COUNT)
     top_movers = gainers + losers
+    clusters, cluster_limits = detect_sector_clusters(gainers, losers)
+    limits.extend(cluster_limits)
+    sector_clusters_serialized = [c.to_dict() for c in clusters]
     attribution = attribution_summary(top_movers, nav_1w)
     drivers = select_drivers(gainers, losers, sentiment)
     stock_news: list[dict[str, Any]] = []
+    sector_news: list[dict[str, Any]] = []
     if fetch_news and not dry_run:
-        stock_news = news_for_movers(gainers, losers, fund_name=fund.scheme_name, window_days=10, per_stock=8)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_stock = pool.submit(
+                news_for_movers,
+                gainers,
+                losers,
+                fund_name=fund.scheme_name,
+                window_days=EQUITY_WEEK_DAYS,
+                per_stock=8,
+            )
+            fut_sector = pool.submit(
+                news_for_sector_clusters,
+                clusters,
+                fund_name=fund.scheme_name,
+                window_days=EQUITY_WEEK_DAYS,
+                allow_extended_window=False,
+            )
+            try:
+                stock_news = fut_stock.result()
+            except Exception:
+                stock_news = []
+                limits.append("stock_news_failed")
+            try:
+                sector_news = fut_sector.result()
+            except Exception:
+                sector_news = []
+                limits.append("sector_news_failed")
+        for block in sector_news:
+            if not block.get("usable_news"):
+                sk = block.get("sector_key") or "unknown"
+                limits.append(f"sector_news_empty:{sk}")
         movers_daily = [
             {
                 "instrument_name": h["instrument_name"],
@@ -353,6 +393,8 @@ def build_fund_facts(
         drivers=drivers,
         cushioned_by=cushioned,
         stock_news=stock_news,
+        sector_clusters=sector_clusters_serialized,
+        sector_news=sector_news,
         nav_daily=nav_daily,
         limits=limits,
     )
