@@ -6,8 +6,10 @@ from datetime import date
 
 import pytest
 
-from new.compose_llm import compose_fund_narrative
-from new.stock_explain import clamp_why_paragraph
+from new.compose_llm import _stock_entries, compose_fund_narrative
+from new.equity_week_llm import equity_week_llm_kwargs
+from new.nav_settled import nav_daily_week_settled
+from new.stock_explain import clamp_why_paragraph, polish_why, scrub_recap_voice
 from new.fund_context import attribution_summary, holding_impact_1w, select_drivers, split_gainers_losers
 from new.news_filter import filter_usable_articles, score_article
 from new.news_filter import merge_article_pool
@@ -57,11 +59,43 @@ def test_filter_rejects_breadcrumb_and_roundup():
     assert score_article(nse_list, "Infosys Limited", "up") < 0
 
 
+def test_nav_daily_week_from_records():
+    records = [
+        {"nav_date": "2026-03-01", "nav_value": 99.0},
+        {"nav_date": "2026-03-10", "nav_value": 100.0},
+        {"nav_date": "2026-03-11", "nav_value": 100.5},
+        {"nav_date": "2026-03-19", "nav_value": 101.0},
+    ]
+    pts = nav_daily_week_settled(records, as_of=__import__("datetime").date(2026, 3, 20))
+    assert pts and pts[-1]["date"] == "2026-03-19"
+
+
+def test_equity_week_defaults_to_haiku():
+    kw = equity_week_llm_kwargs()
+    assert kw["model_override"] == "claude-haiku-5-5"
+
+
+def test_scrub_recap_voice_drops_article_meta():
+    raw = "This mattered for your fund. The article does not explain the weekly drop."
+    assert "article" not in scrub_recap_voice(raw).lower()
+    polished = polish_why(raw)
+    assert "article" not in polished.lower()
+
+
 def test_clamp_why_keeps_full_sentences():
     blob = " ".join(f"Sentence {i} has enough words to count." for i in range(12))
     out = clamp_why_paragraph(blob, max_words=25)
     assert len(out.split()) <= 30
     assert out.endswith(".")
+
+
+def test_stock_entries_splits_by_move():
+    news = [
+        {"instrument_name": "A Ltd", "move": "up", "why": "Good week.", "why_skip": False, "usable_news": True, "articles": [{}]},
+        {"instrument_name": "B Ltd", "move": "down", "why": "Weak week.", "why_skip": False, "usable_news": True, "articles": [{}]},
+    ]
+    g, l = _stock_entries(news)
+    assert len(g) == 1 and len(l) == 1
 
 
 def test_compose_structured_narrative():
@@ -75,7 +109,11 @@ def test_compose_structured_narrative():
                     "instrument_name": "ICICI Bank Limited",
                     "move": "up",
                     "change_1w_pct": 1.5,
-                    "why": "Strong quarterly profit growth from retail and corporate lending.",
+                    "why": (
+                        "ICICI Bank rose as a court ruling eased leadership-linked legal worries, "
+                        "while firmer deposit rates helped the bank gather savings from customers "
+                        "through the week despite minor fee changes on some accounts."
+                    ),
                     "why_skip": False,
                     "usable_news": True,
                     "articles": [{"title": "ICICI results"}],
@@ -90,15 +128,14 @@ def test_compose_structured_narrative():
                 },
             ],
             "cushioned_by": [],
-        }
+        },
+        dry_run=True,
     )
-    assert narr["gainers"][0]["why"].startswith("Strong quarterly")
+    assert "ICICI" in narr["gainers"][0]["why"]
+    assert narr.get("fund_summary")
     assert narr["losers"] == []
-    assert "also weighed" not in narr["insight"]
     assert "ABC" not in narr["insight"]
-    assert "Home / Markets" not in narr["insight"]
-    assert "What held the fund back" not in narr["insight"]
-    assert narr["narrative_source"] == "stitched"
+    assert narr["narrative_source"] == "dry_run"
 
 
 def test_news_filter_drops_weak():

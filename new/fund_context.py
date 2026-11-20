@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -9,10 +10,10 @@ from historical_data.nav_service import fetch_raw_nav_history
 from news_rag.fund_search import get_fund_index
 from new.stock_news import news_for_movers
 
-from new.nav_settled import nav_change_1w_settled
+from new.nav_settled import nav_change_1w_settled, nav_daily_week_settled
 from new.portfolio_equity import FundRow
 from new.security_master import lookup_instrument
-from new.yf_week import stock_change_1w_settled
+from new.yf_week import stock_change_1w_settled, stock_daily_week_settled
 
 TOP_MOVER_COUNT = 5
 
@@ -171,6 +172,7 @@ class FundFacts:
     attribution: dict[str, Any] = field(default_factory=dict)
     gainers: list[dict[str, Any]] = field(default_factory=list)
     losers: list[dict[str, Any]] = field(default_factory=list)
+    nav_daily: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -187,8 +189,32 @@ class FundFacts:
             "drivers": self.drivers,
             "cushioned_by": self.cushioned_by,
             "stock_news": self.stock_news,
+            "nav_daily": self.nav_daily,
             "limits": self.limits,
         }
+
+
+def _daily_prices_for_holding(row: dict[str, Any]) -> tuple[str, list[dict[str, Any]]]:
+    name = str(row.get("instrument_name") or "")
+    ticker = row.get("ticker")
+    if not ticker:
+        return name, []
+    return name, stock_daily_week_settled(str(ticker))
+
+
+def _attach_daily_bars(holdings: list[dict[str, Any]]) -> None:
+    if not holdings:
+        return
+    workers = min(6, len(holdings))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {pool.submit(_daily_prices_for_holding, h): h for h in holdings}
+        for fut in as_completed(futs):
+            row = futs[fut]
+            try:
+                _, daily = fut.result()
+            except Exception:
+                daily = []
+            row["daily_prices"] = daily
 
 
 def nav_1w_for_isin(isin: str) -> float | None:
@@ -250,8 +276,13 @@ def build_fund_facts(
     if not detail:
         limits.append(f"fund_api:{fund.isin}")
 
+    nav_records = fetch_raw_nav_history(fund.isin)
+    nav_daily = nav_daily_week_settled(nav_records)
+    nav_stats = nav_change_1w_settled(nav_records)
     nav_1w = nav_by_isin.get(fund.isin)
-    if nav_1w is None:
+    if nav_1w is None and nav_stats:
+        nav_1w = float(nav_stats["change_pct"])
+    elif nav_1w is None:
         nav_1w = nav_1w_for_isin(fund.isin)
     sentiment = "positive" if (nav_1w is not None and nav_1w >= 0) else "negative"
 
@@ -281,6 +312,7 @@ def build_fund_facts(
             }
         )
 
+    _attach_daily_bars(enriched)
     gainers, losers = split_gainers_losers(enriched, limit=TOP_MOVER_COUNT)
     top_movers = gainers + losers
     attribution = attribution_summary(top_movers, nav_1w)
@@ -288,6 +320,22 @@ def build_fund_facts(
     stock_news: list[dict[str, Any]] = []
     if fetch_news and not dry_run:
         stock_news = news_for_movers(gainers, losers, fund_name=fund.scheme_name, window_days=10, per_stock=8)
+        movers_daily = [
+            {
+                "instrument_name": h["instrument_name"],
+                "change_1w_pct": h.get("change_1w_pct"),
+                "move": "up" if float(h.get("change_1w_pct") or 0) >= 0 else "down",
+                "daily_prices": h.get("daily_prices") or [],
+            }
+            for h in top_movers
+        ]
+        by_name = {h["instrument_name"]: h for h in top_movers}
+        for block in stock_news:
+            block["fund_nav_daily"] = nav_daily
+            block["movers_daily"] = movers_daily
+            row = by_name.get(block.get("instrument_name") or "")
+            if row:
+                block["daily_prices"] = row.get("daily_prices") or []
 
     cushioned = cushion_funds(fund, nav_by_isin, all_funds, nav_1w)
 
@@ -305,5 +353,6 @@ def build_fund_facts(
         drivers=drivers,
         cushioned_by=cushioned,
         stock_news=stock_news,
+        nav_daily=nav_daily,
         limits=limits,
     )

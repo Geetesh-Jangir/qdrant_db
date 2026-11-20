@@ -1,31 +1,39 @@
-"""Per-stock narrative from full news articles (fund week flow)."""
+"""Per-stock week story for fund holders (fund week flow)."""
 
 from __future__ import annotations
 
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Literal
 
-from ai_insight.common.prose_guard import split_sentences
+from ai_insight.common.prose_guard import scrub_refusal_prose, split_sentences
+from new.equity_week_llm import equity_week_llm_kwargs
 from news_rag.llm_client import LlmCallResult, call_json_llm
 
 Move = Literal["up", "down"]
-_MAX_WHY_WORDS = 80
+_MAX_WHY_WORDS = 75
+_NUM_IN_PROSE = re.compile(
+    r"\b\d{1,3}(?:[.,]\d+)?\s*%|\b₹\s*[\d,]+|(?:\d+,?)+\s*(?:crore|lakh|million|billion)\b",
+    re.I,
+)
 
-_SYSTEM = """You explain in very simple words why an Indian stock went up or down this past week.
+_RECAP_VOICE = re.compile(
+    r"\b(the articles?|headline|supplied|reported in|according to the)\b|"
+    r"doesn'?t (?:clearly )?explain|it'?s unclear",
+    re.I,
+)
+
+_SYSTEM = """You explain why a stock in a mutual fund had the week it had, for the fund owner reading below.
 
 Output JSON only: {"why": string, "skip": boolean}
 
 When skip is false:
-- why is ONE short paragraph: 2–3 sentences, 45–75 words. No lists, no jargon.
-- Pick only the 1–2 news facts that best match the week's direction (up vs down). Drop the rest.
-- For each fact you keep, spell out the link: what happened in the news, and why that would make buyers happy or sellers nervous (plain cause → effect on the share price).
-- If news is mixed, say so in one line: good X but worrying Y, and which side likely won this week.
-- Use everyday words (profit, loans, fuel cost, court case, big investor selling). Skip broker names unless essential.
-- No buy/sell advice. Only use facts from the articles.
+- why is 2–4 short sentences (about 45–75 words). Plain English.
+- Explain the business/market story and cause → effect. Mention timing vs the week's price path in words (e.g. "jumped after results, eased later") — no daily price table in the text.
+- Do NOT put percentages, rupee amounts, or precise statistics in why (the stock's week % is shown separately in the UI).
+- No portfolio-weight or fund-impact math. No "the article". No buy/sell advice.
 
-Set skip true only when articles are not about this company. why must be "" when skip is true.
-
-Never mention missing news."""
+Set skip true only when none of the articles are about this company. why must be "" when skip is true."""
 
 
 def clamp_why_paragraph(text: str, *, max_words: int = _MAX_WHY_WORDS) -> str:
@@ -40,39 +48,91 @@ def clamp_why_paragraph(text: str, *, max_words: int = _MAX_WHY_WORDS) -> str:
     return " ".join(kept) if kept else text.strip()
 
 
-def _short_name(name: str) -> str:
-    import re
+def scrub_recap_voice(text: str) -> str:
+    kept = [s for s in split_sentences(text) if not _RECAP_VOICE.search(s)]
+    return " ".join(kept).strip() if kept else text.strip()
 
+
+def scrub_number_heavy_sentences(text: str) -> str:
+    kept = [s for s in split_sentences(text) if len(_NUM_IN_PROSE.findall(s)) <= 1]
+    if kept:
+        return " ".join(kept).strip()
+    cleaned = re.sub(_NUM_IN_PROSE, " ", text or "")
+    return " ".join(cleaned.split())
+
+
+def polish_why(text: str) -> str:
+    text = scrub_refusal_prose(text)
+    text = scrub_recap_voice(text)
+    text = scrub_number_heavy_sentences(text)
+    return clamp_why_paragraph(text)
+
+
+def _short_name(name: str) -> str:
     return re.sub(r"\s+(Limited|Ltd\.?)$", "", name, flags=re.I).strip() or name
+
+
+def _fmt_nav_daily(points: list[dict[str, Any]]) -> str:
+    if not points:
+        return "  (none)"
+    return "\n".join(f"  {p.get('date')}: NAV {p.get('nav')}" for p in points)
+
+
+def _fmt_stock_daily(prices: list[dict[str, Any]]) -> str:
+    if not prices:
+        return "  (none)"
+    lines = []
+    for p in prices:
+        vol = p.get("volume")
+        vol_s = f", vol {vol:,}" if isinstance(vol, int) else ""
+        lines.append(f"  {p.get('date')}: close {p.get('close')}{vol_s}")
+    return "\n".join(lines)
+
+
+def _fmt_movers_daily(movers: list[dict[str, Any]]) -> str:
+    if not movers:
+        return "  (none)"
+    chunks: list[str] = []
+    for m in movers:
+        label = _short_name(str(m.get("instrument_name") or ""))
+        lines = [f"  {label} (week {m.get('change_1w_pct')}%):"]
+        for p in m.get("daily_prices") or []:
+            vol = p.get("volume")
+            vol_s = f", vol {vol:,}" if isinstance(vol, int) else ""
+            lines.append(f"    {p.get('date')}: {p.get('close')}{vol_s}")
+        chunks.append("\n".join(lines))
+    return "\n\n".join(chunks)
 
 
 def _user_prompt(block: dict[str, Any]) -> str:
     name = block.get("instrument_name") or ""
     ch = block.get("change_1w_pct")
     move = block.get("move") or "up"
+    fund = block.get("fund_name") or "the fund"
     arts = block.get("articles") or []
     lines = [
-        f"Stock: {name}",
-        f"Week change: {ch}%",
-        f"Move: {move}",
+        f"Fund context: {fund}",
+        f"Holding: {name}",
+        f"Stock week change: {ch}%",
+        f"Direction: {'up' if move == 'up' else 'down'} week",
         "",
-        f"Articles ({len(arts)}). Use all of them:",
+        "Fund NAV by day:",
+        _fmt_nav_daily(block.get("fund_nav_daily") or []),
+        "",
+        f"{name} share price by day:",
+        _fmt_stock_daily(block.get("daily_prices") or []),
+        "",
+        "Other top movers this week (price by day):",
+        _fmt_movers_daily(block.get("movers_daily") or []),
+        "",
+        f"News ({len(arts)} articles — use fully):",
     ]
     for i, art in enumerate(arts, 1):
         body = str(art.get("full_text") or art.get("snippet") or "").strip()
-        lines.extend(
-            [
-                f"--- Article {i} ---",
-                f"Title: {art.get('title') or ''}",
-                f"Date: {art.get('published_at') or ''}",
-                body,
-                "",
-            ]
-        )
+        lines.extend([f"--- {i} ---", f"Title: {art.get('title') or ''}", body, ""])
     lines.append(
-        "Write one short paragraph (under 75 words). "
-        f"The stock was {'up' if move == 'up' else 'down'} this week — "
-        "say which news best explains that and how each point links to the move."
+        "Write one rich paragraph: main drivers, how the week traded vs the news, "
+        "mixed signals if any, and how it fits the week's up/down move."
     )
     return "\n".join(lines)
 
@@ -90,14 +150,14 @@ def explain_one_block(block: dict[str, Any], *, dry_run: bool = False) -> dict[s
         result = call_json_llm(
             system_prompt=_SYSTEM,
             user_content=user,
-            max_tokens=200,
-            temperature=0.25,
+            max_tokens=280,
             stage="equity_fund_week_stock",
             response_schema={
                 "type": "object",
                 "properties": {"why": {"type": "string"}, "skip": {"type": "boolean"}},
                 "required": ["why", "skip"],
             },
+            **equity_week_llm_kwargs(temperature=0.35),
         )
     except Exception:
         out["why"] = None
@@ -112,8 +172,8 @@ def explain_one_block(block: dict[str, Any], *, dry_run: bool = False) -> dict[s
         out["usable_news"] = False
         return out
 
-    why = clamp_why_paragraph(str(raw.get("why") or "").strip())
-    if not why or len(why.split()) < 8:
+    why = polish_why(str(raw.get("why") or "").strip())
+    if not why or len(why.split()) < 12:
         out["why"] = None
         out["why_skip"] = True
         out["usable_news"] = False

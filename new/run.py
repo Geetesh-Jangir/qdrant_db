@@ -41,6 +41,12 @@ def _process_one(
     payload = facts.to_dict()
     if not dry_run and payload.get("stock_news"):
         before = len(payload["stock_news"])
+        fund_ctx = {
+            "fund_name": payload.get("scheme_name"),
+            "fund_nav_1w_pct": payload.get("nav_1w_pct"),
+        }
+        for block in payload["stock_news"]:
+            block.update(fund_ctx)
         payload["stock_news"] = attach_stock_whys(payload["stock_news"], dry_run=dry_run)
         dropped = before - len(payload["stock_news"])
         payload.setdefault("limits", list(payload.get("limits") or []))
@@ -48,7 +54,7 @@ def _process_one(
             payload["limits"].append(f"stocks_omitted_no_news:{dropped}")
     narrative = compose_fund_narrative(payload, dry_run=dry_run)
     return {
-        "facts": facts.to_dict(),
+        "facts": payload,
         "narrative": narrative,
         "status": "ok",
     }

@@ -31,3 +31,17 @@ def nav_change_1w_settled(
     if len(trimmed) < 2:
         return None
     return _calculate_window_stats(trimmed, days=7)
+
+
+def nav_daily_week_settled(
+    records_asc: list[dict[str, Any]],
+    *,
+    as_of: date | None = None,
+) -> list[dict[str, Any]]:
+    stats = nav_change_1w_settled(records_asc, as_of=as_of)
+    if not stats:
+        return []
+    pts = stats.get("points")
+    if isinstance(pts, list) and pts:
+        return pts
+    return []
