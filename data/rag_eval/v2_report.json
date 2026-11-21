@@ -2,43 +2,49 @@
   "cases": [
     {
       "id": "auto_sector_impact_6m",
-      "brief_score": {
+      "score": {
         "id": "auto_sector_impact_6m",
         "passed": false,
         "failures": [
+          "brief:missing_facet:news_drivers",
+          "brief:missing_facet:exposure_link",
+          "brief:missing_facet:fund_composition",
+          "brief:missing_facet:return_series",
+          "brief:missing_facet:benchmark",
           "ledger:news_drivers!=None",
-          "findings:funds<1",
-          "answer:direction_words_missing"
+          "findings:funds<1"
         ]
       }
     },
     {
       "id": "nav_parag_parikh",
-      "brief_score": {
+      "score": {
         "id": "nav_parag_parikh",
         "passed": false,
         "failures": [
-          "answer:must_contain:nav",
-          "answer:must_contain:parag"
+          "brief:missing_facet:fund_facts_nav",
+          "brief:sub_asks<1"
         ]
       }
     },
     {
       "id": "holdings_hdfc_top100",
-      "brief_score": {
+      "score": {
         "id": "holdings_hdfc_top100",
         "passed": false,
         "failures": [
-          "answer:must_contain:hdfc"
+          "brief:missing_facet:fund_facts_holdings"
         ]
       }
     },
     {
       "id": "sectors_axis_bluechip",
-      "brief_score": {
+      "score": {
         "id": "sectors_axis_bluechip",
         "passed": false,
         "failures": [
+          "brief:missing_facet:fund_composition",
+          "brief:missing_facet:fund_facts_holdings",
           "answer:must_contain:axis",
           "answer:must_contain:%"
         ]
@@ -46,20 +52,21 @@
     },
     {
       "id": "crude_affected_funds",
-      "brief_score": {
+      "score": {
         "id": "crude_affected_funds",
         "passed": false,
         "failures": [
-          "findings:funds<1",
-          "answer:must_contain:fund"
+          "brief:missing_facet:exposure_link",
+          "brief:missing_facet:news_drivers",
+          "findings:funds<1"
         ]
       }
     }
   ],
   "summary": {
     "count": 5,
-    "v1_pass": 0,
-    "v2_pass": 0,
-    "mode": "both"
+    "pass": 0,
+    "brief_pass": 0,
+    "mode": "insight_v2"
   }
 }

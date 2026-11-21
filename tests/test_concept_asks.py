@@ -32,6 +32,19 @@ def test_slot_router_fof_concept_path():
     assert "screen_funds_by_exposure" in plan.tool_names
 
 
+def test_fund_of_funds_name_one_example():
+    q = "What is a Fund of Funds? Name one example."
+    assert asks_concept_with_catalog_example(q)
+    plan = apply_concept_example_to_plan(
+        q,
+        ExecutionPlan(routed_by="planner", tool_calls=[]),
+    )
+    assert plan.concept_brief
+    assert plan.tool_calls
+    assert plan.tool_calls[0].tool == "screen_funds_by_exposure"
+    assert plan.tool_calls[0].arguments.get("category") == "Fund of Funds"
+
+
 def test_planner_fixup_adds_concept_and_screen():
     q = "what is fof fund and you name any one of them"
     plan = ExecutionPlan(

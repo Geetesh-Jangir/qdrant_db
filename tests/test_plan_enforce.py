@@ -421,3 +421,68 @@ def test_compare_drops_fund_not_in_chat_or_holdings():
     )
     assert plan.funds == ["Kotak Contra Fund - Regular Plan - Growth"]
     assert "Edelweiss" not in plan.planner_reading
+
+
+def test_both_funds_aum_stays_on_compared_pair_not_catalog_guess():
+    large_cap = "HDFC Large Cap Fund - Growth"
+    large_mid = "HDFC Large & Mid Cap Fund - Regular Plan - Growth"
+    memory = {
+        "frame": {
+            "last_fund_focus": large_mid,
+            "subject_kind": "comparison",
+        },
+        "chat_turns": [
+            {"user": "when did hdfc large and mid cap started", "assistant": f"## {large_mid}"},
+            {"user": "can you compare it with hdfc large cap fund", "assistant": f"## {large_cap}\n| {large_cap} | {large_mid} |"},
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        subject_ref="memory_stack",
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        asked_facts=["aum"],
+        planner_reading="Add the AUM of the two funds we just compared",
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot"]}, wave=1),
+        ],
+    )
+    out = apply_planner_post_hooks("what is the total aum of both funds", plan, memory)
+    assert len(out.funds or []) >= 2
+    joined = " ".join(out.funds or []).lower()
+    assert "hdfc" in joined
+    assert "edelweiss" not in joined
+
+
+def test_deictic_scheme_inception_stays_on_chat_fund_not_catalog_scan():
+    hdfc = "HDFC Large & Mid Cap Fund - Regular Plan - Growth"
+    memory = {
+        "frame": {"last_fund_focus": hdfc},
+        "chat_turns": [
+            {
+                "user": "tell me about hdfc large and mid cap fund",
+                "assistant": f"## {hdfc}",
+            },
+            {
+                "user": "name his manager and experiencce",
+                "assistant": f"## {hdfc}\nThe fund is managed by Gopal Agrawal.",
+            },
+        ],
+    }
+    plan = ExecutionPlan(
+        routed_by="planner",
+        subject_ref="memory_primary",
+        intent="lookup",
+        answer_mode=AnswerMode.DATA_ONLY,
+        planner_reading="When did HDFC Large & Mid Cap Fund start (inception date)",
+        tool_calls=[
+            ToolCall(
+                tool="get_fund_data",
+                arguments={"modules": ["snapshot"], "windows": ["1Y", "3Y", "5Y"]},
+                wave=1,
+            )
+        ],
+    )
+    out = apply_planner_post_hooks("when did this scheme started", plan, memory)
+    assert out.funds == [hdfc]
+    assert "DSP" not in (out.funds or [""])[0]

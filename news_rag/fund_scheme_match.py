@@ -61,6 +61,17 @@ SCHEME_MATCH_SKIP = frozenset(
         "benchmark",
         "rating",
         "risk",
+        "year",
+        "years",
+        "month",
+        "months",
+        "week",
+        "weeks",
+        "day",
+        "days",
+        "annual",
+        "quarter",
+        "quarterly",
         "tenure",
         "doing",
         "going",
@@ -218,24 +229,34 @@ def question_amc_hints(question: str) -> list[str]:
     return [h for h in dict.fromkeys(hints) if h not in _AMC_FUZZY_BLOCK]
 
 
+def _prune_distinctive_constraints(constraints: list[str]) -> list[str]:
+    """Drop standalone 'mid cap' / 'large cap' when the question locked large & mid cap."""
+    normed = {c.strip().lower() for c in constraints}
+    if not any("large" in b and "mid" in b for b in normed):
+        return list(dict.fromkeys(constraints))
+    drop = {"mid cap", "large cap"}
+    return [c for c in constraints if c.strip().lower() not in drop]
+
+
 def _category_phrases_in_question(question: str) -> list[str]:
-    from news_rag.fund_rating_categories import _CATEGORY_ALIASES, match_scheme_category
+    from news_rag.fund_rating_categories import _CATEGORY_ALIASES, _phrase_in
 
     text = (question or "").strip().lower()
     if not text:
         return []
     found: list[str] = []
-    match = match_scheme_category(question)
-    if match and match.category:
-        found.append(str(match.category).strip().lower())
-    for phrase, _fund_type, category in _CATEGORY_ALIASES:
+    matched_phrases: list[str] = []
+    for phrase, _fund_type, _category in _CATEGORY_ALIASES:
         p = (phrase or "").strip().lower()
         if not p or len(p) < 3:
             continue
-        if p in text and p not in found:
+        if not _phrase_in(p, text):
+            continue
+        if any(p != longer and p in longer for longer in matched_phrases):
+            continue
+        matched_phrases.append(p)
+        if p not in found:
             found.append(p)
-        if category and category not in found and category in text:
-            found.append(category)
     return found
 
 
@@ -247,19 +268,55 @@ def _scheme_name_tokens(fund_name: str) -> list[str]:
     ]
 
 
+_PERIOD_PHRASE_RE = re.compile(
+    r"\b\d+[\s\-]*(year|years|month|months|week|weeks|day|days)\b"
+    r"|\b(?:1y|3y|5y|6m|3m|1m|1w|ytd)\b",
+    re.I,
+)
+
+
+def _text_for_vocab_constraints(question: str) -> str:
+    """Drop return-window phrases so '1-year' does not surface a bogus 'year' constraint."""
+    scrubbed = _PERIOD_PHRASE_RE.sub(" ", question or "")
+    return re.sub(r"\s+", " ", scrubbed).strip().lower()
+
+
+def _scheme_flavor_penalty(question: str, fund_name: str) -> int:
+    """Down-rank schemes whose name adds global/overseas/fof flavour the user did not say."""
+    q = (question or "").lower()
+    name = (fund_name or "").lower()
+    penalty = 0
+    for token in (
+        "global",
+        "overseas",
+        "international",
+        "world",
+        "offshore",
+        "fof",
+        "fund of fund",
+    ):
+        if token in name and token not in q:
+            penalty += 3
+    if re.search(r"\bemerging\s+equity\b", q):
+        if re.search(r"\bemerging\s+equity\b", name.replace("-", " ")):
+            penalty -= 4
+    return penalty
+
+
 def _distinctive_constraints(question: str) -> list[str]:
     """Category phrases and catalog scheme-flavour tokens — not free English from the sentence."""
     text = (question or "").strip().lower()
+    vocab_text = _text_for_vocab_constraints(question)
     if not text:
         return []
     constraints: list[str] = list(_category_phrases_in_question(question))
     vocab = _scheme_vocab_tokens()
     for word in sorted(vocab, key=len, reverse=True):
-        if word in constraints:
+        if word in constraints or word in SCHEME_MATCH_SKIP:
             continue
-        if re.search(rf"\b{re.escape(word)}\b", text):
+        if re.search(rf"\b{re.escape(word)}\b", vocab_text):
             constraints.append(word)
-    return list(dict.fromkeys(constraints))
+    return _prune_distinctive_constraints(list(dict.fromkeys(constraints)))
 
 
 def _scheme_matches_amc(question: str, fund_name: str) -> bool:
@@ -320,7 +377,7 @@ def user_text_names_scheme(question: str, fund_name: str) -> bool:
     if constraints:
         return all(_constraint_in_scheme_name(c, name) for c in constraints)
 
-    if question_amc_hints(question):
+    if question_amc_hints(question) and not constraints:
         return True
 
     fund_tokens = _scheme_name_tokens(name)
@@ -331,26 +388,25 @@ def user_text_names_scheme(question: str, fund_name: str) -> bool:
     return hits >= 2
 
 
-def scheme_match_score(question: str, fund_name: str) -> tuple[int, int, int]:
-    """Higher is better: (constraint_fit, token_overlap, name_length)."""
+def scheme_match_score(question: str, fund_name: str) -> tuple[int, int, int, int]:
+    """Higher is better: (constraint_fit, token_overlap, flavor_penalty, name_length)."""
     if not user_text_names_scheme(question, fund_name):
-        return (-1, 0, 0)
+        return (-1, 0, 0, 0)
     text_lower = (question or "").lower()
     constraints = _distinctive_constraints(question)
     constraint_fit = len(constraints)
     if constraints:
         constraint_fit = sum(1 for c in constraints if _constraint_in_scheme_name(c, fund_name))
-    token_hits = sum(
-        1
-        for t in _scheme_name_tokens(fund_name)
-        if re.search(rf"\b{re.escape(t)}\b", text_lower)
-    )
-    return (constraint_fit, token_hits, len(fund_name))
+    tokens = list(dict.fromkeys(_scheme_name_tokens(fund_name)))
+    token_hits = sum(1 for t in tokens if re.search(rf"\b{re.escape(t)}\b", text_lower))
+    extra_in_name = sum(1 for t in tokens if not re.search(rf"\b{re.escape(t)}\b", text_lower))
+    penalty = _scheme_flavor_penalty(question, fund_name)
+    return (constraint_fit, token_hits, -penalty, -extra_in_name, -len(fund_name))
 
 
 def pick_best_matching_scheme(question: str, candidates: list[str]) -> str:
     best = ""
-    best_score = (-1, 0, 0)
+    best_score = (-1, 0, 0, 0)
     for raw in candidates:
         name = str(raw or "").strip()
         if not name:
@@ -360,3 +416,51 @@ def pick_best_matching_scheme(question: str, candidates: list[str]) -> str:
             best_score = score
             best = name
     return best
+
+
+def question_resolves_to_canonical_fund(question: str) -> str:
+    """Unambiguous catalog name from the user question (no planner, no chat)."""
+    from news_rag.fund_search import lookup_extracted_fund, prefer_resolved_fund_name, resolve_fund_from_question
+
+    detail, ambiguous, close = resolve_fund_from_question(question)
+    if detail and not ambiguous:
+        shown = prefer_resolved_fund_name(detail, detail)
+        name = str(shown.get("fund_name") or detail.get("fund_name") or "").strip()
+        if name and user_text_names_scheme(question, name):
+            return name
+        return ""
+    if ambiguous and close:
+        if not _distinctive_constraints(question):
+            return ""
+        pick = pick_best_matching_scheme(question, close)
+        if pick and user_text_names_scheme(question, pick):
+            detail2, amb2, _ = lookup_extracted_fund(name=pick)
+            if detail2 and not amb2:
+                shown = prefer_resolved_fund_name(detail2, detail2)
+                return str(shown.get("fund_name") or detail2.get("fund_name") or pick).strip()
+    return ""
+
+
+def catalog_fund_matches_question(question: str, fund_name: str) -> bool:
+    """True when the fund is what the question resolves to, or explicit scheme tokens match."""
+    name = str(fund_name or "").strip()
+    if not name:
+        return False
+    if user_text_names_scheme(question, name):
+        return True
+    resolved = question_resolves_to_canonical_fund(question)
+    if not resolved:
+        return False
+    from news_rag.fund_search import lookup_extracted_fund
+
+    r_detail, r_amb, _ = lookup_extracted_fund(name=resolved)
+    c_detail, c_amb, _ = lookup_extracted_fund(name=name)
+    if (
+        r_detail
+        and c_detail
+        and not r_amb
+        and not c_amb
+        and str(r_detail.get("isin") or "").upper() == str(c_detail.get("isin") or "").upper()
+    ):
+        return True
+    return _normalize_fund_text(resolved) == _normalize_fund_text(name)

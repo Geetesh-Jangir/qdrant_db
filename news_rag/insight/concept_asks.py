@@ -77,6 +77,7 @@ def build_concept_example_plan(
                     "direction": "any",
                     "top_n": 1,
                     "return_window": "1M",
+                    "category": "Fund of Funds",
                 },
                 wave=1,
             ),
@@ -94,6 +95,9 @@ def build_concept_example_plan(
     )
 
 
+_FUND_SCOPED_FOR_CONCEPT = frozenset({"get_fund_data", "get_portfolio_data", "compare_funds"})
+
+
 def apply_concept_example_to_plan(question: str, plan: ExecutionPlan) -> ExecutionPlan:
     """Planner path: attach concept brief + ensure catalog screen for FoF-style asks."""
     if not asks_concept_with_catalog_example(question):
@@ -101,6 +105,11 @@ def apply_concept_example_to_plan(question: str, plan: ExecutionPlan) -> Executi
     brief = concept_brief_for_question(question)
     if not brief:
         return plan
+    from news_rag.tools import asks_fof_funds
+
+    plan.tool_calls = [
+        call for call in (plan.tool_calls or []) if call.tool not in _FUND_SCOPED_FOR_CONCEPT
+    ]
     if not plan.tool_calls:
         ref = build_concept_example_plan(question, routed_by=plan.routed_by or "planner")
         if ref:
@@ -120,10 +129,13 @@ def apply_concept_example_to_plan(question: str, plan: ExecutionPlan) -> Executi
 
     screen_calls = [c for c in plan.tool_calls if c.tool == "screen_funds_by_exposure"]
     if not screen_calls:
+        screen_args: dict = {"direction": "any", "top_n": 1, "return_window": "1M"}
+        if asks_fof_funds(question):
+            screen_args["category"] = "Fund of Funds"
         plan.tool_calls = [
             ToolCall(
                 tool="screen_funds_by_exposure",
-                arguments={"direction": "any", "top_n": 1, "return_window": "1M"},
+                arguments=screen_args,
                 wave=1,
             ),
         ]
@@ -133,5 +145,11 @@ def apply_concept_example_to_plan(question: str, plan: ExecutionPlan) -> Executi
             args["top_n"] = 1
             args.setdefault("direction", "any")
             args.setdefault("return_window", "1M")
+            if asks_fof_funds(question):
+                args.setdefault("category", "Fund of Funds")
             call.arguments = args
+    plan.scope_kind = ScopeKind.IN_SCOPE
+    plan.direct_reply = ""
+    plan.can_answer_directly = False
+    plan.funds = []
     return plan

@@ -1,4 +1,4 @@
-from news_rag.insight.evidence_pack import repair_investor_insight_prose
+from news_rag.insight.evidence_pack import repair_category_book_opening, repair_investor_insight_prose
 from news_rag.insight.fund_display import strip_grounding_holes
 from news_rag.insight.grounding import investor_book_cores, strip_ungrounded_numbers
 from news_rag.insight.pack_sanitize import sanitize_data_pack_for_composer
@@ -75,6 +75,29 @@ def test_repair_fills_hollow_allocation_and_holding_bullets():
     assert "mid cap (about )" not in fixed
     assert "₹12,999" in fixed or "12999" in fixed.replace(",", "")
     assert "41%" in fixed or "40" in fixed
+
+
+def test_repair_category_book_opening_matches_allocation_not_double_count():
+    investor = {
+        "meta": {"as_of_date": "2026-11-21"},
+        "summary": {"aum_inr": 3976991.0},
+        "allocation": {
+            "aumByCategory": {"gold": 149807.0},
+            "categoryShare": [{"name": "gold", "aum_inr": 149807.0, "aum_pct": 3.77}],
+        },
+    }
+    raw = (
+        "## How much gold is in your portfolio\n"
+        "Your gold holdings are worth **₹2,53,800** as of **21st Nov 2026**, which is about **6.4%** of your total book.\n\n"
+        "| **Total gold** | **1,28,994** | **1,49,807** |\n\n"
+        "Your gold is **3.8%** of your book"
+    )
+    q = "how much gold in my portfolio"
+    fixed = repair_category_book_opening(raw, investor, q)
+    assert "2,53,800" not in fixed and "253800" not in fixed.replace(",", "")
+    assert "1,49,807" in fixed or "149807" in fixed.replace(",", "")
+    assert "3.8%" in fixed or "3.7%" in fixed
+    assert "6.4%" not in fixed
 
 
 def test_grounding_keeps_category_weight_in_prose():

@@ -136,6 +136,10 @@ def unknown_fund_phrase(question: str) -> str:
     text = (question or "").strip()
     if not text or len(_tokens(text)) > 10:
         return ""
+    from news_rag.insight.brief import asks_random_fund_compare, random_fund_count
+
+    if random_fund_count(text) > 0 or asks_random_fund_compare(text):
+        return ""
     match = _FUND_PHRASE_RE.search(text)
     if not match:
         return ""

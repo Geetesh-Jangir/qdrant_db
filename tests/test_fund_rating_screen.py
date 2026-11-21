@@ -696,6 +696,20 @@ def test_name_any_equity_funds_use_rating_not_performance_window():
     assert spec.spread_categories is True
 
 
+def test_any_two_category_funds_parses_count_two():
+    from news_rag.tools import explicit_fund_count
+
+    for q in (
+        "tell me any two large cap funds",
+        "tell me any two large and mid cap funds",
+    ):
+        assert explicit_fund_count(q) == 2
+        spec = parse_rating_screen(q)
+        assert spec is not None
+        assert spec.count == 2
+        assert spec.locked is True
+
+
 def test_fudns_typo_keeps_count_and_performance_spread():
     from news_rag.tools import explicit_fund_count
 

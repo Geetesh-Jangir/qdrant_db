@@ -1223,6 +1223,10 @@ _COMPOSE_HINTS: tuple[tuple[str, str], ...] = (
     ("answer_subject", "Start with `## {answer_subject}` (exact scheme name from EVIDENCE) and answer about that scheme only."),
     ("investor_portfolio_overview", "Whole-book answer: title `## Your portfolio`; totals and XIRR first; one category table if allocation exists. Do not name any scheme and do not add a holdings or scheme table unless the question asks for holdings, schemes, or one particular fund. Use gain on invested, not absolute_return_pct."),
     ("portfolio_news_impact_answer", "Short insight only. One opening sentence: the sector weight from sector_book and whether the week helps or hurts that slice. Then at most 4 bullets. Each bullet is one line: **positive** or **negative**, the news in a few words, the holding or sector, and its weight from EVIDENCE. No ### headings, no table, no second list of every holding, no closing recap. Skip news that does not name a holding or the sector."),
+    (
+        "sector_market_overview",
+        "Market or sector performance ask with no loaded portfolio: title `## <Sector name> sector` or `## Market overview` — never `## Your portfolio`. Do not say 'this fund' unless EVIDENCE names a fund.",
+    ),
     ("concept_brief", "Explain `concept_brief` first in 1-3 sentences, then use EVIDENCE for the example fund."),
     (
         "list_fund_ratings",
@@ -1259,12 +1263,20 @@ def _compose_hints(wants: dict[str, Any], evidence: dict[str, Any]) -> str:
             "table already covers them, end with `<!-- TABLES_APPEND: none -->` (or `default` to keep them all)."
         )
     if evidence.get("NEWS") and not wants.get("fund_overview"):
-        lines.append(
-            "Open with 2-3 plain prose lines (no heading), not `### The short answer`. Then use `###` for "
-            "substantive sections only. Use two or three NEWS rows that name a holding or sector of this fund: "
-            "state the calendar date from `published_at`, the move, and how it affects the fund. "
-            "Do not add a news-list section and do not cite unrelated market stories."
-        )
+        if wants.get("sector_market_overview") or (
+            (evidence.get("DATA") or {}).get("market") and not wants.get("answer_subject")
+        ):
+            lines.append(
+                "Open with 2-3 plain prose lines (no heading). When there is no named fund in EVIDENCE, "
+                "write about the sector or market only — do not refer to 'this fund' or portfolio weights."
+            )
+        else:
+            lines.append(
+                "Open with 2-3 plain prose lines (no heading), not `### The short answer`. Then use `###` for "
+                "substantive sections only. Use two or three NEWS rows that name a holding or sector of this fund: "
+                "state the calendar date from `published_at`, the move, and how it affects the fund. "
+                "Do not add a news-list section and do not cite unrelated market stories."
+            )
     data_text = json.dumps(evidence.get("DATA") or "", default=str)
     if "metals_spot" in data_text or "gold" in data_text.lower()[:4000]:
         lines.append("Gold figures are 24K gold in INR per 10 grams; give the horizon on each. Never quote a silver price.")
@@ -1729,19 +1741,27 @@ def node_compose(state: GraphState) -> str | None:
             if scheme_draft:
                 category_draft = scheme_draft
         if category_draft:
+            anchor = ""
+            if only:
+                anchor = (
+                    f" Category total current value and book-share % must come from "
+                    f"allocation only — never add one scheme's value to the category total."
+                )
             wants["presentation_notes"] = " ".join(
                 filter(
                     None,
                     [
                         str(wants.get("presentation_notes") or "").strip(),
                         "Draft category table (choose a table or a sentence; do not print it twice). "
-                        "Show invested and current value. Omit empty categories.\n"
+                        "Show invested and current value. Omit empty categories."
+                        + anchor
+                        + "\n"
                         + category_draft,
                     ],
                 )
             ).strip()
     q_low = (state.question or "").lower()
-    if "gold" in q_low and "invested" in q_low and allocation:
+    if "gold" in q_low and ("invested" in q_low or "how much" in q_low) and allocation:
         gold_inv = render_gold_exposure_draft(allocation, {})
         if gold_inv:
             wants["presentation_notes"] = " ".join(
@@ -1804,7 +1824,10 @@ def node_compose(state: GraphState) -> str | None:
         wants["presentation_notes"] = " ".join(
             filter(None, [str(wants.get("presentation_notes") or "").strip(), dd_notes])
         ).strip()
-    elif question_asks_whole_investor_portfolio(state.question or "", plan):
+    elif question_asks_whole_investor_portfolio(state.question or "", plan) and (
+        any(c.tool == "get_investor_portfolio" for c in (plan.tool_calls or []))
+        or (pack and isinstance((pack.data_pack or {}).get("investor_portfolio"), dict))
+    ):
         wants["investor_portfolio_overview"] = True
         overview_notes = (
             "Whole-book overview: use `## Your portfolio` as the title. "
@@ -1876,6 +1899,12 @@ def node_compose(state: GraphState) -> str | None:
         ]
     if (plan.concept_brief or "").strip():
         wants["concept_brief"] = plan.concept_brief.strip()
+    from news_rag.tools import asks_sector_overview
+
+    if (asks_sector_overview(state.question or "") or (plan.sectors and not plan.funds)) and not (
+        pack and isinstance((pack.data_pack or {}).get("investor_portfolio"), dict)
+    ):
+        wants["sector_market_overview"] = True
     from news_rag.insight.computed_answers import asks_computed_illustration
 
     if asks_computed_illustration(state.question or ""):
@@ -1996,11 +2025,21 @@ def node_compose(state: GraphState) -> str | None:
             polished_text,
             pack.data_pack["investor_portfolio"],
         )
+        from news_rag.insight.evidence_pack import repair_category_book_opening
+
+        polished_text = repair_category_book_opening(
+            polished_text,
+            pack.data_pack["investor_portfolio"],
+            state.question or "",
+        )
         polished_text = strip_grounding_holes(polished_text)
     if news_articles:
         from news_rag.insight.fund_display import clean_news_insight
 
         polished_text = clean_news_insight(polished_text)
+    from news_rag.insight.prose_repair import repair_compose_placeholders
+
+    polished_text = repair_compose_placeholders(polished_text)
     from news_rag.insight.fund_display import strip_missing_data_caveats, strip_private_leaks
     from news_rag.insight.multi_fact import asks_one_figure
 

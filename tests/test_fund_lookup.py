@@ -191,6 +191,23 @@ def test_invested_hdfc_large_cap_not_large_mid() -> None:
     assert detail.get("isin") == "INF179K01BE2"
 
 
+def test_deictic_inception_question_does_not_fuzzy_match_random_fund() -> None:
+    q = "when did this scheme started"
+    detail, ambiguous, _ = resolve_fund_from_question(q)
+    assert detail is None
+    assert not ambiguous
+
+
+def test_both_funds_phrase_does_not_resolve_to_catalog_fund() -> None:
+    q = "what is the total aum of both funds"
+    detail, ambiguous, _ = resolve_fund_from_question(q)
+    assert detail is None
+    assert not ambiguous
+    from news_rag.fund_scheme_match import question_resolves_to_canonical_fund
+
+    assert not question_resolves_to_canonical_fund(q)
+
+
 def test_invested_hdfc_defence_not_pronoun_tail() -> None:
     q = (
         "I have invested in the HDFC Defence fund, "

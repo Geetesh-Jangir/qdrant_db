@@ -375,18 +375,6 @@ class Settings(BaseSettings):
         default=4,
         validation_alias=AliasChoices("MAX_CONCURRENT_TOOLS", "max_concurrent_tools"),
     )
-    request_deadline_simple_ms: float = Field(
-        default=20000.0,
-        validation_alias=AliasChoices("REQUEST_DEADLINE_SIMPLE_MS", "request_deadline_simple_ms"),
-    )
-    request_deadline_standard_ms: float = Field(
-        default=40000.0,
-        validation_alias=AliasChoices("REQUEST_DEADLINE_STANDARD_MS", "request_deadline_standard_ms"),
-    )
-    request_deadline_complex_ms: float = Field(
-        default=60000.0,
-        validation_alias=AliasChoices("REQUEST_DEADLINE_COMPLEX_MS", "request_deadline_complex_ms"),
-    )
 
     def embedding_cache_path(self) -> Path:
         path = _ROOT / self.embedding_cache_dir

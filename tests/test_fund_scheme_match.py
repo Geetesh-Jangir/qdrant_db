@@ -58,3 +58,41 @@ def test_amc_catalog_typo_still_names_scheme() -> None:
         "tell me how the tauras large cap fund is doing",
         "Taurus Large Cap Fund",
     )
+
+
+def test_ultra_short_term_scheme_name_not_short_duration_category() -> None:
+    q = "What is the NAV of SBI Ultra Short Term Fund - Regular Plan - Growth?"
+    target = "SBI Ultra Short Term Fund - Regular Plan - Growth"
+    wrong = "SBI Short Term Fund - Regular Plan - Growth"
+    from news_rag.fund_scheme_match import catalog_fund_matches_question, question_resolves_to_canonical_fund
+
+    assert user_text_names_scheme(q, target)
+    assert not user_text_names_scheme(q, wrong)
+    assert question_resolves_to_canonical_fund(q) == target
+    assert catalog_fund_matches_question(q, target)
+
+
+def test_return_period_phrase_does_not_block_scheme_match() -> None:
+    from news_rag.fund_scheme_match import question_resolves_to_canonical_fund
+
+    target = "Parag Parikh Flexi Cap Fund - Regular Plan - Growth"
+    for q in (
+        "What is the 1-year return of Parag Parikh Flexi Cap Fund?",
+        "What are the 1-year and 3-year returns of HDFC Large Cap Fund?",
+        "What is the return of Parag Parikh Flexi Cap Fund over the last year?",
+    ):
+        resolved = question_resolves_to_canonical_fund(q)
+        assert resolved, q
+        assert target.split(" - ")[0] in resolved or "HDFC Large Cap" in resolved
+
+
+def test_large_and_mid_cap_not_large_cap() -> None:
+    q = "tell me about hdfc large and mid cap fund"
+    mid = "HDFC Large & Mid Cap Fund - Regular Plan - Growth"
+    large = "HDFC Large Cap Fund - Growth"
+    assert user_text_names_scheme(q, mid)
+    assert not user_text_names_scheme(q, large)
+    from news_rag.fund_scheme_match import catalog_fund_matches_question
+
+    assert catalog_fund_matches_question(q, mid)
+    assert not catalog_fund_matches_question(q, large)

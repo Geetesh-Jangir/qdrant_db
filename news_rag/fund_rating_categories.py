@@ -140,6 +140,7 @@ _CATEGORY_ALIASES: tuple[tuple[str, str, str], ...] = tuple(
         reverse=True,
     )
 ) + (
+    ("ultra short term", "debt", "ultra short duration"),
     ("short term", "debt", "short duration"),
     ("gold fof", "others", "fund of funds-domestic-gold"),
     ("gold fund of funds", "others", "fund of funds-domestic-gold"),

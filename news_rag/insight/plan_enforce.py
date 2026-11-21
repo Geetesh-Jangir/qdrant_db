@@ -365,8 +365,16 @@ def resolve_planner_subject_refs(
         from news_rag.insight.memory.fund_context import (
             asks_these_equity_funds,
             compare_side_in_chat,
+            implicit_compare_pair_from_chat,
+            question_refers_to_compared_funds_in_chat,
             recent_equity_fund_pair_in_chat,
         )
+
+        if question_refers_to_compared_funds_in_chat(question):
+            chat_pair = implicit_compare_pair_from_chat(memory, question)
+            if len(chat_pair) >= 2:
+                plan.funds = chat_pair[:2]
+                return
 
         stacked = [str(f).strip() for f in (plan.funds or []) if str(f).strip()]
         if (
@@ -766,6 +774,68 @@ def _keep_picked_shown_fund(question: str, plan: ExecutionPlan, memory: dict[str
         ]
 
 
+_CATALOG_BIND_TOOLS = frozenset({"get_fund_data", "get_portfolio_data", "compare_funds"})
+
+
+def _finish_portfolio_bind(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+) -> ExecutionPlan:
+    """Re-bind catalog fund after late hooks, then portfolio/tool bind."""
+    plan = bind_catalog_fund_from_question(question, plan, memory)
+    from news_rag.insight.portfolio_bind import finish_portfolio_plan_bind
+
+    return finish_portfolio_plan_bind(question, plan, memory)
+
+
+def bind_catalog_fund_from_question(
+    question: str,
+    plan: ExecutionPlan,
+    memory: dict[str, Any] | None,
+) -> ExecutionPlan:
+    """Override planner entities.funds with an unambiguous catalog resolve from the question."""
+    from news_rag.fund_scheme_match import question_resolves_to_canonical_fund
+    from news_rag.insight.fund_name_policy import plan_allows_server_fund_pick
+    from news_rag.insight.investor_subject import (
+        question_asks_whole_investor_portfolio,
+        question_refers_to_investor_holding,
+    )
+    from news_rag.insight.plan_intent import plan_wants_fund_compare
+
+    if plan_allows_server_fund_pick(question, plan, memory):
+        return plan
+    if plan_wants_fund_compare(plan) and len([f for f in (plan.funds or []) if str(f).strip()]) >= 2:
+        return plan
+    if question_refers_to_investor_holding(question) or question_asks_whole_investor_portfolio(
+        question, plan
+    ):
+        return plan
+    if str(plan.holding_scope or "").strip().lower() == "all_holdings":
+        return plan
+    if not any(c.tool in _CATALOG_BIND_TOOLS for c in plan.tool_calls or []):
+        return plan
+    from news_rag.insight.investor_subject import question_refers_deictic_fund, resolve_deictic_fund_name
+    from news_rag.insight.memory.fund_context import primary_fund_name
+
+    ref = str(plan.subject_ref or "none").strip().lower()
+    if question_refers_deictic_fund(question):
+        if resolve_deictic_fund_name(question, memory) or primary_fund_name(memory):
+            return plan
+    elif ref in ("memory_primary", "memory_stack", "list_cursor") and primary_fund_name(memory):
+        return plan
+    name = question_resolves_to_canonical_fund(question)
+    if not name:
+        return plan
+    from news_rag.fund_scheme_match import user_text_names_scheme
+
+    if not user_text_names_scheme(question, name):
+        return plan
+    plan.funds = [name]
+    plan.subject_ref = "user_named"
+    return plan
+
+
 def apply_planner_post_hooks(
     question: str,
     plan: ExecutionPlan,
@@ -792,6 +862,7 @@ def apply_planner_post_hooks(
     )
 
     reconcile_planner_intent(plan, question)
+    plan = bind_catalog_fund_from_question(question, plan, memory)
     from news_rag.insight.investor_subject import reconcile_planner_invented_fund_name
     from news_rag.insight.fund_name_policy import enforce_user_authorized_funds_only
 
@@ -881,34 +952,32 @@ def apply_planner_post_hooks(
 
     from news_rag.insight.plan_intent import plan_wants_unnamed_category_pair_compare
 
-    from news_rag.insight.portfolio_bind import finish_portfolio_plan_bind
-
     if plan_wants_unnamed_category_pair_compare(question, plan, memory):
         plan.requires_compose = True
         _keep_picked_shown_fund(question, plan, memory)
-        return finish_portfolio_plan_bind(question, plan, memory)
+        return _finish_portfolio_bind(question, plan, memory)
 
     if plan_wants_fund_compare(plan):
         finalize_fund_compare_plan(question, plan)
         _keep_picked_shown_fund(question, plan, memory)
-        return finish_portfolio_plan_bind(question, plan, memory)
+        return _finish_portfolio_bind(question, plan, memory)
 
     if plan_wants_compare_categories(plan):
         ensure_cross_category_compare_plan(question, plan)
         plan.intent = "compare"
         plan.requires_compose = True
         _keep_picked_shown_fund(question, plan, memory)
-        return finish_portfolio_plan_bind(question, plan, memory)
+        return _finish_portfolio_bind(question, plan, memory)
 
     ensure_alternate_category_fund_plan(question, plan, memory)
     ensure_better_rated_category_fund_plan(question, plan, memory)
     if plan_wants_alternate_in_category(plan):
         plan.requires_compose = True
         _keep_picked_shown_fund(question, plan, memory)
-        return finish_portfolio_plan_bind(question, plan, memory)
+        return _finish_portfolio_bind(question, plan, memory)
 
     if maybe_install_balanced_portfolio_screen(question, plan, memory):
-        return finish_portfolio_plan_bind(question, plan, memory)
+        return _finish_portfolio_bind(question, plan, memory)
     drop_misclassified_category_composition(question, plan)
     repair_data_need_tools(plan, question)
 
@@ -942,7 +1011,7 @@ def apply_planner_post_hooks(
         ensure_quality_fund_list(question, plan)
         ensure_rating_screen(question, plan, memory)
         _keep_picked_shown_fund(question, plan, memory)
-        return finish_portfolio_plan_bind(question, plan, memory)
+        return _finish_portfolio_bind(question, plan, memory)
 
     ensure_category_performance_plan(question, plan, memory)
     ensure_cross_category_compare_plan(question, plan)
@@ -966,4 +1035,4 @@ def apply_planner_post_hooks(
     ensure_fund_holdings_followup_plan(question, plan, memory)
     ensure_alternate_category_fund_plan(question, plan, memory)
     _keep_picked_shown_fund(question, plan, memory)
-    return finish_portfolio_plan_bind(question, plan, memory)
+    return _finish_portfolio_bind(question, plan, memory)

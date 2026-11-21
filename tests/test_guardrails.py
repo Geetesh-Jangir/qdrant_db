@@ -72,6 +72,8 @@ def test_attach_portfolio_hint_rebinds_conversation():
         "compare the above funds",
         "compare these two funds",
         "compare those funds",
+        "tell me any 2 random funds name",
+        "pick 2 random funds",
     ],
 )
 def test_guard_passes(question):

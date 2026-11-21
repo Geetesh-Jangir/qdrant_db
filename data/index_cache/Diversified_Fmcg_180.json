@@ -1,9 +1,9 @@
 {
   "sector_label": "Diversified Fmcg",
-  "benchmark_label": "Nifty 50 (broad proxy; sector index history unavailable)",
-  "yfinance_ticker": "^NSEI",
-  "return_pct": -7.71,
+  "benchmark_label": "Diversified Fmcg",
+  "yfinance_ticker": "^CNXFMCG",
+  "return_pct": -3.41,
   "window_days": 180,
-  "substituted_broad_index": true,
-  "cached_at": 1791889892.3191545
+  "substituted_broad_index": false,
+  "cached_at": 1795254850.6594875
 }

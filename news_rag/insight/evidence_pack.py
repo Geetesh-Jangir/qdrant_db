@@ -1973,6 +1973,89 @@ def render_investor_concentration_answer(
     return report
 
 
+def _category_book_measured(investor: dict[str, Any], category_slug: str) -> tuple[float, float, str] | None:
+    """Category current value (INR), share of whole book (%), as-of date from investor API."""
+    slug = str(category_slug or "").strip().lower()
+    if not slug or not isinstance(investor, dict):
+        return None
+    allocation = investor.get("allocation") if isinstance(investor.get("allocation"), dict) else {}
+    summary = investor.get("summary") if isinstance(investor.get("summary"), dict) else {}
+    meta = investor.get("meta") if isinstance(investor.get("meta"), dict) else {}
+    from news_rag.insight.fact_answer import _category_amount_map, _label_amount_in_map
+
+    current = _label_amount_in_map(_category_amount_map(allocation, "aumByCategory"), slug)
+    book_total = summary.get("aum_inr")
+    if current is None or book_total is None:
+        return None
+    try:
+        book = float(book_total)
+        value = float(current)
+    except (TypeError, ValueError):
+        return None
+    if book <= 0 or value < 0:
+        return None
+    pct = round(100.0 * value / book, 2)
+    for row in allocation.get("categoryShare") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("name") or "").strip().lower() != slug:
+            continue
+        share = row.get("aum_pct")
+        if share is not None:
+            try:
+                pct = round(float(share), 2)
+            except (TypeError, ValueError):
+                pass
+        break
+    as_of = str(meta.get("as_of_date") or "").strip()
+    return value, pct, as_of
+
+
+def repair_category_book_opening(text: str, investor: dict[str, Any], question: str) -> str:
+    """Headline category value / book-% must match allocation, not a sum of one fund plus the category."""
+    from news_rag.insight.grounding import format_user_calendar_date
+    from news_rag.insight.investor_subject import _category_slug_from_question, question_asks_category_money
+
+    if not text or not isinstance(investor, dict):
+        return text
+    cat = _category_slug_from_question(question or "")
+    if not cat or not question_asks_category_money(question or ""):
+        return text
+    measured = _category_book_measured(investor, cat)
+    if not measured:
+        return text
+    value_inr, pct_book, as_of_iso = measured
+    when = format_user_calendar_date(f"{as_of_iso}T12:00:00Z") if as_of_iso else ""
+    when_bit = f" as of **{when}**" if when else ""
+    label = cat if cat != "gold" else "gold"
+    canonical = (
+        f"Your {label} holdings are worth **{_fmt_inr(value_inr)}**{when_bit}, "
+        f"which is about **{pct_book:.1f}%** of your total book."
+    )
+    pct_tail = f"Your {label} is **{pct_book:.1f}%** of your book."
+
+    lines = (text or "").splitlines()
+    if not lines:
+        return text
+    out: list[str] = []
+    fixed_lead = False
+    for index, line in enumerate(lines):
+        low = line.lower()
+        if not fixed_lead and index > 0 and lines[0].startswith("##") and line.strip() and not line.startswith("#"):
+            if not line.startswith("|") and cat in low and ("worth" in low or "holding" in low):
+                out.append(canonical)
+                fixed_lead = True
+                continue
+        if re.match(rf"^\s*Your\s+{re.escape(label)}\s+is\s+\*\*", line, re.I):
+            out.append(pct_tail)
+            continue
+        out.append(line)
+    if not fixed_lead and lines[0].startswith("##"):
+        # No prose lead found — keep body unchanged.
+        return text
+    return "\n".join(out).strip()
+
+
 def repair_investor_insight_prose(text: str, investor: dict[str, Any]) -> str:
     """Replace hollow allocation / holding lines with facts from the book payload."""
     if not text or not isinstance(investor, dict):

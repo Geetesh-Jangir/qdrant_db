@@ -315,6 +315,22 @@ def investor_book_cores(investor: dict[str, Any]) -> set[str]:
         if val is not None:
             cores |= cores_for_float(float(val))
 
+    alloc = investor.get("allocation") if isinstance(investor.get("allocation"), dict) else {}
+    for key in ("aumByCategory", "investedByCategory", "aumBySchemeType", "investedBySchemeType"):
+        mapping = alloc.get(key) if isinstance(alloc.get(key), dict) else {}
+        for val in mapping.values():
+            try:
+                cores |= cores_for_float(float(val))
+            except (TypeError, ValueError):
+                continue
+    for row in alloc.get("categoryShare") or []:
+        if not isinstance(row, dict):
+            continue
+        for key in ("aum_inr", "aum_pct"):
+            val = row.get(key)
+            if val is not None:
+                cores |= cores_for_float(float(val))
+
     return cores
 
 

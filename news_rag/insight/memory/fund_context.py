@@ -711,6 +711,21 @@ def question_asks_compare_both_in_chat(question: str) -> bool:
     )
 
 
+def question_refers_to_compared_funds_in_chat(question: str) -> bool:
+    """Metric/compare follow-ups on the last pair in chat, without naming schemes again."""
+    q = (question or "").lower()
+    if question_asks_compare_both_in_chat(question):
+        return True
+    return bool(
+        re.search(
+            r"\b(?:both|the two|these|those)\s+(?:funds?|schemes?)\b|"
+            r"\b(?:funds?|schemes?)\s+(?:we\s+)?(?:just\s+)?(?:compared|discussed)\b|"
+            r"\b(?:total|combined|aggregate)\b.{0,24}\b(?:both|two)\s+(?:funds?|schemes?)\b",
+            q,
+        )
+    )
+
+
 def _fund_name_from_user_text(text: str) -> str:
     from news_rag.fund_rating_categories import match_scheme_category
     from news_rag.fund_search import get_fund_index, prefer_resolved_fund_name, resolve_fund_for_query
@@ -739,8 +754,15 @@ def _fund_name_from_user_text(text: str) -> str:
 
 
 def compare_side_in_chat(name: str, memory: dict[str, Any] | None, question: str = "") -> bool:
+    from news_rag.fund_scheme_match import catalog_fund_matches_question
+    from news_rag.insight.fund_name_gate import (
+        is_fund_name_clarification_prompt,
+        strip_fund_example_clauses,
+    )
     from news_rag.insight.investor_subject import user_explicitly_named_scheme
 
+    if catalog_fund_matches_question(question, name):
+        return True
     if user_explicitly_named_scheme(question, name):
         return True
     if not isinstance(memory, dict):
@@ -753,8 +775,12 @@ def compare_side_in_chat(name: str, memory: dict[str, Any] | None, question: str
             continue
         user = str(row.get("user") or "")
         assistant = str(row.get("assistant") or "")
-        if user_explicitly_named_scheme(user, name) or user_explicitly_named_scheme(assistant, name):
+        if user_explicitly_named_scheme(user, name):
             return True
+        if assistant and not is_fund_name_clarification_prompt(assistant):
+            cleaned = strip_fund_example_clauses(assistant)
+            if cleaned and user_explicitly_named_scheme(cleaned, name):
+                return True
         resolved = _fund_name_from_user_text(user)
         if resolved and resolved.lower() == name.lower():
             return True

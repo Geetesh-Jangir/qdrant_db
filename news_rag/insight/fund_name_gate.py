@@ -14,6 +14,40 @@ _FUND_NAME_PROMPT = (
 
 _FUND_SCOPED_TOOLS = frozenset({"get_fund_data", "get_portfolio_data", "compare_funds"})
 
+_CLARIFY_PROMPT_MARKERS = (
+    r"which mutual fund do you mean",
+    r"please type the full scheme name",
+    r"for example,\s+hdfc",
+    r"for example,\s+icici",
+    r"for example,\s+sbi",
+)
+
+
+def is_fund_name_clarification_prompt(text: str) -> bool:
+    """Assistant boilerplate that must not authorize a scheme name from the example clause."""
+    low = (text or "").strip().lower()
+    if not low:
+        return False
+    return any(re.search(marker, low) for marker in _CLARIFY_PROMPT_MARKERS)
+
+
+def strip_fund_example_clauses(text: str) -> str:
+    """Drop 'for example, … Fund' tails so scheme matchers never see stock examples."""
+    out = str(text or "")
+    out = re.sub(
+        r"\(\s*for example,\s*[^)]+\)",
+        "",
+        out,
+        flags=re.I,
+    )
+    out = re.sub(
+        r"for example,\s*[A-Za-z][^.?\n]{0,80}?Fund\b[^.?\n]*",
+        "",
+        out,
+        flags=re.I,
+    )
+    return out.strip()
+
 
 def _compare_sides_resolvable(
     plan: ExecutionPlan,
@@ -63,7 +97,6 @@ def _plan_uses_fund_scoped_tools(plan: ExecutionPlan) -> bool:
 
 
 def _bound_fund_name(plan: ExecutionPlan, memory: dict | None, question: str) -> str:
-    from news_rag.fund_search import resolve_fund_from_question
     from news_rag.insight.investor_subject import (
         question_refers_deictic_fund,
         resolve_deictic_fund_name,
@@ -84,13 +117,11 @@ def _bound_fund_name(plan: ExecutionPlan, memory: dict | None, question: str) ->
     if named:
         return named
 
-    detail, ambiguous, _close = resolve_fund_from_question(question)
-    if detail and not ambiguous:
-        name = str(
-            detail.get("scheme_name") or detail.get("name") or detail.get("fund_name") or ""
-        ).strip()
-        if name and user_explicitly_named_scheme(question, name):
-            return name
+    from news_rag.fund_scheme_match import question_resolves_to_canonical_fund
+
+    catalog_name = question_resolves_to_canonical_fund(question)
+    if catalog_name:
+        return catalog_name
 
     if question_refers_deictic_fund(question):
         deictic = resolve_deictic_fund_name(question, memory)
@@ -204,6 +235,10 @@ def clarify_plan_if_fund_unknown(
     question: str,
 ) -> ExecutionPlan:
     if plan.scope_kind == ScopeKind.OUT_OF_SCOPE:
+        return plan
+    from news_rag.insight.concept_asks import asks_concept_with_catalog_example
+
+    if asks_concept_with_catalog_example(question):
         return plan
     scrub_unknown_fund_mentions(plan, memory, question)
     picked = single_fund_for_deictic(question, memory)

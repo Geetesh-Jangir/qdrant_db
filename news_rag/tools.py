@@ -388,7 +388,11 @@ def explicit_fund_count(question: str) -> int | None:
         except ValueError:
             return None
     for word, n in _WORD_FUND_COUNTS.items():
-        if re.search(rf"\b{word}\s+(?:mutual\s+)?(?:funds?|fudns?|schemes?)\b", q, re.I):
+        if re.search(
+            rf"\b{word}\s+(?:\w+\s+){{0,6}}(?:mutual\s+)?(?:funds?|fudns?|schemes?)\b",
+            q,
+            re.I,
+        ):
             return n
     return None
 

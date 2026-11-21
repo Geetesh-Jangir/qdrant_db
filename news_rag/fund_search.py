@@ -232,6 +232,12 @@ _GARBAGE_SCHEME_PHRASE = re.compile(
     r"^(?:me|my|this|that|it|any)(?:\s+(?:for\s+)?(?:me\s+)?(?:for\s+)?(?:this|that|the)\s+fund)?$",
     re.I,
 )
+_NON_SCHEME_PHRASE = re.compile(
+    r"^(?:both|these|those|two|the|total|aum|nav)(?:\s+(?:funds?|schemes?|aum|nav|assets?))*$|"
+    r"^(?:both|two)\s+funds?$|"
+    r"^total\s+aum(?:\s+both)?$",
+    re.I,
+)
 
 
 def _is_plausible_scheme_phrase(phrase: str) -> bool:
@@ -244,7 +250,7 @@ def _is_plausible_scheme_phrase(phrase: str) -> bool:
     norm = _normalize_fund_text(cleaned)
     if not norm:
         return False
-    if _GARBAGE_SCHEME_PHRASE.fullmatch(norm):
+    if _GARBAGE_SCHEME_PHRASE.fullmatch(norm) or _NON_SCHEME_PHRASE.fullmatch(norm):
         return False
     tokens = [w for w in re.findall(r"\b[a-z0-9]+\b", norm) if len(w) >= 2]
     if not tokens:
@@ -290,6 +296,11 @@ def _is_plausible_scheme_phrase(phrase: str) -> bool:
     )
     if any(m in norm for m in scheme_markers):
         return True
+    glue = frozenset(
+        {"when", "did", "this", "that", "has", "have", "was", "were", "started", "start", "began", "launch", "launched"}
+    )
+    if tokens and all(t in glue for t in tokens):
+        return False
     # Bare AMC name only (e.g. "hdfc defence") is OK when at least two tokens.
     if len(tokens) >= 2 and not re.match(r"^(me|my|this|that|it)\b", norm):
         return True
@@ -757,51 +768,8 @@ def resolve_fund_for_query(
 
     if last_ambiguous and last_close:
         return None, True, last_close
-
-    scan_detail, scan_amb, scan_close = _lookup_fund_scan_question(question)
-    if scan_detail and not scan_amb:
-        return scan_detail, False, []
-    if scan_amb:
-        return None, True, scan_close
     if last_ambiguous:
         return None, True, last_close
-    return None, False, []
-
-
-def _lookup_fund_scan_question(question: str) -> tuple[dict[str, Any] | None, bool, list[str]]:
-    """Try sliding token windows from the question against the fund index."""
-    index = get_fund_index()
-    index._ensure_loaded()
-    norm_q = _normalize_fund_text(question)
-    words = [w for w in re.findall(r"\b[a-z0-9]+\b", norm_q) if len(w) >= 2]
-    stop = {
-        "what", "which", "how", "show", "tell", "give", "latest", "current", "top",
-        "nav", "holdings", "holding", "sectors", "sector", "allocation", "news",
-        "impact", "affect", "affecting", "will", "does", "the", "and", "for", "in",
-        "of", "on", "me", "is", "are", "from", "with", "recent", "positive",
-        "negative", "benefit", "worst", "hit", "funds", "fund", "mutual", "scheme",
-        "why", "crude", "oil", "price", "prices", "increase", "increasing", "decrease",
-        "day", "daily", "every", "rising", "falling", "brent", "petrol", "commodity",
-    }
-    tokens = [w for w in words if w not in stop]
-    if len(tokens) < 2:
-        return None, False, []
-
-    best: tuple[float, dict[str, Any]] | None = None
-    for width in range(min(8, len(tokens)), 1, -1):
-        for start in range(0, len(tokens) - width + 1):
-            phrase = " ".join(tokens[start : start + width])
-            if len(phrase) < 5:
-                continue
-            detail, amb, _close = lookup_extracted_fund(isin="", name=phrase)
-            if detail and not amb:
-                score = float(width) * 10.0 + len(phrase)
-                if best is None or score > best[0]:
-                    best = (score, detail)
-        if best is not None:
-            break
-    if best:
-        return best[1], False, []
     return None, False, []
 
 
@@ -947,14 +915,53 @@ def parse_holding_summary(raw: Any, portfolio: Any = None) -> dict[str, Any]:
     return out
 
 
+_PLAN_SUFFIX_RE = re.compile(
+    r"\s*-\s*(?:Regular\s+Plan\s*-\s*)?Growth(?:\s+Option)?\s*$",
+    re.I,
+)
+
+
+def _catalog_alias_keys(fund_name: str) -> list[str]:
+    """Normalized lookup keys for a scheme line in regular-growth-by-amc.md."""
+    raw = str(fund_name or "").strip()
+    if not raw:
+        return []
+    keys: list[str] = []
+    for variant in (raw, _PLAN_SUFFIX_RE.sub("", raw).strip()):
+        if not variant:
+            continue
+        norm = _normalize_fund_text(variant)
+        if norm and norm not in keys:
+            keys.append(norm)
+        swapped = variant.replace(" & ", " and ").replace("&", " and ")
+        if swapped != variant:
+            snorm = _normalize_fund_text(swapped)
+            if snorm and snorm not in keys:
+                keys.append(snorm)
+    return keys
+
+
 class FundIndex:
     def __init__(self) -> None:
         self._loaded: bool = False
         self._entries: list[dict[str, Any]] = []
         self._entries_by_isin: dict[str, dict[str, Any]] = {}
+        self._alias_to_isin: dict[str, str] = {}
         self._detail_cache: dict[str, dict[str, Any]] = {}
         self._lock = threading.Lock()
         self._data_path: Path | None = None
+
+    def _register_catalog_aliases(self, entries: list[dict[str, Any]]) -> None:
+        alias_map: dict[str, str] = {}
+        for entry in entries:
+            isin = str(entry.get("isin") or "").upper()
+            fname = str(entry.get("fund_name") or "").strip()
+            if not isin or not fname:
+                continue
+            for key in _catalog_alias_keys(fname):
+                if key not in alias_map:
+                    alias_map[key] = isin
+        self._alias_to_isin = alias_map
 
     def _find_md_file(self) -> Path | None:
         candidates = [
@@ -1068,6 +1075,7 @@ class FundIndex:
 
             self._entries = entries
             self._entries_by_isin = entries_by_isin
+            self._register_catalog_aliases(entries)
             self._loaded = True
 
     def sample_fund_names(self, n: int = 2, name_contains: str = "") -> list[str]:
@@ -1513,6 +1521,12 @@ class FundIndex:
                 return detail, False, []
 
         norm_name = _normalize_fund_text(clean_name)
+        alias_hit = self._alias_to_isin.get(norm_name)
+        if alias_hit:
+            detail = self.get_fund_detail(alias_hit)
+            if detail:
+                return detail, False, []
+
         stop_words = {
             "fund", "funds", "mutual", "scheme", "plan", "growth", "regular",
             "the", "and", "of", "in", "for", "to", "a", "an", "is", "about",

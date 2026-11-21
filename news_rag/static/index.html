@@ -576,12 +576,6 @@
       return ((performance.now() - askedAt) / 1000).toFixed(1);
     }
 
-    function conversationTokensForStage(stage, memoryTokens) {
-      const tokens = memoryTokens || {};
-      if (stage === "plan") return tokens.planner || 0;
-      if (stage === "compose" || stage === "composer") return tokens.composer || 0;
-      return 0;
-    }
 
     function beginBubble(question) {
       const user = document.createElement("div");
@@ -772,14 +766,6 @@
       }
       if (telemetry.answer_mode) {
         items.push(`<span class="telemetry-tag">Mode: ${telemetry.answer_mode}</span>`);
-      }
-      if (telemetry.total_input_tokens || telemetry.total_output_tokens) {
-        items.push(`<span class="telemetry-tag">Tokens: in ${telemetry.total_input_tokens || 0} / out ${telemetry.total_output_tokens || 0}</span>`);
-      }
-      if (telemetry.prompt_cached || (telemetry.cached_input_tokens && telemetry.cached_input_tokens > 0)) {
-        items.push(`<span class="telemetry-tag" style="background:#ecfdf5;color:#047857;border:1px solid #a7f3d0;font-weight:600;">⚡ Prompt Cache: ${telemetry.cached_input_tokens} tokens (Hit)</span>`);
-      } else if (telemetry.total_input_tokens > 0) {
-        items.push(`<span class="telemetry-tag" style="background:#f1f5f9;color:#64748b;">Prompt Cache: Miss</span>`);
       }
       if (telemetry.quality_state) {
         items.push(`<span class="telemetry-tag">Quality: ${telemetry.quality_state}</span>`);
@@ -1264,19 +1250,10 @@
       totals.className = "card-meta";
       totals.textContent = "Total " + totalSec + "s from click to full answer";
       usageEl.appendChild(totals);
-      const memoryTokens = data.memory_tokens || {};
-      const memoryLine = document.createElement("p");
-      memoryLine.className = "card-meta";
-      const plannerTokens = memoryTokens.planner || 0;
-      const composerTokens = memoryTokens.composer || 0;
-      memoryLine.textContent =
-        "Conversation memory: ~" + plannerTokens + " tokens to the planner, ~" +
-        composerTokens + " tokens to the composer";
-      usageEl.appendChild(memoryLine);
       if (rows.length) {
       const table = document.createElement("table");
       const head = document.createElement("tr");
-      for (const label of ["Stage", "Model", "Input", "Output", "Cache", "Conversation", "Seconds"]) {
+      for (const label of ["Stage", "Model", "Seconds"]) {
         const th = document.createElement("th");
         th.textContent = label;
         head.appendChild(th);
@@ -1286,17 +1263,9 @@
         const tr = document.createElement("tr");
         const stage = String(call.stage || "");
         const stageLabel = stage === "plan" ? "Plan" : "Composer";
-        const cacheCell = call.cached_tokens
-          ? String(call.cached_tokens)
-          : "0";
-        const memoryCell = "~" + conversationTokensForStage(stage, memoryTokens);
         for (const value of [
           stageLabel,
           call.model || "",
-          call.input_tokens,
-          call.output_tokens,
-          cacheCell,
-          memoryCell,
           call.duration_sec,
         ]) {
           const td = document.createElement("td");

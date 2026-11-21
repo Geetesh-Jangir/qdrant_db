@@ -104,6 +104,36 @@ def test_unresolved_chat_memory_side_still_clarifies():
     assert not out.tool_calls
 
 
+def test_hdfc_large_mid_after_clarification_not_large_cap():
+    from news_rag.insight.plan_enforce import apply_planner_post_hooks
+
+    q = "tell me about hdfc large and mid cap fund"
+    memory = {
+        "chat_turns": [
+            {
+                "user": q,
+                "assistant": (
+                    "Which mutual fund do you mean? Please type the full scheme name "
+                    "(for example, HDFC Large Cap Fund) so I can answer about that fund only."
+                ),
+            }
+        ]
+    }
+    plan = ExecutionPlan(
+        funds=["HDFC Large Cap Fund - Growth"],
+        subject_ref="user_named",
+        tool_calls=[
+            ToolCall(tool="get_fund_data", arguments={"modules": ["snapshot", "rating"]}),
+            ToolCall(tool="get_portfolio_data", arguments={"sections": ["holdings"]}),
+        ],
+    )
+    plan = apply_planner_post_hooks(q, plan, memory)
+    out = clarify_plan_if_fund_unknown(plan, memory, q)
+    assert out.tool_calls
+    assert "Mid" in (out.funds or [""])[0]
+    assert "Large Cap Fund - Growth" not in (out.funds or [""])[0]
+
+
 def test_clarify_allows_explicit_fund_in_question():
     plan = ExecutionPlan(
         funds=["HDFC Large Cap Fund"],
